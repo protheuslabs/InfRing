@@ -5,6 +5,8 @@ Scope: workflow CDs, native coding workflows, workflow composition ledgers, and 
 
 Repo-wide parent doctrine: `docs/workspace/primitive_first_system_doctrine.md`
 
+Required development method: `docs/workspace/primitive_first_workflow_development_method.md`
+
 ## Purpose
 
 Infring workflows must be built from abstract, reusable building blocks. A higher-level workflow may compose lower-level workflows, route between them, and add policy around them, but it must not contaminate the lower-level primitives it depends on.
@@ -96,6 +98,20 @@ When higher-level work causes lower-level regression:
 4. Keep the primitive generic and narrow.
 5. Add or update regression gates so the lower level cannot silently degrade again.
 
+## Method gate for eval-driven changes
+
+Do not treat a failed workflow eval as a direct instruction to patch runtime behavior.
+
+Before changing production workflow, prompt, tool, or runtime behavior because of an eval result:
+
+1. Classify the failure using the Primitive-First Workflow Development Method.
+2. Check available reference artifacts from successful systems when the behavior is non-trivial.
+3. Update the behavioral model or primitive contract if the failure reveals a missing abstraction.
+4. Patch only the smallest owning boundary.
+5. Rerun lower-level gates for the same capability family before promoting the higher-level result.
+
+Repeated patch/rerun cycles without model or contract updates are composition-method regressions.
+
 ## Allowed primitive strengthening
 
 A primitive may be improved if the improvement is true for all consumers.
@@ -146,6 +162,9 @@ Before promoting a workflow or declaring a higher-level coding improvement:
 - Child workflow IDs are declared in the composition contract.
 - New behavior is owned by the smallest correct workflow level.
 - Case-specific hardcoding exists only in eval/test fixtures, never in production runtime, prompts, or primitive contracts.
+- Eval-driven changes classify the failure before patching production behavior.
+- Non-trivial workflow behavior is checked against available reference artifacts or documents why invention is required.
+- Patches update the owning model, primitive, composition boundary, tool contract, profile, or eval boundary.
 - Lower-level gates that depend on the same primitives still pass.
 - No benchmark-specific semantics were added to global runtime prompt policy.
 - Any new primitive has a bounded contract and can be tested independently.

@@ -149,7 +149,7 @@
       "completion_evidence_repair_max_turns": 2,
         "empty_tool_retry_limit": 1,
       "force_discovery_first_turn": false,
-      "provider_timeout_seconds": 75,
+      "provider_timeout_seconds": 180,
       "native_wall_timeout_seconds": 240,
       "partial_progress_on_timeout": true,
       "partial_recovery_max_turns": 1,

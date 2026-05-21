@@ -108,7 +108,7 @@ const CASES: &[UsefulWorkCase] = &[
         package: "task_router",
         baseline_test_count: 2,
         expected_symbols: &["TaskAuditLog", "route_and_record", "counts_by_status"],
-        prompt_goal: "Extend the existing task router with a multi-file audit slice. Read the local package first, add TaskAuditLog, route_and_record, counts_by_status, preserve route_task behavior, add regression tests, run validation, and report receipt-backed changes.",
+        prompt_goal: "Extend the existing task router with a multi-file audit slice. Read the local package first, add TaskAuditLog, route_and_record, counts_by_status, preserve route_task behavior, and keep route_and_record importable from task_router.router because it wraps the existing router behavior. TaskAuditLog should be importable from task_router.audit and expose counts_by_status. Add regression tests, run validation, and report receipt-backed changes.",
         semantic_probe: "from task_router.router import route_and_record\nfrom task_router.audit import TaskAuditLog\nlog = TaskAuditLog()\nroute_and_record({'id': 'a', 'status': 'urgent'}, log)\nassert log.counts_by_status()['urgent'] == 1\n",
         seed: seed_task_router,
     },
@@ -117,7 +117,7 @@ const CASES: &[UsefulWorkCase] = &[
         package: "csv_loader",
         baseline_test_count: 2,
         expected_symbols: &["OrderImportResult", "parse_orders_csv", "invalid_rows"],
-        prompt_goal: "Implement a real CSV import slice in the existing loader. Read the local files first, add OrderImportResult and parse_orders_csv with invalid_rows reporting, add regression tests for valid and invalid rows, run validation, repair any failures from command output, and report receipt-backed changes.",
+        prompt_goal: "Implement a real CSV import slice in the existing loader. Read the local files first, add OrderImportResult and parse_orders_csv. parse_orders_csv must accept CSV text with id,total headers, return orders as plain dictionaries with id preserved and total parsed as a float, and return invalid_rows as 1-based data row numbers for rows whose total is not numeric. Add regression tests for valid and invalid rows, run validation, repair any failures from command output, and report receipt-backed changes.",
         semantic_probe: "from csv_loader.loader import parse_orders_csv\nresult = parse_orders_csv('id,total\\na,12.5\\nb,nope\\n')\nassert result.orders == [{'id': 'a', 'total': 12.5}]\nassert result.invalid_rows == [2]\n",
         seed: seed_csv_loader,
     },
@@ -126,7 +126,7 @@ const CASES: &[UsefulWorkCase] = &[
         package: "feature_flags",
         baseline_test_count: 2,
         expected_symbols: &["FlagDecision", "resolve_flag", "environment_overrides"],
-        prompt_goal: "Do not treat the existing tests as completion. Read the local feature flag package, add FlagDecision, resolve_flag, and environment_overrides behavior, add new tests that exercise the added behavior, run validation, and report receipt-backed changes.",
+        prompt_goal: "Do not treat the existing tests as completion. Read the local feature flag package, add FlagDecision, resolve_flag, and environment_overrides behavior. resolve_flag must return a FlagDecision value object with enabled and source attributes; when environment overrides win, source should be environment_overrides. Add new tests that exercise the added behavior, run validation, and report receipt-backed changes.",
         semantic_probe: "from feature_flags.flags import FlagDecision, resolve_flag\ndecision = resolve_flag('new-dashboard', {'new-dashboard': False}, {'new-dashboard': True})\nassert isinstance(decision, FlagDecision)\nassert decision.enabled is True and decision.source == 'environment_overrides'\n",
         seed: seed_feature_flags,
     },
@@ -556,14 +556,19 @@ fn native_receipt_evidence(batch_root: &Path, job: &NativeCodingUsefulWorkJob) -
     let has_native_receipts = raw.contains("native_tool_receipts")
         || raw.contains("tool_receipts")
         || !journal_receipts.is_empty();
-    let has_mutation_receipt = journal_receipts.iter().any(|receipt| {
+    let has_structured_mutation_receipt = journal_receipts.iter().any(|receipt| {
         receipt.get("status").and_then(serde_json::Value::as_str) == Some("ok")
             && matches!(
                 receipt.get("tool_name").and_then(serde_json::Value::as_str),
                 Some("file_write" | "file_patch")
             )
-    }) || raw.contains("file_write")
-        || raw.contains("file_patch");
+            && receipt
+                .get("result")
+                .and_then(|result| result.get("path"))
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+    });
+    let has_mutation_receipt = has_structured_mutation_receipt;
     let has_validation_receipt = journal_receipts.iter().any(|receipt| {
         receipt.get("status").and_then(serde_json::Value::as_str) == Some("ok")
             && receipt.get("tool_name").and_then(serde_json::Value::as_str) == Some("command_run")

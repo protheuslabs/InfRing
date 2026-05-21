@@ -78,6 +78,10 @@ Canonical primitive registry:
 
 - `validation/conformance/contracts/primitive_capability_registry.json`
 
+Canonical workflow development method:
+
+- `docs/workspace/primitive_first_workflow_development_method.md`
+
 ## Acceptable production forms
 
 Specific behavior can exist in production only when represented as one of:
@@ -131,6 +135,16 @@ Higher-level changes must be monotonic over lower-level primitives.
 
 If a high-level feature, eval level, workflow, or product-specific behavior breaks a lower-level path, treat it as an abstraction failure first. Do not patch the lower level around the symptom until the owning boundary is clear.
 
+## Development method requirement
+
+Workflow and runtime development must follow the Primitive-First Workflow Development Method.
+
+Eval failures are evidence, not direct patch instructions. Before production behavior is changed in response to an eval failure, the failure must be classified as a missing primitive, bad primitive contract, bad primitive implementation, bad composition boundary, bad lane/profile selection, bad tool substrate, bad validation/receipt contract, bad eval/judge, real provider/model failure, or legitimate user-input-needed breakpoint.
+
+When reference artifacts from successful systems are available, use them before inventing new behavior. The useful artifact is the underlying primitive behavior, not the surface wording.
+
+Patching without updating the model, primitive contract, composition boundary, tool contract, profile, or eval boundary is method regression unless the patch is an obvious local implementation bug.
+
 ## Review checklist
 
 Before merging or promoting a change, ask:
@@ -142,6 +156,10 @@ Before merging or promoting a change, ask:
 - Could a lower-level consumer be slowed, narrowed, or broken by this behavior?
 - Are hardcoded details confined to tests, evals, examples, or fixtures?
 - Does the production path expose a general contract that future specific uses can build on?
+- Was any eval failure classified before production behavior changed?
+- Did the patch update the correct model, primitive, composition boundary, tool contract, profile, or eval boundary rather than only the symptom?
+- If reference artifacts exist for this behavior, were they checked or was the reason for invention documented?
+- Does the change preserve a cheap path for simple tasks when speed matters?
 
 ## Violation signals
 
@@ -155,5 +173,7 @@ Treat these as doctrine violations:
 - Lower-level evals regress after a higher-level patch.
 - Simple tasks become slow because high-level behavior always runs.
 - The only way to change behavior is to edit Rust or TypeScript case branches instead of changing a contract, policy, config, adapter declaration, or workflow/tool CD.
+- Eval failures trigger repeated production patches without failure classification or model/contract updates.
+- A successful external-system pattern is copied as prompt wording instead of being converted into a reusable primitive behavior.
 
 When these signals appear, stop adding special cases and repair the abstraction boundary.
