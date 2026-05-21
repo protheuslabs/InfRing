@@ -510,6 +510,21 @@ pub fn run_research_golden(args: &[String]) -> i32 {
             },
         });
         if let Some(object) = case_row.as_object_mut() {
+            object.insert("prompt".to_string(), Value::String(prompt.clone()));
+            object.insert(
+                "expected_gate_path".to_string(),
+                case.get("expected_gate_path")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            );
+            object.insert(
+                "required_entities".to_string(),
+                json!(string_array_at(case, &["required_entities"])),
+            );
+            object.insert(
+                "required_facets".to_string(),
+                json!(string_array_at(case, &["required_facets"])),
+            );
             object.insert(
                 "response_full".to_string(),
                 Value::String(clean_text(&grade.response_text, 16_000)),

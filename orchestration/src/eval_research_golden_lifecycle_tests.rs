@@ -127,6 +127,24 @@ fn research_success_requires_score_and_lifecycle_gate_completion() {
         report.pointer("/cases/0/score_pass"),
         Some(&Value::Bool(true))
     );
+    assert_eq!(
+        report.pointer("/cases/0/prompt").and_then(Value::as_str),
+        Some("Use web research to compare Infring with LangGraph.")
+    );
+    assert_eq!(
+        report
+            .pointer("/cases/0/expected_gate_path/gate_4_required_fields")
+            .and_then(Value::as_array)
+            .map(|rows| rows.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
+        Some(vec!["query", "aperture"])
+    );
+    assert_eq!(
+        report
+            .pointer("/cases/0/required_entities")
+            .and_then(Value::as_array)
+            .map(|rows| rows.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
+        Some(vec!["Infring", "LangGraph"])
+    );
     assert_eq!(report.pointer("/cases/0/pass"), Some(&Value::Bool(false)));
     assert_eq!(
         report.pointer("/cases/0/lifecycle_gate_path_complete"),
