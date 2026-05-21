@@ -659,6 +659,8 @@ mod workflow_reader_tests {
             "for comparisons",
             "for rankings, selections, or tool-choice questions",
             "for low_signal evidence",
+            "concrete answer units",
+            "do not treat source titles",
             "do not make the whole answer a request for the user to narrow",
             "do not end with a follow-up question",
             "there is no required output format",
@@ -1047,6 +1049,11 @@ mod workflow_reader_tests {
         );
         assert!(
             chat_requirement.contains("For low_signal evidence"),
+            "{chat_requirement}"
+        );
+        assert!(
+            chat_requirement.contains("concrete answer units before any limitations")
+                && chat_requirement.contains("Do not treat source titles, snippets, retrieval status, provider status, or coverage gaps as the answer"),
             "{chat_requirement}"
         );
         assert!(

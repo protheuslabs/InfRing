@@ -85,6 +85,7 @@
       "decision_value": "provide the most useful bounded conclusion supported by the available evidence before asking for narrower user input",
       "tool_required_terminality": "when the workflow has classified the user goal as requiring external or tool-backed evidence, a final answer must not be accepted before a tool request has been promoted and either executed, recorded as failed, or converted into a telemetry-only structured failure",
       "answer_posture": "lead with the best bounded answer or decision value the evidence supports; mention low-signal retrieval, provider degradation, or remaining gaps as calibration context instead of making them the headline",
+      "answer_unit_synthesis": "when usable citable evidence exists, build the visible answer from concrete answer units first: the claim or conclusion, compact source grounding, and only the caveat earned by that claim's evidence state; do not treat a source inventory, retrieval recap, or limitation paragraph as a substitute for answering the user",
       "low_evidence_inference": "when retrieval is weak or degraded after bounded recovery, clearly labeled secondary inference may provide decision value, but it must not be described as retrieved, source-backed, or cited evidence",
       "citation_projection": "when usable citable evidence exists, preserve compact citation/source refs in the final response package for shell rendering; visible prose may use natural source grounding without a prescribed citation format",
       "private_state_classification": "classify evidence state internally only; do not print classification banners, tool-status labels, or provider-status headers as visible final answer structure",
@@ -106,7 +107,9 @@
           "does_not_claim_no_evidence_when_recorded_evidence_exists",
           "separates_retrieved_evidence_from_inference",
           "states_uncertainty_only_where_earned_by_evidence_state",
+          "puts_direct_answer_units_before_limitations_when_usable_evidence_exists",
           "provides_bounded_decision_value_before_suggesting_more_search",
+          "does_not_treat_source_inventory_or_retrieval_recap_as_the_answer",
         "does_not_expose_internal_traces_or_raw_tool_payloads",
         "does_not_force_or_depend_on_a_specific_output_format"
       ],
@@ -118,6 +121,7 @@
           "tool_required_path_has_final_answer_but_no_tool_attempt",
           "named_entity_or_user_stated_aspect_missing",
           "final_answer_overleads_with_tool_status_instead_of_answering",
+          "final_answer_lists_sources_or_limitations_without_concrete_answer_units",
           "final_answer_suggests_user_narrowing_before_bounded_synthesis"
         ],
         "retry_input": "same_user_goal_plus_missing_coverage_facets_quality_flags_and_verifier_failure_reason"
@@ -222,9 +226,12 @@
     "coverage_gap_recovery": "many raw candidates are not enough by themselves; when usable evidence or facet coverage remains thin, use bounded recovery lanes for uncovered facets and record the gap reasons that remain",
     "provider_degradation_recovery": "when provider degradation, partial failure, zero-result, or low-detail snippets are recorded, recovery should change source class, page type, exact entity terms, or reader/fetch depth rather than repeating the same broad query; candidate count alone is not evidence sufficiency",
     "adaptive_followup_retrieval": "after discovery or any policy-generated query pack, if named entities, requested aspects, source classes, or time windows remain weak and budget remains, run targeted gap-fill queries derived from the missing lanes and retrieved terms before final synthesis",
+    "research_brief_consumption": "when research_brief or evidence_needs are present, treat them as the normalized research objective and sufficiency contract: preserve the original user goal, use the declared answer shape only as guidance, and judge retrieval sufficiency against coverage facets, source classes, freshness needs, and claim-backed citation expectations rather than raw row count",
     "evidence_pack_ranking": "rank the synthesis pack by relevance, facet coverage, source authority, source diversity, freshness when relevant, content density, and novelty; preserve coverage-critical evidence even when it is not globally top-ranked",
+    "evidence_claim_consumption": "when evidence_claims are present, reason from those claims and their source refs first; use evidence_pack rows as supporting context and candidate selection trace, not as a substitute for claim-backed synthesis",
     "facet_aware_evidence": "evidence_refs may include coverage_facets and the tool result may include evidence_coverage; synthesize from covered facets, use weak facets only with uncertainty, and call out missing facets as coverage gaps without forcing any response format",
     "materialized_evidence_consumption": "browser-materialized pages, reader output, direct fetches, and search results are all evidence inputs after packaging; consume evidence_pack, evidence_pack_candidates, and evidence_refs by source quality and coverage rather than by tool trace, and never expose materialization gates or internal tool diagnostics as final answer content",
+    "answer_unit_synthesis": "when citable evidence exists, transform evidence into answer units before final prose: claim, source grounding, and earned uncertainty. Preserve the user's requested semantic shape, but do not output only source titles, snippets, provider status, or coverage gaps when evidence supports at least one direct answer unit.",
     "low_evidence_finalization": "when retrieval remains weak after bounded recovery, use tool_result_quality, provider_results, retrieval_telemetry, query_metadata, evidence_coverage, and evidence_refs to distinguish usable evidence from weak or irrelevant raw evidence; lead with the best bounded answer or decision value, then calibrate it with evidence limits, uncertainty, and the named requested lanes that remain weak or missing without forcing a format",
     "honest_outcome_ladder": "map retrieval state to one of three hidden answer postures: supported_answer, bounded_partial_answer, or evidence_insufficient_answer. Use evidence_insufficient_answer only to describe current evidence limits; do not treat it as proof that the underlying information, entity, or public source surface does not exist.",
     "weak_evidence_handling": "low_confidence_raw evidence may inform a bounded answer or coverage-gap explanation, but it must not be presented as equally source-backed as usable evidence; retrieval telemetry is diagnostic context, not a cited source",
