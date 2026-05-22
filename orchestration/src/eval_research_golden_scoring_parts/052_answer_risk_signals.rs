@@ -110,6 +110,13 @@ fn answer_unit_alignment_hard_failure(alignment: &Value) -> bool {
     {
         return false;
     }
+    if !alignment
+        .get("usable_evidence")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
     let unsupported_units = alignment
         .get("unsupported_unit_count")
         .and_then(Value::as_u64)

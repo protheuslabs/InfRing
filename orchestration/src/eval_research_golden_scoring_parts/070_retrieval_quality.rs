@@ -10,14 +10,16 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
         ],
     ));
     let evidence_count = provider_evidence_count(payload);
-    let materialized_candidate_count = provider_materialized_candidate_count(payload);
+    let structured_snippet_count = provider_structured_snippet_count(payload);
+    let materialized_candidate_count =
+        provider_materialized_candidate_count(payload).max(structured_snippet_count);
     let content_rich_candidate_count = provider_content_rich_candidate_count(payload);
     let direct_claim_contract_present = payload.get("evidence_claims").is_some();
     let direct_evidence_claim_count = direct_evidence_claim_count(payload);
     let claim_hint_count = if direct_claim_contract_present {
         direct_evidence_claim_count
     } else {
-        provider_claim_hint_count(payload)
+        provider_claim_hint_count(payload).max(structured_snippet_count)
     };
     let materialization_failure_report =
         provider_explicit_quality_value(payload, &["materialization_failure_report"]);

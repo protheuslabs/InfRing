@@ -12,6 +12,7 @@ include!("eval_research_golden_scoring_parts/052_answer_risk_signals.rs");
 include!("eval_research_golden_scoring_parts/060_prompt_entities.rs");
 include!("eval_research_golden_scoring_parts/070_retrieval_quality.rs");
 include!("eval_research_golden_scoring_parts/071_retrieval_relevance.rs");
+include!("eval_research_golden_scoring_parts/079_structured_snippets.rs");
 include!("eval_research_golden_scoring_parts/080_excellent_provider_metrics.rs");
 include!("eval_research_golden_scoring_parts/081_materialization_content.rs");
 include!("eval_research_golden_scoring_parts/082_response_signals.rs");
