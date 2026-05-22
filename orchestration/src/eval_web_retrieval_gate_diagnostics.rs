@@ -112,6 +112,12 @@ pub(super) fn web_retrieval_gate_diagnostics(
     let retrieval_continued_past_browser_materialization =
         retrieval_continued_past_access && content_rich_candidates_present;
     let provider_config_missing_hard = provider_config_missing && !provider_config_usable;
+    let evidence_quality = web_evidence_quality_diagnostics(payload, retrieval_quality);
+    let source_quality_ready = bool_at(&evidence_quality, &["source_quality_ready"], false);
+    let claim_quality_ready = bool_at(&evidence_quality, &["claim_quality_ready"], false);
+    let citation_renderability_ready =
+        bool_at(&evidence_quality, &["citation_renderability_ready"], false);
+    let answerability_ready = bool_at(&evidence_quality, &["answerability_ready"], false);
     let rate_limited_hard =
         rate_limited && !recovered_usable_retrieval && !retrieval_continued_past_access;
     let anti_bot_challenge_hard =
@@ -485,13 +491,72 @@ pub(super) fn web_retrieval_gate_diagnostics(
             ],
         ),
         web_gate(
+            "web_5d_source_quality_ready",
+            packaged_evidence_present,
+            source_quality_ready,
+            if source_quality_ready {
+                "packaged evidence contains source-backed, non-dominantly-low-quality material"
+            } else if packaged_evidence_present {
+                "packaged evidence exists but appears source-thin, low-confidence, boilerplate-heavy, or candidate-only"
+            } else {
+                "source quality cannot be assessed before packaged evidence exists"
+            },
+            evidence_quality_refs(&evidence_quality),
+        ),
+        web_gate(
+            "web_5e_claim_quality_ready",
+            claim_extraction_present,
+            claim_quality_ready,
+            if claim_quality_ready {
+                "claim extraction produced concrete answer material rather than only titles, source labels, or boilerplate fragments"
+            } else if claim_extraction_present {
+                "claim extraction exists but the extracted strings look too thin, source-only, title-like, or boilerplate-heavy for synthesis"
+            } else {
+                "claim quality cannot be assessed before claim extraction exists"
+            },
+            evidence_quality_refs(&evidence_quality),
+        ),
+        web_gate(
+            "web_5f_citation_renderability_ready",
+            claim_extraction_present,
+            citation_renderability_ready,
+            if citation_renderability_ready {
+                "claim-level or evidence-level material has enough source locator/title/domain data to render citations"
+            } else if claim_extraction_present {
+                "claims exist but do not carry enough source locator, title, or domain data for reliable citation rendering"
+            } else {
+                "citation renderability cannot be assessed before claim extraction exists"
+            },
+            evidence_quality_refs(&evidence_quality),
+        ),
+        web_gate(
+            "web_5g_answerability_ready",
+            packaged_evidence_present && claim_extraction_present,
+            answerability_ready,
+            if answerability_ready {
+                "evidence has enough clean source material, concrete claims, and citation data for a bounded useful answer"
+            } else if packaged_evidence_present && claim_extraction_present {
+                "evidence and claims exist, but the package is not yet strong enough for a coherent source-backed answer"
+            } else {
+                "answerability cannot be assessed before evidence packaging and claim extraction both exist"
+            },
+            evidence_quality_refs(&evidence_quality),
+        ),
+        web_gate(
             "web_7_usable_evidence_available",
             packaged_evidence_present || tool_attempted,
-            usable_evidence && content_rich_candidates_present && claim_extraction_present,
-            if usable_evidence && content_rich_candidates_present && claim_extraction_present {
-                "retrieval quality classifies the packaged, materialized, claim-bearing evidence as usable"
+            usable_evidence
+                && content_rich_candidates_present
+                && claim_extraction_present
+                && answerability_ready,
+            if usable_evidence
+                && content_rich_candidates_present
+                && claim_extraction_present
+                && answerability_ready
+            {
+                "retrieval quality classifies the packaged, materialized, claim-bearing, citation-ready evidence as usable"
             } else {
-                "packaged output exists only as thin, unmaterialized, claim-poor, low-signal/no-results/degraded evidence or no usable evidence was available"
+                "packaged output exists only as thin, unmaterialized, claim-poor, citation-poor, low-signal/no-results/degraded evidence or no usable evidence was available"
             },
             vec![
                 "retrieval_quality.usable_evidence".to_string(),
@@ -537,6 +602,7 @@ pub(super) fn web_retrieval_gate_diagnostics(
         &access_blocker,
         provider_not_empty_or_degraded,
         evidence_context_to_synthesis,
+        &evidence_quality,
     );
     json!({
         "schema_version": 1,
@@ -568,6 +634,7 @@ pub(super) fn web_retrieval_gate_diagnostics(
         "access_blocker": access_blocker,
         "browser_materialization_recovery": browser_materialization_recovery,
         "provider_supply": provider_supply,
+        "evidence_quality": evidence_quality,
         "web_blocker_classification": access_blocker_kind,
         "operator_metrics": operator_metrics,
         "gates": gates
@@ -763,6 +830,15 @@ pub(super) fn web_retrieval_measurement_report(
     let mut official_or_primary_cases = 0_u64;
     let mut relevant_evidence_count_total = 0_u64;
     let mut topic_relevant_cases = 0_u64;
+    let mut source_quality_ready_cases = 0_u64;
+    let mut claim_quality_ready_cases = 0_u64;
+    let mut citation_renderability_ready_cases = 0_u64;
+    let mut answerability_ready_cases = 0_u64;
+    let mut low_quality_evidence_item_count_total = 0_u64;
+    let mut evidence_item_count_total = 0_u64;
+    let mut concrete_claim_count_total = 0_u64;
+    let mut citation_ready_claim_count_total = 0_u64;
+    let mut quality_claim_count_total = 0_u64;
     for row in measured_rows {
         let gate = row
             .pointer("/web_tool_gate_diagnostics/first_failed_gate")
@@ -919,6 +995,106 @@ pub(super) fn web_retrieval_measurement_report(
         ) {
             topic_relevant_cases = topic_relevant_cases.saturating_add(1);
         }
+        if bool_at(
+            row,
+            &[
+                "web_tool_gate_diagnostics",
+                "operator_metrics",
+                "evidence_quality",
+                "source_quality_ready",
+            ],
+            false,
+        ) {
+            source_quality_ready_cases = source_quality_ready_cases.saturating_add(1);
+        }
+        if bool_at(
+            row,
+            &[
+                "web_tool_gate_diagnostics",
+                "operator_metrics",
+                "evidence_quality",
+                "claim_quality_ready",
+            ],
+            false,
+        ) {
+            claim_quality_ready_cases = claim_quality_ready_cases.saturating_add(1);
+        }
+        if bool_at(
+            row,
+            &[
+                "web_tool_gate_diagnostics",
+                "operator_metrics",
+                "evidence_quality",
+                "citation_renderability_ready",
+            ],
+            false,
+        ) {
+            citation_renderability_ready_cases =
+                citation_renderability_ready_cases.saturating_add(1);
+        }
+        if bool_at(
+            row,
+            &[
+                "web_tool_gate_diagnostics",
+                "operator_metrics",
+                "evidence_quality",
+                "answerability_ready",
+            ],
+            false,
+        ) {
+            answerability_ready_cases = answerability_ready_cases.saturating_add(1);
+        }
+        evidence_item_count_total = evidence_item_count_total.saturating_add(u64_at(
+            row,
+            &[
+                "web_tool_gate_diagnostics",
+                "operator_metrics",
+                "evidence_quality",
+                "evidence_item_count",
+            ],
+            0,
+        ));
+        low_quality_evidence_item_count_total = low_quality_evidence_item_count_total
+            .saturating_add(u64_at(
+                row,
+                &[
+                    "web_tool_gate_diagnostics",
+                    "operator_metrics",
+                    "evidence_quality",
+                    "low_quality_evidence_item_count",
+                ],
+                0,
+            ));
+        quality_claim_count_total = quality_claim_count_total.saturating_add(u64_at(
+            row,
+            &[
+                "web_tool_gate_diagnostics",
+                "operator_metrics",
+                "evidence_quality",
+                "claim_count",
+            ],
+            0,
+        ));
+        concrete_claim_count_total = concrete_claim_count_total.saturating_add(u64_at(
+            row,
+            &[
+                "web_tool_gate_diagnostics",
+                "operator_metrics",
+                "evidence_quality",
+                "concrete_claim_count",
+            ],
+            0,
+        ));
+        citation_ready_claim_count_total = citation_ready_claim_count_total.saturating_add(u64_at(
+            row,
+            &[
+                "web_tool_gate_diagnostics",
+                "operator_metrics",
+                "evidence_quality",
+                "citation_ready_claim_count",
+            ],
+            0,
+        ));
         if u64_at(
             row,
             &[
@@ -1062,6 +1238,15 @@ pub(super) fn web_retrieval_measurement_report(
         provider_starved_cases,
         access_blocked_cases,
         synthesis_handoff_cases,
+        source_quality_ready_cases,
+        claim_quality_ready_cases,
+        citation_renderability_ready_cases,
+        answerability_ready_cases,
+        evidence_item_count_total,
+        low_quality_evidence_item_count_total,
+        quality_claim_count_total,
+        concrete_claim_count_total,
+        citation_ready_claim_count_total,
         &first_failure_counts,
         gate_metrics,
     );
@@ -1231,6 +1416,7 @@ fn web_operator_case_metrics(
     access_blocker: &Value,
     provider_not_empty_or_degraded: bool,
     evidence_context_to_synthesis: bool,
+    evidence_quality: &Value,
 ) -> Value {
     let primary_bottleneck = web_failure_boundary(first_failed_gate);
     let layer_bottleneck = web_failure_layer(first_failed_gate);
@@ -1335,6 +1521,36 @@ fn web_operator_case_metrics(
             "direct_evidence_claim_count": direct_evidence_claim_count,
             "claim_hints_per_evidence_rate": ratio(claim_hint_count, evidence_count)
         },
+        "evidence_quality": {
+            "source_quality_ready": bool_at(evidence_quality, &["source_quality_ready"], false),
+            "claim_quality_ready": bool_at(evidence_quality, &["claim_quality_ready"], false),
+            "citation_renderability_ready": bool_at(
+                evidence_quality,
+                &["citation_renderability_ready"],
+                false
+            ),
+            "answerability_ready": bool_at(evidence_quality, &["answerability_ready"], false),
+            "clean_evidence_rate": f64_at(evidence_quality, &["clean_evidence_rate"], 0.0),
+            "concrete_claim_rate": f64_at(evidence_quality, &["concrete_claim_rate"], 0.0),
+            "citation_ready_claim_rate": f64_at(
+                evidence_quality,
+                &["citation_ready_claim_rate"],
+                0.0
+            ),
+            "evidence_item_count": u64_at(evidence_quality, &["evidence_item_count"], 0),
+            "low_quality_evidence_item_count": u64_at(
+                evidence_quality,
+                &["low_quality_evidence_item_count"],
+                0
+            ),
+            "claim_count": u64_at(evidence_quality, &["claim_count"], 0),
+            "concrete_claim_count": u64_at(evidence_quality, &["concrete_claim_count"], 0),
+            "citation_ready_claim_count": u64_at(
+                evidence_quality,
+                &["citation_ready_claim_count"],
+                0
+            )
+        },
         "usable_evidence": {
             "observed": usable_evidence,
             "case_rate": if usable_evidence { 1.0 } else { 0.0 }
@@ -1383,6 +1599,15 @@ fn web_operator_aggregate_metrics(
     provider_starved_cases: u64,
     access_blocked_cases: u64,
     synthesis_handoff_cases: u64,
+    source_quality_ready_cases: u64,
+    claim_quality_ready_cases: u64,
+    citation_renderability_ready_cases: u64,
+    answerability_ready_cases: u64,
+    evidence_item_count_total: u64,
+    low_quality_evidence_item_count_total: u64,
+    quality_claim_count_total: u64,
+    concrete_claim_count_total: u64,
+    citation_ready_claim_count_total: u64,
     first_failure_counts: &BTreeMap<String, u64>,
     gate_metrics: &[Value],
 ) -> Value {
@@ -1432,6 +1657,21 @@ fn web_operator_aggregate_metrics(
             "usable_evidence_case_rate": ratio(usable_evidence_cases, measured_cases),
             "synthesis_handoff_case_rate": ratio(synthesis_handoff_cases, measured_cases)
         },
+        "evidence_quality": {
+            "source_quality_ready_case_rate": ratio(source_quality_ready_cases, measured_cases),
+            "claim_quality_ready_case_rate": ratio(claim_quality_ready_cases, measured_cases),
+            "citation_renderability_ready_case_rate": ratio(citation_renderability_ready_cases, measured_cases),
+            "answerability_ready_case_rate": ratio(answerability_ready_cases, measured_cases),
+            "low_quality_evidence_item_rate": ratio(
+                low_quality_evidence_item_count_total,
+                evidence_item_count_total
+            ),
+            "concrete_claim_rate": ratio(concrete_claim_count_total, quality_claim_count_total),
+            "citation_ready_claim_rate": ratio(
+                citation_ready_claim_count_total,
+                quality_claim_count_total
+            )
+        },
         "blocker_rates": {
             "provider_starved_or_degraded_case_rate": ratio(provider_starved_cases, measured_cases),
             "access_blocked_or_throttled_case_rate": ratio(access_blocked_cases, measured_cases)
@@ -1448,6 +1688,10 @@ fn web_operator_aggregate_metrics(
             "evidence_per_candidate": "How much of the raw candidate supply survived packaging into evidence refs.",
             "content_rich_per_candidate": "How often candidates had usable page/snippet content rather than thin search rows.",
             "claim_hints_per_evidence": "How much claim-level material synthesis received per evidence item.",
+            "source_quality_ready_case_rate": "Share of cases where selected evidence was source-backed and not dominated by low-quality/candidate-only material.",
+            "claim_quality_ready_case_rate": "Share of cases where extracted claims looked like concrete answer material rather than headings, source labels, or boilerplate.",
+            "citation_renderability_ready_case_rate": "Share of cases where claim/evidence material retained enough locator/title/domain data to render citations.",
+            "answerability_ready_case_rate": "Share of cases where clean evidence, concrete claims, and citation data all existed together.",
             "usable_evidence_case_rate": "Share of measured cases where retrieval produced evidence strong enough for synthesis.",
             "provider_starved_or_degraded_case_rate": "Share of cases where the first meaningful blocker was missing/degraded provider supply.",
             "access_blocked_or_throttled_case_rate": "Share of cases with detected bot wall, rate-limit, CAPTCHA, auth, or access-control signals."
@@ -1512,6 +1756,18 @@ fn web_operator_case_readout(primary_bottleneck: &str, retrieval_status: &str) -
         "claim_extraction_missing" => {
             "content exists, but claim-level extraction is not giving synthesis enough facts".to_string()
         }
+        "source_quality_not_ready" => {
+            "evidence exists, but the source material is too thin, low-confidence, or candidate-like for synthesis".to_string()
+        }
+        "claim_quality_not_ready" => {
+            "claim strings exist, but they are mostly titles, source labels, boilerplate, or fragments rather than usable answer material".to_string()
+        }
+        "citation_renderability_not_ready" => {
+            "claim strings exist, but they do not carry enough source locator, title, or domain data to render citations".to_string()
+        }
+        "answerability_not_ready" => {
+            "evidence and claims exist, but the package is not yet coherent enough for a bounded useful answer".to_string()
+        }
         "retrieval_quality_not_usable" => {
             "evidence reached the tool layer, but quality is too weak for source-backed synthesis".to_string()
         }
@@ -1545,9 +1801,12 @@ fn web_failure_layer(gate: &str) -> &'static str {
         | "web_4_raw_candidates_present"
         | "web_6_provider_not_empty_or_degraded" => "candidate_supply",
         "web_5_packaged_evidence_present"
+        | "web_5d_source_quality_ready"
+        | "web_5f_citation_renderability_ready"
+        | "web_5g_answerability_ready"
         | "web_7_usable_evidence_available"
         | "web_8_evidence_context_to_synthesis" => "usable_evidence_packaging",
-        "web_5c_claim_extraction_present" => "claim_extraction",
+        "web_5c_claim_extraction_present" | "web_5e_claim_quality_ready" => "claim_extraction",
         _ => "unknown",
     }
 }
@@ -1603,6 +1862,18 @@ fn web_operator_next_action(primary_bottleneck: &str) -> &'static str {
             "improve page fetch/materialization and content extraction"
         }
         "claim_extraction_missing" => "improve claim extraction from evidence-pack content",
+        "source_quality_not_ready" => {
+            "tighten source selection and evidence packaging so selected evidence is clean, source-backed, and not candidate-only"
+        }
+        "claim_quality_not_ready" => {
+            "tighten extraction so synthesis receives concrete claims instead of titles, labels, or boilerplate fragments"
+        }
+        "citation_renderability_not_ready" => {
+            "preserve locator, title, and domain alongside each selected evidence claim"
+        }
+        "answerability_not_ready" => {
+            "improve selected evidence quality and claim support before tuning synthesis style"
+        }
         "retrieval_quality_not_usable" => "increase candidate quality and source diversity",
         "evidence_context_handoff_missing" => "inspect evidence-to-synthesis handoff",
         _ => "inspect raw gate rows and artifacts",
@@ -1850,6 +2121,10 @@ pub(super) fn web_failure_boundary(gate: &str) -> &'static str {
         "web_5_packaged_evidence_present" => "candidate_packaging_missing",
         "web_5b_content_rich_candidates_present" => "candidate_content_materialization_missing",
         "web_5c_claim_extraction_present" => "claim_extraction_missing",
+        "web_5d_source_quality_ready" => "source_quality_not_ready",
+        "web_5e_claim_quality_ready" => "claim_quality_not_ready",
+        "web_5f_citation_renderability_ready" => "citation_renderability_not_ready",
+        "web_5g_answerability_ready" => "answerability_not_ready",
         "web_6_provider_not_empty_or_degraded" => "provider_empty_or_degraded",
         "web_7_usable_evidence_available" => "retrieval_quality_not_usable",
         "web_8_evidence_context_to_synthesis" => "evidence_context_handoff_missing",
@@ -1943,6 +2218,535 @@ fn value_has_content(value: &Value) -> bool {
         Value::Array(rows) => rows.iter().any(value_has_content),
         Value::Object(map) => map.values().any(value_has_content),
     }
+}
+
+fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) -> Value {
+    let mut scan = EvidenceQualityScan::default();
+    scan_evidence_quality(payload, "payload", &mut scan, 0);
+    scan_evidence_quality(retrieval_quality, "retrieval_quality", &mut scan, 0);
+    scan.source_domains.sort_unstable();
+    scan.source_domains.dedup();
+    scan.low_quality_flags.sort_unstable();
+    scan.low_quality_flags.dedup();
+    scan.refs.sort_unstable();
+    scan.refs.dedup();
+
+    let retrieval_usable = bool_at(retrieval_quality, &["usable_evidence"], false);
+    let evidence_count = u64_at(retrieval_quality, &["evidence_count"], 0);
+    let claim_hint_count = u64_at(retrieval_quality, &["claim_hint_count"], 0);
+    let direct_claim_count = u64_at(
+        retrieval_quality,
+        &["classification_inputs", "direct_evidence_claim_count"],
+        0,
+    );
+    let quality_pack = retrieval_quality
+        .get("evidence_pack_quality")
+        .unwrap_or(&Value::Null);
+    let pack_usable_count = u64_at(quality_pack, &["usable_count"], 0);
+    let pack_content_rich_count = u64_at(quality_pack, &["content_rich_item_count"], 0);
+    let pack_claim_hint_count = u64_at(quality_pack, &["claim_hint_count"], 0);
+    let pack_low_confidence_count = u64_at(quality_pack, &["low_confidence_count"], 0);
+    let pack_candidate_only_count = u64_at(quality_pack, &["candidate_only_count"], 0);
+
+    let evidence_item_count = scan
+        .evidence_item_count
+        .max(evidence_count)
+        .max(pack_usable_count);
+    let clean_evidence_count = scan
+        .clean_evidence_item_count
+        .max(pack_usable_count)
+        .max(pack_content_rich_count.min(evidence_item_count));
+    let low_quality_evidence_count = scan
+        .low_quality_evidence_item_count
+        .max(pack_low_confidence_count.saturating_add(pack_candidate_only_count));
+    let claim_count = scan
+        .claim_count
+        .max(claim_hint_count)
+        .max(direct_claim_count);
+    let concrete_claim_count = scan.concrete_claim_count.max(direct_claim_count);
+    let citation_ready_claim_count = scan.citation_ready_claim_count;
+    let clean_evidence_rate = ratio(clean_evidence_count, evidence_item_count);
+    let low_quality_evidence_rate = ratio(low_quality_evidence_count, evidence_item_count);
+    let concrete_claim_rate = ratio(concrete_claim_count, claim_count);
+    let low_quality_claim_rate = ratio(scan.low_quality_claim_count, claim_count);
+    let citation_ready_claim_rate = ratio(citation_ready_claim_count, claim_count);
+
+    let source_quality_ready = evidence_item_count > 0
+        && clean_evidence_count > 0
+        && (scan.citation_ready_evidence_item_count > 0
+            || !scan.source_domains.is_empty()
+            || retrieval_usable)
+        && low_quality_evidence_count < evidence_item_count
+        && clean_evidence_rate >= 0.5;
+    let claim_quality_ready = claim_count > 0
+        && concrete_claim_count > 0
+        && scan.low_quality_claim_count < claim_count
+        && concrete_claim_rate >= 0.35
+        && low_quality_claim_rate < 0.75;
+    let citation_renderability_ready = citation_ready_claim_count > 0
+        || (scan.citation_ready_evidence_item_count > 0
+            && (claim_hint_count > 0 || direct_claim_count > 0 || pack_claim_hint_count > 0));
+    let answerability_ready =
+        source_quality_ready && claim_quality_ready && citation_renderability_ready;
+
+    json!({
+        "schema_version": 1,
+        "source_quality_ready": source_quality_ready,
+        "claim_quality_ready": claim_quality_ready,
+        "citation_renderability_ready": citation_renderability_ready,
+        "answerability_ready": answerability_ready,
+        "evidence_item_count": evidence_item_count,
+        "clean_evidence_item_count": clean_evidence_count,
+        "low_quality_evidence_item_count": low_quality_evidence_count,
+        "clean_evidence_rate": clean_evidence_rate,
+        "low_quality_evidence_rate": low_quality_evidence_rate,
+        "claim_count": claim_count,
+        "concrete_claim_count": concrete_claim_count,
+        "low_quality_claim_count": scan.low_quality_claim_count,
+        "citation_ready_claim_count": citation_ready_claim_count,
+        "citation_ready_evidence_item_count": scan.citation_ready_evidence_item_count,
+        "concrete_claim_rate": concrete_claim_rate,
+        "low_quality_claim_rate": low_quality_claim_rate,
+        "citation_ready_claim_rate": citation_ready_claim_rate,
+        "source_domain_count": scan.source_domains.len() as u64,
+        "source_domains": scan.source_domains,
+        "low_quality_flags": scan.low_quality_flags,
+        "artifact_refs": scan.refs,
+        "note": "Generic evidence-quality readout: checks whether packaged evidence has clean source-backed material, concrete claim text, and citation renderability without assuming the query domain."
+    })
+}
+
+fn evidence_quality_refs(evidence_quality: &Value) -> Vec<String> {
+    evidence_quality
+        .get("artifact_refs")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .filter(|rows| !rows.is_empty())
+        .unwrap_or_else(|| {
+            vec![
+                "evidence_pack".to_string(),
+                "evidence_refs".to_string(),
+                "evidence_claims".to_string(),
+                "evidence_pack_quality".to_string(),
+                "retrieval_quality.classification_inputs".to_string(),
+            ]
+        })
+}
+
+#[derive(Default)]
+struct EvidenceQualityScan {
+    evidence_item_count: u64,
+    clean_evidence_item_count: u64,
+    low_quality_evidence_item_count: u64,
+    citation_ready_evidence_item_count: u64,
+    claim_count: u64,
+    concrete_claim_count: u64,
+    low_quality_claim_count: u64,
+    citation_ready_claim_count: u64,
+    source_domains: Vec<String>,
+    low_quality_flags: Vec<String>,
+    refs: Vec<String>,
+}
+
+fn scan_evidence_quality(value: &Value, path: &str, scan: &mut EvidenceQualityScan, depth: usize) {
+    if depth > 10 || evidence_quality_declarative_path(path) {
+        return;
+    }
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+        Value::Array(rows) => {
+            for (index, row) in rows.iter().enumerate() {
+                scan_evidence_quality(row, &format!("{path}.{index}"), scan, depth + 1);
+            }
+        }
+        Value::Object(map) => {
+            let evidence_context = evidence_quality_context_path(path);
+            if evidence_context && object_looks_like_evidence(map) {
+                analyze_evidence_quality_object(map, path, scan);
+            }
+            for (key, child) in map {
+                scan_evidence_quality(child, &format!("{path}.{key}"), scan, depth + 1);
+            }
+        }
+    }
+}
+
+fn evidence_quality_declarative_path(path: &str) -> bool {
+    let normalized = normalize_for_compare(&path.replace(['.', '_', '-'], " "));
+    [
+        "pending tool request",
+        "query metadata",
+        "gate diagnostics",
+        "operator metrics",
+        "plain english",
+        "blocker taxonomy",
+        "recommended next capability",
+        "capability contract",
+        "tooling cd",
+        "workflow cd",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn evidence_quality_context_path(path: &str) -> bool {
+    let normalized = normalize_for_compare(&path.replace(['.', '_', '-'], " "));
+    [
+        "evidence pack",
+        "evidence refs",
+        "evidence ref",
+        "evidence claims",
+        "evidence claim",
+        "findings",
+        "source candidates",
+        "synthesis candidates",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn analyze_evidence_quality_object(
+    map: &serde_json::Map<String, Value>,
+    path: &str,
+    scan: &mut EvidenceQualityScan,
+) {
+    scan.evidence_item_count = scan.evidence_item_count.saturating_add(1);
+    scan.refs.push(path.to_string());
+
+    if let Some(domain) = source_domain_value(map) {
+        push_unique_case_insensitive(&mut scan.source_domains, &domain);
+    }
+
+    let citation_ready = evidence_object_citation_ready(map);
+    if citation_ready {
+        scan.citation_ready_evidence_item_count =
+            scan.citation_ready_evidence_item_count.saturating_add(1);
+    }
+
+    let low_quality = evidence_object_low_quality(map, path, scan);
+    if low_quality {
+        scan.low_quality_evidence_item_count =
+            scan.low_quality_evidence_item_count.saturating_add(1);
+    } else if evidence_object_has_clean_content(map) {
+        scan.clean_evidence_item_count = scan.clean_evidence_item_count.saturating_add(1);
+    }
+
+    for claim in evidence_object_claim_strings(map) {
+        scan.claim_count = scan.claim_count.saturating_add(1);
+        let low_claim = claim_text_low_quality(&claim);
+        if low_claim {
+            scan.low_quality_claim_count = scan.low_quality_claim_count.saturating_add(1);
+        }
+        if !low_claim && claim_text_concrete(&claim) {
+            scan.concrete_claim_count = scan.concrete_claim_count.saturating_add(1);
+            if citation_ready {
+                scan.citation_ready_claim_count = scan.citation_ready_claim_count.saturating_add(1);
+            }
+        }
+    }
+}
+
+fn evidence_object_citation_ready(map: &serde_json::Map<String, Value>) -> bool {
+    let locator_present = [
+        "locator",
+        "url",
+        "source_url",
+        "link",
+        "source_locator",
+        "citation",
+    ]
+    .iter()
+    .any(|key| map.get(*key).map(value_has_content).unwrap_or(false));
+    let title_or_ref_present = ["title", "source_title", "source_ref"]
+        .iter()
+        .any(|key| map.get(*key).map(value_has_content).unwrap_or(false));
+    locator_present || (title_or_ref_present && source_domain_value(map).is_some())
+}
+
+fn evidence_object_has_clean_content(map: &serde_json::Map<String, Value>) -> bool {
+    evidence_object_content_strings(map)
+        .iter()
+        .any(|raw| !content_text_low_quality(raw) && word_count(raw) >= 6)
+}
+
+fn evidence_object_low_quality(
+    map: &serde_json::Map<String, Value>,
+    path: &str,
+    scan: &mut EvidenceQualityScan,
+) -> bool {
+    let mut low_quality = false;
+    for flag in evidence_object_flag_strings(map) {
+        if low_quality_flag_text(&flag) {
+            low_quality = true;
+            push_unique_case_insensitive(&mut scan.low_quality_flags, &flag);
+        }
+    }
+    if let Some(confidence) = ["confidence", "score", "quality_score"]
+        .iter()
+        .find_map(|key| map.get(*key).and_then(Value::as_f64))
+        .filter(|score| *score < 0.35)
+    {
+        low_quality = true;
+        push_unique_case_insensitive(
+            &mut scan.low_quality_flags,
+            &format!("low_numeric_confidence_{confidence:.2}"),
+        );
+    }
+    if map
+        .get("counts_as_usable_evidence")
+        .and_then(Value::as_bool)
+        == Some(false)
+    {
+        low_quality = true;
+        push_unique_case_insensitive(&mut scan.low_quality_flags, "not_usable_evidence");
+    }
+    if map.get("usable").and_then(Value::as_bool) == Some(false)
+        && evidence_quality_context_path(path)
+    {
+        low_quality = true;
+        push_unique_case_insensitive(&mut scan.low_quality_flags, "not_usable");
+    }
+    for raw in evidence_object_content_strings(map) {
+        if content_text_low_quality(&raw) {
+            low_quality = true;
+            push_unique_case_insensitive(
+                &mut scan.low_quality_flags,
+                "boilerplate_or_source_only_text",
+            );
+        }
+    }
+    low_quality
+}
+
+fn evidence_object_flag_strings(map: &serde_json::Map<String, Value>) -> Vec<String> {
+    let mut values = Vec::new();
+    for key in [
+        "quality_flags",
+        "flags",
+        "limitations",
+        "failure_reasons",
+        "rejection_reasons",
+        "status",
+        "materialization_quality",
+        "result_quality",
+        "source_quality",
+    ] {
+        collect_value_strings(map.get(key).unwrap_or(&Value::Null), &mut values);
+    }
+    values
+}
+
+fn evidence_object_content_strings(map: &serde_json::Map<String, Value>) -> Vec<String> {
+    let mut values = Vec::new();
+    for key in [
+        "snippet",
+        "summary",
+        "content",
+        "markdown",
+        "text",
+        "description",
+        "result",
+        "body",
+    ] {
+        collect_value_strings(map.get(key).unwrap_or(&Value::Null), &mut values);
+    }
+    values
+}
+
+fn evidence_object_claim_strings(map: &serde_json::Map<String, Value>) -> Vec<String> {
+    let mut values = Vec::new();
+    for key in [
+        "claim",
+        "claims",
+        "claim_hint",
+        "claim_hints",
+        "evidence_claims",
+        "findings",
+    ] {
+        collect_value_strings(map.get(key).unwrap_or(&Value::Null), &mut values);
+    }
+    values
+        .into_iter()
+        .map(|raw| clean_text(&raw, 500))
+        .filter(|raw| !raw.is_empty())
+        .collect()
+}
+
+fn collect_value_strings(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::String(raw) => {
+            let cleaned = clean_text(raw, 500);
+            if !cleaned.is_empty() {
+                out.push(cleaned);
+            }
+        }
+        Value::Array(rows) => {
+            for row in rows {
+                collect_value_strings(row, out);
+            }
+        }
+        Value::Object(map) => {
+            for child in map.values() {
+                collect_value_strings(child, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn low_quality_flag_text(raw: &str) -> bool {
+    let normalized = normalize_for_compare(raw);
+    [
+        "low trust",
+        "low_trust",
+        "low confidence",
+        "low_confidence",
+        "low relevance",
+        "low_relevance",
+        "off topic",
+        "off_topic",
+        "thin",
+        "title only",
+        "title_only",
+        "source only",
+        "source_only",
+        "candidate only",
+        "candidate_only",
+        "search row only",
+        "search_row_only",
+        "boilerplate",
+        "script dump",
+        "script_dump",
+        "style dump",
+        "style_dump",
+        "html dump",
+        "materialization failed",
+        "materialization_failed",
+        "content too thin",
+        "content_too_thin",
+        "link directory",
+        "link_directory",
+        "aggregator shell",
+        "aggregator_shell",
+        "social video shell",
+        "social_video_shell",
+        "affiliate",
+        "privacy policy",
+        "terms of service",
+        "cookie banner",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn content_text_low_quality(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 500);
+    let normalized = normalize_for_compare(&cleaned);
+    if cleaned.len() < 40 || word_count(&cleaned) < 5 {
+        return true;
+    }
+    if urlish_or_source_label(&normalized) {
+        return true;
+    }
+    [
+        "click here",
+        "subscribe",
+        "sign up",
+        "privacy policy",
+        "terms of service",
+        "cookie",
+        "javascript",
+        "function ",
+        "loading",
+        "enable javascript",
+        "checking your browser",
+        "verify you are human",
+        "here s what i found",
+        "from web retrieval",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn claim_text_low_quality(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 500);
+    let normalized = normalize_for_compare(&cleaned);
+    if cleaned.len() < 28 || word_count(&cleaned) < 4 {
+        return true;
+    }
+    if urlish_or_source_label(&normalized) {
+        return true;
+    }
+    if normalized.starts_with("source ")
+        || normalized.starts_with("sources ")
+        || normalized.starts_with("web search ")
+        || normalized.starts_with("from web retrieval")
+    {
+        return true;
+    }
+    [
+        "click here",
+        "subscribe",
+        "sign up",
+        "privacy policy",
+        "terms of service",
+        "cookie",
+        "javascript",
+        "loading",
+        "current news latest news photos videos",
+        "here s what i found",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn claim_text_concrete(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 500);
+    if claim_text_low_quality(&cleaned) {
+        return false;
+    }
+    let normalized = normalize_for_compare(&cleaned);
+    let words = word_count(&cleaned);
+    let has_specific_marker = cleaned.chars().any(|ch| ch.is_ascii_digit())
+        || cleaned.chars().any(|ch| ch.is_ascii_uppercase())
+        || normalized.contains(" compared ")
+        || normalized.contains(" announced ")
+        || normalized.contains(" released ")
+        || normalized.contains(" reported ")
+        || normalized.contains(" found ")
+        || normalized.contains(" shows ")
+        || normalized.contains(" offers ")
+        || normalized.contains(" supports ")
+        || normalized.contains(" requires ")
+        || normalized.contains(" costs ")
+        || normalized.contains(" changed ")
+        || normalized.contains(" increased ")
+        || normalized.contains(" decreased ");
+    words >= 7 || (words >= 5 && has_specific_marker)
+}
+
+fn urlish_or_source_label(normalized: &str) -> bool {
+    normalized.starts_with("http ")
+        || normalized.starts_with("https ")
+        || normalized.starts_with("www ")
+        || normalized.starts_with("source ")
+        || normalized.starts_with("sources ")
+        || normalized.ends_with(" source")
+        || normalized.contains(" com ")
+        || normalized.contains(" org ")
+        || normalized.contains(" net ")
+        || normalized.contains(" via google news")
+}
+
+fn word_count(raw: &str) -> usize {
+    raw.split_whitespace()
+        .filter(|word| word.chars().any(|ch| ch.is_ascii_alphanumeric()))
+        .count()
 }
 
 fn web_provider_supply_diagnostics(payload: &Value, retrieval_quality: &Value) -> Value {
@@ -2902,6 +3706,146 @@ mod tests {
     }
 
     #[test]
+    fn evidence_quality_gates_reject_title_like_claim_fragments() {
+        let payload = json!({
+            "pending_tool_request": {
+                "tool_key": "batch_query",
+                "input": {
+                    "query": "give me news from this week",
+                    "queries": ["give me news from this week"],
+                    "keywords": ["news", "this week"]
+                }
+            },
+            "tools": [{
+                "status": "usable"
+            }],
+            "evidence_refs": [{
+                "title": "Cooler this Week",
+                "locator": "https://www.wlns.com/weather/cooler-this-week/",
+                "source_domain": "wlns.com",
+                "snippet": "WLNS 6 News reported a local weather story published during the week with cooler temperatures expected in Lansing, Michigan.",
+                "claim_hints": ["Cooler this Week"]
+            }]
+        });
+        let retrieval_quality = json!({
+            "status": "usable",
+            "candidate_count": 4,
+            "evidence_count": 1,
+            "content_rich_candidate_count": 1,
+            "materialized_candidate_count": 1,
+            "claim_hint_count": 1,
+            "usable_evidence": true
+        });
+        let query_metadata = json!({
+            "metadata_present": true,
+            "rich_query_pack_or_narrow_marker": true
+        });
+        let transitions = json!({
+            "checkpoints": [{
+                "checkpoint": "5e_agent_received_evidence_context",
+                "status": "pass"
+            }]
+        });
+        let diag = web_retrieval_gate_diagnostics(
+            &payload,
+            &retrieval_quality,
+            &query_metadata,
+            &transitions,
+        );
+        assert_eq!(
+            diag.pointer("/first_failed_gate").and_then(Value::as_str),
+            Some("web_5e_claim_quality_ready")
+        );
+        assert_eq!(
+            diag.pointer("/evidence_quality/claim_quality_ready")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            diag.pointer("/evidence_quality/citation_renderability_ready")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn evidence_quality_gates_pass_clean_source_backed_claims() {
+        let payload = json!({
+            "pending_tool_request": {
+                "tool_key": "batch_query",
+                "input": {
+                    "query": "compare web research APIs",
+                    "queries": ["compare web research APIs"],
+                    "keywords": ["web research APIs", "source links", "raw content"]
+                }
+            },
+            "tools": [{
+                "status": "usable"
+            }],
+            "evidence_refs": [{
+                "title": "Search API documentation",
+                "locator": "https://docs.example.com/search-api",
+                "source_domain": "docs.example.com",
+                "snippet": "The documentation describes a search API that returns answer-ready result objects with source links, snippets, and raw content fields for retrieval workflows.",
+                "claim_hints": [
+                    "The search API returns structured result objects with source links, snippets, and raw content fields for retrieval workflows."
+                ]
+            }]
+        });
+        let retrieval_quality = json!({
+            "status": "usable",
+            "candidate_count": 6,
+            "evidence_count": 1,
+            "content_rich_candidate_count": 1,
+            "materialized_candidate_count": 1,
+            "claim_hint_count": 1,
+            "usable_evidence": true
+        });
+        let query_metadata = json!({
+            "metadata_present": true,
+            "rich_query_pack_or_narrow_marker": true
+        });
+        let transitions = json!({
+            "checkpoints": [{
+                "checkpoint": "5e_agent_received_evidence_context",
+                "status": "pass"
+            }]
+        });
+        let diag = web_retrieval_gate_diagnostics(
+            &payload,
+            &retrieval_quality,
+            &query_metadata,
+            &transitions,
+        );
+        assert_eq!(
+            diag.pointer("/first_failed_gate").and_then(Value::as_str),
+            None
+        );
+        for gate_name in [
+            "web_5d_source_quality_ready",
+            "web_5e_claim_quality_ready",
+            "web_5f_citation_renderability_ready",
+            "web_5g_answerability_ready",
+            "web_7_usable_evidence_available",
+        ] {
+            let gate = diag
+                .get("gates")
+                .and_then(Value::as_array)
+                .and_then(|rows| {
+                    rows.iter()
+                        .find(|row| row.get("gate").and_then(Value::as_str) == Some(gate_name))
+                })
+                .cloned()
+                .unwrap_or_else(|| panic!("missing {gate_name}"));
+            assert_eq!(
+                gate.get("status").and_then(Value::as_str),
+                Some("pass"),
+                "{gate_name}: {gate:#?}"
+            );
+        }
+    }
+
+    #[test]
     fn nonblocking_provider_failures_do_not_mask_claim_extraction_gap() {
         let payload = json!({
             "pending_tool_request": {
@@ -3113,6 +4057,15 @@ mod tests {
             },
             "tools": [{
                 "status": "partial"
+            }],
+            "evidence_refs": [{
+                "title": "Web research API comparison",
+                "locator": "https://docs.example.com/web-research-api-comparison",
+                "source_domain": "docs.example.com",
+                "snippet": "The comparison describes differences between web research APIs, including search result structure, crawling support, and source citation handling for agent workflows.",
+                "claim_hints": [
+                    "The comparison describes differences between web research APIs across result structure, crawling support, and citation handling for agent workflows."
+                ]
             }]
         });
         let retrieval_quality = json!({
@@ -3175,14 +4128,23 @@ mod tests {
             },
             "tools": [{
                 "status": "partial"
+            }],
+            "evidence_refs": [{
+                "title": "Web research API comparison",
+                "locator": "https://docs.example.com/web-research-api-comparison",
+                "source_domain": "docs.example.com",
+                "snippet": "The comparison describes differences between web research APIs, including search result structure, crawling support, and source citation handling for agent workflows.",
+                "claim_hints": [
+                    "The comparison describes differences between web research APIs across result structure, crawling support, and citation handling for agent workflows."
+                ]
             }]
         });
         let retrieval_quality = json!({
             "status": "low_relevance",
             "candidate_count": 41,
-            "evidence_count": 21,
-            "content_rich_candidate_count": 17,
-            "materialized_candidate_count": 11,
+            "evidence_count": 1,
+            "content_rich_candidate_count": 1,
+            "materialized_candidate_count": 1,
             "claim_hint_count": 1,
             "usable_evidence": false,
             "browser_materialization": {
