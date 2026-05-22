@@ -240,6 +240,47 @@ fn looks_like_broad_or_temporal_facet(term: &str) -> bool {
             .any(|token| token.len() == 4 && token.chars().all(|ch| ch.is_ascii_digit()))
 }
 
+fn looks_like_temporal_scope_facet(term: &str) -> bool {
+    let normalized = normalize_for_compare(term);
+    if normalized.is_empty() {
+        return false;
+    }
+    let tokens = normalized.split_whitespace().collect::<Vec<_>>();
+    if tokens
+        .iter()
+        .all(|token| token.len() == 4 && token.chars().all(|ch| ch.is_ascii_digit()))
+    {
+        return true;
+    }
+    let temporal_tokens = [
+        "current",
+        "latest",
+        "recent",
+        "today",
+        "week",
+        "month",
+        "year",
+        "this",
+        "last",
+        "may",
+        "january",
+        "february",
+        "march",
+        "april",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+    ];
+    tokens.iter().all(|token| {
+        temporal_tokens.contains(token)
+            || (token.len() == 4 && token.chars().all(|ch| ch.is_ascii_digit()))
+    })
+}
+
 fn exact_subject_query_term(raw: &str) -> String {
     let cleaned = clean_text(raw, 160).replace('"', "");
     if cleaned.is_empty() {
@@ -265,20 +306,53 @@ fn derived_queries(
     coverage_facets: &[String],
 ) -> Vec<String> {
     let mut queries = vec![clean_text(prompt, 600)];
-    for entity in coverage_entities.iter().take(3) {
+    if coverage_entities.len() >= 2 {
+        let mut pieces = coverage_entities
+            .iter()
+            .take(4)
+            .map(|entity| exact_subject_query_term(entity))
+            .filter(|entity| !entity.is_empty())
+            .collect::<Vec<_>>();
+        pieces.extend(
+            coverage_facets
+                .iter()
+                .filter(|facet| !looks_like_broad_or_temporal_facet(facet))
+                .take(2)
+                .map(|facet| clean_text(facet, 160))
+                .filter(|facet| !facet.is_empty()),
+        );
+        if pieces.len() >= 2 {
+            push_unique_query(&mut queries, format!("{} comparison", pieces.join(" ")));
+            push_unique_query(
+                &mut queries,
+                format!("{} independent comparison", pieces.join(" ")),
+            );
+            push_unique_query(&mut queries, format!("{} reviews", pieces.join(" ")));
+            push_unique_query(&mut queries, pieces.join(" "));
+        }
+    }
+    let entity_lane_limit = if coverage_entities.len() >= 2 { 3 } else { 2 };
+    for entity in coverage_entities.iter().take(entity_lane_limit) {
         let subject = exact_subject_query_term(entity);
         if subject.is_empty() {
             continue;
         }
         push_unique_query(&mut queries, format!("{subject} official site"));
         push_unique_query(&mut queries, format!("{subject} official documentation"));
-        if queries.len() >= 8 {
-            return queries;
-        }
     }
+    if queries.len() >= 12 {
+        queries.truncate(12);
+        return queries;
+    }
+    let has_topical_facet = coverage_facets
+        .iter()
+        .any(|facet| !looks_like_temporal_scope_facet(facet));
     for facet in coverage_facets.iter().take(2) {
         let facet = clean_text(facet, 160);
         if facet.is_empty() {
+            continue;
+        }
+        if has_topical_facet && looks_like_temporal_scope_facet(&facet) {
             continue;
         }
         push_unique_query(&mut queries, format!("{facet} source-backed evidence"));

@@ -169,6 +169,12 @@ fn derived_request_pack_uses_facet_lanes_for_broad_current_prompts() {
             .all(|row| !row.contains("May 2026 official site")),
         "{query_strings:#?}"
     );
+    assert!(
+        query_strings
+            .iter()
+            .all(|row| !row.starts_with("May 2026 ")),
+        "{query_strings:#?}"
+    );
 }
 
 #[test]
@@ -190,6 +196,35 @@ fn derived_request_pack_adds_public_sentiment_lanes_for_sentiment_prompts() {
         query_strings
             .iter()
             .any(|row| row.contains("public sentiment user reports")),
+        "{query_strings:#?}"
+    );
+}
+
+#[test]
+fn derived_request_pack_keeps_multi_entity_comparison_lanes_together() {
+    let case = json!({
+        "id": "case_compare",
+        "prompt": "Compare Dyson, Roborock, and iRobot for pet hair in apartments.",
+        "required_entities": ["Dyson", "Roborock", "iRobot"],
+        "required_facets": ["pet hair", "apartments"]
+    });
+    let pack = request_pack_for_case(&case, None, "batch_query");
+    let queries = pack
+        .pointer("/input/queries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let query_strings = queries.iter().filter_map(Value::as_str).collect::<Vec<_>>();
+    assert!(
+        query_strings
+            .iter()
+            .any(|row| row.contains("Dyson Roborock iRobot pet hair apartments comparison")),
+        "{query_strings:#?}"
+    );
+    assert!(
+        query_strings
+            .iter()
+            .any(|row| *row == "iRobot official documentation"),
         "{query_strings:#?}"
     );
 }

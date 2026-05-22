@@ -45,7 +45,28 @@ Before changing production workflow or runtime behavior in response to an eval f
 
 Only after classification should a patch be made.
 
+Before patching production behavior, identify the failed primitive boundary, compare it against available reference-system behavior, and patch the smallest primitive, contract, profile, adapter, or composition rule that generalizes.
+
+A patch that only makes the immediate eval symptom disappear is not progress unless it also strengthens the reusable model. If the failure cannot be explained as a primitive/model gap, bad boundary, bad tool substrate, bad profile selection, bad eval, or clear local bug, stop and update the model first.
+
 ## Required method
+
+### 0. Human-guided method loop
+
+When a human operator is actively guiding workflow development, use the guidance to enforce method discipline, not to skip it.
+
+Default loop:
+
+1. Run one focused eval or reproduction.
+2. Classify the failure before patching.
+3. Check reference artifacts when the failure resembles a general agent-behavior problem.
+4. Patch only the owning primitive, contract, tool substrate, profile, adapter, composition rule, or eval boundary.
+5. Rerun the relevant lower-level gate to prove the patch did not poison the primitive spine.
+6. Move up only after the lower capability remains stable.
+
+The operator's most important role is to catch patch momentum. If the implementation starts chasing symptoms, adding level-specific branches, routing too much work through heavyweight paths, or weakening lower-level behavior to satisfy a higher-level eval, stop and return to failure classification.
+
+This process is part of the development method. It is not optional ceremony.
 
 ### 1. Reference before invention
 
@@ -85,6 +106,20 @@ For coding workflows, the canonical model should decompose into reusable stages:
 11. Final receipt-backed synthesis
 
 If a stage is not needed for a simple task, the model must allow a cheaper path.
+
+For coding workflows, the current canonical execution spine is:
+
+```text
+fast task/intent contract
+-> compact executable manifest or patch artifact
+-> deterministic native tool execution
+-> receipt and evidence capture
+-> validation or semantic completion checks when required
+-> bounded strong-model repair only after concrete failure evidence
+-> final receipt-backed synthesis
+```
+
+The strong model is a repair/planning resource, not a blanket replacement for the fast path. Escalation to a stronger model must be triggered by evidence such as malformed manifest output, missing mutation receipts, failed validation, failed public-interface checks, repeated no-progress actions, or user-owned ambiguity.
 
 ### 3. Convert model gaps into primitive contracts
 
@@ -131,6 +166,7 @@ Forbidden examples:
 - Make all tasks run high-level planning because one hard eval needed planning.
 - Add one fixture's file layout to a shared primitive.
 - Patch a lower-level workflow around a regression caused by higher-level behavior.
+- Route every task through the heaviest model because one task shape needed stronger reasoning.
 
 ### 5. Preserve monotonic gates
 
@@ -186,6 +222,7 @@ For native coding work, the method is:
 4. Do not make Level 1 depend on existing-project discovery.
 5. Promote a higher level only after lower relevant levels still pass.
 6. If repeated patching does not improve reliability, stop and rebuild the runtime model from reference traces.
+7. Prefer fast-manifest generation plus deterministic execution before strong-model repair; do not use strong-first routing as the default fix for validation or multi-file failures.
 
 ## Required change-review questions
 
@@ -212,4 +249,3 @@ If the same level keeps failing after multiple local patches, stop patching and 
 5. Patch only after the owning boundary is clear.
 
 Spinning on patches without model updates is method regression.
-

@@ -31,6 +31,7 @@ The model does not own:
 ```text
 task_contract
 -> context_state
+-> executable_manifest_or_patch_artifact
 -> allowed_action_decision
 -> tool_execution
 -> observation_receipt
@@ -45,6 +46,40 @@ The model repeats until terminal state:
 - `failed_budget`
 - `failed_tooling`
 - `needs_user_input`
+
+## Canonical coding execution spine
+
+The default coding runtime should optimize for fast, receipt-backed progress before heavyweight reasoning.
+
+```text
+fast_task_contract
+-> compact_executable_manifest
+-> deterministic_native_tool_execution
+-> receipt_and_evidence_capture
+-> validation_or_semantic_completion_check
+-> bounded_strong_repair_if_evidence_requires_it
+-> final_receipt_synthesis
+```
+
+This spine is deliberately primitive-first:
+
+- the fast path handles simple/context-free tasks without existing-project discovery
+- the normal path builds enough local context before mutation
+- native tools own file writes, patches, command execution, and receipts
+- validation and semantic probes are evidence sources, not success substitutes
+- stronger models are used after concrete failure evidence exists, not as a blanket first step
+
+Strong-model escalation is allowed when evidence shows:
+
+- the manifest is malformed, empty, or non-executable
+- no mutation receipt exists for a mutation-required task
+- a file write or patch failed
+- validation failed after mutation
+- the requested public interface is missing after mutation
+- the runtime detects repeated no-progress behavior
+- the task contract has user-owned ambiguity that cannot be resolved locally
+
+Strong-model escalation should produce a smaller corrected manifest, repair plan, or user-facing blocker. It must not bypass deterministic tool execution, receipt journaling, validation gates, or final synthesis rules.
 
 ## Runtime state
 
@@ -79,6 +114,25 @@ Exit conditions:
 - enough context selected
 - create-file fast path selected
 - blocked by missing local path or permissions
+
+### `executable_manifest_or_patch_artifact`
+
+Converts the task contract and selected context into a compact executable artifact.
+
+Output:
+
+- proposed file writes or patches
+- validation commands to run, when known
+- public interface expectations to verify
+- required receipts before success
+- blocker reason when no safe mutation can be proposed
+
+Rules:
+
+- Prefer the smallest executable artifact that can make progress.
+- Do not include benchmark names, fixture paths, or eval-specific symbols as production behavior.
+- If the artifact is malformed or non-executable, repair the artifact shape before broadening task scope.
+- If a stronger model is needed, ask it to repair or regenerate the artifact from evidence, not to replace the whole runtime loop.
 
 ### `implementation_entry_gate`
 
@@ -189,6 +243,16 @@ Repair reasons include:
 
 The repair loop must not broaden scope unless the task contract allows it.
 
+The repair loop chooses the earliest failed primitive to revisit. It should not restart the whole workflow when a narrower repair is available.
+
+Examples:
+
+- malformed manifest -> repair manifest shape
+- missing mutation receipt -> return to implementation entry and mutation executor
+- failed validation -> repair changed source/tests from command evidence
+- missing public interface -> repair export/module/constructor/return surface
+- repeated no-progress -> redirect to a different allowed action or terminal blocker
+
 ### `final_receipt_synthesis`
 
 Final response is derived from receipts, not model optimism.
@@ -220,6 +284,7 @@ The runtime trace harness records these mechanics from downloaded coding-agent s
 coding_project_operator
   -> task_contract
   -> context_pack_builder
+  -> executable_manifest_or_patch_artifact
   -> implementation_entry_gate
   -> file_mutation_executor
   -> public_interface_verifier

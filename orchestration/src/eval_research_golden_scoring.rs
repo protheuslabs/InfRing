@@ -2806,12 +2806,15 @@ fn research_prompt_stop_term(token: &str) -> bool {
             | "answer"
             | "anything"
             | "around"
+            | "and"
+            | "are"
             | "before"
             | "best"
             | "but"
             | "between"
             | "blindly"
             | "browse"
+            | "compare"
             | "citation"
             | "citations"
             | "current"
@@ -2824,7 +2827,10 @@ fn research_prompt_stop_term(token: &str) -> bool {
             | "explain"
             | "find"
             | "first"
+            | "for"
+            | "from"
             | "give"
+            | "how"
             | "into"
             | "landscape"
             | "latest"
@@ -2850,6 +2856,7 @@ fn research_prompt_stop_term(token: &str) -> bool {
             | "right"
             | "search"
             | "some"
+            | "far"
             | "source"
             | "sources"
             | "summarize"
@@ -2868,6 +2875,7 @@ fn research_prompt_stop_term(token: &str) -> bool {
             | "when"
             | "where"
             | "which"
+            | "why"
             | "while"
             | "with"
             | "would"
@@ -4812,6 +4820,44 @@ mod tests {
         assert!(!prompt_terms.iter().any(|term| term == "best"));
         assert!(!prompt_terms.iter().any(|term| term == "trust"));
         assert!(!prompt_terms.iter().any(|term| term == "page"));
+    }
+
+    #[test]
+    fn prompt_relevance_ignores_comparison_and_glue_words() {
+        let relevance = evidence_prompt_relevance(
+            &json!({
+                "tools": [{
+                    "name": "web_search",
+                    "status": "ok",
+                    "evidence_refs": [{
+                        "title": "Robot vacuum comparison",
+                        "locator": "https://example.test/robot-vacuum",
+                        "snippet": "Dyson, Roborock, and iRobot models are compared for pet hair pickup in small apartments."
+                    }]
+                }]
+            }),
+            &normalize_for_compare(
+                "Compare Dyson, Roborock, and iRobot for pet hair in apartments.",
+            ),
+        );
+        let prompt_terms = relevance
+            .get("prompt_terms")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|value| value.as_str().map(ToString::to_string))
+            .collect::<Vec<_>>();
+        assert!(!prompt_terms.iter().any(|term| term == "compare"));
+        assert!(!prompt_terms.iter().any(|term| term == "and"));
+        assert!(!prompt_terms.iter().any(|term| term == "for"));
+        assert_eq!(
+            relevance
+                .get("topic_relevant_evidence")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{relevance:#?}"
+        );
     }
 
     #[test]

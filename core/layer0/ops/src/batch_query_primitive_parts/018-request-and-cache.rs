@@ -2132,7 +2132,24 @@ fn push_subject_keyword_lanes(
     queries: &mut Vec<String>,
     max_queries: usize,
 ) {
-    let tail = keywords.iter().take(4).cloned().collect::<Vec<_>>().join(" ");
+    let subject_terms = subjects
+        .iter()
+        .flat_map(|subject| query_metadata_tokens(&subject.replace('"', "")))
+        .map(|token| token.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    let tail = keywords
+        .iter()
+        .filter(|keyword| {
+            let tokens = query_metadata_tokens(keyword);
+            !tokens.is_empty()
+                && !tokens
+                    .iter()
+                    .all(|token| token_matches_entity_terms(token, &subject_terms))
+        })
+        .take(4)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ");
     if tail.is_empty() {
         return;
     }
@@ -2142,6 +2159,51 @@ fn push_subject_keyword_lanes(
         if queries.len() >= max_queries {
             return;
         }
+    }
+}
+
+fn push_multi_subject_combined_lanes(
+    subjects: &[String],
+    facets: &[String],
+    pack: &BatchQueryKeywordPack,
+    dedup: &mut HashSet<String>,
+    queries: &mut Vec<String>,
+    max_queries: usize,
+) {
+    if subjects.len() < 2 {
+        return;
+    }
+    let subject_terms = subjects.iter().take(4).cloned().collect::<Vec<_>>();
+    let facet_terms = facets.iter().take(2).cloned().collect::<Vec<_>>();
+    let mut base_pieces = subject_terms.clone();
+    base_pieces.extend(facet_terms.clone());
+    if base_pieces.is_empty() {
+        return;
+    }
+    for suffix in ["comparison", "independent comparison", "reviews"] {
+        let mut pieces = base_pieces.clone();
+        pieces.push(suffix.to_string());
+        push_compiled_metadata_query(
+            clean_text(&pieces.join(" "), 600),
+            pack,
+            dedup,
+            queries,
+            max_queries,
+        );
+        if queries.len() >= max_queries {
+            return;
+        }
+    }
+    if !facet_terms.is_empty() {
+        let mut pieces = subject_terms;
+        pieces.extend(facet_terms);
+        push_compiled_metadata_query(
+            clean_text(&pieces.join(" "), 600),
+            pack,
+            dedup,
+            queries,
+            max_queries,
+        );
     }
 }
 
@@ -2247,9 +2309,15 @@ fn push_broad_facet_lanes(
         }
     }
 
+    let has_topical_facet = facets
+        .iter()
+        .any(|facet| !looks_like_temporal_or_scope_facet(facet));
     for facet in facets {
         let facet = clean_text(facet, 160);
         if facet.is_empty() {
+            continue;
+        }
+        if has_topical_facet && looks_like_temporal_or_scope_facet(&facet) {
             continue;
         }
         for suffix in ["source-backed evidence", "recent developments"] {
@@ -2310,6 +2378,17 @@ fn compile_keyword_pack_queries(
         .collect::<Vec<_>>();
 
     if !exact_subjects.is_empty() {
+        push_multi_subject_combined_lanes(
+            &exact_subjects,
+            &facets,
+            pack,
+            &mut dedup,
+            &mut queries,
+            max_queries,
+        );
+        if queries.len() >= max_queries {
+            return queries;
+        }
         push_subject_keyword_lanes(
             &exact_subjects,
             &keywords,
@@ -2507,6 +2586,36 @@ fn normalize_requested_queries(
         push_query_dedup(normalized_primary, &mut dedup, &mut queries);
     }
     let max_queries = max_explicit_queries_for_budget(primary_query, budget);
+    let compiled_metadata = compile_keyword_pack_queries(primary_query, keyword_pack, budget);
+    let has_explicit_queries = request
+        .get("queries")
+        .and_then(Value::as_array)
+        .map(|rows| !rows.is_empty())
+        .unwrap_or(false);
+    let pre_explicit_metadata_budget = if has_explicit_queries
+        && query_pack_has_coverage_terms(keyword_pack)
+    {
+        let subject_count = keyword_pack.entities.len() + keyword_pack.aliases.len();
+        if subject_count >= 2 && !keyword_pack.facets.is_empty() {
+            4 + subject_count.min(4)
+        } else if subject_count >= 2 || !keyword_pack.facets.is_empty() {
+            3
+        } else {
+            1
+        }
+    } else {
+        0
+    };
+    for value in compiled_metadata
+        .iter()
+        .take(pre_explicit_metadata_budget)
+        .cloned()
+    {
+        if queries.len() >= max_queries {
+            break;
+        }
+        push_query_dedup(value, &mut dedup, &mut queries);
+    }
     if let Some(rows) = request.get("queries").and_then(Value::as_array) {
         for row in rows {
             if queries.len() >= max_queries {
@@ -2517,9 +2626,14 @@ fn normalize_requested_queries(
             }
         }
     }
-    let metadata_budget = metadata_expansion_budget(queries.len(), max_queries);
-    for value in compile_keyword_pack_queries(primary_query, keyword_pack, budget)
+    let metadata_budget = if pre_explicit_metadata_budget >= 6 {
+        0
+    } else {
+        metadata_expansion_budget(queries.len(), max_queries)
+    };
+    for value in compiled_metadata
         .into_iter()
+        .skip(pre_explicit_metadata_budget)
         .take(metadata_budget)
     {
         if queries.len() >= max_queries {

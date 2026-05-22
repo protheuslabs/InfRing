@@ -248,18 +248,31 @@ mod quality_tests {
         let budget = aperture_budget("medium").expect("budget");
         let plan = resolve_query_plan(&json!({}), &request, query, budget);
 
-        assert_eq!(plan.queries.len(), 8, "{:#?}", plan.queries);
+        assert_eq!(plan.queries.len(), 11, "{:#?}", plan.queries);
         assert!(
             plan.queries
                 .iter()
-                .any(|row| row == "\"LangGraph\" official site"),
+                .any(|row| row == "LangGraph CrewAI reliability observability comparison"),
             "{:#?}",
             plan.queries
         );
         assert!(
+            plan.queries.iter().any(|row| row
+                == "LangGraph multi-agent research assistant reliability observability official"),
+            "{:#?}",
             plan.queries
+        );
+        assert!(
+            plan.queries.iter().any(|row| row
+                == "CrewAI multi-agent research assistant reliability observability official"),
+            "{:#?}",
+            plan.queries
+        );
+        assert!(
+            !plan
+                .queries
                 .iter()
-                .any(|row| row == "\"CrewAI\" official site"),
+                .any(|row| row == "LangGraph official site" || row == "CrewAI official site"),
             "{:#?}",
             plan.queries
         );
@@ -1148,6 +1161,13 @@ mod quality_tests {
             "{:#?}",
             plan.queries
         );
+        assert!(
+            plan.queries
+                .iter()
+                .all(|row| !row.starts_with("May 2026 ")),
+            "{:#?}",
+            plan.queries
+        );
     }
 
     #[test]
@@ -1168,6 +1188,72 @@ mod quality_tests {
             plan.queries
                 .iter()
                 .any(|row| row == "Figma AI public sentiment 2026 public sentiment user reports"),
+            "{:#?}",
+            plan.queries
+        );
+    }
+
+    #[test]
+    fn explicit_multi_entity_query_pack_prioritizes_combined_comparison_lanes() {
+        let query = "Compare Dyson, Roborock, and iRobot for pet hair in apartments.";
+        let request = json!({
+            "source": "web",
+            "query": query,
+            "queries": [
+                query,
+                "Dyson official site",
+                "Dyson official documentation",
+                "Roborock official site",
+                "Roborock official documentation",
+                "iRobot official site",
+                "iRobot official documentation",
+                "pet hair source-backed evidence"
+            ],
+            "keywords": ["Dyson", "Roborock", "iRobot", "pet hair", "apartments"],
+            "required_coverage": {
+                "entities": ["Dyson", "Roborock", "iRobot"],
+                "facets": ["pet hair", "apartments"]
+            },
+            "aperture": "medium"
+        });
+        let budget = aperture_budget("medium").expect("budget");
+        let plan = resolve_query_plan(&json!({}), &request, query, budget);
+
+        let comparison_pos = plan
+            .queries
+            .iter()
+            .position(|row| {
+                row.contains("Dyson Roborock iRobot pet hair apartments comparison")
+            })
+            .expect("combined comparison lane should be present");
+        let first_individual_official = plan
+            .queries
+            .iter()
+            .position(|row| row == "Dyson official site")
+            .expect("explicit individual lane should remain present");
+        assert!(
+            comparison_pos < first_individual_official,
+            "{:#?}",
+            plan.queries
+        );
+        assert!(
+            plan.queries
+                .iter()
+                .any(|row| row == "Dyson pet hair apartments official"),
+            "{:#?}",
+            plan.queries
+        );
+        assert!(
+            plan.queries
+                .iter()
+                .any(|row| row == "iRobot pet hair apartments official"),
+            "{:#?}",
+            plan.queries
+        );
+        assert!(
+            plan.queries
+                .iter()
+                .all(|row| !row.contains("Dyson Dyson Roborock")),
             "{:#?}",
             plan.queries
         );

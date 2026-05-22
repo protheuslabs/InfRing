@@ -1772,6 +1772,8 @@ fn claim_hint_normalized_snippet(snippet: &str) -> String {
         .replace("&#039;", "'")
         .replace("&quot;", "\"")
         .replace("&amp;", "&")
+        .replace("&mdash;", "-")
+        .replace("&ndash;", "-")
         .replace("â", "'")
         .replace("â", "'")
         .replace("â", "\"")
@@ -1822,10 +1824,14 @@ fn claim_text_has_urlish_fragment(text: &str) -> bool {
 fn claim_text_looks_like_page_or_subscription_boilerplate(text: &str) -> bool {
     let lowered = clean_text(text, 520).to_ascii_lowercase();
     [
+        "affiliate link",
+        "affiliate links",
         "all rights reserved",
         "account today",
+        "amazon associate",
         "by clicking",
         "cookie policy",
+        "earn from qualifying purchases",
         "enter email",
         "explore ways to use",
         "for your next news release",
@@ -1889,7 +1895,10 @@ fn claim_text_is_synthesis_safe(text: &str) -> bool {
 
 fn claim_text_looks_like_title_bar_or_source_separator(text: &str) -> bool {
     let cleaned = clean_text(text, 520);
-    cleaned.contains(" | ") || cleaned.ends_with('—') || cleaned.ends_with(" -")
+    cleaned.contains(" | ")
+        || cleaned.ends_with('—')
+        || cleaned.ends_with(" -")
+        || cleaned.ends_with('-')
 }
 
 fn claim_hint_segment_is_substantive(segment: &str) -> bool {
@@ -1937,6 +1946,24 @@ fn claim_hint_segment_is_substantive(segment: &str) -> bool {
         " features ",
         " provides ",
         " produces ",
+        " uses ",
+        " identifies ",
+        " recognizes ",
+        " recognises ",
+        " avoids ",
+        " removes ",
+        " tackles ",
+        " detects ",
+        " senses ",
+        " navigates ",
+        " cleans ",
+        " picks up ",
+        " de-tangles ",
+        " detangles ",
+        " engineered ",
+        " designed ",
+        " built ",
+        " rated ",
         " publish ",
         " publishes ",
         " published ",
@@ -2024,6 +2051,66 @@ fn evidence_pack_claim_hints(query: &str, snippet: &str, limit: usize) -> Vec<St
     out
 }
 
+fn evidence_pack_fallback_claim_hints_for_candidate(
+    query: &str,
+    candidate: &Candidate,
+    limit: usize,
+) -> Vec<String> {
+    if !candidate_counts_as_query_usable_evidence(query, candidate, rerank_score(query, candidate))
+    {
+        return Vec::new();
+    }
+    let trusted_source = source_trust_adjustment(candidate) >= 0.15;
+    let snippet = claim_hint_normalized_snippet(&candidate.snippet);
+    if snippet.is_empty()
+        || looks_like_low_signal_search_summary(&snippet)
+        || looks_like_source_only_snippet(&snippet)
+        || contains_web_junk_marker(&snippet)
+        || looks_like_style_or_script_dump(&snippet)
+        || looks_like_hashtag_keyword_shell(&snippet)
+        || looks_like_media_embed_shell(&snippet)
+        || looks_like_link_directory_or_aggregator_shell(&snippet)
+    {
+        return Vec::new();
+    }
+
+    let query_terms = tokenize_relevance(query, 40);
+    let mut out = Vec::<String>::new();
+    for segment in snippet.split(|ch| matches!(ch, '.' | ';' | '\n' | '\r')) {
+        let cleaned = clean_text(segment, 420);
+        let word_count = cleaned.split_whitespace().count();
+        let alpha_count = cleaned.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
+        let visible_count = cleaned.chars().filter(|ch| !ch.is_whitespace()).count().max(1);
+        if word_count < 7
+            || alpha_count < 24
+            || alpha_count * 2 < visible_count
+            || !claim_text_is_synthesis_safe(&cleaned)
+            || claim_text_looks_like_page_or_subscription_boilerplate(&cleaned)
+            || looks_like_low_signal_search_summary(&cleaned)
+            || looks_like_source_only_snippet(&cleaned)
+            || looks_like_link_directory_or_aggregator_shell(&cleaned)
+        {
+            continue;
+        }
+        let segment_terms = tokenize_relevance(&cleaned, 80);
+        let has_query_overlap = query_terms.is_empty()
+            || query_terms
+                .iter()
+                .any(|term| segment_terms.contains(term.as_str()));
+        if !has_query_overlap && !trusted_source {
+            continue;
+        }
+        let claim = trim_words(&cleaned, 48);
+        if claim_text_is_synthesis_safe(&claim) {
+            out.push(claim);
+        }
+        if out.len() >= limit.max(1) {
+            break;
+        }
+    }
+    out
+}
+
 fn evidence_pack_claim_hints_for_candidate(
     query: &str,
     candidate: &Candidate,
@@ -2042,7 +2129,12 @@ fn evidence_pack_claim_hints_for_candidate(
             context.push_str(&timestamp);
         }
     }
-    evidence_pack_claim_hints(query, &context, limit)
+    let hints = evidence_pack_claim_hints(query, &context, limit);
+    if hints.is_empty() {
+        evidence_pack_fallback_claim_hints_for_candidate(query, candidate, limit)
+    } else {
+        hints
+    }
 }
 
 fn content_rich_text(text: &str) -> bool {

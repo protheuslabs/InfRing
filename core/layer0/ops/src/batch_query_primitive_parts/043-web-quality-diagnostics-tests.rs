@@ -1086,6 +1086,37 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn claim_hints_accept_product_feature_verbs_without_forcing_domain_terms() {
+        let hints = evidence_pack_claim_hints(
+            "compare Dyson and iRobot for pet hair",
+            "Introducing our promise to you and your pets. The new Roomba j7+ robot vacuum uses PrecisionVision Navigation to recognize and avoid pet messes. Dyson vacuums are engineered for homes with pets and automatically de-tangle long hair and pet hair.",
+            4,
+        );
+        let joined = hints.join(" ").to_ascii_lowercase();
+        assert!(joined.contains("precisionvision"), "{hints:#?}");
+        assert!(joined.contains("de-tangle") || joined.contains("engineered"), "{hints:#?}");
+    }
+
+    #[test]
+    fn claim_hints_fallback_extracts_clean_query_overlapping_evidence_fragment() {
+        let candidate = materialized_candidate(
+            "https://example.test/pet-hair-vacuum",
+            "Photo: Testing notes. Pet hair sticks like a magnet to carpeting and upholstery, making it hard to remove with weak suction or tangled brush rolls.",
+        );
+        let hints = evidence_pack_claim_hints_for_candidate(
+            "compare vacuums for pet hair in apartments",
+            &candidate,
+            2,
+        );
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint.contains("Pet hair sticks like a magnet")),
+            "{hints:#?}"
+        );
+    }
+
+    #[test]
     fn claim_hints_require_query_overlap_even_for_first_sentence() {
         let hints = evidence_pack_claim_hints(
             "give me news from this week",
@@ -1556,6 +1587,13 @@ mod web_quality_diagnostics_tests {
         assert!(!joined.contains("com/newsroom"), "{hints:#?}");
         assert!(!joined.contains("sign up"), "{hints:#?}");
         assert!(!joined.contains("business wire features"), "{hints:#?}");
+
+        let affiliate_hints = evidence_pack_claim_hints(
+            "compare vacuums for pet hair",
+            "Home Appliances Top 12 Best Vacuum For Pet Hair You Need Today. As an Amazon Associate, I earn from qualifying purchases. This post contains affiliate links.",
+            4,
+        );
+        assert!(affiliate_hints.is_empty(), "{affiliate_hints:#?}");
     }
 
     #[test]
@@ -2321,6 +2359,34 @@ mod web_quality_diagnostics_tests {
         let retained_ranked = actionable_ranked.clone();
         assert!(!comparison_partial_preserves_actionable_evidence(
             "Compare LangGraph and CrewAI",
+            &comparison_entities,
+            &actionable_ranked,
+            &retained_ranked,
+        ));
+    }
+
+    #[test]
+    fn comparison_partial_preserves_citable_rows_when_retained_candidates_cover_missing_side() {
+        let comparison_entities = vec!["LangGraph".to_string(), "CrewAI".to_string()];
+        let actionable_ranked = vec![(
+            materialized_candidate(
+                "https://docs.langchain.com/langgraph",
+                "LangGraph supports durable multi-agent workflow coordination with checkpointing and human review.",
+            ),
+            0.91,
+        )];
+        let retained_ranked = vec![
+            actionable_ranked[0].clone(),
+            (
+                candidate(
+                    "https://docs.crewai.com/overview",
+                    "CrewAI documentation describes multi-agent teams, process orchestration, tools, and deployment options.",
+                ),
+                0.82,
+            ),
+        ];
+        assert!(comparison_partial_preserves_actionable_evidence(
+            "Compare LangGraph and CrewAI for multi-agent orchestration",
             &comparison_entities,
             &actionable_ranked,
             &retained_ranked,

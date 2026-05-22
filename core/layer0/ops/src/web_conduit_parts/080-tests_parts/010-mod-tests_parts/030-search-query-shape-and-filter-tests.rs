@@ -62,6 +62,33 @@
     }
 
     #[test]
+    fn structured_search_provider_payload_preserves_result_rows() {
+        let out = render_tavily_payload(
+            r#"{
+                "results": [{
+                    "title": "Example current research update",
+                    "url": "https://news.example.com/current-research-update",
+                    "content": "Current research update with concrete source-backed details."
+                }],
+                "request_id": "req-test"
+            }"#,
+            &[],
+            false,
+            5,
+            20_000,
+        );
+        assert_eq!(out.get("ok").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            out.pointer("/results/0/url").and_then(Value::as_str),
+            Some("https://news.example.com/current-research-update")
+        );
+        assert_eq!(
+            out.pointer("/links/0").and_then(Value::as_str),
+            Some("https://news.example.com/current-research-update")
+        );
+    }
+
+    #[test]
     fn search_summary_only_aliases_are_explicit_opt_in() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let out = api_search(

@@ -626,6 +626,22 @@ fn comparison_entity_coverage_count(
         .count()
 }
 
+fn comparison_retained_entity_coverage_count(
+    query: &str,
+    comparison_entities: &[String],
+    retained_ranked: &[(Candidate, f64)],
+) -> usize {
+    comparison_entities
+        .iter()
+        .filter(|entity| {
+            retained_ranked.iter().any(|(row, score)| {
+                candidate_mentions_entity(row, entity)
+                    && candidate_retention_preview_eligible(query, row, *score)
+            })
+        })
+        .count()
+}
+
 fn comparison_partial_preserves_actionable_evidence(
     query: &str,
     comparison_entities: &[String],
@@ -633,11 +649,19 @@ fn comparison_partial_preserves_actionable_evidence(
     retained_ranked: &[(Candidate, f64)],
 ) -> bool {
     let min_covered_entities = comparison_entities.len().min(2);
-    min_covered_entities > 0
-        && comparison_entity_coverage_count(
-            query,
-            comparison_entities,
-            actionable_ranked,
-            retained_ranked,
-        ) >= min_covered_entities
+    if min_covered_entities == 0 {
+        return false;
+    }
+    let actionable_covered = comparison_entity_coverage_count(
+        query,
+        comparison_entities,
+        actionable_ranked,
+        retained_ranked,
+    );
+    if actionable_covered >= min_covered_entities {
+        return true;
+    }
+    actionable_covered > 0
+        && comparison_retained_entity_coverage_count(query, comparison_entities, retained_ranked)
+            >= min_covered_entities
 }

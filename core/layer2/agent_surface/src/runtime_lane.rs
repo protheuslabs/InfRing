@@ -1080,22 +1080,34 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
             ));
         }
     };
-    let fast_lane_model = runtime_lane_metadata_string(
-        metadata,
-        &[
-            "/native_success_criteria/fast_lane_model",
-            "/workflow/native_success_criteria/fast_lane_model",
-        ],
-    )
-    .or_else(|| model.cloned());
-    let fast_lane_repair_model = runtime_lane_metadata_string(
-        metadata,
-        &[
-            "/native_success_criteria/fast_lane_repair_model",
-            "/workflow/native_success_criteria/fast_lane_repair_model",
-        ],
-    )
-    .or_else(|| model.cloned());
+    let model_lock = std::env::var("INFRING_RUNTIME_LANE_MODEL_LOCK")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let fast_lane_model = model_lock
+        .clone()
+        .or_else(|| {
+            runtime_lane_metadata_string(
+                metadata,
+                &[
+                    "/native_success_criteria/fast_lane_model",
+                    "/workflow/native_success_criteria/fast_lane_model",
+                ],
+            )
+        })
+        .or_else(|| model.cloned());
+    let fast_lane_repair_model = model_lock
+        .clone()
+        .or_else(|| {
+            runtime_lane_metadata_string(
+                metadata,
+                &[
+                    "/native_success_criteria/fast_lane_repair_model",
+                    "/workflow/native_success_criteria/fast_lane_repair_model",
+                ],
+            )
+        })
+        .or_else(|| model.cloned());
     let fast_lane_omit_ollama_thinking_flags = runtime_lane_metadata_bool(
         metadata,
         &[
@@ -1104,31 +1116,6 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
         ],
     )
     .unwrap_or(false);
-    let fast_lane_repair_omit_ollama_thinking_flags = runtime_lane_metadata_bool(
-        metadata,
-        &[
-            "/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
-            "/workflow/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
-            "/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
-            "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
-        ],
-    )
-    .unwrap_or(false);
-    let strong_first_pass_reason =
-        runtime_lane_bounded_existing_project_strong_first_pass_reason(prompt);
-    let fast_lane_first_pass_model = if strong_first_pass_reason.is_some() {
-        fast_lane_repair_model
-            .clone()
-            .or_else(|| fast_lane_model.clone())
-    } else {
-        fast_lane_model.clone()
-    };
-    let fast_lane_first_pass_omit_ollama_thinking_flags =
-        if strong_first_pass_reason.is_some() {
-            fast_lane_repair_omit_ollama_thinking_flags
-        } else {
-            fast_lane_omit_ollama_thinking_flags
-        };
     let model_started = Instant::now();
     let mut provider_response = match provider_client.complete(&ProviderRequest {
             prompt: runtime_lane_bounded_existing_project_edit_loop_prompt(
@@ -1138,16 +1125,16 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
             ),
             system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
             tools: Vec::new(),
-            model: fast_lane_first_pass_model.clone(),
+            model: fast_lane_model.clone(),
             metadata: json!({
                 "provider_timeout_seconds": metadata
                     .pointer("/native_success_criteria/fast_lane_provider_timeout_seconds")
                     .and_then(Value::as_u64)
                     .or_else(|| metadata.pointer("/workflow/native_success_criteria/fast_lane_provider_timeout_seconds").and_then(Value::as_u64))
                     .unwrap_or(60),
-                "omit_ollama_thinking_flags": fast_lane_first_pass_omit_ollama_thinking_flags,
+                "omit_ollama_thinking_flags": fast_lane_omit_ollama_thinking_flags,
                 "lane": "bounded_existing_project_edit_loop",
-                "strong_first_pass_reason": strong_first_pass_reason,
+                "attempt": "fast_manifest_first_pass",
                 "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
             }),
         }) {
@@ -1160,8 +1147,7 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                     "lane": "bounded_existing_project_edit_loop",
                     "failure_code": error.code.as_str(),
                     "failure_message": error.message,
-                    "planner_model": fast_lane_first_pass_model,
-                    "strong_first_pass_reason": strong_first_pass_reason,
+                    "planner_model": fast_lane_model.clone(),
                     "phase_latency_ms": {
                         "workflow_load": 0,
                         "execution_shape_gate": execution_shape_gate_ms,
@@ -1313,6 +1299,9 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
         "bounded_existing_project_edit_loop_validation",
         &mut validation_call_id,
     );
+    if validation_command.is_some() {
+        candidate.requires_validation = true;
+    }
     let semantic_probe = runtime_lane_extract_semantic_probe_command(prompt, &workspace_root);
     let mut semantic_probe_call_id = None;
     runtime_lane_attach_semantic_probe_action(
@@ -1403,76 +1392,122 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
         }
     }
     if runtime_lane_receipts_need_repair(&receipts, candidate.requires_validation) {
-        if let Some(failure_summary) = runtime_lane_first_receipt_failure_summary(&receipts) {
-            let repair_context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
-            let repair_prompt = runtime_lane_model_manifest_planner_retry_prompt(
-                prompt,
-                &workspace_root,
-                &repair_context_pack,
-                "bounded_existing_project_validation_repair",
-                "post_mutation_validation_failed",
-                &failure_summary,
-                Some("Return a small repair manifest that patches the current files, preserves existing public API behavior, fixes validation or tool errors, and reruns validation."),
-            );
-            if let Ok(repair_response) = provider_client.complete(&ProviderRequest {
-                prompt: repair_prompt,
-                system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
-                tools: Vec::new(),
-                model: fast_lane_repair_model.clone(),
-                metadata: json!({
-                    "provider_timeout_seconds": metadata
-                        .pointer("/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
-                        .and_then(Value::as_u64)
-                        .or_else(|| metadata.pointer("/workflow/native_success_criteria/fast_lane_repair_provider_timeout_seconds").and_then(Value::as_u64))
-                        .unwrap_or(45),
-                    "omit_ollama_thinking_flags": runtime_lane_metadata_bool(
-                        metadata,
-                        &[
-                            "/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
-                            "/workflow/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
-                            "/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
-                            "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
-                        ],
-                    )
-                    .unwrap_or(false),
-                    "lane": "bounded_existing_project_edit_loop",
-                    "attempt": "validation_repair",
-                    "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
-                }),
-            }) {
-                if let Ok(mut repair_candidate) = runtime_lane_model_manifest_candidate_from_output(
+        if let Some(initial_failure_summary) = runtime_lane_first_receipt_failure_summary(&receipts) {
+            let mut repair_failure_summary = initial_failure_summary;
+            let max_validation_repair_attempts = 2;
+            for repair_attempt_index in 0..max_validation_repair_attempts {
+                let repair_context_pack = runtime_lane_model_manifest_context_pack_with_failure(
+                    prompt,
+                    &workspace_root,
+                    &repair_failure_summary,
+                );
+                let repair_prompt = runtime_lane_model_manifest_validation_repair_prompt(
+                    prompt,
+                    &workspace_root,
+                    &repair_context_pack,
+                    &repair_failure_summary,
+                );
+                let repair_response = match provider_client.complete(&ProviderRequest {
+                    prompt: repair_prompt,
+                    system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
+                    tools: Vec::new(),
+                    model: fast_lane_repair_model.clone(),
+                    metadata: json!({
+                        "provider_timeout_seconds": metadata
+                            .pointer("/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
+                            .and_then(Value::as_u64)
+                            .or_else(|| metadata.pointer("/workflow/native_success_criteria/fast_lane_repair_provider_timeout_seconds").and_then(Value::as_u64))
+                            .unwrap_or(45),
+                        "omit_ollama_thinking_flags": runtime_lane_metadata_bool(
+                            metadata,
+                            &[
+                                "/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                                "/workflow/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                                "/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                                "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                            ],
+                        )
+                        .unwrap_or(false),
+                        "lane": "bounded_existing_project_edit_loop",
+                        "attempt": "validation_repair",
+                        "repair_attempt_index": repair_attempt_index,
+                        "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+                    }),
+                }) {
+                    Ok(response) => response,
+                    Err(error) => {
+                        repair_failure_summary = format!(
+                            "Validation repair provider call failed on attempt {}.\nerror: {:?}",
+                            repair_attempt_index + 1,
+                            error
+                        );
+                        continue;
+                    }
+                };
+                let mut repair_candidate = match runtime_lane_model_manifest_candidate_from_output(
                     &repair_response.output,
                     tools,
                     capability_packs,
                     permissions,
                 ) {
-                    let mut repair_probe_call_id = None;
-                    let mut repair_validation_call_id = None;
-                    runtime_lane_attach_semantic_probe_action(
-                        &mut repair_candidate,
-                        validation_command.as_ref(),
-                        "bounded_existing_project_edit_loop_validation_repair_validation",
-                        &mut repair_validation_call_id,
-                    );
-                    runtime_lane_attach_semantic_probe_action(
-                        &mut repair_candidate,
-                        semantic_probe.as_ref(),
-                        "bounded_existing_project_edit_loop_validation_repair",
-                        &mut repair_probe_call_id,
-                    );
-                    let repair_receipts = runtime_lane_dispatch_model_manifest_actions(
-                        &repair_candidate,
-                        "bounded_existing_project_edit_loop_validation_repair",
-                    );
-                    if repair_receipts
-                        .iter()
-                        .any(runtime_lane_receipt_is_successful_mutation)
-                    {
-                        candidate = repair_candidate;
-                        receipts = repair_receipts;
-                        provider_response = repair_response;
+                    Ok(candidate) => candidate,
+                    Err(repair_failure) => {
+                        repair_failure_summary = format!(
+                            "Validation repair manifest was not executable on attempt {}.\nfailure_code: {}\nfailure_message: {}\nneeded_input: {:?}\nprovider_output_preview: {}",
+                            repair_attempt_index + 1,
+                            repair_failure.failure_code,
+                            repair_failure.failure_message,
+                            repair_failure.needed_input,
+                            repair_failure.provider_output_preview
+                        );
+                        continue;
                     }
+                };
+                let mut repair_probe_call_id = None;
+                let mut repair_validation_call_id = None;
+                runtime_lane_attach_semantic_probe_action(
+                    &mut repair_candidate,
+                    validation_command.as_ref(),
+                    "bounded_existing_project_edit_loop_validation_repair_validation",
+                    &mut repair_validation_call_id,
+                );
+                if validation_command.is_some() {
+                    repair_candidate.requires_validation = true;
                 }
+                runtime_lane_attach_semantic_probe_action(
+                    &mut repair_candidate,
+                    semantic_probe.as_ref(),
+                    "bounded_existing_project_edit_loop_validation_repair",
+                    &mut repair_probe_call_id,
+                );
+                let repair_receipts = runtime_lane_dispatch_model_manifest_actions(
+                    &repair_candidate,
+                    "bounded_existing_project_edit_loop_validation_repair",
+                );
+                let repair_success = repair_receipts
+                    .iter()
+                    .any(runtime_lane_receipt_is_successful_mutation)
+                    && runtime_lane_receipts_validation_ok(
+                        &repair_receipts,
+                        repair_candidate.requires_validation,
+                    );
+                if repair_success
+                {
+                    candidate = repair_candidate;
+                    receipts = repair_receipts;
+                    provider_response = repair_response;
+                    break;
+                }
+                if let Some(next_failure_summary) = runtime_lane_first_receipt_failure_summary(&repair_receipts) {
+                    repair_failure_summary = next_failure_summary;
+                } else {
+                    repair_failure_summary = format!(
+                        "Validation repair attempt {} did not produce passing validation receipts.",
+                        repair_attempt_index + 1
+                    );
+                }
+                candidate = repair_candidate;
+                receipts = repair_receipts;
             }
         }
     }
@@ -3024,38 +3059,6 @@ fn runtime_lane_bounded_existing_project_edit_loop_eligible(
     has_mutation_intent && existing_project_signal && !broad_architecture_signal
 }
 
-fn runtime_lane_bounded_existing_project_strong_first_pass_reason(
-    prompt: &str,
-) -> Option<&'static str> {
-    let lower = prompt.to_ascii_lowercase();
-    if lower.contains("semantic probe command") {
-        return Some("semantic_probe_required");
-    }
-    if lower.contains("validation command") || lower.contains("run validation") {
-        return Some("validation_command_required");
-    }
-    if lower.contains("regression test")
-        || lower.contains("add tests")
-        || lower.contains("existing tests")
-    {
-        return Some("regression_tests_required");
-    }
-    if lower.contains("multi-file")
-        || lower.contains("multi file")
-        || lower.contains("multi-requirement")
-        || lower.contains("multi requirement")
-        || lower.contains("vertical slice")
-    {
-        return Some("multi_file_or_multi_requirement_task");
-    }
-    if lower.contains("preserve")
-        && (lower.contains("existing behavior") || lower.contains("public api"))
-    {
-        return Some("preserve_existing_public_behavior");
-    }
-    None
-}
-
 fn runtime_lane_bounded_existing_project_edit_loop_system() -> String {
     "You are the bounded_existing_project_edit_loop fast lane for a primitive-first local coding runtime.\n\
 Return only valid JSON. No markdown. No prose.\n\
@@ -3063,6 +3066,7 @@ Use this exact shape: {\"deterministic_local_loop\":{\"workspace_root\":\"/absol
 Allowed actions: file_patch with path, old, new, allow_multiple; write_file with path, content, overwrite; command_run with cmd.\n\
 Prefer file_patch for existing-file localized edits. Use write_file only for new files or broad replacements.\n\
 Keep the action list small. Use exact old text from the context pack for patches. Preserve existing behavior.\n\
+Preserve existing public import paths and owner modules. If tests, probes, or callers import a symbol from a module, make that module provide the symbol directly; a package __init__ re-export alone is not enough.\n\
 Include focused regression tests when requested. Include validation and semantic probe commands when present.\n\
 Only return {\"structured_blocker\":{\"reason\":\"insufficient_context\"}} when the context pack lacks the source/test files needed to make a safe edit. If relevant source and tests are present, produce the smallest safe manifest."
         .to_string()
@@ -3075,7 +3079,7 @@ fn runtime_lane_bounded_existing_project_edit_loop_prompt(
 ) -> String {
     let compact_context = runtime_lane_compact_context_pack(context_pack);
     format!(
-        "Workspace root: {}\n\nUser task:\n{}\n\nCompact authoritative local context:\n{}\n\nReturn the smallest safe deterministic_local_loop manifest. Prefer patch actions for existing files. Run validation and the semantic probe command if supplied by the task.",
+        "Workspace root: {}\n\nUser task:\n{}\n\nCompact authoritative local context:\n{}\n\nReturn the smallest safe deterministic_local_loop manifest. Prefer patch actions for existing files. Preserve existing public import paths and owner modules. If a validation test or semantic probe imports a symbol from a module, make that module provide the symbol directly. Run validation and the semantic probe command if supplied by the task.",
         workspace_root.display(),
         prompt.trim(),
         compact_context
@@ -3217,6 +3221,23 @@ fn runtime_lane_model_manifest_semantic_repair_prompt(
     )
 }
 
+fn runtime_lane_model_manifest_validation_repair_prompt(
+    prompt: &str,
+    workspace_root: &Path,
+    context_pack: &str,
+    failure_summary: &str,
+) -> String {
+    let compact_context = runtime_lane_compact_context_pack(context_pack);
+    format!(
+        "Workspace root: {}\n\nUser task:\n{}\n\nPost-mutation validation failed. This is a bounded repair of the current project state, not a restart.\nUse the validation failure as evidence. Patch the smallest source/test surface that caused the failure, preserve existing public behavior, and rerun validation.\nIf the traceback, tests, or semantic probe import a symbol from a module, make that module provide the symbol directly; do not rely only on package-level re-exports or unrelated sibling modules.\n\nValidation failure evidence:\n{}\n\nCurrent local context, including files mentioned by the failure when available:\n{}\n\nReturn only corrected deterministic_local_loop JSON. Use this exact outer shape: {{\"deterministic_local_loop\":{{\"workspace_root\":\"{}\",\"actions\":[...]}}}}. Prefer type=\"file_patch\" with path, old, and new for localized edits. If the failed file is small or patch context is uncertain, use type=\"write_file\" with full current corrected content and overwrite=true. Include a command_run action for the validation command. Do not edit validation harness files or semantic probe files unless the user explicitly asked to change them.",
+        workspace_root.display(),
+        prompt.trim(),
+        failure_summary,
+        compact_context,
+        workspace_root.display()
+    )
+}
+
 fn runtime_lane_model_manifest_context_pack(prompt: &str, workspace_root: &Path) -> String {
     if !workspace_root.is_dir() {
         return String::new();
@@ -3279,6 +3300,84 @@ fn runtime_lane_model_manifest_context_pack(prompt: &str, workspace_root: &Path)
         }
     }
     out
+}
+
+fn runtime_lane_model_manifest_context_pack_with_failure(
+    prompt: &str,
+    workspace_root: &Path,
+    failure_summary: &str,
+) -> String {
+    let mut out = runtime_lane_model_manifest_context_pack(prompt, workspace_root);
+    let mut appended = 0usize;
+    for relative_path in runtime_lane_paths_mentioned_by_failure(workspace_root, failure_summary) {
+        if appended >= 6 {
+            break;
+        }
+        let marker = format!("--- file: {}", relative_path);
+        let failed_marker = format!("--- failed file: {}", relative_path);
+        if out.contains(&marker) || out.contains(&failed_marker) {
+            continue;
+        }
+        let path = workspace_root.join(&relative_path);
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if content.len() > 12_000 {
+            continue;
+        }
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&format!(
+            "\n--- failed file: {} reason: validation_failure_traceback ---\n",
+            relative_path
+        ));
+        out.push_str(&content);
+        if !content.ends_with('\n') {
+            out.push('\n');
+        }
+        appended += 1;
+    }
+    out
+}
+
+fn runtime_lane_paths_mentioned_by_failure(
+    workspace_root: &Path,
+    failure_summary: &str,
+) -> Vec<String> {
+    let root = workspace_root.display().to_string();
+    let mut paths = Vec::<String>::new();
+    for line in failure_summary.lines() {
+        let mut search_from = 0usize;
+        while let Some(index) = line[search_from..].find(&root) {
+            let absolute_start = search_from + index;
+            let tail = &line[absolute_start + root.len()..];
+            if let Some(relative) = runtime_lane_failure_tail_to_relative_path(tail) {
+                if !paths.iter().any(|path| path == &relative) {
+                    paths.push(relative);
+                }
+            }
+            search_from = absolute_start + root.len();
+        }
+    }
+    paths
+}
+
+fn runtime_lane_failure_tail_to_relative_path(tail: &str) -> Option<String> {
+    let tail = tail.strip_prefix('/')?;
+    let extensions = [
+        ".py", ".rs", ".ts", ".tsx", ".js", ".jsx", ".json", ".toml", ".yaml", ".yml",
+        ".md",
+    ];
+    let end = extensions
+        .iter()
+        .filter_map(|extension| tail.find(extension).map(|index| index + extension.len()))
+        .min()?;
+    let candidate = &tail[..end];
+    if candidate.contains("..") || candidate.starts_with('/') || candidate.trim().is_empty() {
+        return None;
+    }
+    Some(candidate.to_string())
 }
 
 fn runtime_lane_compact_context_pack(context_pack: &str) -> String {
@@ -3641,17 +3740,20 @@ fn runtime_lane_receipts_need_repair(
     if receipts.iter().any(|receipt| receipt.status != "ok") {
         return true;
     }
-    if !requires_validation {
-        return false;
-    }
-    receipts.iter().any(|receipt| {
+    if receipts.iter().any(|receipt| {
         receipt.tool_name == "command_run"
             && !receipt
                 .result
                 .get("success")
                 .and_then(Value::as_bool)
                 .unwrap_or(true)
-    })
+    }) {
+        return true;
+    }
+    if !requires_validation {
+        return false;
+    }
+    false
 }
 
 fn runtime_lane_receipts_validation_ok(
