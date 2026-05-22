@@ -113,6 +113,11 @@ fn default_policy() -> Value {
                     "max_per_stage": 3,
                     "selection": "merge_structured_result_locators_with_payload_links_when_candidates_are_thin_or_coverage_is_weak"
                 },
+                "hub_discovery": {
+                    "enabled": true,
+                    "max_links_per_hub": 2,
+                    "mode": "fetch_relevant_directory_pages_only_to_discover_article_like_links"
+                },
                 "url_hygiene": {
                     "enabled": true,
                     "drop_fragment_for_dedupe": true,
@@ -216,29 +221,50 @@ fn default_policy() -> Value {
                 "min_materialized_evidence": 2,
                 "min_claim_hints": 3,
                 "templates": [
-                    "{entities} {facet} detailed source-backed findings",
-                    "{entities} {facet} primary report results",
-                    "{query} detailed source-backed findings",
-                    "{query} primary report or official results"
+                    "{entities} {facet} detailed findings",
+                    "{entities} {facet} source-backed evidence",
+                    "{query} detailed findings",
+                    "{query} source-backed evidence"
                 ]
             },
             "quality_gate": {
                 "enabled": true,
                 "provider_recovery": {
                     "enabled": true,
-                    "max_providers": 2,
+                    "max_providers": 6,
                     "providers": [
-                        "serperdev"
+                        "tavily",
+                        "exa",
+                        "brave",
+                        "serperdev",
+                        "google_news_rss",
+                        "duckduckgo_lite",
+                        "bing_rss"
                     ],
                     "current_intent_providers": [
+                        "tavily",
+                        "exa",
+                        "brave",
+                        "serperdev",
+                        "google_news_rss",
+                        "bing_rss",
                         "duckduckgo_lite"
+                    ],
+                    "official_source_providers": [
+                        "tavily",
+                        "exa",
+                        "brave",
+                        "serperdev",
+                        "browser_serp",
+                        "duckduckgo_lite",
+                        "duckduckgo"
                     ]
                 }
             },
             "query_recovery": {
                 "broad_current_research": {
                     "enabled": true,
-                    "max_queries": 6,
+                    "max_queries": 4,
                     "intent_markers": [
                         "breakthrough",
                         "breakthroughs",
@@ -257,16 +283,14 @@ fn default_policy() -> Value {
                     ],
                     "templates": [
                         "{query}",
-                        "{query} source-backed overview",
-                        "{query} primary sources",
-                        "{query} official sources",
-                        "{query} recent publications",
-                        "{query} institution announcements"
+                        "{query} latest",
+                        "{query} recent report",
+                        "{query} source-backed evidence"
                     ]
                 },
                 "general_research": {
                     "enabled": true,
-                    "max_queries": 6,
+                    "max_queries": 5,
                     "intent_markers": [
                         "assess",
                         "avoid",
@@ -302,11 +326,10 @@ fn default_policy() -> Value {
                     ],
                     "templates": [
                         "{query}",
-                        "{query} primary source evidence",
-                        "{query} official documentation project sources",
-                        "{query} independent analysis comparison evidence",
-                        "{query} risks limitations security reliability evidence",
-                        "{query} production usage examples case studies"
+                        "{query} source-backed evidence",
+                        "{query} independent analysis",
+                        "{query} reports data",
+                        "{query} limitations risks"
                     ]
                 }
             }
@@ -536,6 +559,21 @@ fn page_extraction_candidate_locator_max_per_stage(policy: &Value) -> usize {
         .and_then(Value::as_u64)
         .unwrap_or(3)
         .clamp(0, 10) as usize
+}
+
+fn page_extraction_hub_discovery_enabled(policy: &Value) -> bool {
+    policy
+        .pointer("/batch_query/page_extraction/hub_discovery/enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn page_extraction_hub_discovery_max_links(policy: &Value) -> usize {
+    policy
+        .pointer("/batch_query/page_extraction/hub_discovery/max_links_per_hub")
+        .and_then(Value::as_u64)
+        .unwrap_or(2)
+        .clamp(0, 6) as usize
 }
 
 fn page_extraction_url_hygiene_enabled(policy: &Value) -> bool {

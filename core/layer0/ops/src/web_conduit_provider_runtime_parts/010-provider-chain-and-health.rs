@@ -66,6 +66,7 @@ fn builtin_provider_descriptors(family: WebProviderFamily) -> &'static [WebProvi
         WebProviderDescriptor { family: WebProviderFamily::Search, provider: "exa", aliases: &["exa", "exa_search", "exaai", "exa_ai"], source_kind: "structured_api", env_keys: &["INFRING_EXA_API_KEY", "EXA_API_KEY"] },
         WebProviderDescriptor { family: WebProviderFamily::Search, provider: "brave", aliases: &["brave", "brave_search", "brave-search"], source_kind: "structured_api", env_keys: &["INFRING_BRAVE_SEARCH_API_KEY", "BRAVE_SEARCH_API_KEY", "BRAVE_API_KEY"] },
         WebProviderDescriptor { family: WebProviderFamily::Search, provider: "serperdev", aliases: &["serper", "serperdev"], source_kind: "structured_api", env_keys: &["INFRING_SERPERDEV_API_KEY", "SERPERDEV_API_KEY", "INFRING_SERPER_API_KEY", "SERPER_API_KEY"] },
+        WebProviderDescriptor { family: WebProviderFamily::Search, provider: "browser_serp", aliases: &["browser_serp", "browser-serp", "browser_search", "browser-search", "serp_browser", "serp-browser"], source_kind: "browser_search", env_keys: &[] },
         WebProviderDescriptor { family: WebProviderFamily::Search, provider: "duckduckgo", aliases: &["duckduckgo", "ddg"], source_kind: "html_search", env_keys: &[] },
         WebProviderDescriptor { family: WebProviderFamily::Search, provider: "duckduckgo_lite", aliases: &["duckduckgo_lite", "ddg_lite", "duckduckgo-lite", "ddg-lite", "lite"], source_kind: "html_search", env_keys: &[] },
         WebProviderDescriptor { family: WebProviderFamily::Search, provider: "google_news_rss", aliases: &["google_news", "google-news", "google_news_rss", "google-news-rss", "news_rss", "news-rss", "gnews"], source_kind: "news_rss_feed", env_keys: &[] },
@@ -377,6 +378,8 @@ where
         "exa" | "exa_search" | "exaai" | "exa_ai" => prefix.push("exa".to_string()),
         "brave" | "brave_search" | "brave-search" => prefix.push("brave".to_string()),
         "serper" | "serperdev" => prefix.push("serperdev".to_string()),
+        "browser_serp" | "browser-serp" | "browser_search" | "browser-search"
+        | "serp_browser" | "serp-browser" => prefix.push("browser_serp".to_string()),
         _ => {}
     }
     let hint_explicit = matches!(
@@ -386,7 +389,9 @@ where
             | "duckduckgo" | "ddg" | "tavily" | "tavily_search" | "tvly"
             | "duckduckgo_lite" | "ddg_lite" | "duckduckgo-lite" | "ddg-lite" | "lite"
             | "exa" | "exa_search" | "exaai" | "exa_ai" | "brave" | "brave_search"
-            | "brave-search" | "serper" | "serperdev"
+            | "brave-search" | "serper" | "serperdev" | "browser_serp"
+            | "browser-serp" | "browser_search" | "browser-search" | "serp_browser"
+            | "serp-browser"
     );
     let mut merged = prefix;
     if prefer_runtime_provider && !hint_explicit {
@@ -410,7 +415,13 @@ where
     let mut credential_ready = Vec::<String>::new();
     let mut missing_credential = Vec::<String>::new();
     for provider in deduped {
-        if provider_has_runtime_credential_with(&provider, WebProviderFamily::Search, resolve_env) { credential_ready.push(provider); } else { missing_credential.push(provider); }
+        if provider_has_configured_secret_ref(policy, &provider, WebProviderFamily::Search)
+            || provider_has_runtime_credential_with(&provider, WebProviderFamily::Search, resolve_env)
+        {
+            credential_ready.push(provider);
+        } else {
+            missing_credential.push(provider);
+        }
     }
     credential_ready.extend(missing_credential);
     credential_ready
@@ -453,7 +464,13 @@ where
     let mut credential_ready = Vec::<String>::new();
     let mut missing_credential = Vec::<String>::new();
     for provider in deduped {
-        if provider_has_runtime_credential_with(&provider, WebProviderFamily::Fetch, resolve_env) { credential_ready.push(provider); } else { missing_credential.push(provider); }
+        if provider_has_configured_secret_ref(policy, &provider, WebProviderFamily::Fetch)
+            || provider_has_runtime_credential_with(&provider, WebProviderFamily::Fetch, resolve_env)
+        {
+            credential_ready.push(provider);
+        } else {
+            missing_credential.push(provider);
+        }
     }
     credential_ready.extend(missing_credential);
     credential_ready
@@ -703,6 +720,12 @@ fn provider_error_is_configuration_failure(error: &str) -> bool {
         "key_unresolved",
         "missing credential",
         "missing api key",
+        "web_conduit_policy_denied",
+        "policy_denied",
+        "policy_blocked",
+        "policy blocked",
+        "provider_network_policy_blocked",
+        "not admitted by policy",
     ]
     .iter()
     .any(|marker| lowered.contains(marker))

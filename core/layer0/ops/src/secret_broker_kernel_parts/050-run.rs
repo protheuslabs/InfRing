@@ -46,6 +46,7 @@ pub fn run(root: &Path, argv: &[String]) -> i32 {
             with_audit,
         ))
         .unwrap_or_else(|_| json!({ "ok": false, "error": "secret_value_missing" })),
+        "put-secret" => put_secret_by_id(root, payload, &policy, &audit_path, with_audit),
         "rotation-health" => serde_json::to_value(rotation_health_report(
             root,
             payload,
@@ -66,6 +67,32 @@ pub fn run(root: &Path, argv: &[String]) -> i32 {
     } else {
         2
     }
+}
+
+pub(crate) fn resolve_secret_value_for_runtime(
+    root: &Path,
+    secret_id: &str,
+    caller: &str,
+) -> Value {
+    let payload_value = json!({
+        "secret_id": secret_id,
+        "caller": caller,
+        "with_audit": true
+    });
+    let payload = payload_obj(&payload_value);
+    let policy = load_policy(root, payload);
+    serde_json::to_value(load_secret_by_id(
+        root,
+        payload,
+        &policy,
+        &default_audit_path(root),
+        true,
+    ))
+    .unwrap_or_else(|_| json!({
+        "ok": false,
+        "secret_id": secret_id,
+        "error": "secret_value_missing"
+    }))
 }
 
 #[cfg(test)]
@@ -179,5 +206,59 @@ mod tests {
         );
         assert!(loaded.ok);
         assert_eq!(loaded.value, "json-secret");
+    }
+
+    #[test]
+    fn put_secret_uses_encrypted_local_file_provider() {
+        let root = temp_root();
+        let policy_path = root
+            .path()
+            .join("client/runtime/config/secret_broker_policy.json");
+        let vault_path = root
+            .path()
+            .join("client/runtime/local/secrets/vault/web/search/tavily.secret.json");
+        fs::write(
+            &policy_path,
+            format!(
+                "{{\"version\":\"1.0\",\"audit\":{{\"include_backend_details\":true}},\"secrets\":{{\"web_search_tavily_api_key\":{{\"providers\":[{{\"type\":\"encrypted_file\",\"paths\":[\"{}\"],\"field\":\"api_key\",\"rotated_at_field\":\"rotated_at\"}}]}}}}}}",
+                vault_path.to_string_lossy().replace('\\', "\\\\")
+            ),
+        )
+        .expect("policy");
+        std::env::set_var("SECRET_BROKER_KEY", "test-secret-key");
+        let policy = load_policy(
+            root.path(),
+            payload_obj(&json!({
+                "policy_path": policy_path.to_string_lossy().to_string()
+            })),
+        );
+        let stored = put_secret_by_id(
+            root.path(),
+            payload_obj(&json!({
+                "secret_id": "web_search_tavily_api_key",
+                "value": "tvly-test",
+                "rotated_at": "2026-05-20T00:00:00Z"
+            })),
+            &policy,
+            &default_audit_path(root.path()),
+            false,
+        );
+        assert_eq!(stored.get("ok").and_then(Value::as_bool), Some(true));
+        let raw = fs::read_to_string(&vault_path).expect("vault file");
+        assert!(!raw.contains("tvly-test"));
+        assert!(raw.contains("secret_broker_encrypted_file_v1"));
+        let loaded = load_secret_by_id(
+            root.path(),
+            payload_obj(&json!({ "secret_id": "web_search_tavily_api_key" })),
+            &policy,
+            &default_audit_path(root.path()),
+            false,
+        );
+        assert!(loaded.ok);
+        assert_eq!(loaded.value, "tvly-test");
+        assert_eq!(
+            loaded.backend.as_ref().map(|row| row.provider_type.as_str()),
+            Some("encrypted_file")
+        );
     }
 }

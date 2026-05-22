@@ -699,12 +699,33 @@
       "enabled": true,
       "provider_recovery": {
         "enabled": true,
-        "max_providers": 2,
+        "max_providers": 6,
         "providers": [
-          "gdelt_doc"
+          "tavily",
+          "exa",
+          "brave",
+          "serperdev",
+          "google_news_rss",
+          "duckduckgo_lite",
+          "bing_rss"
         ],
         "current_intent_providers": [
-          "gdelt_doc"
+          "tavily",
+          "exa",
+          "brave",
+          "serperdev",
+          "google_news_rss",
+          "bing_rss",
+          "duckduckgo_lite"
+        ],
+        "official_source_providers": [
+          "tavily",
+          "exa",
+          "brave",
+          "serperdev",
+          "browser_serp",
+          "duckduckgo_lite",
+          "duckduckgo"
         ]
       }
     },

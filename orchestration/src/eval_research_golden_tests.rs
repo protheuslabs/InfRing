@@ -828,7 +828,9 @@ fn research_golden_reports_transport_timeout_outside_gate_denominators() {
     );
     assert_eq!(
         report
-            .pointer("/measurement_split/end_to_end_golden/transport_adjusted_research_success_rate")
+            .pointer(
+                "/measurement_split/end_to_end_golden/transport_adjusted_research_success_rate"
+            )
             .and_then(Value::as_f64),
         Some(1.0)
     );

@@ -17,6 +17,7 @@ fn provider_type_name(provider: &ProviderConfig) -> &'static str {
     match provider {
         ProviderConfig::Env { .. } => "env",
         ProviderConfig::JsonFile { .. } => "json_file",
+        ProviderConfig::EncryptedFile { .. } => "encrypted_file",
         ProviderConfig::Command { .. } => "command",
     }
 }
@@ -97,6 +98,197 @@ fn provider_json_file(root: &Path, secret_id: &str, provider: &ProviderConfig) -
             "value": trimmed,
             "rotated_at": rotated_at,
             "provider_type": "json_file",
+            "provider_ref": resolved,
+            "external": false
+        }));
+    }
+    None
+}
+
+fn encrypted_file_aad(secret_id: &str) -> String {
+    format!("secret_broker_encrypted_file_v1:{secret_id}")
+}
+
+fn encrypted_file_key(root: &Path) -> Result<[u8; 32], String> {
+    let key = secret_broker_key(root)?;
+    let digest = Sha256::digest(key.as_bytes());
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest[..32]);
+    Ok(out)
+}
+
+fn encrypt_secret_payload(root: &Path, secret_id: &str, payload: &Value) -> Result<Value, String> {
+    let encoded =
+        serde_json::to_vec(payload).map_err(|err| format!("secret_payload_encode_failed:{err}"))?;
+    let key_bytes = encrypted_file_key(root)?;
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let mut nonce_bytes = [0u8; 12];
+    rand::rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let aad = encrypted_file_aad(secret_id);
+    let ciphertext = cipher
+        .encrypt(
+            nonce,
+            aes_gcm::aead::Payload {
+                msg: &encoded,
+                aad: aad.as_bytes(),
+            },
+        )
+        .map_err(|err| format!("secret_payload_encrypt_failed:{err}"))?;
+    let ciphertext_b64 = BASE64_STANDARD.encode(ciphertext);
+    Ok(json!({
+        "version": "secret_broker_encrypted_file_v1",
+        "secret_id": secret_id,
+        "updated_at": now_iso(),
+        "encryption": {
+            "alg": "aes-256-gcm",
+            "key_source": "secret_broker_local_key",
+            "aad": aad,
+            "nonce_b64": BASE64_STANDARD.encode(nonce_bytes)
+        },
+        "ciphertext_b64": ciphertext_b64,
+        "ciphertext_sha256": hex::encode(Sha256::digest(ciphertext_b64.as_bytes()))
+    }))
+}
+
+fn decrypt_secret_payload(root: &Path, secret_id: &str, envelope: &Value) -> Result<Value, String> {
+    let encryption = envelope
+        .get("encryption")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "encrypted_file_encryption_missing".to_string())?;
+    let alg = encryption
+        .get("alg")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if alg != "aes-256-gcm" {
+        return Err("encrypted_file_alg_unsupported".to_string());
+    }
+    let aad = encryption
+        .get("aad")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let expected_aad = encrypted_file_aad(secret_id);
+    if aad != expected_aad {
+        return Err("encrypted_file_aad_mismatch".to_string());
+    }
+    let nonce_b64 = encryption
+        .get("nonce_b64")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "encrypted_file_nonce_missing".to_string())?;
+    let nonce_bytes = BASE64_STANDARD
+        .decode(nonce_b64.as_bytes())
+        .map_err(|err| format!("encrypted_file_nonce_decode_failed:{err}"))?;
+    if nonce_bytes.len() != 12 {
+        return Err("encrypted_file_nonce_len_invalid".to_string());
+    }
+    let ciphertext_b64 = envelope
+        .get("ciphertext_b64")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "encrypted_file_ciphertext_missing".to_string())?;
+    let ciphertext = BASE64_STANDARD
+        .decode(ciphertext_b64.as_bytes())
+        .map_err(|err| format!("encrypted_file_ciphertext_decode_failed:{err}"))?;
+    let key_bytes = encrypted_file_key(root)?;
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let plain = cipher
+        .decrypt(
+            Nonce::from_slice(&nonce_bytes),
+            aes_gcm::aead::Payload {
+                msg: &ciphertext,
+                aad: aad.as_bytes(),
+            },
+        )
+        .map_err(|err| format!("encrypted_file_decrypt_failed:{err}"))?;
+    serde_json::from_slice::<Value>(&plain)
+        .map_err(|err| format!("encrypted_file_plaintext_decode_failed:{err}"))
+}
+
+fn write_encrypted_file(path: &Path, envelope: &Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("secret_broker_kernel_create_secret_dir_failed:{err}"))?;
+    }
+    let encoded = serde_json::to_vec_pretty(envelope)
+        .map_err(|err| format!("secret_broker_kernel_secret_encode_failed:{err}"))?;
+    fs::write(path, encoded).map_err(|err| format!("secret_broker_kernel_write_secret_failed:{err}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
+fn provider_encrypted_file(root: &Path, secret_id: &str, provider: &ProviderConfig) -> Option<Value> {
+    let ProviderConfig::EncryptedFile {
+        paths,
+        field,
+        rotated_at_field,
+        ..
+    } = provider
+    else {
+        return None;
+    };
+    for raw_path in paths {
+        let resolved = resolve_template(root, raw_path, secret_id);
+        let resolved_path = PathBuf::from(&resolved);
+        if !resolved_path.exists() {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(&resolved_path) else {
+            return Some(json!({
+                "ok": false,
+                "reason": "encrypted_file_read_failed",
+                "provider_type": "encrypted_file",
+                "provider_ref": resolved
+            }));
+        };
+        let Ok(envelope) = serde_json::from_str::<Value>(&text) else {
+            return Some(json!({
+                "ok": false,
+                "reason": "encrypted_file_json_invalid",
+                "provider_type": "encrypted_file",
+                "provider_ref": resolved
+            }));
+        };
+        let payload = match decrypt_secret_payload(root, secret_id, &envelope) {
+            Ok(payload) => payload,
+            Err(err) => {
+                return Some(json!({
+                    "ok": false,
+                    "reason": err,
+                    "provider_type": "encrypted_file",
+                    "provider_ref": resolved
+                }));
+            }
+        };
+        let Some(value) = get_path_value(&payload, field).and_then(Value::as_str) else {
+            return Some(json!({
+                "ok": false,
+                "reason": "encrypted_file_value_missing",
+                "provider_type": "encrypted_file",
+                "provider_ref": resolved
+            }));
+        };
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Some(json!({
+                "ok": false,
+                "reason": "encrypted_file_value_empty",
+                "provider_type": "encrypted_file",
+                "provider_ref": resolved
+            }));
+        }
+        let rotated_at = get_path_value(&payload, rotated_at_field)
+            .cloned()
+            .unwrap_or(Value::Null);
+        return Some(json!({
+            "ok": true,
+            "value": trimmed,
+            "rotated_at": rotated_at,
+            "provider_type": "encrypted_file",
             "provider_ref": resolved,
             "external": false
         }));
@@ -255,6 +447,7 @@ fn load_secret_by_id(
         let enabled = match provider {
             ProviderConfig::Env { enabled, .. }
             | ProviderConfig::JsonFile { enabled, .. }
+            | ProviderConfig::EncryptedFile { enabled, .. }
             | ProviderConfig::Command { enabled, .. } => *enabled,
         };
         if !enabled {
@@ -263,6 +456,9 @@ fn load_secret_by_id(
         let result = match provider {
             ProviderConfig::Env { .. } => provider_env(provider),
             ProviderConfig::JsonFile { .. } => provider_json_file(root, &secret_id, provider),
+            ProviderConfig::EncryptedFile { .. } => {
+                provider_encrypted_file(root, &secret_id, provider)
+            }
             ProviderConfig::Command { .. } => provider_command(&secret_id, provider),
         };
         let Some(result) = result else {
@@ -346,4 +542,105 @@ fn load_secret_by_id(
         provider_errors,
         ..LoadedSecret::default()
     }
+}
+
+fn put_secret_by_id(
+    root: &Path,
+    payload: &Map<String, Value>,
+    policy: &SecretBrokerPolicy,
+    audit_path: &Path,
+    with_audit: bool,
+) -> Value {
+    let secret_id = text(payload.get("secret_id"), 160);
+    let value = text(
+        payload.get("value").or_else(|| payload.get("api_key")),
+        8192,
+    );
+    if value.is_empty() {
+        return json!({
+            "ok": false,
+            "secret_id": secret_id,
+            "error": "secret_value_missing"
+        });
+    }
+    let Some(spec) = policy.secrets.get(&secret_id) else {
+        return json!({
+            "ok": false,
+            "secret_id": secret_id,
+            "error": "secret_id_unsupported"
+        });
+    };
+    let mut target: Option<(String, String, String)> = None;
+    for provider in &spec.providers {
+        if let ProviderConfig::EncryptedFile {
+            enabled,
+            paths,
+            field,
+            rotated_at_field,
+        } = provider
+        {
+            if *enabled {
+                if let Some(path) = paths.first() {
+                    target = Some((path.clone(), field.clone(), rotated_at_field.clone()));
+                    break;
+                }
+            }
+        }
+    }
+    let Some((path, field, rotated_at_field)) = target else {
+        return json!({
+            "ok": false,
+            "secret_id": secret_id,
+            "error": "encrypted_file_provider_missing"
+        });
+    };
+    let rotated_at = payload
+        .get("rotated_at")
+        .and_then(Value::as_str)
+        .filter(|row| !row.trim().is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(now_iso);
+    let mut secret_payload = Map::new();
+    secret_payload.insert(field, Value::String(value.clone()));
+    secret_payload.insert(rotated_at_field, Value::String(rotated_at));
+    let envelope = match encrypt_secret_payload(root, &secret_id, &Value::Object(secret_payload)) {
+        Ok(envelope) => envelope,
+        Err(err) => {
+            return json!({
+                "ok": false,
+                "secret_id": secret_id,
+                "error": err
+            });
+        }
+    };
+    let resolved = resolve_template(root, &path, &secret_id);
+    let resolved_path = PathBuf::from(&resolved);
+    if let Err(err) = write_encrypted_file(&resolved_path, &envelope) {
+        return json!({
+            "ok": false,
+            "secret_id": secret_id,
+            "error": err
+        });
+    }
+    if with_audit {
+        let _ = append_audit(
+            audit_path,
+            json!({
+                "type": "secret_value_stored",
+                "secret_id": secret_id,
+                "provider_type": "encrypted_file",
+                "provider_ref": if policy.include_backend_details { Some(resolved.clone()) } else { None },
+                "external_backend": false,
+                "value_hash": sha16(&value)
+            }),
+        );
+    }
+    json!({
+        "ok": true,
+        "type": "secret_value_stored",
+        "secret_id": secret_id,
+        "provider_type": "encrypted_file",
+        "provider_ref": if policy.include_backend_details { Value::String(resolved) } else { Value::Null },
+        "value_hash": sha16(&value)
+    })
 }

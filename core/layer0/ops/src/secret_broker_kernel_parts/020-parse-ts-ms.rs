@@ -181,6 +181,72 @@ fn default_policy(root: &Path) -> SecretBrokerPolicy {
             },
         },
     );
+    for (secret_id, provider, env_keys) in [
+        (
+            "web_search_tavily_api_key",
+            "tavily",
+            &["INFRING_TAVILY_API_KEY", "TAVILY_API_KEY"][..],
+        ),
+        (
+            "web_search_exa_api_key",
+            "exa",
+            &["INFRING_EXA_API_KEY", "EXA_API_KEY"][..],
+        ),
+        (
+            "web_search_brave_api_key",
+            "brave",
+            &[
+                "INFRING_BRAVE_SEARCH_API_KEY",
+                "BRAVE_SEARCH_API_KEY",
+                "BRAVE_API_KEY",
+            ][..],
+        ),
+        (
+            "web_search_serperdev_api_key",
+            "serperdev",
+            &[
+                "INFRING_SERPERDEV_API_KEY",
+                "SERPERDEV_API_KEY",
+                "INFRING_SERPER_API_KEY",
+                "SERPER_API_KEY",
+            ][..],
+        ),
+    ] {
+        let mut providers = vec![ProviderConfig::EncryptedFile {
+            enabled: true,
+            paths: vec![root
+                .join("client")
+                .join("runtime")
+                .join("local")
+                .join("secrets")
+                .join("vault")
+                .join("web")
+                .join("search")
+                .join(format!("{provider}.secret.json"))
+                .to_string_lossy()
+                .into_owned()],
+            field: "api_key".to_string(),
+            rotated_at_field: "rotated_at".to_string(),
+        }];
+        providers.extend(env_keys.iter().map(|env| ProviderConfig::Env {
+            enabled: true,
+            env: (*env).to_string(),
+            rotated_at_env: format!("{env}_ROTATED_AT"),
+        }));
+        secrets.insert(
+            secret_id.to_string(),
+            SecretSpec {
+                secret_id: secret_id.to_string(),
+                providers,
+                rotation: RotationConfig {
+                    warn_after_days: 30.0,
+                    max_after_days: 60.0,
+                    require_rotated_at: false,
+                    enforce_on_issue: false,
+                },
+            },
+        );
+    }
     SecretBrokerPolicy {
         version: "1.0".to_string(),
         path: default_policy_path(root).to_string_lossy().into_owned(),
@@ -221,6 +287,44 @@ fn normalize_provider(
                 }
             }
             Some(ProviderConfig::JsonFile {
+                enabled: !matches!(raw.get("enabled"), Some(Value::Bool(false))),
+                paths,
+                field: {
+                    let v = text(raw.get("field"), 120);
+                    if v.is_empty() {
+                        "api_key".to_string()
+                    } else {
+                        v
+                    }
+                },
+                rotated_at_field: {
+                    let v = text(raw.get("rotated_at_field"), 120);
+                    if v.is_empty() {
+                        "rotated_at".to_string()
+                    } else {
+                        v
+                    }
+                },
+            })
+        }
+        "encrypted_file" | "local_encrypted_file" => {
+            let mut paths = raw
+                .get("paths")
+                .and_then(Value::as_array)
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(Value::as_str)
+                        .map(|row| resolve_template(root, row, secret_id))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if paths.is_empty() {
+                let path_text = text(raw.get("path"), 520);
+                if !path_text.is_empty() {
+                    paths.push(resolve_template(root, &path_text, secret_id));
+                }
+            }
+            Some(ProviderConfig::EncryptedFile {
                 enabled: !matches!(raw.get("enabled"), Some(Value::Bool(false))),
                 paths,
                 field: {
@@ -453,4 +557,3 @@ impl OrElseIfEmpty for String {
         }
     }
 }
-

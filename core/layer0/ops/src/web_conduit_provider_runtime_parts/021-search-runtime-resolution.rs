@@ -5,13 +5,18 @@ fn search_provider_hint_is_explicit(provider_hint: &str) -> bool {
         && normalize_provider_token_for_family(&normalized, WebProviderFamily::Search).is_some()
 }
 
-fn reorder_search_providers_by_credential_availability(rows: Vec<String>) -> Vec<String> {
+fn reorder_search_providers_by_credential_availability(
+    policy: &Value,
+    rows: Vec<String>,
+) -> Vec<String> {
     let mut credential_ready = Vec::<String>::new();
     let mut missing_credential = Vec::<String>::new();
     for provider in rows {
-        if provider_has_runtime_credential_with(&provider, WebProviderFamily::Search, |key| {
-            std::env::var(key).ok()
-        }) {
+        if provider_has_configured_secret_ref(policy, &provider, WebProviderFamily::Search)
+            || provider_has_runtime_credential_with(&provider, WebProviderFamily::Search, |key| {
+                std::env::var(key).ok()
+            })
+        {
             credential_ready.push(provider);
         } else {
             missing_credential.push(provider);
@@ -444,7 +449,7 @@ pub(crate) fn resolved_search_provider_chain(
     if !preferred_providers.is_empty() {
         let mut merged = preferred_providers;
         merged.extend(base);
-        return reorder_search_providers_by_credential_availability(dedupe_preserve(merged));
+        return reorder_search_providers_by_credential_availability(policy, dedupe_preserve(merged));
     }
     let configured_provider =
         configured_provider_input_from_policy(policy, WebProviderFamily::Search)
@@ -455,7 +460,7 @@ pub(crate) fn resolved_search_provider_chain(
     };
     let mut merged = vec![configured_provider];
     merged.extend(base);
-    reorder_search_providers_by_credential_availability(dedupe_preserve(merged))
+    reorder_search_providers_by_credential_availability(policy, dedupe_preserve(merged))
 }
 
 pub(crate) fn search_provider_resolution_snapshot(

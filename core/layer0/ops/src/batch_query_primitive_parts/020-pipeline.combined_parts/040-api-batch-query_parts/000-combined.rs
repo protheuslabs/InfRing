@@ -1,4 +1,109 @@
 // Layer ownership: core/layer0/ops::batch-query-api (authoritative)
+fn summary_strip_heading_fragments(raw: &str) -> String {
+    let normalized = claim_hint_normalized_snippet(raw);
+    let mut segments = Vec::<String>::new();
+    for segment in normalized.split(|ch| matches!(ch, '.' | ';' | '\n' | '\r')) {
+        let cleaned = clean_text(segment, 520);
+        if cleaned.is_empty() {
+            continue;
+        }
+        let word_count = cleaned.split_whitespace().count();
+        let alpha_count = cleaned.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
+        let visible_count = cleaned.chars().filter(|ch| !ch.is_whitespace()).count().max(1);
+        if word_count < 6
+            || alpha_count < 18
+            || alpha_count * 2 < visible_count
+            || !claim_text_is_synthesis_safe(&cleaned)
+        {
+            continue;
+        }
+        segments.push(cleaned);
+    }
+    if segments.is_empty() {
+        let fallback = clean_text(&normalized, 1_200);
+        if claim_text_is_synthesis_safe(&fallback) {
+            fallback
+        } else {
+            String::new()
+        }
+    } else {
+        clean_text(&segments.join(". "), 1_200)
+    }
+}
+
+fn candidate_handoff_summary_fragment(
+    query: &str,
+    candidate: &Candidate,
+    benchmark_intent: bool,
+) -> String {
+    let raw_snippet = if benchmark_intent {
+        extract_metric_focused_fragment(&candidate.snippet)
+    } else {
+        normalize_snippet_text(&candidate.snippet, query, &candidate.locator)
+    };
+    let snippet = summary_strip_heading_fragments(&raw_snippet);
+    let title = clean_text(&candidate_title_for_relevance(candidate), 240);
+    let title_is_specific = !title.is_empty();
+    let snippet_lowered = snippet.to_ascii_lowercase();
+    let boilerplate_hits = [
+        "contact preferences",
+        "cookie preferences",
+        "keep in touch",
+        "log in below",
+        "manage your contact",
+        "privacy preferences",
+        "sign in to your account",
+        "subscribe to",
+    ]
+    .iter()
+    .filter(|marker| snippet_lowered.contains(**marker))
+    .count();
+    let snippet_is_weak = snippet.is_empty()
+        || looks_like_low_signal_search_summary(&snippet)
+        || looks_like_source_only_snippet(&snippet)
+        || looks_like_snippet_boilerplate_segment(&snippet, &candidate.locator)
+        || boilerplate_hits >= 1;
+    if title_is_specific
+        && (snippet_is_weak || official_lane_direct_subject_source_signal(query, candidate))
+    {
+        return title;
+    }
+    snippet
+}
+
+fn summary_insights_from_evidence_claims(evidence_claims: &Value, limit: usize) -> Vec<String> {
+    let mut insights = Vec::<String>::new();
+    let mut seen = HashSet::<String>::new();
+    for row in evidence_claims
+        .as_array()
+        .into_iter()
+        .flat_map(|rows| rows.iter())
+    {
+        let claim = clean_text(row.get("claim").and_then(Value::as_str).unwrap_or(""), 260);
+        if !claim_text_is_synthesis_safe(&claim) {
+            continue;
+        }
+        let domain = clean_text(
+            row.get("source_domain").and_then(Value::as_str).unwrap_or(""),
+            120,
+        );
+        let insight = if domain.is_empty() {
+            claim
+        } else {
+            format!("{domain}: {claim}")
+        };
+        let key = insight.to_ascii_lowercase();
+        if !seen.insert(key) {
+            continue;
+        }
+        insights.push(insight);
+        if insights.len() >= limit.max(1) {
+            break;
+        }
+    }
+    insights
+}
+
 pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     let started = Instant::now();
     let policy = load_policy(root);
@@ -233,6 +338,18 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
                 .unwrap_or_else(|| {
                     evidence_pack_quality_report(&policy, &evidence_pack, &evidence_coverage)
                 });
+            let evidence_claims = cached
+                .get("evidence_claims")
+                .and_then(Value::as_array)
+                .cloned()
+                .map(Value::Array)
+                .unwrap_or_else(|| {
+                    evidence_claims_from_pack(
+                        &query_plan.query_metadata,
+                        &evidence_pack,
+                        budget.max_evidence * 2,
+                    )
+                });
             let query_lane_attribution = cached
                 .get("query_lane_attribution")
                 .cloned()
@@ -326,6 +443,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
                 "provider_result_dedup_count": provider_result_dedup_count,
                 "evidence_count": evidence_refs.as_array().map(|rows| rows.len()).unwrap_or(0),
                 "evidence_pack_count": evidence_pack.as_array().map(|rows| rows.len()).unwrap_or(0),
+                "evidence_claim_count": evidence_claims.as_array().map(|rows| rows.len()).unwrap_or(0),
                 "cache_status": "hit",
                 "cache_mode": cache_control.mode.as_str(),
                 "latency_ms": started.elapsed().as_millis() as u64,
@@ -339,6 +457,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
                 "retrieval_broker": retrieval_broker.clone(),
                 "partial_failure_details": [],
                 "tool_result_quality": tool_result_quality.clone(),
+                "evidence_claims": evidence_claims.clone(),
                 "status": status
             });
             let receipt_id = crate::deterministic_receipt_hash(&receipt);
@@ -378,6 +497,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
                 },
                 "partial_failure_details": partial_failure_details,
                 "retrieval_telemetry": retrieval_telemetry.clone(),
+                "evidence_claims": evidence_claims,
                 "tool_result_quality": tool_result_quality,
                 "source_class_coverage": source_class_coverage.clone(),
                 "evidence_pack_quality": evidence_pack_quality.clone(),
@@ -599,8 +719,14 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
 
     let first_pass_lacked_usable = !has_usable_synthesis_candidate(&candidates);
     let mut second_pass_reason = "none";
+    let recovery_basis_query = clean_text(&query_plan.rerank_query, 600);
+    let recovery_basis_query = if recovery_basis_query.is_empty() {
+        query.clone()
+    } else {
+        recovery_basis_query
+    };
     let first_pass_research_facets = infer_research_facets(
-        &query,
+        &recovery_basis_query,
         &executed_queries,
         &query_plan.query_metadata,
         &policy,
@@ -612,7 +738,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         && (first_pass_lacked_usable || provider_results.is_empty())
     {
         planned_second_pass_queries =
-            second_pass_recovery_queries(&policy, &query, &executed_queries, budget);
+            second_pass_recovery_queries(&policy, &recovery_basis_query, &executed_queries, budget);
         if !planned_second_pass_queries.is_empty() {
             second_pass_reason = if first_pass_lacked_usable {
                 "no_usable_synthesis_candidates"
@@ -634,7 +760,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     {
         planned_second_pass_queries = coverage_gap_recovery_queries(
             &policy,
-            &query,
+            &recovery_basis_query,
             &executed_queries,
             &first_pass_research_facets,
             &candidates,
@@ -650,7 +776,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     {
         planned_second_pass_queries = claim_gap_recovery_queries(
             &policy,
-            &query,
+            &recovery_basis_query,
             &executed_queries,
             &first_pass_research_facets,
             &candidates,
@@ -743,6 +869,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         budget,
     );
     let facet_min_terms = facet_aware_min_terms(&policy);
+    let evidence_limit = coverage_aware_max_evidence(&research_facets, budget);
     truncate_candidates_preserving_facet_coverage(
         &rerank_query,
         &research_facets,
@@ -772,9 +899,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     let retained_ranked = select_facet_covered_ranked_candidates(
         retained_ranked_pool,
         &research_facets,
-        budget
-            .max_evidence
-            .max(low_confidence_retention_max_items(&policy, budget)),
+        evidence_limit.max(low_confidence_retention_max_items(&policy, budget)),
         facet_min_terms,
     );
 
@@ -799,10 +924,11 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
                 && !(benchmark_intent && looks_like_comparison_noise_candidate(row))
         })
         .collect::<Vec<_>>();
-    let mut actionable_ranked = select_facet_covered_ranked_candidates(
-        actionable_ranked_pool,
+    let mut actionable_ranked = select_pack_ready_ranked_candidates(
+        &rerank_query,
+        actionable_ranked_pool.clone(),
         &research_facets,
-        budget.max_evidence,
+        evidence_limit,
         facet_min_terms,
     );
 
@@ -827,10 +953,11 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             &actionable_ranked,
             &retained_ranked,
             &provider_results,
-            budget.max_evidence,
+            evidence_limit,
         );
     let comparison_coverage_gap = comparison_guard_summary.is_some();
     let preserve_partial_comparison_evidence = comparison_partial_preserves_actionable_evidence(
+        &rerank_query,
         &comparison_entities,
         &actionable_ranked,
         &retained_ranked,
@@ -889,7 +1016,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             &mut evidence_ranked,
             &ranked_pool,
             &research_facets,
-            budget.max_evidence,
+            evidence_limit,
             facet_min_terms,
             low_confidence_retention_enabled(&policy),
         )
@@ -915,7 +1042,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             &ranked_pool,
             &query_lane_sources,
             &research_facets,
-            budget.max_evidence,
+            evidence_limit,
             facet_min_terms,
         )
     } else {
@@ -929,6 +1056,10 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
 
     let evidence_refs = evidence_ranked
         .iter()
+        .filter(|(row, _)| {
+            candidate_counts_as_query_usable_evidence(&rerank_query, row, rerank_score(&rerank_query, row))
+                || candidate_is_low_confidence_retained(row)
+        })
         .map(|(row, score)| EvidenceRef {
             source_kind: row.source_kind.clone(),
             title: row.title.clone(),
@@ -956,14 +1087,15 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         &research_facets,
         facet_min_terms,
         &evidence_ranked,
-        budget.max_evidence,
+        evidence_limit,
     );
     let evidence_claims = evidence_claims_from_pack(
         &query_plan.query_metadata,
         &evidence_pack,
-        budget.max_evidence * 2,
+        evidence_limit * 2,
     );
     let evidence_coverage = evidence_coverage_from_ranked_candidates(
+        &rerank_query,
         &research_facets,
         &evidence_ranked,
         facet_min_terms,
@@ -974,6 +1106,13 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         &research_facets,
         facet_min_terms,
     );
+    let evidence_selection_diagnostics = evidence_selection_diagnostics(
+        &rerank_query,
+        &ranked_pool,
+        &actionable_ranked_pool,
+        &evidence_ranked,
+        evidence_limit.saturating_mul(4).max(12),
+    );
 
     let mut hard_partial_failures = partial_failures
         .iter()
@@ -982,6 +1121,14 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         .collect::<Vec<_>>();
     if !evidence_refs.is_empty() {
         hard_partial_failures.retain(|row| !issue_is_access_or_throttle_failure(row));
+    }
+    if ranked_evidence_covers_all_facets(
+        &rerank_query,
+        &research_facets,
+        &evidence_ranked,
+        facet_min_terms,
+    ) {
+        hard_partial_failures.retain(|row| !is_diagnostic_only_after_complete_coverage(row));
     }
     let status = if evidence_refs.is_empty() {
         "no_results"
@@ -1014,73 +1161,75 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             crate::tool_output_match_filter::no_findings_user_copy().to_string()
         }
     } else {
-        let mut synthesized_insights = Vec::<String>::new();
+        let mut synthesized_insights =
+            summary_insights_from_evidence_claims(&evidence_claims, evidence_limit.max(1));
         let mut seen_domains = HashSet::<String>::new();
-        for (candidate, _) in &evidence_ranked {
-            let snippet_raw = if benchmark_intent {
-                extract_metric_focused_fragment(&candidate.snippet)
-            } else {
-                clean_text(&candidate.snippet, 1_200)
-            };
-            let snippet = trim_words(&snippet_raw, if benchmark_intent { 30 } else { 42 });
-            if snippet.is_empty() {
-                continue;
-            }
-            if benchmark_intent {
-                if !looks_like_metric_rich_text(&snippet_raw)
-                    && looks_like_instructional_query(&snippet_raw)
+        if synthesized_insights.is_empty() && source != "web" {
+            for (candidate, _) in &evidence_ranked {
+                let snippet_raw =
+                    candidate_handoff_summary_fragment(&rerank_query, candidate, benchmark_intent);
+                let snippet = trim_words(&snippet_raw, if benchmark_intent { 30 } else { 42 });
+                if snippet.is_empty() || !claim_text_is_synthesis_safe(&snippet) {
+                    continue;
+                }
+                if benchmark_intent {
+                    if !looks_like_metric_rich_text(&snippet_raw)
+                        && looks_like_instructional_query(&snippet_raw)
+                    {
+                        continue;
+                    }
+                    let comparison_haystack = clean_text(
+                        &format!("{} {} {}", candidate.title, snippet_raw, candidate.locator),
+                        1_600,
+                    )
+                    .to_ascii_lowercase();
+                    let entity_hits = comparison_entities
+                        .iter()
+                        .filter(|entity| comparison_haystack.contains(entity.as_str()))
+                        .count();
+                    let comparative_copy = comparison_haystack.contains(" vs ")
+                        || comparison_haystack.contains("versus")
+                        || comparison_haystack.contains("compared")
+                        || comparison_haystack.contains("better")
+                        || comparison_haystack.contains("worse")
+                        || comparison_haystack.contains("faster")
+                        || comparison_haystack.contains("slower");
+                    let benchmark_quality_ok = looks_like_metric_rich_text(&snippet_raw)
+                        || (comparison_entities.len() >= 2
+                            && entity_hits >= 1
+                            && (comparative_copy || comparison_coverage_gap));
+                    if !benchmark_quality_ok {
+                        continue;
+                    }
+                }
+                let domain = candidate_domain_hint(candidate);
+                let domain_key = clean_text(&domain, 160).to_ascii_lowercase();
+                if domain_key != "source"
+                    && !domain_key.is_empty()
+                    && !seen_domains.insert(domain_key)
                 {
                     continue;
                 }
-                let comparison_haystack = clean_text(
-                    &format!("{} {} {}", candidate.title, snippet_raw, candidate.locator),
-                    1_600,
-                )
-                .to_ascii_lowercase();
-                let entity_hits = comparison_entities
+                let insight = if domain == "source" {
+                    snippet.clone()
+                } else {
+                    format!("{domain}: {snippet}")
+                };
+                if synthesized_insights
                     .iter()
-                    .filter(|entity| comparison_haystack.contains(entity.as_str()))
-                    .count();
-                let comparative_copy = comparison_haystack.contains(" vs ")
-                    || comparison_haystack.contains("versus")
-                    || comparison_haystack.contains("compared")
-                    || comparison_haystack.contains("better")
-                    || comparison_haystack.contains("worse")
-                    || comparison_haystack.contains("faster")
-                    || comparison_haystack.contains("slower");
-                let benchmark_quality_ok = looks_like_metric_rich_text(&snippet_raw)
-                    || (comparison_entities.len() >= 2
-                        && entity_hits >= 1
-                        && (comparative_copy || comparison_coverage_gap));
-                if !benchmark_quality_ok {
+                    .any(|existing| existing.eq_ignore_ascii_case(&insight))
+                {
                     continue;
                 }
-            }
-            let domain = candidate_domain_hint(candidate);
-            let domain_key = clean_text(&domain, 160).to_ascii_lowercase();
-            if domain_key != "source" && !domain_key.is_empty() && !seen_domains.insert(domain_key)
-            {
-                continue;
-            }
-            let insight = if domain == "source" {
-                snippet.clone()
-            } else {
-                format!("{domain}: {snippet}")
-            };
-            if synthesized_insights
-                .iter()
-                .any(|existing| existing.eq_ignore_ascii_case(&insight))
-            {
-                continue;
-            }
-            synthesized_insights.push(insight);
-            if synthesized_insights.len() >= budget.max_evidence.max(1) {
-                break;
+                synthesized_insights.push(insight);
+                if synthesized_insights.len() >= evidence_limit.max(1) {
+                    break;
+                }
             }
         }
         if is_framework_catalog_intent(&query) {
             let fallback_insights =
-                framework_catalog_fallback_insights(&evidence_ranked, budget.max_evidence);
+                framework_catalog_fallback_insights(&evidence_ranked, evidence_limit);
             let synthesized_joined = synthesized_insights.join(" ");
             let fallback_joined = fallback_insights.join(" ");
             if framework_name_hits(&synthesized_joined) < 2
@@ -1092,6 +1241,48 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
                 && !fallback_insights.is_empty()
             {
                 synthesized_insights = fallback_insights;
+            }
+        }
+        if synthesized_insights.is_empty() && source != "web" && !evidence_refs.is_empty() {
+            for (candidate, _) in evidence_ranked.iter().filter(|(candidate, _)| {
+                candidate_counts_as_query_usable_evidence(
+                    &rerank_query,
+                    candidate,
+                    rerank_score(&rerank_query, candidate),
+                )
+                    || candidate_is_low_confidence_retained(candidate)
+            }) {
+                let snippet_raw =
+                    candidate_handoff_summary_fragment(&rerank_query, candidate, benchmark_intent);
+                let snippet = if snippet_raw.is_empty() {
+                    clean_text(&candidate.title, 240)
+                } else {
+                    trim_words(&snippet_raw, if benchmark_intent { 36 } else { 48 })
+                };
+                if snippet.is_empty() || !claim_text_is_synthesis_safe(&snippet) {
+                    continue;
+                }
+                let domain = candidate_domain_hint(candidate);
+                let domain_key = clean_text(&domain, 160).to_ascii_lowercase();
+                if domain_key != "source" && !domain_key.is_empty() && !seen_domains.insert(domain_key)
+                {
+                    continue;
+                }
+                let insight = if domain == "source" {
+                    snippet
+                } else {
+                    format!("{domain}: {snippet}")
+                };
+                if synthesized_insights
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(&insight))
+                {
+                    continue;
+                }
+                synthesized_insights.push(insight);
+                if synthesized_insights.len() >= evidence_limit.max(1) {
+                    break;
+                }
             }
         }
         if synthesized_insights.is_empty() {
@@ -1106,6 +1297,8 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             let prefix = if source == "web" {
                 if low_confidence_evidence_used {
                     "Low-confidence web retrieval:"
+                } else if comparison_coverage_gap {
+                    "Partial source coverage:"
                 } else if comparison_intent {
                     "Comparison findings:"
                 } else if benchmark_intent {
@@ -1120,8 +1313,16 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             } else {
                 "Key findings:"
             };
+            let gap_note = if comparison_coverage_gap {
+                comparison_guard_summary
+                    .as_ref()
+                    .map(|summary| format!(" {summary}"))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
             trim_words(
-                &format!("{prefix} {}", synthesized_insights.join("; ")),
+                &format!("{prefix} {}{}", synthesized_insights.join("; "), gap_note),
                 budget.max_summary_tokens,
             )
         }
@@ -1221,6 +1422,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         "evidence_coverage": evidence_coverage.clone(),
         "source_class_coverage": source_class_coverage.clone(),
         "evidence_pack_quality": evidence_pack_quality.clone(),
+        "evidence_selection_diagnostics": evidence_selection_diagnostics.clone(),
         "query_lane_attribution": query_lane_attribution.clone(),
         "retrieval_broker": retrieval_broker.clone(),
         "partial_failure_details": hard_partial_failures,
@@ -1265,6 +1467,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         "evidence_coverage": evidence_coverage.clone(),
         "source_class_coverage": source_class_coverage.clone(),
         "evidence_pack_quality": evidence_pack_quality.clone(),
+        "evidence_selection_diagnostics": evidence_selection_diagnostics.clone(),
         "query_lane_attribution": query_lane_attribution.clone(),
         "retrieval_broker": retrieval_broker.clone(),
         "tool_result_quality": tool_result_quality.clone(),
@@ -1296,6 +1499,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     }
     out["source_class_coverage"] = source_class_coverage.clone();
     out["evidence_pack_quality"] = evidence_pack_quality.clone();
+    out["evidence_selection_diagnostics"] = evidence_selection_diagnostics.clone();
     out["query_lane_attribution"] = query_lane_attribution.clone();
     out["retrieval_broker"] = retrieval_broker.clone();
     if !provider_results.is_empty() {
@@ -1324,6 +1528,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             "retrieval_telemetry": retrieval_telemetry,
             "source_class_coverage": source_class_coverage,
             "evidence_pack_quality": evidence_pack_quality,
+            "evidence_selection_diagnostics": evidence_selection_diagnostics,
             "query_lane_attribution": query_lane_attribution,
             "retrieval_broker": retrieval_broker,
             "tool_result_quality": tool_result_quality,

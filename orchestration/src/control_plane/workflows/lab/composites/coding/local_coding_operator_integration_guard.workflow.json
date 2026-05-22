@@ -77,7 +77,7 @@
     "operator_integration_receipt_packaging"
   ],
   "workflow_composition": {
-    "primitive_level": 1,
+    "primitive_level": 2,
     "composed_of_workflow_ids": [
       "sandbox_worktree_isolation",
       "operator_command_surface_projection",

@@ -1631,6 +1631,28 @@ fn final_response_verifier_contract_marker(pointer: &str, text: &str) -> bool {
     workflow_message_matches_contract_markers(&default_workflow_tool_menu_contract(), pointer, text)
 }
 
+fn final_response_verifier_contract_marker_for_tools(
+    response_tools: &[Value],
+    pointer: &str,
+    text: &str,
+) -> bool {
+    response_tools.iter().any(|tool| {
+        let tool_key = tool
+            .get("name")
+            .or_else(|| tool.get("tool_name"))
+            .or_else(|| tool.get("tool"))
+            .and_then(Value::as_str)
+            .map(|row| clean_text(row, 120))
+            .unwrap_or_default();
+        !tool_key.is_empty()
+            && workflow_message_matches_contract_markers(
+                &workflow_tool_menu_contract_for_tool_key(&tool_key),
+                pointer,
+                text,
+            )
+    }) || final_response_verifier_contract_marker(pointer, text)
+}
+
 fn response_violates_tool_backed_final_verifier(
     response_text: &str,
     response_tools: &[Value],
@@ -1651,22 +1673,42 @@ fn tool_backed_final_verifier_violation_reason(
     }
     let first = first_sentence(&cleaned, 420).to_ascii_lowercase();
     let full = cleaned.to_ascii_lowercase();
-    let status_first = final_response_verifier_contract_marker(
+    let status_first = final_response_verifier_contract_marker_for_tools(
+        response_tools,
         "/diagnostic_markers/final_response_verifier/opening_status_phrases",
         &first,
     );
-    let bounded_answer_first = final_response_verifier_contract_marker(
+    let bounded_answer_first = final_response_verifier_contract_marker_for_tools(
+        response_tools,
         "/diagnostic_markers/final_response_verifier/bounded_answer_signals",
         &first,
     );
     let claims_missing_evidence = response_tools_have_recorded_evidence_refs(response_tools)
-        && final_response_verifier_contract_marker(
+        && final_response_verifier_contract_marker_for_tools(
+            response_tools,
             "/diagnostic_markers/final_response_verifier/missing_evidence_claim_phrases",
             &full,
         );
     if claims_missing_evidence {
         return Some(
             "final_response_verifier_contract:claims_missing_recorded_evidence".to_string(),
+        );
+    }
+    let outside_evidence_marker = final_response_verifier_contract_marker_for_tools(
+        response_tools,
+        "/diagnostic_markers/final_response_verifier/outside_evidence_source_boundary_phrases",
+        &full,
+    );
+    let outside_evidence_used_for_decision = outside_evidence_marker
+        && final_response_verifier_contract_marker_for_tools(
+            response_tools,
+            "/diagnostic_markers/final_response_verifier/bounded_answer_signals",
+            &full,
+        )
+        && !workflow_final_answer_explicitly_refuses_unsupported_recommendation(&full);
+    if outside_evidence_used_for_decision {
+        return Some(
+            "final_response_verifier_contract:outside_evidence_used_for_decision".to_string(),
         );
     }
     let missing_citation_signal = response_tools_have_recorded_evidence_refs(response_tools)
@@ -1689,6 +1731,22 @@ fn tool_backed_final_verifier_violation_reason(
         ));
     }
     None
+}
+
+fn workflow_final_answer_explicitly_refuses_unsupported_recommendation(normalized: &str) -> bool {
+    [
+        "not enough to recommend",
+        "cannot recommend",
+        "can't recommend",
+        "no source backed basis to choose",
+        "no source-backed basis to choose",
+        "no source backed basis to recommend",
+        "no source-backed basis to recommend",
+        "do not use this as a recommendation",
+        "should not be used as a recommendation",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(*needle))
 }
 
 fn response_has_public_source_signal(response_text: &str) -> bool {
@@ -3539,6 +3597,37 @@ mod workflow_fallback_tests {
             "Bottom line: the recorded source supports typed agent outputs, but it does not prove production maturity. Treat the evidence as useful for capability fit and still verify operations, support, and deployment references.",
             &tools,
         ));
+    }
+
+    #[test]
+    fn final_verifier_rejects_outside_evidence_decision_basis() {
+        let tools = vec![json!({
+            "name": "web_search",
+            "status": "ok",
+            "result": "Retrieved partial evidence for the requested comparison.",
+            "evidence_refs": [{
+                "title": "Partial comparison source",
+                "locator": "https://example.test/partial"
+            }],
+            "tool_result_quality": {
+                "evidence_count": 1
+            }
+        })];
+
+        assert_eq!(
+            tool_backed_final_verifier_violation_reason(
+                "The retrieved evidence does not support a direct comparison. General knowledge, not source-backed in this turn: Alpha is known for reliability and Beta is known for flexibility. Bottom line: choose Alpha for production.",
+                &tools,
+            ),
+            Some("final_response_verifier_contract:outside_evidence_used_for_decision".to_string())
+        );
+        assert_eq!(
+            tool_backed_final_verifier_violation_reason(
+                "The retrieved evidence does not support a direct comparison. General knowledge would be outside retrieved evidence here, so there is no source-backed basis to recommend Alpha or Beta.",
+                &tools,
+            ),
+            None
+        );
     }
 
     #[test]

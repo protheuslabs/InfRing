@@ -224,6 +224,135 @@ fn runtime_resolution_contract(family: WebProviderFamily) -> Value {
     })
 }
 
+fn provider_capability_id(family: WebProviderFamily) -> &'static str {
+    match family {
+        WebProviderFamily::Search => "web.search",
+        WebProviderFamily::Fetch => "web.materialize",
+    }
+}
+
+fn provider_adapter_lane(provider: &str, family: WebProviderFamily) -> &'static str {
+    match family {
+        WebProviderFamily::Search => match provider {
+            "tavily" | "exa" | "brave" | "serperdev" => "api_search_provider",
+            "browser_serp" => "browser_serp_provider",
+            "google_news_rss" | "bing_rss" => "rss_search_fallback",
+            "duckduckgo" | "duckduckgo_lite" => "html_search_fallback",
+            _ => "unknown_search_provider",
+        },
+        WebProviderFamily::Fetch => match provider {
+            "direct_http" => "direct_http_materializer",
+            _ => "unknown_materialization_provider",
+        },
+    }
+}
+
+fn provider_lifecycle(provider: &str, family: WebProviderFamily) -> &'static str {
+    match family {
+        WebProviderFamily::Search => match provider {
+            "tavily" | "exa" | "brave" | "serperdev" => "admitted_when_credentialed",
+            "browser_serp" => "experimental_canary_explicit_only",
+            "google_news_rss" | "bing_rss" | "duckduckgo" | "duckduckgo_lite" => {
+                "builtin_fallback"
+            }
+            _ => "unknown",
+        },
+        WebProviderFamily::Fetch => match provider {
+            "direct_http" => "builtin_default",
+            _ => "unknown",
+        },
+    }
+}
+
+fn provider_default_chain_recommended(provider: &str, family: WebProviderFamily) -> bool {
+    match family {
+        WebProviderFamily::Search => provider != "browser_serp",
+        WebProviderFamily::Fetch => true,
+    }
+}
+
+fn provider_capability_contract(provider: &str, family: WebProviderFamily) -> Value {
+    json!({
+        "version": "web_provider_capability_contract_v1",
+        "capability_id": provider_capability_id(family),
+        "adapter_lane": provider_adapter_lane(provider, family),
+        "provider_lifecycle": provider_lifecycle(provider, family),
+        "integration_boundary": "provider_adapter_registry",
+        "workflow_direct_vendor_calls_allowed": false,
+        "socket_boundary_role": "transport_invocation_only",
+        "normalizes_to": match family {
+            WebProviderFamily::Search => "web_search_result_v1",
+            WebProviderFamily::Fetch => "web_materialized_evidence_v1",
+        },
+        "default_chain_recommended": provider_default_chain_recommended(provider, family),
+        "vendor_specific_fields_scope": "provider_adapter_only",
+        "cd_visible_surface": provider_capability_id(family),
+    })
+}
+
+fn provider_capability_contracts_for_family(family: WebProviderFamily) -> Vec<Value> {
+    provider_ids_for_family(family)
+        .into_iter()
+        .map(|provider| provider_capability_contract(&provider, family))
+        .collect::<Vec<_>>()
+}
+
+pub(crate) fn web_capability_contract_snapshot(policy: &Value) -> Value {
+    json!({
+        "version": "web_capability_contracts_v1",
+        "principle": "workflows call capability contracts; vendors plug in only as provider adapters",
+        "socket_boundary_role": "transport_invocation_only",
+        "workflow_direct_vendor_calls_allowed": false,
+        "capabilities": {
+            "web.search": {
+                "integration_point": "search_provider_adapter_registry",
+                "workflow_surface": "web.search_or_batch_query",
+                "provider_families": ["api_search_provider", "browser_serp_provider", "rss_search_fallback", "html_search_fallback"],
+                "default_provider_chain": resolved_search_provider_chain("", &json!({}), policy),
+                "provider_contracts": provider_capability_contracts_for_family(WebProviderFamily::Search),
+                "output_contract": {
+                    "schema": "web_search_result_v1",
+                    "required_fields": ["ok", "provider", "query", "results", "provider_raw_count", "provider_filtered_count", "diagnostics"],
+                    "result_fields": ["title", "url", "snippet", "published_at", "source_class"]
+                },
+                "non_goals": [
+                    "do_not_call_vendor_apis_from_workflow_json",
+                    "do_not_expose_vendor_response_shapes_to_synthesis",
+                    "do_not_make_browser_serp_default_until_it_proves_external_organic_urls"
+                ]
+            },
+            "web.materialize": {
+                "integration_point": "materialization_provider_adapter_registry",
+                "workflow_surface": "web.materialize",
+                "provider_families": ["direct_http_materializer", "browser_materializer", "api_scrape_provider"],
+                "default_provider_chain": fetch_provider_chain_from_request("", &json!({}), policy),
+                "provider_contracts": provider_capability_contracts_for_family(WebProviderFamily::Fetch),
+                "output_contract": {
+                    "schema": "web_materialized_evidence_v1",
+                    "required_fields": ["ok", "provider", "source_url", "final_url", "main_text_or_markdown", "links_summary", "blocker_classification", "diagnostics"]
+                },
+                "non_goals": [
+                    "do_not_use_materialization_as_search_discovery_without_a_serp_extraction_contract",
+                    "do_not_promote_search_shell_dom_as_evidence"
+                ]
+            },
+            "web.evidence": {
+                "integration_point": "evidence_pack_normalizer",
+                "workflow_surface": "normalized_evidence_package",
+                "input_sources": ["web.search", "web.materialize"],
+                "output_contract": {
+                    "schema": "web_evidence_package_v1",
+                    "required_fields": ["evidence_refs", "citations", "source_class_coverage", "evidence_pack_quality", "diagnostics"]
+                },
+                "non_goals": [
+                    "do_not_let_low_signal_rows_masquerade_as_citable_evidence",
+                    "do_not_grade_synthesis_failure_as_tool_failure_or_tool_failure_as_synthesis_failure"
+                ]
+            }
+        }
+    })
+}
+
 fn provider_contract_fields_snapshot(provider: &str, family: WebProviderFamily) -> Value {
     match family {
         WebProviderFamily::Search => {
@@ -245,13 +374,18 @@ fn provider_contract_fields_snapshot(provider: &str, family: WebProviderFamily) 
                         "type": "top-level",
                         "env_keys": env_keys,
                         "inline_path": credential_path,
-                        "env_path": env_path
+                        "env_path": env_path,
+                        "secret_id_path": format!("/web_conduit/search_provider_config/{provider}/secret_id"),
+                        "secret_ref_path": format!("/web_conduit/search_provider_config/{provider}/secret_ref"),
+                        "preferred_instance_store": "secret_broker_encrypted_file"
                     },
                     "configured_credential": {
                         "provider_id": provider,
                         "field": "api_key",
                         "path": format!("/web_conduit/search_provider_config/{provider}/api_key"),
-                        "env_path": format!("/web_conduit/search_provider_config/{provider}/api_key_env")
+                        "env_path": format!("/web_conduit/search_provider_config/{provider}/api_key_env"),
+                        "secret_id_path": format!("/web_conduit/search_provider_config/{provider}/secret_id"),
+                        "secret_ref_path": format!("/web_conduit/search_provider_config/{provider}/secret_ref")
                     }
                 })
             }
@@ -311,6 +445,7 @@ pub(crate) fn fetch_provider_registration_contract(policy: &Value) -> Value {
 
 pub(crate) fn web_provider_public_artifact_contracts() -> Value {
     json!({
+        "capability_contracts": web_capability_contract_snapshot(&json!({})),
         "search": public_artifact_contract_for_family(WebProviderFamily::Search),
         "fetch": public_artifact_contract_for_family(WebProviderFamily::Fetch),
         "browser_materialization": {
@@ -326,6 +461,7 @@ pub(crate) fn web_provider_public_artifact_contracts() -> Value {
 pub(crate) fn web_tool_catalog_snapshot(policy: &Value) -> Value {
     let search_chain = resolved_search_provider_chain("", &json!({}), policy);
     let fetch_chain = fetch_provider_chain_from_request("", &json!({}), policy);
+    let capability_contracts = web_capability_contract_snapshot(policy);
     let browser_provider_chain = policy
         .pointer("/web_conduit/browser_materialization/provider_order")
         .and_then(Value::as_array)
@@ -347,7 +483,8 @@ pub(crate) fn web_tool_catalog_snapshot(policy: &Value) -> Value {
             "default_provider": search_chain.first().cloned().unwrap_or_else(|| "none".to_string()),
             "default_provider_chain": search_chain,
             "request_contract": search_provider_request_contract(policy),
-            "registration_contract": search_provider_registration_contract(policy)
+            "registration_contract": search_provider_registration_contract(policy),
+            "capability_contract": capability_contracts.pointer("/capabilities/web.search").cloned().unwrap_or_else(|| json!({}))
         },
         {
             "tool": "web_fetch",
@@ -357,7 +494,8 @@ pub(crate) fn web_tool_catalog_snapshot(policy: &Value) -> Value {
             "default_provider": fetch_chain.first().cloned().unwrap_or_else(|| "none".to_string()),
             "default_provider_chain": fetch_chain,
             "request_contract": fetch_provider_request_contract(),
-            "registration_contract": fetch_provider_registration_contract(policy)
+            "registration_contract": fetch_provider_registration_contract(policy),
+            "capability_contract": capability_contracts.pointer("/capabilities/web.materialize").cloned().unwrap_or_else(|| json!({}))
         },
         {
             "tool": "web_browser_materialize_page",
@@ -380,7 +518,8 @@ pub(crate) fn web_tool_catalog_snapshot(policy: &Value) -> Value {
                     "supports_runtime_registry": false,
                     "configured_provider_fallback": "none"
                 }
-            }
+            },
+            "capability_contract": capability_contracts.pointer("/capabilities/web.materialize").cloned().unwrap_or_else(|| json!({}))
         }
     ])
 }
@@ -455,8 +594,8 @@ where
             let requires_credential = descriptor
                 .map(|current| !current.env_keys.is_empty())
                 .unwrap_or(false);
-            let credential_present =
-                provider_has_runtime_credential_with(provider, family, resolve_env);
+            let credential_present = provider_has_configured_secret_ref(policy, provider, family)
+                || provider_has_runtime_credential_with(provider, family, resolve_env);
             let circuit_open_until = entry
                 .get("circuit_open_until")
                 .and_then(Value::as_i64)
@@ -490,6 +629,7 @@ where
                 },
                 "request_contract": request_contract.clone(),
                 "contract_fields": provider_contract_fields_snapshot(provider, family),
+                "capability_contract": provider_capability_contract(provider, family),
                 "public_artifact_contract": public_artifact_contract.clone()
             })
         })
@@ -568,6 +708,63 @@ mod openclaw_provider_contract_tests {
                 .and_then(Value::as_str),
             Some("web-search-contract-api.js")
         );
+        assert_eq!(
+            serper
+                .pointer("/capability_contract/capability_id")
+                .and_then(Value::as_str),
+            Some("web.search")
+        );
+        assert_eq!(
+            serper
+                .pointer("/capability_contract/adapter_lane")
+                .and_then(Value::as_str),
+            Some("api_search_provider")
+        );
+        assert_eq!(
+            serper
+                .pointer("/capability_contract/workflow_direct_vendor_calls_allowed")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn browser_serp_is_registered_as_explicit_canary_provider_lane() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let policy = json!({
+            "web_conduit": {
+                "search_provider_order": ["browser_serp", "bing_rss"]
+            }
+        });
+        let catalog = provider_catalog_snapshot_with_env_family(
+            tmp.path(),
+            &policy,
+            WebProviderFamily::Search,
+            |_key| None,
+        );
+        let rows = catalog.as_array().expect("catalog rows");
+        let browser_serp = rows
+            .iter()
+            .find(|row| row.get("provider").and_then(Value::as_str) == Some("browser_serp"))
+            .expect("browser_serp row");
+        assert_eq!(
+            browser_serp
+                .pointer("/capability_contract/adapter_lane")
+                .and_then(Value::as_str),
+            Some("browser_serp_provider")
+        );
+        assert_eq!(
+            browser_serp
+                .pointer("/capability_contract/provider_lifecycle")
+                .and_then(Value::as_str),
+            Some("experimental_canary_explicit_only")
+        );
+        assert_eq!(
+            browser_serp
+                .pointer("/capability_contract/default_chain_recommended")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
     }
 
     #[test]
@@ -637,6 +834,24 @@ mod openclaw_provider_contract_tests {
                 .pointer("/registration_contract/runtime_resolution_contract/configured_provider_fallback")
                 .and_then(Value::as_str),
             Some("auto-detect")
+        );
+        assert_eq!(
+            search
+                .pointer("/capability_contract/integration_point")
+                .and_then(Value::as_str),
+            Some("search_provider_adapter_registry")
+        );
+        assert_eq!(
+            search
+                .pointer("/capability_contract/output_contract/schema")
+                .and_then(Value::as_str),
+            Some("web_search_result_v1")
+        );
+        assert_eq!(
+            fetch
+                .pointer("/capability_contract/integration_point")
+                .and_then(Value::as_str),
+            Some("materialization_provider_adapter_registry")
         );
     }
 }

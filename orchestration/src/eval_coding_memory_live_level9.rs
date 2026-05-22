@@ -11,6 +11,7 @@ use std::time::Duration;
 
 const LEVEL9_WORKER_TIMEOUT_SECONDS: u64 = 1200;
 const LEVEL9_WORKER_HEARTBEAT_SECONDS: u64 = 30;
+const LEVEL9_PROVIDER_TIMEOUT_SECONDS: u64 = 300;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveLevel9SeedBatchReport {
@@ -260,7 +261,10 @@ pub fn run_live_level9_batch(attempt_count: usize, infra_retries: usize) -> Live
     let mut worker_runs = Vec::new();
     let mut failures = seed.failures.clone();
     if let Err(error) = fs::create_dir_all(&outputs_root) {
-        failures.push(format!("create_agent_outputs_failed:{}:{error}", outputs_root.display()));
+        failures.push(format!(
+            "create_agent_outputs_failed:{}:{error}",
+            outputs_root.display()
+        ));
     }
     eprintln!(
         "level9_batch_start attempts={} infra_retries={} batch_root={}",
@@ -326,8 +330,10 @@ fn run_live_level9_worker(
         run_count += 1;
         final_infra_failure = None;
         let start = millis_now();
-        let stdout_path = outputs_root.join(format!("{}.try{}.stdout.log", job.attempt_id, run_count));
-        let stderr_path = outputs_root.join(format!("{}.try{}.stderr.log", job.attempt_id, run_count));
+        let stdout_path =
+            outputs_root.join(format!("{}.try{}.stdout.log", job.attempt_id, run_count));
+        let stderr_path =
+            outputs_root.join(format!("{}.try{}.stderr.log", job.attempt_id, run_count));
         eprintln!(
             "level9_worker_start attempt={} try={}/{} timeout_seconds={} stdout={} stderr={}",
             job.attempt_id,
@@ -345,8 +351,8 @@ fn run_live_level9_worker(
             &stdout_path,
             &stderr_path,
         );
-        duration_seconds = duration_seconds
-            .saturating_add(((millis_now().saturating_sub(start)) / 1000) as u64);
+        duration_seconds =
+            duration_seconds.saturating_add(((millis_now().saturating_sub(start)) / 1000) as u64);
         if output.timed_out {
             timeout_count += 1;
         }
@@ -406,7 +412,8 @@ fn run_live_level9_worker(
         };
         if final_infra_failure.is_some() && retry_index < infra_retries {
             retried_infra_failure = true;
-            let retry_path = outputs_root.join(format!("{}.infra_try{}.log", job.attempt_id, run_count));
+            let retry_path =
+                outputs_root.join(format!("{}.infra_try{}.log", job.attempt_id, run_count));
             let _ = fs::rename(&output_path, retry_path);
             eprintln!(
                 "level9_worker_retry attempt={} completed_try={} reason={} next_try={}",
@@ -473,6 +480,14 @@ fn level9_worker_model() -> String {
     std::env::var("INFRING_LEVEL9_MODEL").unwrap_or_else(|_| "kimi-k2.6:cloud".to_string())
 }
 
+fn level9_worker_provider_timeout_seconds() -> u64 {
+    std::env::var("INFRING_LEVEL9_PROVIDER_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(LEVEL9_PROVIDER_TIMEOUT_SECONDS)
+}
+
 fn run_level9_worker_command(
     job: &LiveLevel9Job,
     ordinal: usize,
@@ -518,6 +533,10 @@ fn run_level9_worker_command(
         .arg(format!("--model={}", level9_worker_model()))
         .arg(format!("--prompt=@{}", job.prompt_path))
         .current_dir(workspace_root())
+        .env(
+            "INFRING_PROVIDER_TIMEOUT_SECONDS",
+            level9_worker_provider_timeout_seconds().to_string(),
+        )
         .stdout(Stdio::from(stdout_file))
         .stderr(Stdio::from(stderr_file));
     let mut child = match command.spawn() {
@@ -1029,6 +1048,12 @@ fn classify_worker_infra_failure_text(text: &str) -> Option<String> {
     }
     if lower.contains("internal server error") {
         return Some("provider_internal_server_error".to_string());
+    }
+    if lower.contains("no space left on device")
+        || lower.contains("failed to write")
+            && (lower.contains("target/debug") || lower.contains("rustc"))
+    {
+        return Some("host_disk_exhausted".to_string());
     }
     if lower.trim_end().ends_with("error:") {
         return Some("provider_timeout_or_spawn_failure".to_string());

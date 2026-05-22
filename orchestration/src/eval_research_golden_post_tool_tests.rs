@@ -1355,7 +1355,9 @@ fn research_golden_web_search_metadata_moves_failure_to_provider_quality() {
     );
     assert_eq!(
         report
-            .pointer("/cases/0/web_tool_gate_diagnostics/operator_metrics/query_planning/keyword_count")
+            .pointer(
+                "/cases/0/web_tool_gate_diagnostics/operator_metrics/query_planning/keyword_count"
+            )
             .and_then(Value::as_u64),
         Some(3)
     );
@@ -1486,7 +1488,11 @@ fn research_golden_web_tooling_gates_split_thin_rows_from_materialized_evidence(
     let report = read_json(root.join("out.json").to_str().unwrap());
     assert_eq!(
         report.pointer("/cases/0/retrieval_quality/status"),
-        Some(&Value::String("usable".to_string()))
+        Some(&Value::String("low_signal".to_string()))
+    );
+    assert_eq!(
+        report.pointer("/cases/0/retrieval_quality/materialized_candidate_count"),
+        Some(&Value::Number(0.into()))
     );
     assert_eq!(
         report.pointer("/cases/0/retrieval_quality/content_rich_candidate_count"),

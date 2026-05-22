@@ -32,7 +32,8 @@ pub fn coding_memory_resume_proof_report() -> CodingMemoryResumeProofReport {
     let db_path = temp_root.join("runtime_memory.sqlite");
     let project_fingerprint = format!("level7_resume_probe_{}", millis_now());
     let checkpoint_id = "checkpoint_001";
-    let memory_row_id = format!("coding_memory::{project_fingerprint}::checkpoint::{checkpoint_id}");
+    let memory_row_id =
+        format!("coding_memory::{project_fingerprint}::checkpoint::{checkpoint_id}");
     let unique_probe_token = format!("resume_token_{project_fingerprint}");
     let checkpoint_payload = json!({
         "schema_version": "checkpoint_memory_write_v1",
@@ -118,18 +119,14 @@ pub fn coding_memory_resume_proof_report() -> CodingMemoryResumeProofReport {
         ),
     );
 
-    let get = run_memory_cli(
-        &root,
-        &db_path,
-        &["get", &format!("--id={memory_row_id}")],
-    );
+    let get = run_memory_cli(&root, &db_path, &["get", &format!("--id={memory_row_id}")]);
     let get_contains_checkpoint = get
         .pointer("/row/content")
         .and_then(Value::as_str)
         .map(|content| {
             content.contains(&unique_probe_token)
                 && content.contains("current workspace files remain authoritative")
-                    || content.contains("completed_checkpoint")
+                || content.contains("completed_checkpoint")
         })
         .unwrap_or(false);
     push_check(
@@ -176,7 +173,8 @@ pub fn coding_memory_resume_proof_report() -> CodingMemoryResumeProofReport {
         checkpoint_id: checkpoint_id.to_string(),
         checks,
         failures,
-        operator_next_action: "wire_runtime_workflow_invocation_to_memory_cli_or_native_memory_core",
+        operator_next_action:
+            "wire_runtime_workflow_invocation_to_memory_cli_or_native_memory_core",
     }
 }
 
@@ -193,7 +191,10 @@ fn push_check(
     checks.push(CodingMemoryResumeCheck { id, ok, detail });
 }
 
-fn freshness_decision(current_project_fingerprint: &str, memory_project_fingerprint: &str) -> &'static str {
+fn freshness_decision(
+    current_project_fingerprint: &str,
+    memory_project_fingerprint: &str,
+) -> &'static str {
     if memory_project_fingerprint.is_empty() {
         "no_memory_found"
     } else if current_project_fingerprint == memory_project_fingerprint {

@@ -1057,7 +1057,7 @@ fn browser_materialization_local_fixture_final_url(fixture_config: &Value, url: 
 fn browser_materialization_links_summary_from_html(raw_html: &str, base_url: &str) -> Value {
     let rows = regex_anchor()
         .captures_iter(raw_html)
-        .take(12)
+        .take(80)
         .filter_map(|captures| {
             let href = clean_text(captures.get(1).map(|m| m.as_str()).unwrap_or(""), 2200);
             if href.is_empty() {
@@ -1693,6 +1693,21 @@ fn browser_materialization_live_local_browser_enabled(config: &Value) -> bool {
 }
 
 fn browser_materialization_local_browser_binary() -> Result<String, String> {
+    let env_candidates = [
+        "CLOAKBROWSER_BROWSER_PATH",
+        "CLOAKBROWSER_CHROMIUM_PATH",
+        "CHROME_BIN",
+        "GOOGLE_CHROME_BIN",
+        "CHROMIUM_BIN",
+    ];
+    for key in env_candidates {
+        if let Ok(raw) = std::env::var(key) {
+            let candidate = clean_text(&raw, 2200);
+            if !candidate.is_empty() && Path::new(&candidate).exists() {
+                return Ok(candidate);
+            }
+        }
+    }
     let candidates = [
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/Applications/Chromium.app/Contents/MacOS/Chromium",

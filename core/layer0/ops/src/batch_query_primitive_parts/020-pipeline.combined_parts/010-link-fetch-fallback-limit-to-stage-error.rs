@@ -66,12 +66,10 @@ fn stage_search_request(
     }
     if let Some(provider_name) = provider {
         request["provider"] = Value::String(provider_name.to_string());
-    } else if trusted_official_lane {
-        request["provider"] = Value::String("duckduckgo_lite".to_string());
     }
     if let Some(provider_chain) = lane_aware_search_provider_chain(query, policy) {
         request["search_provider_chain"] = json!(provider_chain);
-        request["search_provider_chain_strict"] = json!(true);
+        request["search_provider_chain_strict"] = json!(false);
     }
     if !search_scope.allowed_domains.is_empty() {
         request["allowed_domains"] = json!(search_scope.allowed_domains.clone());
@@ -88,16 +86,18 @@ fn lane_aware_search_provider_chain(query: &str, policy: &Value) -> Option<Vec<S
         crate::web_conduit_provider_runtime::resolved_search_provider_chain("", &json!({}), policy);
     let filtered = base
         .iter()
-        .filter(|provider| {
-            !matches!(
-                provider.as_str(),
-                "google_news_rss" | "bing_rss" | "tavily" | "exa" | "brave" | "serperdev"
-            )
-        })
+        .filter(|provider| !matches!(provider.as_str(), "google_news_rss" | "bing_rss"))
         .cloned()
         .collect::<Vec<_>>();
     if filtered.is_empty() {
-        Some(vec!["duckduckgo_lite".to_string(), "duckduckgo".to_string()])
+        Some(vec![
+            "tavily".to_string(),
+            "exa".to_string(),
+            "brave".to_string(),
+            "serperdev".to_string(),
+            "duckduckgo_lite".to_string(),
+            "duckduckgo".to_string(),
+        ])
     } else {
         Some(filtered)
     }
@@ -309,7 +309,20 @@ fn payload_links_for_page_extraction_with_rejections(
     payload: &Value,
     max_links: usize,
 ) -> (Vec<String>, Vec<String>) {
-    let limit = max_links.max(1);
+    let (ranked, rejections) =
+        ranked_payload_links_for_page_extraction_with_rejections(query, policy, payload, max_links);
+    (
+        select_ranked_page_extraction_links(policy, ranked, max_links.max(1)),
+        rejections,
+    )
+}
+
+fn ranked_payload_links_for_page_extraction_with_rejections(
+    query: &str,
+    policy: &Value,
+    payload: &Value,
+    max_links: usize,
+) -> (Vec<(String, f64)>, Vec<String>) {
     let mut ranked = Vec::<(String, f64)>::new();
     let mut rejections = Vec::<String>::new();
     for (link, context) in ranked_payload_links_for_fallback_with_context_and_min_score(
@@ -332,7 +345,7 @@ fn payload_links_for_page_extraction_with_rejections(
         }
         let mut score = fallback_link_score_with_context(query, &link, &context);
         if candidate_has_trusted_primary_source_signal(query, &candidate) {
-            score += 0.32;
+            score += 1.0;
         }
         if candidate_has_trusted_official_source_signal(query, &candidate) {
             score += 0.12;
@@ -347,26 +360,7 @@ fn payload_links_for_page_extraction_with_rejections(
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.0.cmp(&b.0))
     });
-    let mut selected = Vec::<String>::new();
-    let mut selected_by_key = HashMap::<String, usize>::new();
-    for (link, _) in ranked {
-        let dedupe_key = page_extraction_link_dedupe_key(policy, &link);
-        if dedupe_key.is_empty() {
-            continue;
-        }
-        if let Some(index) = selected_by_key.get(&dedupe_key).copied() {
-            if should_prefer_page_extraction_link(&link, &selected[index]) {
-                selected[index] = link;
-            }
-            continue;
-        }
-        if selected.len() >= limit {
-            continue;
-        }
-        selected_by_key.insert(dedupe_key, selected.len());
-        selected.push(link);
-    }
-    (selected, rejections)
+    (ranked, rejections)
 }
 
 fn candidate_locator_links_for_page_extraction(
@@ -393,6 +387,26 @@ fn candidate_locator_links_for_page_extraction_with_rejections(
     max_links: usize,
     include_substantive_candidates: bool,
 ) -> (Vec<String>, Vec<String>) {
+    let (ranked, rejections) = ranked_candidate_locator_links_for_page_extraction_with_rejections(
+        query,
+        policy,
+        candidates,
+        max_links,
+        include_substantive_candidates,
+    );
+    (
+        select_ranked_page_extraction_links(policy, ranked, max_links),
+        rejections,
+    )
+}
+
+fn ranked_candidate_locator_links_for_page_extraction_with_rejections(
+    query: &str,
+    policy: &Value,
+    candidates: &[Candidate],
+    max_links: usize,
+    include_substantive_candidates: bool,
+) -> (Vec<(String, f64)>, Vec<String>) {
     if !page_extraction_candidate_locator_followup_enabled(policy) || max_links == 0 {
         return (Vec::new(), Vec::new());
     }
@@ -425,7 +439,7 @@ fn candidate_locator_links_for_page_extraction_with_rejections(
                 score += 0.08;
             }
             if candidate_has_trusted_primary_source_signal(query, candidate) {
-                score += 0.32;
+                score += 1.0;
             }
             if candidate_has_trusted_official_source_signal(query, candidate) {
                 score += 0.12;
@@ -438,20 +452,7 @@ fn candidate_locator_links_for_page_extraction_with_rejections(
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.0.cmp(&b.0))
     });
-
-    let mut selected = Vec::<String>::new();
-    let mut selected_by_key = HashSet::<String>::new();
-    for (link, _) in ranked {
-        let dedupe_key = page_extraction_link_dedupe_key(policy, &link);
-        if dedupe_key.is_empty() || !selected_by_key.insert(dedupe_key) {
-            continue;
-        }
-        selected.push(link);
-        if selected.len() >= max_links {
-            break;
-        }
-    }
-    (selected, rejections)
+    (ranked, rejections)
 }
 
 fn links_for_page_extraction(
@@ -482,14 +483,13 @@ fn links_for_page_extraction_with_rejections(
     include_substantive_candidates: bool,
 ) -> (Vec<String>, Vec<String>) {
     let limit = max_links.max(1);
-    let mut selected = Vec::<String>::new();
-    let mut selected_by_key = HashSet::<String>::new();
     let mut rejections = Vec::<String>::new();
     let reserve_payload_slots = usize::from(limit > 1);
     let candidate_limit = page_extraction_candidate_locator_max_per_stage(policy)
         .min(limit.saturating_sub(reserve_payload_slots).max(1));
+    let mut ranked = Vec::<(String, f64)>::new();
 
-    let (links, rejected) = candidate_locator_links_for_page_extraction_with_rejections(
+    let (links, rejected) = ranked_candidate_locator_links_for_page_extraction_with_rejections(
         query,
         policy,
         candidates,
@@ -497,55 +497,62 @@ fn links_for_page_extraction_with_rejections(
         false,
     );
     rejections.extend(rejected);
-    for link in links {
-        push_page_extraction_link(policy, &mut selected, &mut selected_by_key, link, limit);
-    }
+    ranked.extend(links);
 
-    let (links, rejected) = payload_links_for_page_extraction_with_rejections(
+    let (links, rejected) = ranked_payload_links_for_page_extraction_with_rejections(
         query,
         policy,
         payload,
         limit,
     );
     rejections.extend(rejected);
-    for link in links {
-        push_page_extraction_link(policy, &mut selected, &mut selected_by_key, link, limit);
-    }
+    ranked.extend(links);
 
-    if !include_substantive_candidates {
-        return (selected, rejections);
+    if include_substantive_candidates {
+        let (links, rejected) = ranked_candidate_locator_links_for_page_extraction_with_rejections(
+            query,
+            policy,
+            candidates,
+            candidate_limit,
+            include_substantive_candidates,
+        );
+        rejections.extend(rejected);
+        ranked.extend(links);
     }
-
-    let (links, rejected) = candidate_locator_links_for_page_extraction_with_rejections(
-        query,
-        policy,
-        candidates,
-        candidate_limit,
-        include_substantive_candidates,
-    );
-    rejections.extend(rejected);
-    for link in links {
-        push_page_extraction_link(policy, &mut selected, &mut selected_by_key, link, limit);
-    }
+    let selected = select_ranked_page_extraction_links(policy, ranked, limit);
     (selected, rejections)
 }
 
-fn push_page_extraction_link(
+fn select_ranked_page_extraction_links(
     policy: &Value,
-    selected: &mut Vec<String>,
-    selected_by_key: &mut HashSet<String>,
-    link: String,
+    mut ranked: Vec<(String, f64)>,
     limit: usize,
-) -> bool {
-    if selected.len() >= limit {
-        return false;
+) -> Vec<String> {
+    ranked.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    let mut selected = Vec::<String>::new();
+    let mut selected_by_key = HashMap::<String, usize>::new();
+    for (link, _) in ranked {
+        let dedupe_key = page_extraction_link_dedupe_key(policy, &link);
+        if dedupe_key.is_empty() {
+            continue;
+        }
+        if let Some(index) = selected_by_key.get(&dedupe_key).copied() {
+            if should_prefer_page_extraction_link(&link, &selected[index]) {
+                selected[index] = link;
+            }
+            continue;
+        }
+        if selected.len() >= limit {
+            continue;
+        }
+        selected_by_key.insert(dedupe_key, selected.len());
+        selected.push(link);
     }
-    let dedupe_key = page_extraction_link_dedupe_key(policy, &link);
-    if dedupe_key.is_empty() || !selected_by_key.insert(dedupe_key) {
-        return false;
-    }
-    selected.push(link);
-    true
+    selected
 }
 
 fn normalize_page_extraction_link(policy: &Value, link: &str) -> Option<String> {
@@ -622,6 +629,8 @@ fn page_extraction_link_preflight_rejection_reason_with_context(
         candidate_has_trusted_official_source_signal(query, &candidate);
     let trusted_prefetch_candidate =
         trusted_primary_source_candidate || trusted_official_source_candidate;
+    let query_has_distinctive_terms = query_has_distinctive_relevance_terms(query);
+    let article_like_link = page_extraction_link_has_article_like_path(link);
     if link_contains_collapsed_query_phrase(query, link) {
         return None;
     }
@@ -638,10 +647,20 @@ fn page_extraction_link_preflight_rejection_reason_with_context(
     if !trusted_prefetch_candidate && looks_like_off_intent_noise_candidate(query, &candidate) {
         return Some("off_intent_link");
     }
-    if !trusted_prefetch_candidate && has_only_weak_query_overlap(query, &candidate) {
+    if !trusted_prefetch_candidate && !query_has_distinctive_terms && !article_like_link {
+        if candidate_looks_like_relevant_discovery_hub(query, &candidate) {
+            return None;
+        }
+        return Some("broad_query_non_article_link");
+    }
+    if !trusted_prefetch_candidate
+        && query_has_distinctive_terms
+        && has_only_weak_query_overlap(query, &candidate)
+    {
         return Some("weak_overlap_link");
     }
     if !trusted_prefetch_candidate
+        && query_has_distinctive_terms
         && query_overlap_terms(query, &candidate) == 0
         && source_trust_adjustment(&candidate) <= 0.0
     {

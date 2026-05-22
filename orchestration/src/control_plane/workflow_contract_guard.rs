@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const DEFAULT_OUT_PATH: &str =
@@ -30,6 +30,26 @@ const DEFAULT_REPORT_PATH: &str =
 const FORMAT_POLICY_PATH: &str = "docs/workspace/workflow_json_format_policy.md";
 const ENFORCER_PATH: &str = "docs/workspace/codex_enforcer.md";
 const PARITY_MAP_PATH: &str = "docs/workspace/orchestration_control_plane_parity_map.md";
+const RESEARCH_WORKFLOW_PATH: &str =
+    "orchestration/src/control_plane/workflows/official/research_synthesize_verify.workflow.json";
+const DIRECT_WEB_PROVIDER_TOKENS: &[&str] = &[
+    "tavily",
+    "tavily_search",
+    "exa",
+    "exa_search",
+    "brave",
+    "brave_search",
+    "serper",
+    "serperdev",
+    "firecrawl",
+    "duckduckgo",
+    "duckduckgo_lite",
+    "browser_serp",
+    "browser_search",
+    "bing_rss",
+    "google_news_rss",
+    "google_news",
+];
 
 pub fn run_workflow_contract_guard(args: &[String]) -> i32 {
     let strict = flag_value(args, "--strict").unwrap_or_else(|| "0".to_string()) == "1";
@@ -131,6 +151,7 @@ fn build_checks(
     let format_policy = read_text(FORMAT_POLICY_PATH);
     let enforcer = read_text(ENFORCER_PATH);
     let parity_map = read_text(PARITY_MAP_PATH);
+    let web_provider_boundary = workflow_web_provider_boundary_contract(graphs);
     vec![
         json!({"id": "workflow_json_compiles_to_typed_graphs", "ok": !graphs.is_empty() && validations.iter().all(|row| row.ok), "detail": format!("graphs={};workflows={}", graphs.len(), validations.len())}),
         json!({"id": "workflow_registry_tier_contract", "ok": workflow_registry_contract_ok() && graphs.iter().all(workflow_registry_graph_ok), "detail": "official workflows are runtime-selectable; lab/framework workflows are parseable comparison profiles only"}),
@@ -152,7 +173,9 @@ fn build_checks(
         json!({"id": "workflow_composition_metadata_contract", "ok": workflow_composition_metadata_ok(graphs), "detail": "primitive workflow levels and composition references are present and valid"}),
         json!({"id": "workflow_runtime_registered_json_source_contract", "ok": replay_reports.iter().all(runtime_registered_json_source_ok), "detail": "runtime telemetry exposes selected workflow id, source JSON path, contract schema version, and graph hash from a registered JSON workflow"}),
         json!({"id": "workflow_cd_composition_contract", "ok": composition_report.get("ok").and_then(Value::as_bool).unwrap_or(false), "detail": "workflow CDs declare primitive/composite boundaries, typed child workflow calls, and exactly one terminal artifact return"}),
+        json!({"id": "workflow_web_provider_adapter_boundary_contract", "ok": web_provider_boundary.get("ok").and_then(Value::as_bool).unwrap_or(false), "detail": "workflow JSON may call web capability families but must not name Tavily/Exa/Brave/Serper/Firecrawl/DDG/browser SERP provider adapters directly", "report": web_provider_boundary}),
         json!({"id": "workflow_format_policy_contract", "ok": all_present(&format_policy, &["workflow_source_of_truth_contract", "typed_execution_contract", "burnable CD", "json_workflow_spec", "llm_final_only_no_system_injection"]), "detail": FORMAT_POLICY_PATH}),
+        json!({"id": "research_workflow_freeze_contract", "ok": research_workflow_freeze_contract_ok(graphs, &format_policy), "detail": "research_synthesize_verify gate/lifecycle semantics are frozen; active iteration belongs in web tooling, evidence quality, provider mechanics, and eval diagnostics"}),
         json!({"id": "control_plane_parity_map_contract", "ok": all_present(&parity_map, &["OpenHands", "OpenFang", "Infring", "orchestration/src", "event-sourced action/observation"]), "detail": PARITY_MAP_PATH}),
     ]
 }
@@ -398,6 +421,72 @@ fn runtime_registered_json_source_ok(report: &WorkflowReplayReport) -> bool {
         && report.inspector.selected_graph_source == "json_workflow_source_of_truth_v1"
 }
 
+fn research_workflow_freeze_contract_ok(
+    graphs: &[NormalizedWorkflowGraph],
+    format_policy: &str,
+) -> bool {
+    let Some(graph) = graphs
+        .iter()
+        .find(|graph| graph.workflow_id == "research_synthesize_verify")
+    else {
+        return false;
+    };
+    if graph.workflow_tier != "official"
+        || graph.promotion_status != "official"
+        || !graph.runtime_selectable
+        || graph.primitive_level == 0
+        || graph.workflow_role != "assistant_response_workflow"
+        || !graph
+            .source_json_path
+            .ends_with("research_synthesize_verify.workflow.json")
+    {
+        return false;
+    }
+    if !all_present(
+        format_policy,
+        &[
+            "Research Workflow Freeze Rule",
+            "stable official composite workflow CD",
+            "web tooling is the active experiment surface",
+            "Freeze exception rule",
+        ],
+    ) {
+        return false;
+    }
+    let workflow = read_json(RESEARCH_WORKFLOW_PATH);
+    let Some(contract) = workflow.get("stability_freeze_contract") else {
+        return false;
+    };
+    str_at_value(contract, &["version"]) == "research_workflow_freeze_contract_v1"
+        && str_at_value(contract, &["status"]) == "frozen_for_web_tooling_iteration"
+        && array_contains(contract, &["frozen_surface"], "gate_order_and_gate_meaning")
+        && array_contains(
+            contract,
+            &["frozen_surface"],
+            "tool_request_observation_final_answer_lifecycle",
+        )
+        && array_contains(
+            contract,
+            &["permitted_change_lanes"],
+            "core/layer2/tooling/tool_cds/web_retrieval_v0.tool.json",
+        )
+        && array_contains(
+            contract,
+            &["permitted_change_lanes"],
+            "evidence_extraction_ranking_coverage",
+        )
+        && array_contains(
+            contract,
+            &["freeze_exception_requires"],
+            "proof_issue_cannot_be_solved_in_tooling_evidence_or_rubric_space",
+        )
+        && array_contains(
+            contract,
+            &["non_goals"],
+            "do_not_change_workflow_cd_for_retrieval_quality_iterations",
+        )
+}
+
 fn run_budget_ok(graph: &NormalizedWorkflowGraph) -> bool {
     REQUIRED_TERMINAL_STATES
         .iter()
@@ -414,8 +503,171 @@ fn telemetry_ok(graph: &NormalizedWorkflowGraph) -> bool {
         .all(|stream| graph.telemetry_streams.iter().any(|v| v == stream))
 }
 
+pub(crate) fn workflow_web_provider_boundary_contract(graphs: &[NormalizedWorkflowGraph]) -> Value {
+    let mut violations = Vec::<Value>::new();
+    for graph in graphs {
+        let disk_path = workflow_source_disk_path(&graph.source_json_path);
+        let raw = fs::read_to_string(&disk_path).unwrap_or_default();
+        let parsed = serde_json::from_str::<Value>(&raw).unwrap_or(Value::Null);
+        collect_web_provider_boundary_violations(
+            &parsed,
+            "$",
+            &graph.workflow_id,
+            &graph.source_json_path,
+            &mut violations,
+        );
+    }
+    let shown = violations.iter().take(24).cloned().collect::<Vec<_>>();
+    json!({
+        "version": "workflow_web_provider_adapter_boundary_contract_v1",
+        "ok": violations.is_empty(),
+        "workflow_count": graphs.len(),
+        "guarded_provider_tokens": DIRECT_WEB_PROVIDER_TOKENS,
+        "allowed_workflow_surfaces": ["web", "browser", "web.search_or_batch_query", "web.materialize", "normalized_evidence_package"],
+        "integration_boundary": "provider_adapter_registry",
+        "socket_boundary_role": "transport_invocation_only",
+        "violation_count": violations.len(),
+        "violations": shown,
+    })
+}
+
+fn workflow_source_disk_path(source_json_path: &str) -> PathBuf {
+    let source = Path::new(source_json_path);
+    if source.is_absolute() {
+        return source.to_path_buf();
+    }
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    if source_json_path.starts_with("orchestration/") {
+        return manifest.parent().unwrap_or(manifest).join(source_json_path);
+    }
+    manifest.join(source_json_path)
+}
+
+fn collect_web_provider_boundary_violations(
+    value: &Value,
+    pointer: &str,
+    workflow_id: &str,
+    source_json_path: &str,
+    violations: &mut Vec<Value>,
+) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                push_web_provider_token_violations(
+                    key,
+                    pointer,
+                    "json_key",
+                    workflow_id,
+                    source_json_path,
+                    violations,
+                );
+                let next_pointer =
+                    format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+                collect_web_provider_boundary_violations(
+                    child,
+                    &next_pointer,
+                    workflow_id,
+                    source_json_path,
+                    violations,
+                );
+            }
+        }
+        Value::Array(rows) => {
+            for (idx, child) in rows.iter().enumerate() {
+                collect_web_provider_boundary_violations(
+                    child,
+                    &format!("{pointer}/{idx}"),
+                    workflow_id,
+                    source_json_path,
+                    violations,
+                );
+            }
+        }
+        Value::String(text) => push_web_provider_token_violations(
+            text,
+            pointer,
+            "string_value",
+            workflow_id,
+            source_json_path,
+            violations,
+        ),
+        _ => {}
+    }
+}
+
+fn push_web_provider_token_violations(
+    text: &str,
+    pointer: &str,
+    field_kind: &str,
+    workflow_id: &str,
+    source_json_path: &str,
+    violations: &mut Vec<Value>,
+) {
+    for token in direct_web_provider_tokens_in_text(text) {
+        violations.push(json!({
+            "workflow_id": workflow_id,
+            "source_json_path": source_json_path,
+            "json_pointer": pointer,
+            "field_kind": field_kind,
+            "provider_token": token,
+            "reason": "workflow_json_must_call_capability_family_not_vendor_adapter"
+        }));
+    }
+}
+
+fn direct_web_provider_tokens_in_text(text: &str) -> Vec<&'static str> {
+    let mut hits = Vec::<&'static str>::new();
+    for token in text
+        .to_ascii_lowercase()
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
+    {
+        let normalized = token.replace('-', "_");
+        for known in DIRECT_WEB_PROVIDER_TOKENS {
+            if normalized == *known && !hits.iter().any(|hit| hit == known) {
+                hits.push(*known);
+            }
+        }
+    }
+    hits
+}
+
 fn all_present(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().all(|needle| haystack.contains(needle))
+}
+
+fn read_json(path: &str) -> Value {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or(Value::Null)
+}
+
+fn str_at_value(value: &Value, path: &[&str]) -> String {
+    let mut current = value;
+    for part in path {
+        let Some(next) = current.get(*part) else {
+            return String::new();
+        };
+        current = next;
+    }
+    current
+        .as_str()
+        .map(ToString::to_string)
+        .unwrap_or_default()
+}
+
+fn array_contains(value: &Value, path: &[&str], expected: &str) -> bool {
+    let mut current = value;
+    for part in path {
+        let Some(next) = current.get(*part) else {
+            return false;
+        };
+        current = next;
+    }
+    current
+        .as_array()
+        .map(|rows| rows.iter().any(|row| row.as_str() == Some(expected)))
+        .unwrap_or(false)
 }
 
 fn flag_value(args: &[String], key: &str) -> Option<String> {

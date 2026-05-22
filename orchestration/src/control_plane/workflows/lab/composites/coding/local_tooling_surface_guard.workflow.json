@@ -75,7 +75,7 @@
     "tooling_surface_receipt_packaging"
   ],
   "workflow_composition": {
-    "primitive_level": 1,
+    "primitive_level": 2,
     "composed_of_workflow_ids": [
       "tool_schema_registry",
       "tool_call_normalization",

@@ -210,7 +210,8 @@ const LAB_SCENARIOS: &[LocalCodingProgramBuilderLabScenario] = &[
     },
 ];
 
-pub fn local_coding_program_builder_lab_replay_report() -> LocalCodingProgramBuilderLabReplayReport {
+pub fn local_coding_program_builder_lab_replay_report() -> LocalCodingProgramBuilderLabReplayReport
+{
     let mut failures = Vec::new();
     let graphs = registered_workflow_graphs();
     let graph = graphs
@@ -307,8 +308,8 @@ pub fn local_coding_program_builder_lab_replay_report() -> LocalCodingProgramBui
     }
 }
 
-pub fn local_coding_program_builder_lab_execution_report() -> LocalCodingProgramBuilderLabExecutionReport
-{
+pub fn local_coding_program_builder_lab_execution_report(
+) -> LocalCodingProgramBuilderLabExecutionReport {
     let replay = local_coding_program_builder_lab_replay_report();
     let source = read_builder_source();
     let child_calls = child_workflow_calls(&source);
@@ -404,7 +405,10 @@ fn task_execution(
         .iter()
         .any(|slice| slice.child_workflow_id == "local_code_edit_execution")
     {
-        failures.push(format!("missing_local_code_edit_execution_slice:{}", scenario.id));
+        failures.push(format!(
+            "missing_local_code_edit_execution_slice:{}",
+            scenario.id
+        ));
     }
     if !slice_invocations
         .iter()
@@ -686,22 +690,14 @@ fn slices_for_scenario(
         "runtime_observability_guard",
         "local_runtime_observability_guard",
     );
-    let plan_artifact = child_call(
-        child_calls,
-        "plan_artifact",
-        "plan_artifact_create",
-    );
+    let plan_artifact = child_call(child_calls, "plan_artifact", "plan_artifact_create");
     let code = child_call(
         child_calls,
         "local_code_execution",
         "local_code_edit_execution",
     );
     let repair = child_call(child_calls, "focused_repair", "bounded_repair_loop");
-    let handoff = child_call(
-        child_calls,
-        "checkpoint_handoff",
-        "checkpoint_handoff",
-    );
+    let handoff = child_call(child_calls, "checkpoint_handoff", "checkpoint_handoff");
     let research = child_call(
         child_calls,
         "research_context",
@@ -1241,62 +1237,66 @@ fn static_child_value(value: &str) -> &'static str {
         "local_coding_ingress_guard" => "local_coding_ingress_guard",
         "local_coding_ingress_guard_input_envelope_v1" => {
             "local_coding_ingress_guard_input_envelope_v1"
-        },
+        }
         "local_coding_ingress_guard_result_artifact_v1" => {
             "local_coding_ingress_guard_result_artifact_v1"
-        },
+        }
         "local_coding_session_bootstrap_guard" => "local_coding_session_bootstrap_guard",
         "local_coding_session_bootstrap_guard_input_envelope_v1" => {
             "local_coding_session_bootstrap_guard_input_envelope_v1"
-        },
+        }
         "local_coding_session_bootstrap_guard_result_artifact_v1" => {
             "local_coding_session_bootstrap_guard_result_artifact_v1"
-        },
+        }
         "local_coding_remote_service_guard" => "local_coding_remote_service_guard",
         "local_coding_remote_service_guard_input_envelope_v1" => {
             "local_coding_remote_service_guard_input_envelope_v1"
-        },
+        }
         "local_coding_remote_service_guard_result_artifact_v1" => {
             "local_coding_remote_service_guard_result_artifact_v1"
-        },
+        }
         "local_coding_operator_integration_guard" => "local_coding_operator_integration_guard",
         "local_coding_operator_integration_guard_input_envelope_v1" => {
             "local_coding_operator_integration_guard_input_envelope_v1"
-        },
+        }
         "local_coding_operator_integration_guard_result_artifact_v1" => {
             "local_coding_operator_integration_guard_result_artifact_v1"
-        },
+        }
         "local_policy_permission_guard" => "local_policy_permission_guard",
         "local_policy_permission_guard_input_envelope_v1" => {
             "local_policy_permission_guard_input_envelope_v1"
-        },
+        }
         "local_policy_permission_guard_result_artifact_v1" => {
             "local_policy_permission_guard_result_artifact_v1"
-        },
+        }
         "local_context_loop_guard" => "local_context_loop_guard",
-        "local_context_loop_guard_input_envelope_v1" => "local_context_loop_guard_input_envelope_v1",
-        "local_context_loop_guard_result_artifact_v1" => "local_context_loop_guard_result_artifact_v1",
+        "local_context_loop_guard_input_envelope_v1" => {
+            "local_context_loop_guard_input_envelope_v1"
+        }
+        "local_context_loop_guard_result_artifact_v1" => {
+            "local_context_loop_guard_result_artifact_v1"
+        }
         "local_tooling_surface_guard" => "local_tooling_surface_guard",
         "local_tooling_surface_guard_input_envelope_v1" => {
             "local_tooling_surface_guard_input_envelope_v1"
-        },
+        }
         "local_tooling_surface_guard_result_artifact_v1" => {
             "local_tooling_surface_guard_result_artifact_v1"
-        },
+        }
         "local_runtime_execution_loop" => "local_runtime_execution_loop",
         "local_runtime_execution_loop_input_envelope_v1" => {
             "local_runtime_execution_loop_input_envelope_v1"
-        },
+        }
         "local_runtime_execution_loop_result_artifact_v1" => {
             "local_runtime_execution_loop_result_artifact_v1"
-        },
+        }
         "local_runtime_observability_guard" => "local_runtime_observability_guard",
         "local_runtime_observability_guard_input_envelope_v1" => {
             "local_runtime_observability_guard_input_envelope_v1"
-        },
+        }
         "local_runtime_observability_guard_result_artifact_v1" => {
             "local_runtime_observability_guard_result_artifact_v1"
-        },
+        }
         "plan_execute_review" => "plan_execute_review",
         "plan_artifact_create" => "plan_artifact_create",
         "plan_artifact_create_input_envelope_v1" => "plan_artifact_create_input_envelope_v1",
@@ -1305,7 +1305,7 @@ fn static_child_value(value: &str) -> &'static str {
         "local_code_edit_slice_input_envelope_v1" => "local_code_edit_slice_input_envelope_v1",
         "local_code_edit_execution_result_artifact_v1" => {
             "local_code_edit_execution_result_artifact_v1"
-        },
+        }
         "bounded_repair_loop" => "bounded_repair_loop",
         "bounded_repair_loop_input_envelope_v1" => "bounded_repair_loop_input_envelope_v1",
         "bounded_repair_loop_result_artifact_v1" => "bounded_repair_loop_result_artifact_v1",

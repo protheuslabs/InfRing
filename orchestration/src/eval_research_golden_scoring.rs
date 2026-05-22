@@ -1,6 +1,6 @@
 use super::eval_research_golden_utils::*;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct CaseGrade {
     pub(super) score: u64,
@@ -22,6 +22,7 @@ pub(super) struct CaseGrade {
     pub(super) query_satisfaction: Value,
     pub(super) response_grading_layers: Value,
     pub(super) soft_quality_smoke: Value,
+    pub(super) answer_unit_evidence_alignment: Value,
 }
 
 pub(super) fn grade_case(
@@ -42,6 +43,7 @@ pub(super) fn grade_case(
     let tool_choice_final_response = tool_choice_as_final_response(&response_text);
     let empty_response = response_text.trim().is_empty();
     let unsupported_claim = unsupported_claim_signal(case, &response_text);
+    let truncated_or_incomplete_response = response_looks_truncated_or_incomplete(&response_text);
     let retrieval_quality = retrieval_provider_quality(payload, &normalized_prompt);
     let source_signal = has_source_signal(&response_text, &retrieval_quality);
     let citation_behavior = citation_behavior(payload, &response_text, &retrieval_quality);
@@ -79,6 +81,7 @@ pub(super) fn grade_case(
         raw_tool_leak,
         internal_leak,
         tool_choice_final_response,
+        truncated_or_incomplete_response,
     );
     let evidence_use_contract = tool_backed_evidence_contract(
         &normalized,
@@ -87,6 +90,7 @@ pub(super) fn grade_case(
         limitation_signal,
         &query_satisfaction,
         unsupported_claim,
+        outside_evidence_used_for_decision_signal(&normalized),
     );
     let workflow_specific_rubric = research_workflow_specific_rubric(
         &query_satisfaction,
@@ -110,7 +114,18 @@ pub(super) fn grade_case(
         raw_tool_leak,
         internal_leak,
         tool_choice_final_response,
+        truncated_or_incomplete_response,
     );
+    let answer_unit_evidence_alignment =
+        answer_unit_evidence_alignment(payload, &response_text, &retrieval_quality);
+    let answer_unit_alignment_blocks_excellent = answer_unit_evidence_alignment
+        .get("evaluated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        && !answer_unit_evidence_alignment
+            .get("pass")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
 
     let workflow_score = gates.values().filter(|ok| **ok).count() as u64 * 5;
     let evidence_score = (if source_signal { 6 } else { 0 })
@@ -178,8 +193,17 @@ pub(super) fn grade_case(
     if tool_choice_final_response {
         failures.push("tool_choice_visible_as_final_response".to_string());
     }
+    if truncated_or_incomplete_response {
+        failures.push("truncated_or_incomplete_response".to_string());
+    }
     if unsupported_claim {
         failures.push("unsupported_overconfident_claim_signal".to_string());
+    }
+    if outside_evidence_used_for_decision_signal(&normalized) {
+        failures.push("outside_evidence_used_for_decision".to_string());
+    }
+    if answer_unit_alignment_hard_failure(&answer_unit_evidence_alignment) {
+        failures.push("answer_units_not_traceable_to_evidence".to_string());
     }
     if score < pass_score {
         failures.push(format!("research_score_below_pass:{score}<{pass_score}"));
@@ -200,12 +224,16 @@ pub(super) fn grade_case(
         score,
         excellent_score,
         failures: &failures,
+        answer_unit_evidence_alignment: &answer_unit_evidence_alignment,
     });
     let excellent_blockers = string_array_at(&excellent_diagnostics, &["blockers"]);
     CaseGrade {
         score,
         pass: score >= pass_score && failures.is_empty(),
-        excellent: score >= excellent_score && failures.is_empty() && excellent_blockers.is_empty(),
+        excellent: score >= excellent_score
+            && failures.is_empty()
+            && excellent_blockers.is_empty()
+            && !answer_unit_alignment_blocks_excellent,
         gates,
         dimension_scores,
         failures,
@@ -222,6 +250,7 @@ pub(super) fn grade_case(
         query_satisfaction,
         response_grading_layers,
         soft_quality_smoke,
+        answer_unit_evidence_alignment,
     }
 }
 
@@ -512,6 +541,233 @@ fn response_citation_count(payload: &Value) -> u64 {
     .sum::<u64>()
 }
 
+const CITATION_ARTIFACT_POINTERS: &[(&str, &str)] = &[
+    ("/citations", "citations"),
+    ("/sources", "sources"),
+    ("/source_refs", "source_refs"),
+    ("/evidence", "evidence"),
+    ("/evidence_refs", "evidence_refs"),
+    ("/evidence_pack", "evidence_pack"),
+    (
+        "/response_workflow/final_llm_response/citations",
+        "final_llm_response.citations",
+    ),
+    (
+        "/response_workflow/final_llm_response/source_refs",
+        "final_llm_response.source_refs",
+    ),
+    (
+        "/response_finalization/citations",
+        "response_finalization.citations",
+    ),
+    (
+        "/response_finalization/source_refs",
+        "response_finalization.source_refs",
+    ),
+    (
+        "/response_finalization/final_response/citations",
+        "final_response.citations",
+    ),
+    (
+        "/response_finalization/final_response/source_refs",
+        "final_response.source_refs",
+    ),
+    (
+        "/response_finalization/final_llm_response/citations",
+        "final_llm_response.citations",
+    ),
+    (
+        "/response_finalization/final_llm_response/source_refs",
+        "final_llm_response.source_refs",
+    ),
+    (
+        "/response_finalization/tool_completion/citations",
+        "tool_completion.citations",
+    ),
+    (
+        "/response_finalization/tool_completion/source_refs",
+        "tool_completion.source_refs",
+    ),
+    (
+        "/response_finalization/tool_completion/evidence_refs",
+        "tool_completion.evidence_refs",
+    ),
+    (
+        "/response_finalization/tool_completion/evidence_pack",
+        "tool_completion.evidence_pack",
+    ),
+    (
+        "/response_finalization/tool_completion/evidence_pack_candidates",
+        "tool_completion.evidence_pack_candidates",
+    ),
+];
+
+pub(super) fn citation_artifact_summary(payload: &Value) -> Value {
+    let mut seen = BTreeSet::<String>::new();
+    let mut items = Vec::<Value>::new();
+    for (pointer, artifact_path) in CITATION_ARTIFACT_POINTERS {
+        if let Some(value) = payload.pointer(pointer) {
+            collect_citation_artifact_items(value, artifact_path, 0, &mut seen, &mut items);
+        }
+        if items.len() >= 24 {
+            break;
+        }
+    }
+    json!({
+        "schema_version": 1,
+        "retained_count": items.len() as u64,
+        "items": items,
+        "note": "Compact citation/source/evidence refs retained with each eval row so answer quality can be inspected without opening raw session artifacts."
+    })
+}
+
+fn collect_citation_artifact_items(
+    value: &Value,
+    artifact_path: &str,
+    depth: usize,
+    seen: &mut BTreeSet<String>,
+    out: &mut Vec<Value>,
+) {
+    if depth > 6 || out.len() >= 24 {
+        return;
+    }
+    match value {
+        Value::Array(rows) => {
+            for row in rows {
+                collect_citation_artifact_items(row, artifact_path, depth + 1, seen, out);
+                if out.len() >= 24 {
+                    break;
+                }
+            }
+        }
+        Value::Object(map) => {
+            if let Some((key, item)) = compact_citation_artifact_item(map, artifact_path) {
+                if seen.insert(key) {
+                    out.push(item);
+                }
+                return;
+            }
+            for key in [
+                "citations",
+                "sources",
+                "source_refs",
+                "evidence",
+                "evidence_refs",
+                "evidence_pack",
+                "evidence_pack_candidates",
+                "findings",
+            ] {
+                if let Some(child) = map.get(key) {
+                    collect_citation_artifact_items(child, artifact_path, depth + 1, seen, out);
+                    if out.len() >= 24 {
+                        break;
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn compact_citation_artifact_item(
+    map: &serde_json::Map<String, Value>,
+    artifact_path: &str,
+) -> Option<(String, Value)> {
+    let citation_id = artifact_string_field(map, &["citation_id", "id", "ref_id"]);
+    let title = artifact_string_field(map, &["title", "name", "headline"]);
+    let locator = artifact_string_field(map, &["locator", "url", "source_url", "href", "link"]);
+    let source_domain = artifact_string_field(map, &["source_domain", "domain", "host"]);
+    let source_kind = artifact_string_field(map, &["source_kind", "kind", "type"]);
+    let provider = artifact_string_field(map, &["provider", "provider_name"]);
+    let snippet = artifact_string_field(
+        map,
+        &[
+            "snippet",
+            "summary",
+            "excerpt",
+            "description",
+            "text",
+            "body",
+            "content",
+        ],
+    );
+    if citation_id.is_empty()
+        && title.is_empty()
+        && locator.is_empty()
+        && source_domain.is_empty()
+        && snippet.is_empty()
+    {
+        return None;
+    }
+
+    let identity = [
+        citation_id.as_str(),
+        locator.as_str(),
+        title.as_str(),
+        source_domain.as_str(),
+        snippet.as_str(),
+    ]
+    .iter()
+    .filter(|part| !part.is_empty())
+    .copied()
+    .collect::<Vec<_>>()
+    .join("|");
+    if identity.is_empty() {
+        return None;
+    }
+
+    let mut out = serde_json::Map::new();
+    out.insert(
+        "artifact_path".to_string(),
+        Value::String(artifact_path.to_string()),
+    );
+    insert_artifact_string(&mut out, "citation_id", &citation_id, 120);
+    insert_artifact_string(&mut out, "title", &title, 240);
+    insert_artifact_string(&mut out, "locator", &locator, 500);
+    insert_artifact_string(&mut out, "source_domain", &source_domain, 160);
+    insert_artifact_string(&mut out, "source_kind", &source_kind, 120);
+    insert_artifact_string(&mut out, "provider", &provider, 120);
+    insert_artifact_string(&mut out, "snippet", &snippet, 500);
+    for key in ["confidence", "score", "rank", "used_for"] {
+        if let Some(value) = map.get(key) {
+            if value.is_string() || value.is_number() || value.is_boolean() {
+                out.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+    for key in ["quality_flags", "coverage_facets", "claim_hints"] {
+        if let Some(value) = map.get(key) {
+            if value.is_array() {
+                out.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+    Some((normalize_for_compare(&identity), Value::Object(out)))
+}
+
+fn artifact_string_field(map: &serde_json::Map<String, Value>, keys: &[&str]) -> String {
+    keys.iter()
+        .find_map(|key| {
+            map.get(*key)
+                .and_then(Value::as_str)
+                .map(|raw| clean_text(raw, 1_000))
+                .filter(|raw| !raw.is_empty())
+        })
+        .unwrap_or_default()
+}
+
+fn insert_artifact_string(
+    out: &mut serde_json::Map<String, Value>,
+    key: &str,
+    value: &str,
+    max_len: usize,
+) {
+    let cleaned = clean_text(value, max_len);
+    if !cleaned.is_empty() {
+        out.insert(key.to_string(), Value::String(cleaned));
+    }
+}
+
 fn response_has_inline_citation_signal(response_text: &str) -> bool {
     let normalized = normalize_for_compare(response_text);
     [
@@ -623,13 +879,14 @@ fn generic_response_contract(
     raw_tool_leak: bool,
     internal_leak: bool,
     tool_choice_final_response: bool,
+    truncated_or_incomplete_response: bool,
 ) -> Value {
     let intent_answered = query_satisfaction
         .get("intent_answered")
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let clean_projection = !raw_tool_leak && !internal_leak && !tool_choice_final_response;
-    let human_readable = normal_prose_signal(response_text);
+    let human_readable = normal_prose_signal(response_text) && !truncated_or_incomplete_response;
     let mut subgates = serde_json::Map::new();
     subgates.insert(
         "generic_1_final_answer_present".to_string(),
@@ -651,6 +908,10 @@ fn generic_response_contract(
         "generic_5_human_readable_shape".to_string(),
         json!(human_readable),
     );
+    subgates.insert(
+        "generic_6_complete_response_shape".to_string(),
+        json!(!truncated_or_incomplete_response),
+    );
     let ordered = [
         ("generic_1_final_answer_present", "missing_final_answer"),
         ("generic_2_answers_user_goal", "user_goal_not_answered"),
@@ -665,6 +926,10 @@ fn generic_response_contract(
         (
             "generic_5_human_readable_shape",
             "response_shape_not_human_readable",
+        ),
+        (
+            "generic_6_complete_response_shape",
+            "truncated_or_incomplete_response",
         ),
     ];
     let blockers = ordered
@@ -683,6 +948,7 @@ fn generic_response_contract(
         !source_summary_without_answer,
         clean_projection,
         human_readable,
+        !truncated_or_incomplete_response,
     ]
     .iter()
     .filter(|ok| **ok)
@@ -693,7 +959,7 @@ fn generic_response_contract(
         "layer_id": "generic_response_contract_v1",
         "pass": blockers.is_empty(),
         "score": score,
-        "max_score": 20,
+        "max_score": 24,
         "subgates": Value::Object(subgates),
         "blockers": blockers,
         "top_blocker": blockers.first().cloned().unwrap_or_else(|| "none".to_string()),
@@ -708,6 +974,7 @@ fn tool_backed_evidence_contract(
     limitation_signal: bool,
     query_satisfaction: &Value,
     unsupported_claim: bool,
+    outside_evidence_used_for_decision: bool,
 ) -> Value {
     let tool_executed = retrieval_quality
         .get("tool_executed")
@@ -777,6 +1044,10 @@ fn tool_backed_evidence_contract(
         "evidence_5_names_limits_when_needed".to_string(),
         json!(names_limits_when_needed),
     );
+    subgates.insert(
+        "evidence_6_respects_source_boundary".to_string(),
+        json!(!outside_evidence_used_for_decision),
+    );
     let ordered = [
         (
             "evidence_1_uses_recorded_evidence_when_present",
@@ -798,6 +1069,10 @@ fn tool_backed_evidence_contract(
             "evidence_5_names_limits_when_needed",
             "missing_evidence_gap_statement",
         ),
+        (
+            "evidence_6_respects_source_boundary",
+            "outside_evidence_used_for_decision",
+        ),
     ];
     let blockers = ordered
         .iter()
@@ -815,6 +1090,7 @@ fn tool_backed_evidence_contract(
         !synthesis_ignored_citable_evidence,
         !unsupported_claim && !denies_recorded_evidence,
         names_limits_when_needed,
+        !outside_evidence_used_for_decision,
     ]
     .iter()
     .filter(|ok| **ok)
@@ -829,12 +1105,13 @@ fn tool_backed_evidence_contract(
         "layer_id": "tool_backed_evidence_contract_v1",
         "pass": blockers.is_empty(),
         "score": score,
-        "max_score": 25,
+        "max_score": 30,
         "subgates": Value::Object(subgates),
         "blockers": blockers,
         "top_blocker": top_blocker,
         "retrieval_status": retrieval_status,
-        "note": "Evidence-use grading is format-flexible but requires the final answer to use recorded evidence honestly when evidence exists."
+        "outside_evidence_used_for_decision": outside_evidence_used_for_decision,
+        "note": "Evidence-use grading is format-flexible but requires the final answer to use recorded evidence honestly when evidence exists and to keep outside-evidence inference from carrying concrete recommendations."
     })
 }
 
@@ -942,6 +1219,7 @@ fn soft_quality_smoke_check(
     raw_tool_leak: bool,
     internal_leak: bool,
     tool_choice_final_response: bool,
+    truncated_or_incomplete_response: bool,
 ) -> Value {
     let intent_answered = query_satisfaction
         .get("intent_answered")
@@ -959,6 +1237,7 @@ fn soft_quality_smoke_check(
     let obviously_bad_shape = raw_tool_leak
         || internal_leak
         || tool_choice_final_response
+        || truncated_or_incomplete_response
         || source_summary_without_answer
         || !normal_prose_signal(response_text);
 
@@ -987,6 +1266,10 @@ fn soft_quality_smoke_check(
         "smoke_6_decision_or_explanatory_value_present".to_string(),
         json!(decision_value || has_tradeoff_or_structure(normalized_response)),
     );
+    subgates.insert(
+        "smoke_7_response_not_truncated".to_string(),
+        json!(!truncated_or_incomplete_response),
+    );
     let ordered = [
         ("smoke_1_no_meta_process_talk", "meta_process_talk_visible"),
         (
@@ -1005,6 +1288,10 @@ fn soft_quality_smoke_check(
         (
             "smoke_6_decision_or_explanatory_value_present",
             "decision_or_explanatory_value_missing",
+        ),
+        (
+            "smoke_7_response_not_truncated",
+            "truncated_or_incomplete_response",
         ),
     ];
     let blockers = ordered
@@ -1026,11 +1313,576 @@ fn soft_quality_smoke_check(
         "lane_id": "soft_quality_smoke_v1",
         "pass": blockers.is_empty(),
         "score": score,
-        "max_score": 6,
+        "max_score": 7,
         "subgates": Value::Object(subgates),
         "blockers": blockers,
         "top_blocker": blockers.first().cloned().unwrap_or_else(|| "none".to_string()),
         "note": "This is a soft UX smoke lane, not an authoritative grading contract. It flags answers that would likely feel obviously bad to a real user even if structural gates passed."
+    })
+}
+
+fn answer_unit_evidence_alignment(
+    payload: &Value,
+    response_text: &str,
+    retrieval_quality: &Value,
+) -> Value {
+    let usable_evidence = retrieval_quality
+        .get("usable_evidence")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let evidence_texts = evidence_alignment_texts(payload);
+    let scope_texts = answer_alignment_scope_texts(payload);
+    let units = answer_text_units(response_text);
+    let mut checked_units = Vec::<Value>::new();
+    let mut unsupported_units = Vec::<Value>::new();
+    let mut high_specificity_units = 0_u64;
+    let mut total_terms = 0_u64;
+    let mut supported_terms_total = 0_u64;
+
+    for unit in units.iter().take(18) {
+        let terms = answer_unit_specific_terms(unit);
+        if terms.is_empty() {
+            continue;
+        }
+        high_specificity_units += 1;
+        let normalized_unit = normalize_for_compare(unit);
+        let hedged = answer_unit_is_hedged_or_gap(&normalized_unit);
+        let mut supported_terms = Vec::<String>::new();
+        let mut scope_supported_terms = Vec::<String>::new();
+        let mut unsupported_terms = Vec::<String>::new();
+        for term in terms {
+            total_terms += 1;
+            if evidence_texts_support_term(&evidence_texts, &term) {
+                supported_terms_total += 1;
+                supported_terms.push(term);
+            } else if evidence_texts_support_term(&scope_texts, &term) {
+                supported_terms_total += 1;
+                scope_supported_terms.push(term);
+            } else {
+                unsupported_terms.push(term);
+            }
+        }
+        let unsupported_is_significant = answer_unit_unsupported_is_significant(
+            &normalized_unit,
+            &supported_terms,
+            &scope_supported_terms,
+            &unsupported_terms,
+        );
+        let unit_row = json!({
+            "unit_preview": clean_text(unit, 300),
+            "hedged_or_gap_labeled": hedged,
+            "supported_terms": supported_terms,
+            "scope_supported_terms": scope_supported_terms,
+            "unsupported_terms": unsupported_terms,
+            "unsupported_is_significant": unsupported_is_significant,
+        });
+        if !unsupported_terms.is_empty() && !hedged && unsupported_is_significant {
+            unsupported_units.push(unit_row.clone());
+        }
+        if checked_units.len() < 12 {
+            checked_units.push(unit_row);
+        }
+    }
+
+    let evaluated = !evidence_texts.is_empty() && high_specificity_units > 0;
+    let support_rate = ratio(supported_terms_total, total_terms);
+    let blockers = if evaluated && !unsupported_units.is_empty() {
+        vec!["unsupported_answer_units".to_string()]
+    } else {
+        Vec::new()
+    };
+    json!({
+        "schema_version": 1,
+        "lane_id": "answer_unit_evidence_alignment_v1",
+        "pass": blockers.is_empty(),
+        "evaluated": evaluated,
+        "usable_evidence": usable_evidence,
+        "evidence_text_count": evidence_texts.len() as u64,
+        "scope_text_count": scope_texts.len() as u64,
+        "units_checked": checked_units.len() as u64,
+        "high_specificity_units": high_specificity_units,
+        "term_support_rate": support_rate,
+        "unsupported_unit_count": unsupported_units.len() as u64,
+        "checked_units": checked_units,
+        "unsupported_units": unsupported_units,
+        "blockers": blockers,
+        "top_blocker": blockers.first().cloned().unwrap_or_else(|| "none".to_string()),
+        "note": "Soft generic smoke lane. It extracts high-specificity answer units from the final answer and checks whether their concrete terms appear in retrieved evidence/citation artifacts; hedged uncertainty and evidence-gap statements are allowed. Retrieval quality is reported separately; weak retrieval does not permit unsupported concrete answer units."
+    })
+}
+
+fn evidence_alignment_texts(payload: &Value) -> Vec<String> {
+    let mut texts = evidence_relevance_texts(payload);
+    let artifacts = citation_artifact_summary(payload);
+    if let Some(items) = artifacts.get("items").and_then(Value::as_array) {
+        for item in items {
+            let parts = [
+                str_at(item, &["title"], ""),
+                str_at(item, &["locator"], ""),
+                str_at(item, &["source_domain"], ""),
+                str_at(item, &["snippet"], ""),
+            ]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+            if parts.is_empty() {
+                continue;
+            }
+            let combined = normalize_for_compare(&parts.join(" "));
+            if combined.split_whitespace().count() >= 2 {
+                texts.push(combined);
+            }
+        }
+    }
+    texts.sort();
+    texts.dedup();
+    texts
+}
+
+fn answer_alignment_scope_texts(payload: &Value) -> Vec<String> {
+    let mut texts = Vec::<String>::new();
+    for path in [
+        &["pending_tool_request", "input"][..],
+        &["response_workflow", "pending_tool_request", "input"][..],
+        &[
+            "response_workflow",
+            "manual_toolbox_pending_tool_request",
+            "input",
+        ][..],
+        &["response_finalization", "pending_tool_request", "input"][..],
+        &[
+            "response_finalization",
+            "tool_completion",
+            "pending_tool_request",
+            "input",
+        ][..],
+    ] {
+        let mut cursor = payload;
+        let mut found = true;
+        for segment in path {
+            if let Some(next) = cursor.get(*segment) {
+                cursor = next;
+            } else {
+                found = false;
+                break;
+            }
+        }
+        if found {
+            collect_answer_alignment_scope_texts(cursor, &mut texts);
+        }
+    }
+    texts.sort();
+    texts.dedup();
+    texts
+}
+
+fn collect_answer_alignment_scope_texts(value: &Value, texts: &mut Vec<String>) {
+    match value {
+        Value::String(raw) => {
+            let normalized = normalize_for_compare(raw);
+            if normalized.split_whitespace().count() >= 1 {
+                texts.push(normalized);
+            }
+        }
+        Value::Array(rows) => {
+            for row in rows {
+                collect_answer_alignment_scope_texts(row, texts);
+            }
+        }
+        Value::Object(map) => {
+            for key in [
+                "query",
+                "keywords",
+                "aliases",
+                "entities",
+                "facets",
+                "required_coverage",
+                "negative_terms",
+            ] {
+                if let Some(child) = map.get(key) {
+                    collect_answer_alignment_scope_texts(child, texts);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn answer_text_units(response_text: &str) -> Vec<String> {
+    let mut units = Vec::<String>::new();
+    for line in response_text.lines() {
+        let line = line
+            .trim()
+            .trim_start_matches(|ch: char| {
+                ch.is_ascii_whitespace() || ch == '-' || ch == '*' || ch == ':' || ch == ')'
+            })
+            .trim();
+        if line.is_empty() {
+            continue;
+        }
+        let line = strip_markdown_link_targets(line);
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let mut start = 0;
+        for (idx, ch) in line.char_indices() {
+            if matches!(ch, '.' | '!' | '?') {
+                push_answer_unit(&mut units, &line[start..idx + ch.len_utf8()]);
+                start = idx + ch.len_utf8();
+            }
+        }
+        if start < line.len() {
+            push_answer_unit(&mut units, &line[start..]);
+        }
+        if units.len() >= 18 {
+            break;
+        }
+    }
+    units
+}
+
+fn strip_markdown_link_targets(raw: &str) -> String {
+    let mut out = String::new();
+    let mut rest = raw;
+    while let Some(start) = rest.find("](") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        if let Some(end) = after.find(')') {
+            rest = &after[end + 1..];
+        } else {
+            rest = after;
+            break;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn push_answer_unit(units: &mut Vec<String>, raw: &str) {
+    let unit = clean_text(
+        raw.trim_matches(|ch: char| ch.is_ascii_whitespace() || ch == '-' || ch == '*'),
+        700,
+    );
+    if unit.split_whitespace().count() >= 5
+        && !unit.ends_with(':')
+        && !units.iter().any(|existing| existing == &unit)
+    {
+        units.push(unit);
+    }
+}
+
+fn answer_unit_specific_terms(unit: &str) -> Vec<String> {
+    let mut seen = BTreeSet::<String>::new();
+    let mut terms = Vec::<String>::new();
+    for raw in unit.split_whitespace() {
+        let mut cleaned = raw.trim_matches(|ch: char| {
+            !ch.is_ascii_alphanumeric() && ch != '-' && ch != '.' && ch != '/'
+        });
+        cleaned = cleaned
+            .trim_end_matches("'s")
+            .trim_end_matches("'S")
+            .trim_end_matches("’s")
+            .trim_end_matches("’S");
+        if cleaned.is_empty() {
+            continue;
+        }
+        let normalized = normalize_research_token(cleaned);
+        if normalized.len() < 3
+            && normalized != "ai"
+            && !normalized.chars().any(|ch| ch.is_ascii_digit())
+        {
+            continue;
+        }
+        if answer_specific_stop_term(&normalized) {
+            continue;
+        }
+        let letters = cleaned
+            .chars()
+            .filter(|ch| ch.is_ascii_alphabetic())
+            .collect::<Vec<_>>();
+        let uppercase_letters = letters.iter().filter(|ch| ch.is_ascii_uppercase()).count();
+        let has_digit = cleaned.chars().any(|ch| ch.is_ascii_digit());
+        let is_acronym =
+            letters.len() >= 2 && uppercase_letters >= 2 && uppercase_letters * 2 >= letters.len();
+        let has_internal_capital = letters.iter().skip(1).any(|ch| ch.is_ascii_uppercase());
+        let is_capitalized = cleaned
+            .chars()
+            .next()
+            .map(|ch| ch.is_ascii_uppercase())
+            .unwrap_or(false);
+        let domain_like = token_looks_domain_like(cleaned);
+        let specific = has_digit
+            || is_acronym
+            || has_internal_capital
+            || domain_like
+            || (is_capitalized && normalized.len() >= 3);
+        if specific && seen.insert(normalized.clone()) {
+            terms.push(normalized);
+        }
+        if terms.len() >= 12 {
+            break;
+        }
+    }
+    terms
+}
+
+fn token_looks_domain_like(token: &str) -> bool {
+    let host = token
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .trim_start_matches("www.")
+        .split('/')
+        .next()
+        .unwrap_or("");
+    let labels = host
+        .split('.')
+        .filter(|label| !label.is_empty())
+        .collect::<Vec<_>>();
+    if labels.len() < 2 {
+        return false;
+    }
+    let tld = labels.last().copied().unwrap_or("");
+    (2..=24).contains(&tld.len())
+        && tld.chars().all(|ch| ch.is_ascii_alphabetic())
+        && labels
+            .iter()
+            .any(|label| label.chars().any(|ch| ch.is_ascii_alphabetic()))
+}
+
+fn answer_specific_stop_term(token: &str) -> bool {
+    matches!(
+        token,
+        "about"
+            | "according"
+            | "across"
+            | "also"
+            | "answer"
+            | "area"
+            | "areas"
+            | "activity"
+            | "apis"
+            | "based"
+            | "bestsupported"
+            | "because"
+            | "between"
+            | "bottom"
+            | "boundary"
+            | "case"
+            | "caveat"
+            | "caveats"
+            | "comparative"
+            | "coverage"
+            | "critical"
+            | "core"
+            | "current"
+            | "currently"
+            | "dimension"
+            | "does"
+            | "ease"
+            | "evidence"
+            | "example"
+            | "explicitly"
+            | "final"
+            | "first"
+            | "for"
+            | "from"
+            | "gap"
+            | "gaps"
+            | "general"
+            | "given"
+            | "here"
+            | "however"
+            | "important"
+            | "include"
+            | "included"
+            | "includes"
+            | "including"
+            | "integrated"
+            | "instead"
+            | "key"
+            | "known"
+            | "main"
+            | "more"
+            | "most"
+            | "one"
+            | "officer"
+            | "overall"
+            | "parliamentary"
+            | "positioning"
+            | "probably"
+            | "recent"
+            | "retrieved"
+            | "safest"
+            | "second"
+            | "source"
+            | "sources"
+            | "strong"
+            | "stronger"
+            | "summary"
+            | "than"
+            | "that"
+            | "the"
+            | "their"
+            | "there"
+            | "these"
+            | "third"
+            | "this"
+            | "those"
+            | "through"
+            | "what"
+            | "while"
+            | "with"
+            | "within"
+            | "january"
+            | "february"
+            | "march"
+            | "april"
+            | "may"
+            | "june"
+            | "july"
+            | "august"
+            | "september"
+            | "october"
+            | "november"
+            | "december"
+    )
+}
+
+fn answer_unit_is_hedged_or_gap(normalized_unit: &str) -> bool {
+    let padded = format!(" {normalized_unit} ");
+    contains_any(
+        &padded,
+        &[
+            " may ",
+            " might ",
+            " could ",
+            " appears ",
+            " suggests ",
+            " uncertain",
+            " not clear",
+            " not enough",
+            " does not confirm",
+            " doesn't confirm",
+            " current evidence does not",
+            " evidence does not",
+            " wasn't materialized",
+            " wasnt materialized",
+            " not materialized",
+            " not retrieved",
+            " can't give ",
+            " cannot give ",
+            " source-backed comparison",
+            " source backed comparison",
+            " search returned only",
+            " returned only headline",
+            " headline-level",
+            " coverage gaps",
+            " missing entity",
+            " missing facet",
+            " lacked direct",
+            " lacks direct",
+            " no source-backed",
+            " limited evidence",
+            " available evidence",
+            " available snippet",
+            " available snippets",
+            " coverage gap",
+            " safe boundary",
+            " do not choose",
+            " dont choose",
+            " more targeted search",
+            " targeted search",
+            " would likely yield",
+            " verify ",
+            " next search direction",
+            " needed to choose",
+            " unknown",
+            " unverified",
+            " inference",
+            " partial",
+        ],
+    )
+}
+
+fn answer_unit_unsupported_is_significant(
+    normalized_unit: &str,
+    supported_terms: &[String],
+    scope_supported_terms: &[String],
+    unsupported_terms: &[String],
+) -> bool {
+    if unsupported_terms.is_empty() {
+        return false;
+    }
+    if supported_terms.is_empty() && scope_supported_terms.is_empty() {
+        return true;
+    }
+    if answer_unit_has_high_commitment_claim(normalized_unit) {
+        return true;
+    }
+    let total_terms = supported_terms.len() + scope_supported_terms.len() + unsupported_terms.len();
+    unsupported_terms.len() >= 2 && unsupported_terms.len() * 2 >= total_terms.max(1)
+}
+
+fn answer_unit_has_high_commitment_claim(normalized_unit: &str) -> bool {
+    contains_any(
+        normalized_unit,
+        &[
+            " launched ",
+            " released ",
+            " announced ",
+            " acquired ",
+            " approved ",
+            " indicted ",
+            " sued ",
+            " won ",
+            " raised ",
+            " claims ",
+            " claimed ",
+            " reports ",
+            " reported ",
+            " published ",
+        ],
+    )
+}
+
+fn answer_unit_alignment_hard_failure(alignment: &Value) -> bool {
+    if !alignment
+        .get("evaluated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    if alignment
+        .get("pass")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+    {
+        return false;
+    }
+    let unsupported_units = alignment
+        .get("unsupported_unit_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let support_rate = alignment
+        .get("term_support_rate")
+        .and_then(Value::as_f64)
+        .unwrap_or(1.0);
+    unsupported_units >= 2 || support_rate < 0.75
+}
+
+fn evidence_texts_support_term(evidence_texts: &[String], term: &str) -> bool {
+    if term.is_empty() {
+        return true;
+    }
+    let stem = research_term_stem(term);
+    evidence_texts.iter().any(|text| {
+        (term.len() > 2 && text.contains(term))
+            || text.split_whitespace().any(|token| {
+                let normalized = normalize_research_token(token);
+                normalized == term || (!stem.is_empty() && research_term_stem(&normalized) == stem)
+            })
     })
 }
 
@@ -1470,14 +2322,36 @@ fn required_entity_needs_entity_coverage(entity: &str) -> bool {
 
 fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value {
     let tool_executed = has_tool_execution(payload);
-    let candidate_count = provider_candidate_count(payload);
+    let candidate_count = provider_candidate_count(payload).max(provider_explicit_quality_metric(
+        payload,
+        &[
+            "candidate_count",
+            "provider_raw_count",
+            "provider_result_count",
+            "provider_result_dedup_count",
+        ],
+    ));
     let evidence_count = provider_evidence_count(payload);
     let materialized_candidate_count = provider_materialized_candidate_count(payload);
     let content_rich_candidate_count = provider_content_rich_candidate_count(payload);
-    let claim_hint_count = provider_claim_hint_count(payload);
+    let direct_claim_contract_present = payload.get("evidence_claims").is_some();
+    let direct_evidence_claim_count = direct_evidence_claim_count(payload);
+    let claim_hint_count = if direct_claim_contract_present {
+        direct_evidence_claim_count
+    } else {
+        provider_claim_hint_count(payload)
+    };
     let materialization_failure_report =
         provider_explicit_quality_value(payload, &["materialization_failure_report"]);
-    let prompt_relevance = evidence_prompt_relevance(payload, normalized_prompt);
+    let prompt_relevance = if direct_claim_contract_present {
+        evidence_prompt_relevance_from_texts(
+            normalized_prompt,
+            direct_evidence_claim_texts(payload),
+            "Checks prompt relevance against first-class evidence_claims only, so candidate titles or non-citable refs cannot make weak claims look usable.",
+        )
+    } else {
+        evidence_prompt_relevance(payload, normalized_prompt)
+    };
     let topic_relevant_evidence = prompt_relevance
         .get("topic_relevant_evidence")
         .and_then(Value::as_bool)
@@ -1536,13 +2410,47 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
             "off-topic",
         ],
     );
+    let direct_quality_flags = direct_tool_quality_flags(payload);
+    let direct_contract_present = payload.get("tool_result_quality").is_some()
+        || payload.get("evidence_pack_quality").is_some()
+        || direct_claim_contract_present;
+    let direct_pack_status = str_at(payload, &["evidence_pack_quality", "status"], "");
+    let direct_pack_thin = matches!(
+        direct_pack_status.as_str(),
+        "thin" | "empty" | "low_signal" | "no_results"
+    );
+    let direct_provider_degraded = direct_quality_flags.iter().any(|flag| {
+        matches!(
+            flag.as_str(),
+            "provider_starved"
+                | "provider_timeout"
+                | "provider_degraded"
+                | "provider_error"
+                | "rate_limited"
+                | "quota_exhausted"
+        )
+    });
+    let provider_degraded_observed = explicit_provider_degraded || direct_provider_degraded;
+    let provider_degradation_blocks_supply = provider_degraded_observed
+        && (candidate_count == 0 || evidence_count == 0 || materialized_candidate_count == 0);
+    let direct_low_signal = direct_pack_thin
+        || direct_quality_flags.iter().any(|flag| {
+            matches!(
+                flag.as_str(),
+                "claim_hints_missing"
+                    | "comparison_evidence_insufficient"
+                    | "content_rich_evidence_missing"
+                    | "low_signal"
+                    | "low_relevance"
+            )
+        })
+        || (direct_claim_contract_present && direct_evidence_claim_count == 0);
     let evidence_artifact_conflict =
         explicit_no_results && (candidate_count > 0 || evidence_count > 0);
-    let materialized_evidence_available =
-        materialized_candidate_count > 0 && claim_hint_count > 0;
+    let materialized_evidence_available = materialized_candidate_count > 0 && claim_hint_count > 0;
     let status = if !tool_executed {
         "not_attempted"
-    } else if explicit_provider_degraded {
+    } else if provider_degradation_blocks_supply {
         "provider_degraded"
     } else if evidence_artifact_conflict {
         "conflicting_provider_state"
@@ -1552,16 +2460,18 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
         "no_evidence"
     } else if candidate_count == 0 {
         "raw_provider_absent"
-    } else if materialized_candidate_count == 0 || claim_hint_count == 0 {
-        "low_signal"
-    } else if explicit_low_signal {
-        "low_signal"
     } else if evidence_count > 0 && !topic_relevant_evidence {
         "low_relevance"
+    } else if materialized_candidate_count == 0 || claim_hint_count == 0 {
+        "low_signal"
+    } else if explicit_low_signal || direct_low_signal {
+        "low_signal"
     } else {
         "usable"
     };
-    let usable_evidence = status == "usable";
+    let usable_evidence = status == "usable"
+        && (!direct_contract_present
+            || (direct_evidence_claim_count > 0 && topic_relevant_evidence && !direct_low_signal));
     let allows_excellent = usable_evidence
         && content_rich_candidate_count > 0
         && claim_hint_count > 0
@@ -1578,6 +2488,21 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
     }
     if explicit_low_signal {
         flags.push("explicit_low_signal_marker");
+    }
+    if direct_contract_present {
+        flags.push("direct_tool_evidence_contract_present");
+    }
+    if direct_provider_degraded {
+        flags.push("direct_tool_provider_degraded_marker");
+    }
+    if provider_degraded_observed && !provider_degradation_blocks_supply {
+        flags.push("provider_degradation_nonblocking");
+    }
+    if direct_low_signal {
+        flags.push("direct_tool_low_signal_marker");
+    }
+    if direct_claim_contract_present && direct_evidence_claim_count == 0 {
+        flags.push("direct_evidence_claims_absent");
     }
     if evidence_artifact_conflict {
         flags.push("evidence_artifact_conflict");
@@ -1620,6 +2545,12 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
             "explicit_no_results_marker": explicit_no_results,
             "explicit_provider_degraded_marker": explicit_provider_degraded,
             "explicit_low_signal_marker": explicit_low_signal,
+            "direct_contract_present": direct_contract_present,
+            "direct_evidence_claim_count": direct_evidence_claim_count,
+            "provider_degraded_observed": provider_degraded_observed,
+            "provider_degradation_blocks_supply": provider_degradation_blocks_supply,
+            "direct_provider_degraded_marker": direct_provider_degraded,
+            "direct_low_signal_marker": direct_low_signal,
             "evidence_artifact_conflict": evidence_artifact_conflict,
             "materialized_candidate_count": materialized_candidate_count,
             "content_rich_candidate_count": content_rich_candidate_count,
@@ -1633,8 +2564,20 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
 }
 
 fn evidence_prompt_relevance(payload: &Value, normalized_prompt: &str) -> Value {
-    let prompt_terms = research_prompt_topic_terms(normalized_prompt, 12);
     let evidence_texts = evidence_relevance_texts(payload);
+    evidence_prompt_relevance_from_texts(
+        normalized_prompt,
+        evidence_texts,
+        "Checks whether at least one evidence item overlaps the user's durable topic terms, so unrelated source rows do not count as usable research evidence.",
+    )
+}
+
+fn evidence_prompt_relevance_from_texts(
+    normalized_prompt: &str,
+    evidence_texts: Vec<String>,
+    note: &str,
+) -> Value {
+    let prompt_terms = research_prompt_topic_terms(normalized_prompt, 12);
     if prompt_terms.len() < 2 || evidence_texts.is_empty() {
         return json!({
             "schema_version": 1,
@@ -1658,8 +2601,55 @@ fn evidence_prompt_relevance(payload: &Value, normalized_prompt: &str) -> Value 
         "evidence_text_count": evidence_texts.len(),
         "relevant_evidence_count": relevant_evidence_count,
         "min_overlap_terms": min_overlap,
-        "note": "Checks whether at least one evidence item overlaps the user's durable topic terms, so unrelated source rows do not count as usable research evidence."
+        "note": note
     })
+}
+
+fn direct_evidence_claim_count(payload: &Value) -> u64 {
+    payload
+        .get("evidence_claims")
+        .and_then(Value::as_array)
+        .map(|rows| rows.len() as u64)
+        .unwrap_or(0)
+}
+
+fn direct_evidence_claim_texts(payload: &Value) -> Vec<String> {
+    let mut out = payload
+        .get("evidence_claims")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| {
+                    row.get("claim")
+                        .and_then(Value::as_str)
+                        .map(normalize_for_compare)
+                })
+                .filter(|text| text.split_whitespace().count() >= 3)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn direct_tool_quality_flags(payload: &Value) -> Vec<String> {
+    let mut flags = Vec::<String>::new();
+    for pointer in ["/tool_result_quality/flags", "/evidence_pack_quality/flags"] {
+        if let Some(rows) = payload.pointer(pointer).and_then(Value::as_array) {
+            for row in rows {
+                if let Some(raw) = row.as_str() {
+                    let flag = normalize_for_compare(raw);
+                    if !flag.is_empty() {
+                        flags.push(flag);
+                    }
+                }
+            }
+        }
+    }
+    flags.sort();
+    flags.dedup();
+    flags
 }
 
 fn evidence_relevance_texts(payload: &Value) -> Vec<String> {
@@ -1923,6 +2913,7 @@ struct ExcellentDiagnosticInput<'a> {
     retrieval_quality: &'a Value,
     citation_behavior: &'a Value,
     query_satisfaction: &'a Value,
+    answer_unit_evidence_alignment: &'a Value,
     normalized_response: &'a str,
     source_signal: bool,
     final_answer_present: bool,
@@ -1975,6 +2966,16 @@ fn excellent_diagnostics(input: ExcellentDiagnosticInput<'_>) -> Value {
         );
     let evidence_gaps_named_when_needed = !needs_gap_statement || input.limitation_signal;
     let limitation_heavy_answer = limitation_heavy_for_excellent(input.normalized_response);
+    let answer_units_trace_to_evidence = !input
+        .answer_unit_evidence_alignment
+        .get("evaluated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || input
+            .answer_unit_evidence_alignment
+            .get("pass")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
     let mut subgates = serde_json::Map::new();
     subgates.insert(
         "excellent_1_query_satisfaction".to_string(),
@@ -2019,12 +3020,12 @@ fn excellent_diagnostics(input: ExcellentDiagnosticInput<'_>) -> Value {
         "excellent_10_answer_not_limitation_heavy".to_string(),
         json!(!limitation_heavy_answer),
     );
+    subgates.insert(
+        "excellent_11_answer_units_trace_to_evidence".to_string(),
+        json!(answer_units_trace_to_evidence),
+    );
 
     let ordered = [
-        (
-            "excellent_1_query_satisfaction",
-            "query_satisfaction_below_excellent",
-        ),
         (
             "excellent_2_citable_evidence_available",
             "retrieval_quality_not_excellent_ready",
@@ -2036,6 +3037,14 @@ fn excellent_diagnostics(input: ExcellentDiagnosticInput<'_>) -> Value {
         (
             "excellent_4_claims_trace_to_citations",
             "claims_not_traceable_to_citation_signal",
+        ),
+        (
+            "excellent_11_answer_units_trace_to_evidence",
+            "answer_units_not_traceable_to_evidence",
+        ),
+        (
+            "excellent_1_query_satisfaction",
+            "query_satisfaction_below_excellent",
         ),
         (
             "excellent_5_evidence_gaps_named_when_needed",
@@ -2395,7 +3404,10 @@ fn count_materialized_items(value: &Value, depth: usize) -> u64 {
 
 fn value_counts_as_usable_evidence(value: &Value) -> Option<bool> {
     let map = value.as_object()?;
-    if let Some(explicit) = map.get("counts_as_usable_evidence").and_then(Value::as_bool) {
+    if let Some(explicit) = map
+        .get("counts_as_usable_evidence")
+        .and_then(Value::as_bool)
+    {
         return Some(explicit);
     }
     let quality = map
@@ -2758,6 +3770,42 @@ fn normal_prose_signal(response_text: &str) -> bool {
         && trimmed.split_whitespace().count() >= 8
 }
 
+fn response_looks_truncated_or_incomplete(response_text: &str) -> bool {
+    let trimmed = response_text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let tail = trimmed
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or(trimmed);
+    let terminal_punctuation = tail
+        .chars()
+        .rev()
+        .find(|ch| !ch.is_ascii_whitespace())
+        .map(|ch| matches!(ch, '.' | '!' | '?' | ')' | ']' | '"' | '\''))
+        .unwrap_or(false)
+        || tail.ends_with("```")
+        || tail.ends_with('|');
+    let table_tail_incomplete = tail.contains('|') && !terminal_punctuation;
+    let open_parens = tail.matches('(').count() > tail.matches(')').count();
+    let open_brackets = tail.matches('[').count() > tail.matches(']').count();
+    let dangling_connector = normalize_for_compare(tail)
+        .split_whitespace()
+        .last()
+        .map(|last| {
+            matches!(
+                last,
+                "and" | "or" | "with" | "for" | "from" | "because" | "while" | "including"
+            )
+        })
+        .unwrap_or(false);
+    (table_tail_incomplete || open_parens || open_brackets || dangling_connector)
+        && !terminal_punctuation
+}
+
 fn entity_coverage(normalized_response: &str, required_entities: &[String]) -> f64 {
     if required_entities.is_empty() {
         return 1.0;
@@ -3007,6 +4055,49 @@ fn unsupported_claim_signal(case: &Value, response_text: &str) -> bool {
     asks_best && has_universal_best && !has_limitation_signal(&normalized)
 }
 
+fn outside_evidence_used_for_decision_signal(normalized_response: &str) -> bool {
+    if normalized_response.is_empty() {
+        return false;
+    }
+    let outside_evidence_marker = contains_any(
+        normalized_response,
+        &[
+            "not source backed in this turn",
+            "not source-backed in this turn",
+            "not supported by retrieved evidence",
+            "not supported by the retrieved evidence",
+            "outside retrieved evidence",
+            "outside the retrieved evidence",
+            "general knowledge",
+            "prior knowledge",
+            "training knowledge",
+            "well established",
+            "well-established",
+            "historically lies",
+            "known for",
+        ],
+    );
+    if !outside_evidence_marker {
+        return false;
+    }
+    let explicitly_not_decision_basis = contains_any(
+        normalized_response,
+        &[
+            "not enough to recommend",
+            "cannot recommend",
+            "can't recommend",
+            "no source backed basis to choose",
+            "no source-backed basis to choose",
+            "no source backed basis to recommend",
+            "no source-backed basis to recommend",
+            "do not use this as a recommendation",
+            "do not use it as a recommendation",
+            "should not be used as a recommendation",
+        ],
+    );
+    !explicitly_not_decision_basis && has_recommendation_signal(normalized_response)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3090,6 +4181,227 @@ mod tests {
         assert_eq!(
             quality.get("status").and_then(Value::as_str),
             Some("provider_degraded")
+        );
+    }
+
+    #[test]
+    fn direct_evidence_claim_contract_overrides_candidate_title_relevance() {
+        let payload = json!({
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok"
+            }],
+            "tool_result_quality": {
+                "status": "partial",
+                "candidate_count": 8,
+                "evidence_count": 3,
+                "materialized_candidate_count": 2,
+                "content_rich_candidate_count": 2,
+                "flags": ["partial_results"]
+            },
+            "evidence_pack_quality": {
+                "status": "usable",
+                "usable_count": 2,
+                "claim_hint_count": 1,
+                "content_rich_item_count": 1
+            },
+            "evidence_claims": [{
+                "claim": "In today's digital world, news sources are everywhere",
+                "support_snippet": "In today's digital world, news sources are everywhere.",
+                "source_domain": "example.test"
+            }],
+            "evidence_refs": [{
+                "title": "Major world news story from this week",
+                "snippet": "A candidate title that overlaps the query but is not the citable claim."
+            }]
+        });
+
+        let quality = retrieval_provider_quality(
+            &payload,
+            &normalize_for_compare("Give me the biggest world news from this week."),
+        );
+        assert_eq!(
+            quality.get("status").and_then(Value::as_str),
+            Some("low_relevance"),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality
+                .pointer("/classification_inputs/direct_evidence_claim_count")
+                .and_then(Value::as_u64),
+            Some(1),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality
+                .pointer("/prompt_relevance/topic_relevant_evidence")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{quality:#?}"
+        );
+    }
+
+    #[test]
+    fn direct_evidence_claim_contract_zero_claims_is_low_signal() {
+        let payload = json!({
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok"
+            }],
+            "tool_result_quality": {
+                "status": "partial",
+                "candidate_count": 12,
+                "evidence_count": 3,
+                "materialized_candidate_count": 3,
+                "content_rich_candidate_count": 3,
+                "flags": ["claim_hints_missing", "partial_results"]
+            },
+            "evidence_pack_quality": {
+                "status": "thin",
+                "usable_count": 0,
+                "claim_hint_count": 0,
+                "content_rich_item_count": 0
+            },
+            "evidence_claims": [],
+            "evidence_refs": [{
+                "title": "Firecrawl Tavily Exa API comparison",
+                "snippet": "A title-level source row with no extracted claim."
+            }]
+        });
+
+        let quality = retrieval_provider_quality(
+            &payload,
+            &normalize_for_compare("Compare Firecrawl, Tavily, and Exa for web research APIs."),
+        );
+        assert_eq!(
+            quality.get("status").and_then(Value::as_str),
+            Some("low_signal"),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality.get("claim_hint_count").and_then(Value::as_u64),
+            Some(0),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality.get("usable_evidence").and_then(Value::as_bool),
+            Some(false),
+            "{quality:#?}"
+        );
+    }
+
+    #[test]
+    fn direct_provider_starved_contract_is_nonblocking_when_evidence_arrived() {
+        let payload = json!({
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok"
+            }],
+            "tool_result_quality": {
+                "status": "partial",
+                "candidate_count": 10,
+                "evidence_count": 2,
+                "materialized_candidate_count": 2,
+                "content_rich_candidate_count": 2,
+                "flags": ["provider_starved", "provider_timeout"]
+            },
+            "evidence_pack_quality": {
+                "status": "usable",
+                "usable_count": 2,
+                "claim_hint_count": 2,
+                "content_rich_item_count": 2
+            },
+            "evidence_claims": [{
+                "claim": "Scientific breakthroughs in 2026 include a methane chemistry result.",
+                "source_domain": "example.test"
+            }],
+            "evidence_refs": [{
+                "title": "Scientific breakthroughs in 2026",
+                "snippet": "Scientific breakthroughs in 2026 include a methane chemistry result."
+            }]
+        });
+
+        let quality = retrieval_provider_quality(
+            &payload,
+            &normalize_for_compare("What are some scientific breakthroughs in 2026 so far?"),
+        );
+        assert_eq!(
+            quality.get("status").and_then(Value::as_str),
+            Some("usable"),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality.get("usable_evidence").and_then(Value::as_bool),
+            Some(true),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality
+                .get("quality_flags")
+                .and_then(Value::as_array)
+                .unwrap()
+                .iter()
+                .any(|flag| flag.as_str() == Some("provider_degradation_nonblocking")),
+            true,
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality
+                .pointer("/classification_inputs/provider_degradation_blocks_supply")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{quality:#?}"
+        );
+    }
+
+    #[test]
+    fn direct_provider_starved_with_evidence_but_no_claims_is_low_signal() {
+        let payload = json!({
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok"
+            }],
+            "tool_result_quality": {
+                "status": "partial",
+                "candidate_count": 12,
+                "evidence_count": 3,
+                "materialized_candidate_count": 3,
+                "content_rich_candidate_count": 3,
+                "flags": ["provider_starved", "provider_timeout", "claim_hints_missing"]
+            },
+            "evidence_pack_quality": {
+                "status": "thin",
+                "usable_count": 0,
+                "claim_hint_count": 0,
+                "content_rich_item_count": 0
+            },
+            "evidence_claims": [],
+            "evidence_refs": [{
+                "title": "Firecrawl Tavily Exa API comparison",
+                "snippet": "A title-level source row with no extracted claim."
+            }]
+        });
+
+        let quality = retrieval_provider_quality(
+            &payload,
+            &normalize_for_compare("Compare Firecrawl, Tavily, and Exa for web research APIs."),
+        );
+        assert_eq!(
+            quality.get("status").and_then(Value::as_str),
+            Some("low_signal"),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality
+                .pointer("/classification_inputs/provider_degradation_blocks_supply")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality.get("usable_evidence").and_then(Value::as_bool),
+            Some(false),
+            "{quality:#?}"
         );
     }
 
@@ -3509,6 +4821,7 @@ mod tests {
                 "name": "web_search",
                 "status": "ok",
                 "candidate_count": 6,
+                "materialized_candidate_count": 4,
                 "content_rich_candidate_count": 4,
                 "claim_hint_count": 3,
                 "evidence_refs": [
@@ -3582,6 +4895,7 @@ mod tests {
                 "name": "web_search",
                 "status": "ok",
                 "candidate_count": 2,
+                "materialized_candidate_count": 2,
                 "content_rich_candidate_count": 2,
                 "claim_hint_count": 2,
                 "evidence_refs": [{
@@ -3652,6 +4966,7 @@ mod tests {
                 "name": "web_search",
                 "status": "ok",
                 "candidate_count": 2,
+                "materialized_candidate_count": 2,
                 "content_rich_candidate_count": 2,
                 "claim_hint_count": 2,
                 "evidence_refs": [{
@@ -3678,6 +4993,7 @@ mod tests {
                 "name": "web_search",
                 "status": "ok",
                 "candidate_count": 1,
+                "materialized_candidate_count": 1,
                 "content_rich_candidate_count": 1,
                 "claim_hint_count": 1,
                 "evidence_refs": [{
@@ -3726,6 +5042,7 @@ mod tests {
                 "name": "web_search",
                 "status": "ok",
                 "candidate_count": 1,
+                "materialized_candidate_count": 1,
                 "content_rich_candidate_count": 1,
                 "claim_hint_count": 1,
                 "evidence_refs": [{
@@ -3753,6 +5070,210 @@ mod tests {
                 .and_then(Value::as_bool),
             Some(false)
         );
+    }
+
+    #[test]
+    fn citation_artifact_summary_carries_final_package_refs() {
+        let payload = json!({
+            "response_finalization": {
+                "source_refs": [{
+                    "citation_id": "source_1",
+                    "title": "Alpha source",
+                    "locator": "https://example.test/alpha",
+                    "snippet": "Alpha source-backed finding."
+                }],
+                "tool_completion": {
+                    "evidence_refs": [{
+                        "citation_id": "evidence_1",
+                        "title": "Beta evidence",
+                        "locator": "https://example.test/beta",
+                        "snippet": "Beta evidence-backed finding."
+                    }]
+                }
+            }
+        });
+
+        let summary = citation_artifact_summary(&payload);
+        assert_eq!(
+            summary.get("retained_count").and_then(Value::as_u64),
+            Some(2)
+        );
+        let rendered = summary.to_string();
+        assert!(rendered.contains("Alpha source"), "{rendered}");
+        assert!(rendered.contains("Beta evidence"), "{rendered}");
+    }
+
+    #[test]
+    fn answer_unit_alignment_flags_untraced_specific_answer_unit() {
+        let payload = json!({
+            "response": "Alpha launched Beta in 2026. Alpha also launched PhantomX in 2026.",
+            "tools": [{
+                "name": "web_search",
+                "status": "ok",
+                "candidate_count": 1,
+                "materialized_candidate_count": 1,
+                "content_rich_candidate_count": 1,
+                "claim_hint_count": 1,
+                "evidence_refs": [{
+                    "title": "Alpha launched Beta",
+                    "locator": "https://example.test/alpha-beta",
+                    "snippet": "Alpha launched Beta in 2026 after a public release.",
+                    "claim_hints": ["Alpha launched Beta in 2026."]
+                }]
+            }]
+        });
+        let retrieval_quality = retrieval_provider_quality(&payload, "alpha beta launch");
+        let alignment = answer_unit_evidence_alignment(
+            &payload,
+            "Alpha launched Beta in 2026. Alpha also launched PhantomX in 2026.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(
+            alignment.get("evaluated").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(alignment.get("pass").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            alignment.get("top_blocker").and_then(Value::as_str),
+            Some("unsupported_answer_units")
+        );
+        assert!(alignment.to_string().contains("phantomx"), "{}", alignment);
+    }
+
+    #[test]
+    fn answer_unit_alignment_allows_explicitly_hedged_gap_units() {
+        let payload = json!({
+            "response": "Alpha launched Beta in 2026. Alpha may also be associated with PhantomX, but current evidence does not confirm it.",
+            "tools": [{
+                "name": "web_search",
+                "status": "ok",
+                "candidate_count": 1,
+                "materialized_candidate_count": 1,
+                "content_rich_candidate_count": 1,
+                "claim_hint_count": 1,
+                "evidence_refs": [{
+                    "title": "Alpha launched Beta",
+                    "locator": "https://example.test/alpha-beta",
+                    "snippet": "Alpha launched Beta in 2026 after a public release.",
+                    "claim_hints": ["Alpha launched Beta in 2026."]
+                }]
+            }]
+        });
+        let retrieval_quality = retrieval_provider_quality(&payload, "alpha beta launch");
+        let alignment = answer_unit_evidence_alignment(
+            &payload,
+            "Alpha launched Beta in 2026. Alpha may also be associated with PhantomX, but current evidence does not confirm it.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(
+            alignment.get("evaluated").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(alignment.get("pass").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            alignment
+                .get("unsupported_unit_count")
+                .and_then(Value::as_u64),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn answer_unit_alignment_still_evaluates_when_retrieval_is_weak() {
+        let payload = json!({
+            "response": "Alpha launched Beta in 2026. Alpha also launched PhantomX in 2026.",
+            "response_finalization": {
+                "source_refs": [{
+                    "title": "Alpha launched Beta",
+                    "locator": "https://example.test/alpha-beta",
+                    "snippet": "Alpha launched Beta in 2026 after a public release."
+                }]
+            }
+        });
+        let retrieval_quality = json!({
+            "usable_evidence": false,
+            "allows_excellent": false,
+            "status": "low_signal"
+        });
+        let alignment = answer_unit_evidence_alignment(
+            &payload,
+            "Alpha launched Beta in 2026. Alpha also launched PhantomX in 2026.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(
+            alignment.get("evaluated").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            alignment.get("usable_evidence").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(alignment.get("pass").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            alignment.get("top_blocker").and_then(Value::as_str),
+            Some("unsupported_answer_units")
+        );
+    }
+
+    #[test]
+    fn answer_unit_alignment_allows_source_backed_refusal_scope_terms() {
+        let payload = json!({
+            "response": "I can't give you a source-backed comparison of Dyson, Roborock, and iRobot for pet hair in apartments. The search returned only headline-level roundups and missing entity details.",
+            "pending_tool_request": {
+                "input": {
+                    "query": "Compare Dyson, Roborock, and iRobot for pet hair in apartments",
+                    "keywords": ["Dyson", "Roborock", "iRobot", "pet hair", "apartments"],
+                    "required_coverage": {
+                        "entities": ["Dyson", "Roborock", "iRobot"],
+                        "facets": ["pet hair", "apartments"]
+                    }
+                }
+            },
+            "tools": [{
+                "name": "web_search",
+                "status": "ok",
+                "candidate_count": 3,
+                "materialized_candidate_count": 1,
+                "content_rich_candidate_count": 1,
+                "claim_hint_count": 0,
+                "evidence_refs": [{
+                    "title": "Best robot vacuums for pet hair",
+                    "locator": "https://example.test/pet-hair-vacuums",
+                    "snippet": "Headline-level roundup with no direct comparison of the requested brands."
+                }]
+            }]
+        });
+        let retrieval_quality = retrieval_provider_quality(&payload, "robot vacuum pet hair");
+        let alignment = answer_unit_evidence_alignment(
+            &payload,
+            "I can't give you a source-backed comparison of Dyson, Roborock, and iRobot for pet hair in apartments. The search returned only headline-level roundups and missing entity details.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(
+            alignment.get("evaluated").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(alignment.get("pass").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            alignment
+                .get("unsupported_unit_count")
+                .and_then(Value::as_u64),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn response_truncation_detector_flags_incomplete_table_tail() {
+        assert!(response_looks_truncated_or_incomplete(
+            "Comparison:\n| Dimension | Best signal |\n| SDK ecosystem | Tavily (AWS"
+        ));
+        assert!(!response_looks_truncated_or_incomplete(
+            "Comparison:\n| Dimension | Best signal |\n| SDK ecosystem | Tavily (AWS partnership). |"
+        ));
     }
 
     #[test]
@@ -3784,14 +5305,23 @@ mod tests {
                 "name": "web_search",
                 "status": "ok",
                 "candidate_count": 2,
+                "materialized_candidate_count": 2,
                 "content_rich_candidate_count": 2,
                 "claim_hint_count": 2,
-                "evidence_refs": [{
-                    "title": "Alpha and Beta production comparison",
-                    "locator": "https://example.test/alpha-beta-production",
-                    "snippet": "A substantive source comparing Alpha and Beta for reliability, deployment, maintenance, and experimentation tradeoffs.",
-                    "claim_hints": ["Alpha is better suited to production reliability."]
-                }]
+                "evidence_refs": [
+                    {
+                        "title": "Alpha and Beta production comparison",
+                        "locator": "https://example.test/alpha-beta-production",
+                        "snippet": "A substantive source comparing Alpha and Beta for reliability, deployment, maintenance, and experimentation tradeoffs.",
+                        "claim_hints": ["Alpha is better suited to production reliability."]
+                    },
+                    {
+                        "title": "Alpha and Beta experimentation comparison",
+                        "locator": "https://example.test/alpha-beta-experimentation",
+                        "snippet": "A second substantive source comparing Alpha and Beta for experimentation speed and prototype workflows.",
+                        "claim_hints": ["Beta is more useful for exploratory workflows."]
+                    }
+                ]
             }]
         });
 
@@ -3881,7 +5411,7 @@ mod tests {
             "required_entities": ["Mastra", "TypeScript", "LangGraph"]
         });
         let payload = json!({
-            "response": "I don't have usable source-backed evidence about Mastra for this turn. The search returned largely off-topic snippets that do not cover Mastra's architecture, strengths, weaknesses, or how it compares to LangGraph for TypeScript agent workflows. Safe guidance given current limits: verify Mastra directly against its official documentation or repository, and treat LangGraph as the better-documented baseline until Mastra-specific evidence is available. Next search direction: try a narrower query for Mastra framework documentation or repository material.",
+            "response": "I don't have usable source-backed evidence about Mastra for this turn. The search returned largely off-topic snippets that do not cover Mastra's architecture, strengths, weaknesses, or how it compares to LangGraph for TypeScript agent workflows. Safe boundary given current limits: do not choose between Mastra and LangGraph from this retrieval state; verify Mastra directly against its official documentation or repository before making a source-backed comparison. Next search direction: try a narrower query for Mastra framework documentation or repository material.",
             "pending_tool_request": {
                 "status": "pending_confirmation",
                 "selected_tool_family": "web_research",
@@ -3914,6 +5444,61 @@ mod tests {
         assert!(grade
             .excellent_blockers
             .contains(&"query_satisfaction_below_excellent".to_string()));
+    }
+
+    #[test]
+    fn outside_evidence_inference_cannot_carry_final_recommendation() {
+        let case = json!({
+            "prompt": "Compare Alpha, Beta, and Gamma for a purchasing decision.",
+            "expected_gate_path": {
+                "gate_1": "tool_required",
+                "gate_2": "web_research",
+                "gate_3": "web_search",
+                "gate_4_required_fields": ["query", "aperture"]
+            },
+            "required_entities": ["Alpha", "Beta", "Gamma"]
+        });
+        let payload = json!({
+            "response": "Based on the available evidence, the retrieved snippets do not provide a direct three-way comparison. General positioning (well-established, not source-backed in this turn): Alpha is known for reliability, Beta is known for flexibility, and Gamma is historically stronger for low-cost deployments. Bottom line: choose Alpha for production unless price is the only criterion.",
+            "pending_tool_request": {
+                "status": "pending_confirmation",
+                "selected_tool_family": "web_research",
+                "selected_tool_label": "Web search",
+                "tool_name": "web_search",
+                "tool_key": "web_search",
+                "input": {
+                    "query": "Alpha Beta Gamma purchasing comparison",
+                    "aperture": "web"
+                }
+            },
+            "tools": [{
+                "name": "web_search",
+                "status": "ok",
+                "candidate_count": 3,
+                "content_rich_candidate_count": 2,
+                "claim_hint_count": 0,
+                "evidence_refs": [{
+                    "title": "General category roundup",
+                    "locator": "https://example.test/category-roundup",
+                    "snippet": "This roundup mentions the category but does not compare Alpha, Beta, or Gamma for the user's purchasing criteria."
+                }]
+            }]
+        });
+
+        let grade = grade_case(&case, &payload, 85, 95);
+        assert!(!grade.pass, "{:?}", grade.failures);
+        assert!(grade
+            .failures
+            .contains(&"outside_evidence_used_for_decision".to_string()));
+        assert_eq!(
+            grade
+                .response_grading_layers
+                .pointer(
+                    "/tool_backed_evidence_contract/subgates/evidence_6_respects_source_boundary"
+                )
+                .and_then(Value::as_bool),
+            Some(false)
+        );
     }
 
     #[test]
@@ -4000,6 +5585,7 @@ mod tests {
                 "name": "web_search",
                 "status": "ok",
                 "candidate_count": 2,
+                "materialized_candidate_count": 2,
                 "content_rich_candidate_count": 2,
                 "claim_hint_count": 2,
                 "evidence_refs": [{
@@ -4136,6 +5722,7 @@ mod tests {
             true,
             &query_satisfaction,
             false,
+            false,
         );
         assert_eq!(layer.get("pass").and_then(Value::as_bool), Some(true));
     }
@@ -4165,6 +5752,7 @@ mod tests {
             &citation_behavior,
             true,
             &query_satisfaction,
+            false,
             false,
         );
         assert_eq!(layer.get("pass").and_then(Value::as_bool), Some(false));

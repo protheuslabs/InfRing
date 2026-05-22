@@ -54,10 +54,11 @@ fn request_pack_from_prompt(
     classification: &str,
 ) -> Value {
     let required_entities = string_array_at(case, &["required_entities"]);
+    let explicit_facets = string_array_at(case, &["required_facets"]);
     let (coverage_entities, coverage_facets) =
-        partition_required_coverage_terms(prompt, &required_entities);
-    let keywords = derived_keywords(prompt, &required_entities);
-    let queries = derived_queries(prompt, &coverage_facets);
+        partition_required_coverage_terms(prompt, &required_entities, &explicit_facets);
+    let keywords = derived_keywords(prompt, &required_entities, &coverage_facets);
+    let queries = derived_queries(prompt, &coverage_entities, &coverage_facets);
     json!({
         "request_pack_source": request_pack_source,
         "tool_name": default_tool,
@@ -87,10 +88,20 @@ fn tooling_setup_prompt(case: &Value) -> Option<String> {
     (!cleaned.is_empty()).then_some(cleaned)
 }
 
-fn derived_keywords(prompt: &str, required_entities: &[String]) -> Vec<String> {
+fn derived_keywords(
+    prompt: &str,
+    required_entities: &[String],
+    coverage_facets: &[String],
+) -> Vec<String> {
     let mut out = Vec::<String>::new();
     for entity in required_entities {
         let cleaned = clean_text(entity, 160);
+        if !cleaned.is_empty() && !out.iter().any(|current| current == &cleaned) {
+            out.push(cleaned);
+        }
+    }
+    for facet in coverage_facets {
+        let cleaned = clean_text(facet, 160);
         if !cleaned.is_empty() && !out.iter().any(|current| current == &cleaned) {
             out.push(cleaned);
         }
@@ -138,9 +149,16 @@ fn derived_keywords(prompt: &str, required_entities: &[String]) -> Vec<String> {
 fn partition_required_coverage_terms(
     prompt: &str,
     required_entities: &[String],
+    required_facets: &[String],
 ) -> (Vec<String>, Vec<String>) {
     let mut entities = Vec::<String>::new();
     let mut facets = Vec::<String>::new();
+    for term in required_facets {
+        let cleaned = clean_text(term, 160);
+        if !cleaned.is_empty() && !facets.iter().any(|current| current == &cleaned) {
+            facets.push(cleaned);
+        }
+    }
     for term in required_entities {
         let cleaned = clean_text(term, 160);
         if cleaned.is_empty() {
@@ -158,31 +176,133 @@ fn partition_required_coverage_terms(
 }
 
 fn looks_like_named_subject(term: &str, prompt: &str) -> bool {
-    if term.chars().any(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit()) {
+    if looks_like_broad_or_temporal_facet(term) {
+        return false;
+    }
+    if term.split_whitespace().count() == 1
+        && term.chars().all(|ch| !ch.is_ascii_lowercase())
+        && term.chars().any(|ch| ch.is_ascii_uppercase())
+    {
+        return true;
+    }
+    if term
+        .chars()
+        .any(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
+    {
         return true;
     }
     if term.contains('/') || term.contains('.') || term.contains('-') {
         return true;
     }
     prompt.contains(term)
-        && term
-            .split_whitespace()
-            .any(|token| token.chars().next().map(|ch| ch.is_ascii_uppercase()).unwrap_or(false))
+        && term.split_whitespace().any(|token| {
+            token
+                .chars()
+                .next()
+                .map(|ch| ch.is_ascii_uppercase())
+                .unwrap_or(false)
+        })
 }
 
-fn derived_queries(prompt: &str, coverage_facets: &[String]) -> Vec<String> {
+fn looks_like_broad_or_temporal_facet(term: &str) -> bool {
+    let normalized = normalize_for_compare(term);
+    if normalized.is_empty() {
+        return false;
+    }
+    [
+        "this week",
+        "this month",
+        "this year",
+        "last week",
+        "last month",
+        "current",
+        "recent",
+        "news",
+        "landscape",
+        "sentiment",
+        "market",
+        "rates",
+        "trends",
+        "developments",
+        "breakthrough",
+        "breakthroughs",
+        "adoption",
+        "ecosystem",
+        "crowding",
+        "defenses",
+        "teams",
+        "builds",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+        || normalized
+            .split_whitespace()
+            .any(|token| token.len() == 4 && token.chars().all(|ch| ch.is_ascii_digit()))
+}
+
+fn exact_subject_query_term(raw: &str) -> String {
+    let cleaned = clean_text(raw, 160).replace('"', "");
+    if cleaned.is_empty() {
+        String::new()
+    } else if cleaned.split_whitespace().count() > 1 {
+        format!("\"{cleaned}\"")
+    } else {
+        cleaned
+    }
+}
+
+fn push_unique_query(out: &mut Vec<String>, raw: String) {
+    let cleaned = clean_text(&raw, 600);
+    if cleaned.is_empty() || out.iter().any(|current| current == &cleaned) {
+        return;
+    }
+    out.push(cleaned);
+}
+
+fn derived_queries(
+    prompt: &str,
+    coverage_entities: &[String],
+    coverage_facets: &[String],
+) -> Vec<String> {
     let mut queries = vec![clean_text(prompt, 600)];
+    for entity in coverage_entities.iter().take(3) {
+        let subject = exact_subject_query_term(entity);
+        if subject.is_empty() {
+            continue;
+        }
+        push_unique_query(&mut queries, format!("{subject} official site"));
+        push_unique_query(&mut queries, format!("{subject} official documentation"));
+        if queries.len() >= 8 {
+            return queries;
+        }
+    }
     for facet in coverage_facets.iter().take(2) {
         let facet = clean_text(facet, 160);
         if facet.is_empty() {
             continue;
         }
-        let followup = format!("{facet} source-backed evidence");
-        if !queries.iter().any(|current| current == &followup) {
-            queries.push(followup);
+        push_unique_query(&mut queries, format!("{facet} source-backed evidence"));
+        push_unique_query(&mut queries, format!("{facet} recent developments"));
+        push_unique_query(&mut queries, format!("{facet} independent analysis"));
+        if broad_sentiment_prompt(prompt, &facet) {
+            push_unique_query(
+                &mut queries,
+                format!("{facet} public sentiment user reports"),
+            );
         }
     }
     queries
+}
+
+fn broad_sentiment_prompt(prompt: &str, facet: &str) -> bool {
+    let joined = format!(
+        "{} {}",
+        normalize_for_compare(prompt),
+        normalize_for_compare(facet)
+    );
+    ["sentiment", "saying", "reviews", "complaints", "praise"]
+        .iter()
+        .any(|needle| joined.contains(needle))
 }
 
 fn derived_keyword_token(raw: &str) -> String {

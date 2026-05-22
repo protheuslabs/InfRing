@@ -1,4 +1,5 @@
 use super::lifecycle::select_workflow_template;
+use super::workflow_contract_guard::workflow_web_provider_boundary_contract;
 use super::workflow_contracts::{
     registered_workflow_graphs, registered_workflow_validations, tool_family_contracts,
     workflow_registry_contract_ok, REQUIRED_JSON_OWNS, REQUIRED_RUST_OWNS,
@@ -69,6 +70,16 @@ fn tool_family_contracts_are_receipt_bound_and_non_leaking() {
             && !row.request_schema.is_empty()
             && !row.observation_schema.is_empty()
     }));
+}
+
+#[test]
+fn workflow_json_calls_web_capabilities_not_vendor_provider_adapters() {
+    let report = workflow_web_provider_boundary_contract(&registered_workflow_graphs());
+    assert_eq!(report.get("ok").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        report.get("violation_count").and_then(Value::as_u64),
+        Some(0)
+    );
 }
 
 #[test]
@@ -223,7 +234,7 @@ fn local_coding_program_builder_declares_master_coding_loop_contract() {
         "bounded_repair_loop",
         "checkpoint_handoff",
         "checkpoint_memory_write",
-        "level6_existing_project_evidence_contract",
+        "existing_project_evidence_contract",
     ] {
         assert!(graph
             .composed_of_workflow_ids
@@ -275,7 +286,7 @@ fn local_coding_program_builder_declares_master_coding_loop_contract() {
     );
     assert!(
         source
-            .get("level6_existing_project_evidence_contract")
+            .get("existing_project_evidence_contract")
             .and_then(|contract| contract.get("required_machine_fields"))
             .and_then(Value::as_array)
             .map(|items| {
@@ -292,7 +303,7 @@ fn local_coding_program_builder_declares_master_coding_loop_contract() {
                 .all(|required| items.iter().any(|item| item.as_str() == Some(*required)))
             })
             .unwrap_or(false),
-        "missing canonical Level 6 machine-readable evidence contract"
+        "missing canonical existing-project machine-readable evidence contract"
     );
 
     let contract = source

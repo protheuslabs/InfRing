@@ -1097,6 +1097,7 @@
     "checks": [
       "answer_covers_user_goal",
       "answer_uses_recorded_evidence_when_available",
+      "answer_preserves_final_package_citation_refs_when_citable_evidence_exists",
       "answer_covers_named_entities_or_records_gaps",
       "answer_leads_with_bounded_decision_value_not_tool_status",
       "answer_separates_evidence_from_inference",

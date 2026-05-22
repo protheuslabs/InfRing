@@ -194,7 +194,10 @@ pub fn judge_context_pack_batch(batch_root: &Path) -> ContextPackJudgeReport {
             failures.push(format!("jobs_json_unreadable:{}", jobs_path.display()));
             Vec::new()
         });
-    let attempts = jobs.iter().map(judge_context_pack_attempt).collect::<Vec<_>>();
+    let attempts = jobs
+        .iter()
+        .map(judge_context_pack_attempt)
+        .collect::<Vec<_>>();
     for attempt in &attempts {
         if !attempt.ok {
             failures.extend(
@@ -262,7 +265,10 @@ fn seed_context_pack_attempt(
         &["coding", "context_pack", "resume", "project_context"],
     );
     if !ingest.ok {
-        return Err(format!("{attempt_id}:memory_ingest_failed:{}", ingest.payload));
+        return Err(format!(
+            "{attempt_id}:memory_ingest_failed:{}",
+            ingest.payload
+        ));
     }
     let prompt_path = prompts_root.join(format!("{attempt_id}.txt"));
     let job = ContextPackJob {
@@ -392,7 +398,10 @@ fn judge_context_pack_attempt(job: &ContextPackJob) -> ContextPackAttemptJudge {
             excluded_mentions_forbidden,
             format!("excluded={}", excluded.join(",")),
         );
-        let validation_blob = receipt.get("validation_commands").cloned().unwrap_or(Value::Null);
+        let validation_blob = receipt
+            .get("validation_commands")
+            .cloned()
+            .unwrap_or(Value::Null);
         let validation_text = validation_blob.to_string();
         let validation_ok = job
             .expected_validation_fragments
@@ -403,13 +412,14 @@ fn judge_context_pack_attempt(job: &ContextPackJob) -> ContextPackAttemptJudge {
             &mut failures,
             "projects_validation_command_without_running",
             validation_ok
-                && receipt
-                    .get("validation_executed")
-                    .and_then(Value::as_bool)
-                    == Some(false),
+                && receipt.get("validation_executed").and_then(Value::as_bool) == Some(false),
             validation_text,
         );
-        let memory_text = receipt.get("memory_hint_refs").cloned().unwrap_or(Value::Null).to_string();
+        let memory_text = receipt
+            .get("memory_hint_refs")
+            .cloned()
+            .unwrap_or(Value::Null)
+            .to_string();
         push_check(
             &mut checks,
             &mut failures,
@@ -548,5 +558,6 @@ fn write_file(path: &Path, content: &str) -> Result<(), String> {
         fs::create_dir_all(parent)
             .map_err(|error| format!("create_parent_failed:{}:{error}", parent.display()))?;
     }
-    fs::write(path, content).map_err(|error| format!("write_file_failed:{}:{error}", path.display()))
+    fs::write(path, content)
+        .map_err(|error| format!("write_file_failed:{}:{error}", path.display()))
 }

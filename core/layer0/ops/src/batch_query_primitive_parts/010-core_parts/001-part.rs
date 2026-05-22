@@ -477,6 +477,13 @@ fn candidate_passes_relevance_gate(
         return false;
     }
     let overlap = query_tokens.intersection(&candidate_tokens).count();
+    let query_has_distinctive_terms = query_has_distinctive_relevance_terms(query);
+    let broad_current_article_evidence = current_web_intent(query)
+        && !query_has_distinctive_terms
+        && segment_has_current_signal(&candidate_relevance)
+        && page_extraction_link_has_article_like_path(&candidate.locator)
+        && content_rich_text(&candidate.snippet)
+        && !looks_like_link_directory_or_aggregator_shell(&candidate.snippet);
     if is_framework_catalog_intent(query) && overlap == 0 {
         let combined = candidate_relevance.clone();
         let domain = candidate_domain_hint(candidate);
@@ -488,6 +495,9 @@ fn candidate_passes_relevance_gate(
         }
     }
     if overlap == 0 {
+        if broad_current_article_evidence {
+            return true;
+        }
         return false;
     }
     let overlap_ratio = overlap as f64 / query_tokens.len() as f64;

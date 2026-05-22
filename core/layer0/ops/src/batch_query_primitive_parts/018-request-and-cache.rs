@@ -124,6 +124,12 @@ fn contains_antibot_marker(text: &str) -> bool {
         "error-lite@duckduckgo.com",
         "anomaly-modal",
         "captcha",
+        "are you a robot",
+        "not a robot",
+        "robot check",
+        "detected unusual activity",
+        "unusual activity from your computer network",
+        "click the box below",
         "verify you are human",
         "checking your browser before accessing",
         "cf-challenge",
@@ -153,6 +159,11 @@ fn contains_web_junk_marker(text: &str) -> bool {
         "this content is not available in your region",
         "we use cookies to improve your experience",
         "manage your cookie preferences",
+        "copyright zendesk, inc",
+        "use of this source code is governed",
+        ":root { --",
+        "window.__",
+        "document.addeventlistener",
     ]
     .iter()
     .any(|marker| lowered.contains(marker))
@@ -271,6 +282,124 @@ fn cache_identity_query_plan(query: &str, query_plan: &[String]) -> Vec<String> 
         }
     }
     normalized
+}
+
+fn strip_batch_query_terminal_response_suffix(raw: &str, max_chars: usize) -> String {
+    let mut cleaned = clean_text(raw, max_chars);
+    loop {
+        let lowered = cleaned.to_ascii_lowercase();
+        let mut stripped = false;
+        for suffix in [
+            " and return the results",
+            " and return results",
+            " and return the result",
+            " and return the answer",
+            " and return the findings",
+            " and give me the results",
+            " and give the results",
+            " and show me the results",
+            " and tell me the results",
+            " and tell me what you find",
+            " and tell me what you found",
+            " and summarize the results",
+            " and summarize the answer",
+            " and summarize",
+        ] {
+            if lowered.ends_with(suffix) && cleaned.len() > suffix.len() {
+                cleaned = clean_text(&cleaned[..cleaned.len() - suffix.len()], max_chars);
+                stripped = true;
+                break;
+            }
+        }
+        if stripped {
+            continue;
+        }
+        if matches!(cleaned.chars().last(), Some('.' | '!' | '?' | ';' | ':')) {
+            cleaned.pop();
+            cleaned = cleaned.trim_end().to_string();
+            continue;
+        }
+        break;
+    }
+    clean_text(&cleaned, max_chars)
+}
+
+fn strip_batch_query_leading_search_control(raw: &str, max_chars: usize) -> String {
+    let mut cleaned = clean_text(raw, max_chars);
+    for _ in 0..4 {
+        let lowered = cleaned.to_ascii_lowercase();
+        let mut stripped = false;
+        for prefix in [
+            "please ",
+            "can you ",
+            "could you ",
+            "would you ",
+            "will you ",
+            "just ",
+            "try to ",
+        ] {
+            if lowered.starts_with(prefix) && cleaned.len() > prefix.len() {
+                cleaned = clean_text(&cleaned[prefix.len()..], max_chars);
+                stripped = true;
+                break;
+            }
+        }
+        if stripped {
+            continue;
+        }
+        for prefix in [
+            "give me ",
+            "tell me about ",
+            "tell me ",
+            "show me ",
+            "find me ",
+            "find information about ",
+            "find info about ",
+            "find out about ",
+            "find ",
+            "look up ",
+            "search online for ",
+            "search the web for ",
+            "search web for ",
+            "search for ",
+            "search ",
+            "research ",
+            "what are some ",
+            "what are the ",
+            "what are ",
+            "what is the ",
+            "what is ",
+        ] {
+            if lowered.starts_with(prefix) && cleaned.len() > prefix.len() {
+                let candidate = clean_text(&cleaned[prefix.len()..], max_chars);
+                if candidate.chars().any(|ch| ch.is_ascii_alphanumeric()) {
+                    cleaned = candidate;
+                    stripped = true;
+                    break;
+                }
+            }
+        }
+        if !stripped {
+            break;
+        }
+    }
+    clean_text(&cleaned, max_chars)
+}
+
+fn canonical_batch_web_search_query(raw: &str) -> String {
+    let cleaned = strip_batch_query_terminal_response_suffix(raw, 600);
+    if cleaned.is_empty() {
+        return cleaned;
+    }
+    if cleaned.to_ascii_lowercase().contains("site:") {
+        return cleaned;
+    }
+    let stripped = strip_batch_query_leading_search_control(&cleaned, 600);
+    if stripped.is_empty() {
+        cleaned
+    } else {
+        stripped
+    }
 }
 
 fn provider_result_identity(value: &Value) -> String {
@@ -1296,6 +1425,45 @@ fn split_entity_phrase_variants(raw: &str) -> Vec<String> {
     }
 }
 
+fn token_looks_like_unseparated_entity_item(raw: &str) -> bool {
+    let token = query_metadata_token(raw);
+    let lowered = token.to_ascii_lowercase();
+    !token.is_empty()
+        && token_has_letter_or_number(&token)
+        && !entity_phrase_stop_edge(&token)
+        && !query_entity_noise_token(&token)
+        && !raw_query_metadata_stop_token(&lowered)
+        && (token
+            .chars()
+            .next()
+            .map(|ch| ch.is_ascii_uppercase())
+            .unwrap_or(false)
+            || token
+                .chars()
+                .skip(1)
+                .any(|ch| ch.is_ascii_uppercase())
+            || token.contains('-')
+            || token.contains('_')
+            || token.contains('+')
+            || token.contains('#'))
+}
+
+fn split_unseparated_comparison_entity_variants(raw: &str) -> Vec<String> {
+    let regular = split_entity_phrase_variants(raw);
+    if regular.len() != 1 {
+        return regular;
+    }
+    let tokens = query_metadata_tokens(&regular[0]);
+    if tokens.len() == 2
+        && tokens
+            .iter()
+            .all(|token| token_looks_like_unseparated_entity_item(token))
+    {
+        return tokens;
+    }
+    regular
+}
+
 fn push_entity_phrase_variants(
     entities: &mut Vec<String>,
     seen: &mut HashSet<String>,
@@ -1347,6 +1515,83 @@ fn infer_leading_comparison_entities(tokens: &[String]) -> Vec<String> {
     if let Some(right) = normalized_entity_phrase_from_tokens(&right_tokens) {
         for piece in split_entity_phrase_variants(&right) {
             out.push(piece);
+        }
+    }
+    out
+}
+
+fn leading_comparison_query_tail(query: &str) -> Option<String> {
+    let cleaned = clean_text(query, 600);
+    let mut pieces = cleaned.splitn(2, char::is_whitespace);
+    let lead = pieces.next().unwrap_or("");
+    if !comparison_lead_token(lead) {
+        return None;
+    }
+    let tail = pieces.next().unwrap_or("").trim();
+    if tail.is_empty() {
+        None
+    } else {
+        Some(clean_text(tail, 420))
+    }
+}
+
+fn leading_comparison_entity_segment(query: &str) -> Option<String> {
+    let tail = leading_comparison_query_tail(query)?;
+    let tokens = tail.split_whitespace().collect::<Vec<_>>();
+    let end = tokens
+        .iter()
+        .position(|token| comparison_tail_boundary_token(&query_metadata_token(token)))
+        .unwrap_or(tokens.len());
+    if end == 0 {
+        return None;
+    }
+    let segment = clean_text(&tokens[..end].join(" "), 320);
+    if segment.is_empty() {
+        None
+    } else {
+        Some(segment)
+    }
+}
+
+fn infer_leading_comparison_entities_from_query(query: &str, max_terms: usize) -> Vec<String> {
+    let Some(segment) = leading_comparison_entity_segment(query) else {
+        return Vec::new();
+    };
+    let separator_re = Regex::new(r"(?i)\s+(?:vs\.?|v\.?|versus|against|with|to|and)\s+")
+        .expect("leading comparison separator regex");
+    let normalized = separator_re.replace_all(&segment, "|");
+    let pieces = normalized
+        .split('|')
+        .flat_map(|piece| piece.split(','))
+        .flat_map(|piece| piece.split(';'))
+        .flat_map(|piece| piece.split('/'))
+        .map(|piece| clean_text(piece, 160))
+        .filter(|piece| !piece.is_empty())
+        .collect::<Vec<_>>();
+    let split_unseparated_pairs = pieces.len() >= 2;
+    let mut out = Vec::<String>::new();
+    let mut seen = HashSet::<String>::new();
+    for piece in pieces {
+        if out.len() >= max_terms {
+            break;
+        }
+        let tokens = query_metadata_tokens(&piece);
+        let Some(entity) = normalized_entity_phrase_from_tokens(&tokens) else {
+            continue;
+        };
+        let variants = if split_unseparated_pairs {
+            split_unseparated_comparison_entity_variants(&entity)
+        } else {
+            split_entity_phrase_variants(&entity)
+        };
+        for variant in variants {
+            if out.len() >= max_terms {
+                break;
+            }
+            if entity_phrase_is_too_generic(&variant) {
+                continue;
+            }
+            push_unique_clean(&mut out, &mut seen, variant, max_terms);
         }
     }
     out
@@ -1432,7 +1677,11 @@ fn raw_query_metadata_stop_token(raw: &str) -> bool {
             | "should"
             | "some"
             | "tell"
+            | "that"
             | "the"
+            | "these"
+            | "this"
+            | "those"
             | "to"
             | "top"
             | "up"
@@ -1592,7 +1841,12 @@ fn inferred_comparison_query_pack(query: &str, budget: ApertureBudget) -> Option
         ..BatchQueryKeywordPack::default()
     };
     let mut seen = HashSet::<String>::new();
-    let leading_entities = infer_leading_comparison_entities(&tokens);
+    let list_entities = infer_leading_comparison_entities_from_query(&cleaned, max_terms);
+    let leading_entities = if list_entities.len() >= 2 {
+        list_entities
+    } else {
+        infer_leading_comparison_entities(&tokens)
+    };
     if leading_entities.len() >= 2 {
         for entity in leading_entities {
             push_unique_clean(&mut pack.entities, &mut seen, entity, max_terms);
@@ -1859,13 +2113,34 @@ fn push_subject_discovery_lanes(
     queries: &mut Vec<String>,
     max_queries: usize,
 ) {
-    for subject in subjects {
-        for suffix in discovery_suffixes {
+    for suffix in discovery_suffixes {
+        for subject in subjects {
             let candidate = clean_text(&format!("{subject} {suffix}"), 600);
             push_compiled_metadata_query(candidate, pack, dedup, queries, max_queries);
             if queries.len() >= max_queries {
                 return;
             }
+        }
+    }
+}
+
+fn push_subject_keyword_lanes(
+    subjects: &[String],
+    keywords: &[String],
+    pack: &BatchQueryKeywordPack,
+    dedup: &mut HashSet<String>,
+    queries: &mut Vec<String>,
+    max_queries: usize,
+) {
+    let tail = keywords.iter().take(4).cloned().collect::<Vec<_>>().join(" ");
+    if tail.is_empty() {
+        return;
+    }
+    for subject in subjects {
+        let candidate = clean_text(&format!("{subject} {tail} official"), 600);
+        push_compiled_metadata_query(candidate, pack, dedup, queries, max_queries);
+        if queries.len() >= max_queries {
+            return;
         }
     }
 }
@@ -2035,14 +2310,20 @@ fn compile_keyword_pack_queries(
         .collect::<Vec<_>>();
 
     if !exact_subjects.is_empty() {
+        push_subject_keyword_lanes(
+            &exact_subjects,
+            &keywords,
+            pack,
+            &mut dedup,
+            &mut queries,
+            max_queries,
+        );
+        if queries.len() >= max_queries {
+            return queries;
+        }
         push_subject_discovery_lanes(
             &exact_subjects,
-            &[
-                "official site",
-                "official documentation",
-                "official source",
-                "primary source evidence",
-            ],
+            &["official site"],
             pack,
             &mut dedup,
             &mut queries,
@@ -2125,6 +2406,24 @@ fn compile_keyword_pack_queries(
             if queries.len() >= max_queries {
                 return queries;
             }
+        }
+    }
+
+    if !exact_subjects.is_empty() && queries.len() < max_queries {
+        push_subject_discovery_lanes(
+            &exact_subjects,
+            &[
+                "official documentation",
+                "official source",
+                "primary source evidence",
+            ],
+            pack,
+            &mut dedup,
+            &mut queries,
+            max_queries,
+        );
+        if queries.len() >= max_queries {
+            return queries;
         }
     }
 
@@ -2542,6 +2841,10 @@ fn official_source_provider_recovery_providers(policy: &Value) -> Vec<String> {
     );
     let base = if configured.is_empty() {
         vec![
+            "tavily".to_string(),
+            "exa".to_string(),
+            "brave".to_string(),
+            "serperdev".to_string(),
             "browser_serp".to_string(),
             "duckduckgo_lite".to_string(),
             "duckduckgo".to_string(),
@@ -2553,7 +2856,13 @@ fn official_source_provider_recovery_providers(policy: &Value) -> Vec<String> {
         .filter(|provider| {
             matches!(
                 provider.as_str(),
-                "browser_serp" | "duckduckgo_lite" | "duckduckgo"
+                "tavily"
+                    | "exa"
+                    | "brave"
+                    | "serperdev"
+                    | "browser_serp"
+                    | "duckduckgo_lite"
+                    | "duckduckgo"
             )
         })
         .collect()
@@ -2790,8 +3099,8 @@ fn claim_gap_recovery_templates(policy: &Value) -> Vec<String> {
         .filter(|rows| !rows.is_empty())
         .unwrap_or_else(|| {
             vec![
-                "{query} detailed source-backed findings".to_string(),
-                "{query} primary report or official results".to_string(),
+                "{query} detailed findings".to_string(),
+                "{query} source-backed evidence".to_string(),
             ]
         })
 }
@@ -3274,6 +3583,12 @@ fn resolve_query_plan(
     query: &str,
     budget: ApertureBudget,
 ) -> QueryPlanSelection {
+    let search_query = canonical_batch_web_search_query(query);
+    let planning_query = if search_query.is_empty() {
+        clean_text(query, 600)
+    } else {
+        search_query
+    };
     let mut query_metadata = batch_query_keyword_pack(request, budget);
     let explicit_metadata_supplied = !query_metadata.is_empty();
     let explicit_queries_supplied = request
@@ -3285,13 +3600,13 @@ fn resolve_query_plan(
         })
         .unwrap_or(false);
     if query_metadata.is_empty() {
-        if let Some(inferred) = inferred_comparison_query_pack(query, budget) {
+        if let Some(inferred) = inferred_comparison_query_pack(&planning_query, budget) {
             query_metadata = inferred;
-        } else if let Some(inferred) = inferred_named_entity_query_pack(query, budget) {
+        } else if let Some(inferred) = inferred_named_entity_query_pack(&planning_query, budget) {
             query_metadata = inferred;
         }
     }
-    let explicit_queries = normalize_requested_queries(request, query, budget, &query_metadata);
+    let explicit_queries = normalize_requested_queries(request, &planning_query, budget, &query_metadata);
     let explicit_query_pack_used = !explicit_queries.is_empty()
         && (explicit_queries_supplied || explicit_metadata_supplied)
         && (query.is_empty()
@@ -3301,12 +3616,12 @@ fn resolve_query_plan(
                 .map(|value| !value.eq_ignore_ascii_case(query))
                 .unwrap_or(false));
     if explicit_query_pack_used {
-        let rerank_query = clean_text(query, 600);
+        let rerank_query = clean_text(&planning_query, 600);
         let rerank_query = if rerank_query.is_empty() {
             explicit_queries
                 .first()
                 .cloned()
-                .unwrap_or_else(|| clean_text(query, 600))
+                .unwrap_or_else(|| planning_query.clone())
         } else {
             rerank_query
         };
@@ -3326,21 +3641,21 @@ fn resolve_query_plan(
             query_metadata,
         };
     }
-    let recovery_queries = general_research_recovery_queries(policy, query, budget);
+    let recovery_queries = general_research_recovery_queries(policy, &planning_query, budget);
     if !recovery_queries.is_empty() {
         if query_metadata.is_empty() {
-            if let Some(inferred) = inferred_raw_query_term_pack(query, budget) {
+            if let Some(inferred) = inferred_raw_query_term_pack(&planning_query, budget) {
                 query_metadata = inferred;
-            } else if let Some(inferred) = inferred_named_entity_query_pack(query, budget) {
+            } else if let Some(inferred) = inferred_named_entity_query_pack(&planning_query, budget) {
                 query_metadata = inferred;
             }
         }
         let recovery_queries =
-            merge_recovery_queries_with_metadata(query, &recovery_queries, &query_metadata, budget);
+            merge_recovery_queries_with_metadata(&planning_query, &recovery_queries, &query_metadata, budget);
         let rerank_query = recovery_queries
             .first()
             .cloned()
-            .unwrap_or_else(|| clean_text(query, 600));
+                .unwrap_or_else(|| planning_query.clone());
         let rewrite_set = recovery_queries.iter().skip(1).cloned().collect::<Vec<_>>();
         return QueryPlanSelection {
             rewrite_applied: recovery_queries.len() > 1,
@@ -3351,21 +3666,21 @@ fn resolve_query_plan(
             query_metadata,
         };
     }
-    let recovery_queries = broad_current_research_recovery_queries(policy, query, budget);
+    let recovery_queries = broad_current_research_recovery_queries(policy, &planning_query, budget);
     if !recovery_queries.is_empty() {
         if query_metadata.is_empty() {
-            if let Some(inferred) = inferred_raw_query_term_pack(query, budget) {
+            if let Some(inferred) = inferred_raw_query_term_pack(&planning_query, budget) {
                 query_metadata = inferred;
-            } else if let Some(inferred) = inferred_named_entity_query_pack(query, budget) {
+            } else if let Some(inferred) = inferred_named_entity_query_pack(&planning_query, budget) {
                 query_metadata = inferred;
             }
         }
         let recovery_queries =
-            merge_recovery_queries_with_metadata(query, &recovery_queries, &query_metadata, budget);
+            merge_recovery_queries_with_metadata(&planning_query, &recovery_queries, &query_metadata, budget);
         let rerank_query = recovery_queries
             .first()
             .cloned()
-            .unwrap_or_else(|| clean_text(query, 600));
+                .unwrap_or_else(|| planning_query.clone());
         let rewrite_set = recovery_queries.iter().skip(1).cloned().collect::<Vec<_>>();
         return QueryPlanSelection {
             rewrite_applied: recovery_queries.len() > 1,
@@ -3376,18 +3691,18 @@ fn resolve_query_plan(
             query_metadata,
         };
     }
-    let queries = cache_identity_query_plan(query, &explicit_queries);
+    let queries = cache_identity_query_plan(&planning_query, &explicit_queries);
     if query_metadata.is_empty() {
-        if let Some(inferred) = inferred_raw_query_term_pack(query, budget) {
+        if let Some(inferred) = inferred_raw_query_term_pack(&planning_query, budget) {
             query_metadata = inferred;
-        } else if let Some(inferred) = inferred_named_entity_query_pack(query, budget) {
+        } else if let Some(inferred) = inferred_named_entity_query_pack(&planning_query, budget) {
             query_metadata = inferred;
         }
     }
     let rerank_query = queries
         .first()
         .cloned()
-        .unwrap_or_else(|| clean_text(query, 600));
+        .unwrap_or_else(|| planning_query.clone());
     QueryPlanSelection {
         queries,
         rewrite_set: Vec::new(),

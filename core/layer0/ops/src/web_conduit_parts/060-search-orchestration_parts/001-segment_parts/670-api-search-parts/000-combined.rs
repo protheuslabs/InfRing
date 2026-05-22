@@ -1081,6 +1081,15 @@
                 top_k,
                 timeout_ms,
             ),
+            "browser_serp" => api_search_browser_serp(
+                root,
+                &scoped_query,
+                summary_only,
+                &allowed_domains,
+                exclude_subdomains,
+                top_k,
+                timeout_ms,
+            ),
             "duckduckgo_lite" => api_fetch(
                 root,
                 &json!({

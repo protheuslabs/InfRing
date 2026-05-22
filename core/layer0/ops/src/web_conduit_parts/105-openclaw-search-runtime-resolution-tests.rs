@@ -87,6 +87,57 @@ mod openclaw_search_runtime_resolution_tests {
     }
 
     #[test]
+    fn openclaw_search_runtime_resolution_keeps_secret_ref_providers_ahead_of_keyless_fallbacks() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        write_json_atomic(
+            &policy_path(tmp.path()),
+            &json!({
+                "web_conduit": {
+                    "enabled": true,
+                    "search_provider_config": {
+                        "tavily": {
+                            "secret_id": "web_search_tavily_api_key"
+                        },
+                        "exa": {
+                            "secret_id": "web_search_exa_api_key"
+                        }
+                    },
+                    "search_provider_order": [
+                        "tavily",
+                        "exa",
+                        "google_news_rss",
+                        "bing_rss",
+                        "duckduckgo"
+                    ]
+                }
+            }),
+        )
+        .expect("write policy");
+
+        let out = api_providers(tmp.path());
+        assert_eq!(
+            out.pointer("/default_search_provider_chain/0")
+                .and_then(Value::as_str),
+            Some("tavily")
+        );
+        assert_eq!(
+            out.pointer("/default_search_provider_chain/1")
+                .and_then(Value::as_str),
+            Some("exa")
+        );
+        assert_eq!(
+            out.pointer("/runtime_web_tools_metadata/search/selected_provider")
+                .and_then(Value::as_str),
+            Some("tavily")
+        );
+        assert_eq!(
+            out.pointer("/runtime_web_tools_metadata/search/selected_provider_key_source")
+                .and_then(Value::as_str),
+            Some("secret_broker")
+        );
+    }
+
+    #[test]
     fn openclaw_search_runtime_resolution_snapshot_prefers_request_hint_scope() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let policy = json!({
@@ -512,6 +563,51 @@ mod openclaw_search_runtime_resolution_tests {
         );
         assert_eq!(
             out.pointer("/tool_surface_ready")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn openclaw_search_runtime_resolution_allows_secret_broker_request_hint() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let policy = json!({
+            "web_conduit": {
+                "enabled": true,
+                "search_provider_config": {
+                    "tavily": {
+                        "secret_id": "web_search_tavily_api_key"
+                    }
+                },
+                "search_provider_order": ["duckduckgo_lite", "bing_rss"]
+            }
+        });
+
+        let out = crate::web_conduit_provider_runtime::search_provider_resolution_snapshot(
+            tmp.path(),
+            &policy,
+            &json!({"provider": "tavily"}),
+            "tavily",
+        );
+        assert_eq!(
+            out.pointer("/selection_scope").and_then(Value::as_str),
+            Some("request_provider_hint")
+        );
+        assert_eq!(
+            out.pointer("/selected_provider").and_then(Value::as_str),
+            Some("tavily")
+        );
+        assert_eq!(
+            out.pointer("/tool_surface_health/selected_provider_credential_state")
+                .and_then(Value::as_str),
+            Some("resolved")
+        );
+        assert_eq!(
+            out.pointer("/tool_surface_ready").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            out.pointer("/tool_execution_gate/should_execute")
                 .and_then(Value::as_bool),
             Some(true)
         );

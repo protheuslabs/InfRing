@@ -83,7 +83,7 @@ mod quality_tests {
                         "max_queries": 1,
                         "min_materialized_evidence": 1,
                         "min_claim_hints": 2,
-                        "templates": ["{query} detailed source-backed findings"]
+                        "templates": ["{query} detailed findings"]
                     },
                     "quality_gate": {
                         "enabled": true,
@@ -144,6 +144,13 @@ mod quality_tests {
             .iter()
             .position(|row| row == "\"Alpha Runtime\" official site -\"fashion model\"")
             .expect("Alpha Runtime official site lane");
+        let alpha_keyword_lane = plan
+            .queries
+            .iter()
+            .position(|row| {
+                row.contains("\"Alpha Runtime\" deployment readiness observability release notes official")
+            })
+            .expect("Alpha Runtime keyword lane");
         let alpha_facet_lane = plan
             .queries
             .iter()
@@ -151,6 +158,11 @@ mod quality_tests {
                 row.contains("\"Alpha Runtime\" deployment readiness official documentation")
             })
             .expect("Alpha Runtime facet lane");
+        assert!(
+            alpha_keyword_lane < alpha_official_site,
+            "{:#?}",
+            plan.queries
+        );
         assert!(
             alpha_official_site < alpha_facet_lane,
             "{:#?}",
@@ -273,7 +285,7 @@ mod quality_tests {
 
         assert_eq!(
             plan.query_plan_source,
-            "tool_inferred_query_pack_from_user_query"
+            "policy_general_research_recovery"
         );
         assert_eq!(plan.queries.first().map(String::as_str), Some(query));
         assert_eq!(plan.query_metadata.entities, vec!["LangGraph", "CrewAI"]);
@@ -317,7 +329,7 @@ mod quality_tests {
 
         assert_eq!(
             plan.query_plan_source,
-            "tool_inferred_query_pack_from_user_query"
+            "policy_general_research_recovery"
         );
         assert!(
             plan.query_metadata
@@ -374,6 +386,138 @@ mod quality_tests {
             "{:#?}",
             plan.query_metadata
         );
+    }
+
+    #[test]
+    fn leading_compare_list_query_preserves_all_named_entities() {
+        let query = "Compare Dyson, Roborock, and iRobot for pet hair in apartments.";
+        let request = json!({
+            "source": "web",
+            "query": query,
+            "aperture": "medium"
+        });
+        let budget = aperture_budget("medium").expect("budget");
+        let plan = resolve_query_plan(&json!({}), &request, query, budget);
+
+        for expected in ["Dyson", "Roborock", "iRobot"] {
+            assert!(
+                plan.query_metadata
+                    .entities
+                    .iter()
+                    .any(|row| row == expected),
+                "{:#?}",
+                plan.query_metadata
+            );
+            assert!(
+                plan.queries
+                    .iter()
+                    .any(|query| query.contains(&format!("{expected} official site"))),
+                "{:#?}",
+                plan.queries
+            );
+        }
+    }
+
+    #[test]
+    fn leading_compare_query_splits_unseparated_entity_list_items() {
+        let query = "Compare Dyson Roborock and iRobot for pet hair in apartments.";
+        let request = json!({
+            "source": "web",
+            "query": query,
+            "aperture": "medium"
+        });
+        let budget = aperture_budget("medium").expect("budget");
+        let plan = resolve_query_plan(&json!({}), &request, query, budget);
+
+        assert_eq!(
+            plan.query_metadata.entities,
+            vec!["Dyson", "Roborock", "iRobot"]
+        );
+        assert!(
+            plan.queries
+                .iter()
+                .any(|query| query.contains("Dyson official site")),
+            "{:#?}",
+            plan.queries
+        );
+        assert!(
+            plan.queries
+                .iter()
+                .any(|query| query.contains("Roborock official site")),
+            "{:#?}",
+            plan.queries
+        );
+        for expected in ["Dyson", "Roborock", "iRobot"] {
+            assert!(
+                plan.queries.iter().any(|query| {
+                    query.contains(expected)
+                        && query.contains("pet")
+                        && query.contains("hair")
+                        && query.contains("apartments")
+                }),
+                "{:#?}",
+                plan.queries
+            );
+            let dimension_lane = plan
+                .queries
+                .iter()
+                .position(|query| {
+                    query.contains(expected)
+                        && query.contains("pet")
+                        && query.contains("hair")
+                        && query.contains("apartments")
+                })
+                .expect("dimension lane");
+            let generic_official_lane = plan
+                .queries
+                .iter()
+                .position(|query| query.contains(&format!("{expected} official site")))
+                .expect("generic official lane");
+            assert!(
+                dimension_lane < generic_official_lane,
+                "{:#?}",
+                plan.queries
+            );
+        }
+        assert!(
+            !plan
+                .queries
+                .iter()
+                .any(|query| query.contains("\"Dyson Roborock\"")),
+            "{:#?}",
+            plan.queries
+        );
+    }
+
+    #[test]
+    fn small_aperture_evidence_limit_expands_for_required_comparison_entities() {
+        let query = "Compare Dyson Roborock and iRobot for pet hair in apartments.";
+        let request = json!({
+            "source": "web",
+            "query": query,
+            "aperture": "small"
+        });
+        let budget = aperture_budget("small").expect("budget");
+        let plan = resolve_query_plan(&default_policy(), &request, query, budget);
+        let facets = infer_research_facets(
+            query,
+            &plan.queries,
+            &plan.query_metadata,
+            &default_policy(),
+            budget,
+        );
+
+        assert_eq!(budget.max_evidence, 2);
+        assert_eq!(
+            facets
+                .iter()
+                .filter(|facet| facet.kind == "entity")
+                .count(),
+            3,
+            "{:#?}",
+            facets
+        );
+        assert_eq!(coverage_aware_max_evidence(&facets, budget), 3);
     }
 
     #[test]
@@ -604,7 +748,7 @@ mod quality_tests {
 
         assert_eq!(
             plan.query_plan_source,
-            "tool_inferred_query_pack_from_user_query"
+            "policy_general_research_recovery"
         );
         for unexpected in ["should", "we", "use"] {
             assert!(
@@ -647,7 +791,7 @@ mod quality_tests {
     }
 
     #[test]
-    fn broad_raw_query_gets_visible_metadata_without_hidden_query_rewrite() {
+    fn broad_raw_query_gets_visible_metadata_with_canonical_search_lanes() {
         let query = "what are some scientific breakthroughs 2026";
         let request = json!({
             "source": "web",
@@ -661,7 +805,10 @@ mod quality_tests {
             plan.query_plan_source,
             "policy_broad_current_research_recovery"
         );
-        assert_eq!(plan.queries.first().map(String::as_str), Some(query));
+        assert_eq!(
+            plan.queries.first().map(String::as_str),
+            Some("scientific breakthroughs 2026")
+        );
         assert_eq!(
             plan.query_metadata.metadata_authority,
             "tool_structured_from_user_query_terms"
@@ -698,6 +845,48 @@ mod quality_tests {
             "{:#?}",
             plan.queries
         );
+    }
+
+    #[test]
+    fn conversational_web_query_uses_canonical_search_lanes() {
+        let query = "Give me the biggest world news from this week.";
+        let request = json!({
+            "source": "web",
+            "query": query,
+            "aperture": "medium"
+        });
+        let budget = aperture_budget("medium").expect("budget");
+        let plan = resolve_query_plan(&json!({}), &request, query, budget);
+
+        assert_eq!(
+            plan.query_plan_source,
+            "policy_broad_current_research_recovery"
+        );
+        assert_eq!(
+            plan.queries.first().map(String::as_str),
+            Some("the biggest world news from this week")
+        );
+        assert!(
+            plan.queries
+                .iter()
+                .all(|row| !row.to_ascii_lowercase().contains("give me")),
+            "{:#?}",
+            plan.queries
+        );
+        for unexpected in ["give", "me", "this"] {
+            assert!(
+                !plan.query_metadata.keywords.iter().any(|row| row == unexpected),
+                "{:#?}",
+                plan.query_metadata
+            );
+        }
+        for expected in ["biggest", "world", "news", "week"] {
+            assert!(
+                plan.query_metadata.keywords.iter().any(|row| row == expected),
+                "{:#?}",
+                plan.query_metadata
+            );
+        }
     }
 
     #[test]
@@ -1382,6 +1571,78 @@ mod quality_tests {
     }
 
     #[test]
+    fn cached_batch_query_rebuilds_first_class_evidence_claims() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let policy = load_policy(tmp.path());
+        let query = "compare Alpha and Beta reliability";
+        let key = cache_key("web", query, "medium", &policy);
+        let now_ts = chrono::Utc::now().timestamp();
+        let payload = json!({
+            "version": 1,
+            "entries": {
+                key: {
+                    "stored_at": now_ts,
+                    "expires_at": now_ts + 120,
+                    "response": {
+                        "status": "ok",
+                        "summary": "Comparison findings: example.com: Alpha documentation describes reliability controls for production use.",
+                        "evidence_refs": [{
+                            "title": "Alpha reliability guide",
+                            "locator": "https://example.com/alpha-reliability",
+                            "source_kind": "document_page_artifact",
+                            "excerpt_hash": "abc123",
+                            "score": 0.91,
+                            "confidence": "usable"
+                        }],
+                        "evidence_pack": [{
+                            "title": "Alpha reliability guide",
+                            "locator": "https://example.com/alpha-reliability",
+                            "source_domain": "example.com",
+                            "source_kind": "document_page_artifact",
+                            "snippet": "Alpha documentation describes reliability controls for production use.",
+                            "confidence": "usable",
+                            "counts_as_usable_evidence": true,
+                            "materialization_quality": "full_materialized",
+                            "claim_hints": [
+                                "Alpha documentation describes reliability controls for production use."
+                            ]
+                        }],
+                        "rewrite_set": [],
+                        "parallel_retrieval_used": true,
+                        "partial_failure_details": []
+                    }
+                }
+            }
+        });
+        write_json_atomic(&cache_path(tmp.path()), &payload).expect("write cache");
+
+        let out = api_batch_query(
+            tmp.path(),
+            &json!({
+                "source": "web",
+                "query": query,
+                "aperture": "medium"
+            }),
+        );
+
+        assert_eq!(out.get("cache_status").and_then(Value::as_str), Some("hit"));
+        let claims = out
+            .get("evidence_claims")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            claims.iter().any(|row| {
+                row.get("claim")
+                    .and_then(Value::as_str)
+                    .map(|claim| claim.contains("reliability controls"))
+                    .unwrap_or(false)
+            }),
+            "{claims:#?}"
+        );
+    }
+
+    #[test]
     fn cached_framework_forum_led_summary_is_bypassed_when_official_evidence_exists() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let policy = load_policy(tmp.path());
@@ -1552,25 +1813,22 @@ mod quality_tests {
                     "requested_url": "https://duckduckgo.com/html/?q=scientific+breakthroughs+2026",
                     "status_code": 200
                 },
-                "scientific breakthroughs 2026 source-backed overview": {
+                "scientific breakthroughs 2026 source-backed evidence": {
                     "ok": true,
-                    "summary": "Scientific breakthroughs 2026 source-backed overview reports verified advances in medicine, materials science, and astronomy from multiple research institutions.",
-                    "content": "Scientific breakthroughs 2026 source-backed overview reports verified advances in medicine, materials science, and astronomy from multiple research institutions.",
+                    "summary": "Scientific breakthroughs 2026 source-backed evidence reports verified advances in medicine, materials science, and astronomy from multiple research institutions.",
+                    "content": "Scientific breakthroughs 2026 source-backed evidence reports verified advances in medicine, materials science, and astronomy from multiple research institutions.",
                     "requested_url": "https://science.example.org/news/scientific-breakthroughs-2026",
-                    "status_code": 200
-                },
-                "scientific breakthroughs 2026 primary sources": {
-                    "ok": true,
-                    "summary": "Scientific breakthroughs 2026 primary sources coverage points to peer-reviewed papers and institution releases for medicine and materials science findings.",
-                    "content": "Scientific breakthroughs 2026 primary sources coverage points to peer-reviewed papers and institution releases for medicine and materials science findings.",
-                    "requested_url": "https://research.example.org/scientific-breakthroughs-2026",
                     "status_code": 200
                 }
             }),
             query,
             "medium",
         );
-        assert_eq!(out.get("status").and_then(Value::as_str), Some("ok"));
+        assert_eq!(
+            out.get("status").and_then(Value::as_str),
+            Some("ok"),
+            "{out:#?}"
+        );
         assert_eq!(
             out.get("query_plan_source").and_then(Value::as_str),
             Some("policy_broad_current_research_recovery")
@@ -1580,12 +1838,26 @@ mod quality_tests {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        assert_eq!(query_plan.len(), 6, "{query_plan:?}");
+        assert!(
+            query_plan.len() >= 4 && query_plan.len() <= 6,
+            "{query_plan:?}"
+        );
         assert!(query_plan.iter().any(|row| {
             row.as_str()
-                .map(|value| value == "scientific breakthroughs 2026 source-backed overview")
+                .map(|value| value == "scientific breakthroughs 2026 source-backed evidence")
                 .unwrap_or(false)
         }));
+        assert!(query_plan.iter().all(|row| {
+            row.as_str()
+                .map(|value| {
+                    !value.contains("primary sources")
+                        && !value.contains("official sources")
+                        && !value.contains("institution announcements")
+                        && !value.contains("research publications")
+                        && !value.contains("official announcements")
+                })
+                .unwrap_or(true)
+        }), "{query_plan:?}");
         assert!(query_plan.iter().all(|row| {
             row.as_str()
                 .map(|value| value != "scientific breakthroughs 2026 2026")
@@ -1667,7 +1939,7 @@ mod quality_tests {
                     "requested_url": "https://search.example.com?q=compare+alphatool+betatool",
                     "status_code": 200
                 },
-                "Compare AlphaTool vs BetaTool primary source evidence": {
+                "Compare AlphaTool vs BetaTool source-backed evidence": {
                     "ok": true,
                     "summary": "AlphaTool compared with BetaTool: AlphaTool documents production deployment controls while BetaTool documents a smaller beta program for production teams.",
                     "content": "AlphaTool compared with BetaTool: AlphaTool documents production deployment controls while BetaTool documents a smaller beta program for production teams.",
@@ -1678,7 +1950,11 @@ mod quality_tests {
             query,
             "medium",
         );
-        assert_eq!(out.get("status").and_then(Value::as_str), Some("ok"));
+        assert_eq!(
+            out.get("status").and_then(Value::as_str),
+            Some("ok"),
+            "{out:#?}"
+        );
         assert_eq!(
             out.get("query_plan_source").and_then(Value::as_str),
             Some("policy_general_research_recovery")
@@ -1691,7 +1967,7 @@ mod quality_tests {
         assert!(
             query_plan.iter().any(|row| {
                 row.as_str()
-                    .map(|value| value.contains("primary source evidence"))
+                    .map(|value| value.contains("source-backed evidence"))
                     .unwrap_or(false)
             }),
             "{query_plan:?}"
@@ -2186,6 +2462,132 @@ mod quality_tests {
     }
 
     #[test]
+    fn page_extraction_keeps_article_like_links_for_broad_current_queries() {
+        let query = "Give me the biggest world news from this week.";
+        assert!(
+            !query_has_distinctive_relevance_terms(query),
+            "broad current-event discovery queries should not require subject-term overlap"
+        );
+        let policy = default_policy();
+        let links = payload_links_for_page_extraction(
+            query,
+            &policy,
+            &json!({
+                "links": [
+                    "https://apnews.com/world-news",
+                    "https://abcnews.com",
+                    "https://www.aljazeera.com/news/2026/5/21/trump-shifts-between-diplomacy-and-threats-in-iran-standoff",
+                    "https://www.bbc.com/news/articles/c78qv3w4xzqo"
+                ]
+            }),
+            4,
+        );
+        assert!(
+            links
+                .iter()
+                .any(|link| link.contains("aljazeera.com/news/2026/5/21")),
+            "{links:?}"
+        );
+        assert!(
+            links
+                .iter()
+                .any(|link| link.contains("bbc.com/news/articles")),
+            "{links:?}"
+        );
+        assert!(
+            !links.iter().any(|link| {
+                link == "https://abcnews.com" || link == "https://apnews.com/world-news"
+            }),
+            "broad discovery should spend fetch budget on article evidence before home/section shells: {links:?}"
+        );
+    }
+
+    #[test]
+    fn page_extraction_allows_relevant_hub_links_only_with_context_signal() {
+        let query = "Give me the biggest world news from this week.";
+        let hub = "https://apnews.com/world-news";
+        let context = "World News · Africa · Red Cross workers carry the body of a person who died of Ebola into a coffin · U.S. News · SpaceX's mega rocket Starship is prepared for a launch this week.";
+
+        assert_eq!(
+            page_extraction_link_preflight_rejection_reason_with_context(query, hub, context),
+            None
+        );
+        assert_eq!(
+            page_extraction_link_preflight_rejection_reason_with_context(query, hub, ""),
+            Some("broad_query_non_article_link")
+        );
+    }
+
+    #[test]
+    fn page_extraction_resolves_relative_article_links_from_payload_text() {
+        let query = "Give me the biggest world news from this week.";
+        let links = payload_links_for_page_extraction(
+            query,
+            &default_policy(),
+            &json!({
+                "ok": true,
+                "requested_url": "https://www.abc.net.au/news/world",
+                "content": "Written off as parasites, young Indians back a cockroach in politics Topic: Social Media /news/2026-05-22/india-cockroach-janta-party-amasses-support-from-millions/106709230"
+            }),
+            2,
+        );
+        assert_eq!(
+            links.first().map(String::as_str),
+            Some("https://www.abc.net.au/news/2026-05-22/india-cockroach-janta-party-amasses-support-from-millions/106709230"),
+            "{links:?}"
+        );
+    }
+
+    #[test]
+    fn broad_current_article_candidate_passes_relevance_without_subject_terms() {
+        let query = "Give me the biggest world news from this week.";
+        let candidate = Candidate {
+            source_kind: "web".to_string(),
+            title: "Trump shifts between diplomacy and threats in Iran standoff".to_string(),
+            locator: "https://www.aljazeera.com/news/2026/5/21/trump-shifts-between-diplomacy-and-threats-in-iran-standoff".to_string(),
+            snippet: "Trump shifted between diplomacy and threats during the Iran standoff, with officials describing active negotiations and military pressure.".to_string(),
+            excerpt_hash: "broad-current-article".to_string(),
+            timestamp: Some("2026-05-21T12:00:00Z".to_string()),
+            permissions: Some("public_web;browser_materialized".to_string()),
+            status_code: 200,
+        };
+        assert!(
+            candidate_passes_relevance_gate(query, &candidate, false),
+            "broad current-event queries should allow article evidence when the query has no subject terms"
+        );
+    }
+
+    #[test]
+    fn broad_current_recovery_words_do_not_create_fake_distinctive_terms() {
+        assert!(!query_has_distinctive_relevance_terms(
+            "the biggest world news from this week source-backed evidence"
+        ));
+        assert!(!query_has_distinctive_relevance_terms(
+            "the biggest world news from this week detailed findings"
+        ));
+    }
+
+    #[test]
+    fn broad_current_article_candidate_passes_without_literal_query_overlap_when_current() {
+        let query = "Give me the biggest world news from this week.";
+        let candidate = Candidate {
+            source_kind: "web".to_string(),
+            title: "Xi and Putin condemn strikes and urge end to Iran war".to_string(),
+            locator: "https://www.example.com/story/2026/05/20/c78qv3w4xzqo".to_string(),
+            snippet: "Xi and Putin condemned the strikes and urged an end to the Iran war, calling de-escalation a matter of utmost urgency. By David Brennan May 20, 2026, 8:51 AM LONDON".to_string(),
+            excerpt_hash: "broad-current-zero-overlap-article".to_string(),
+            timestamp: Some("2026-05-20T08:51:00Z".to_string()),
+            permissions: Some("public_web;page_enriched".to_string()),
+            status_code: 200,
+        };
+        assert_eq!(query_overlap_terms(query, &candidate), 0);
+        assert!(
+            candidate_passes_relevance_gate(query, &candidate, false),
+            "broad current-event queries should allow current article evidence even when a specific story has no literal overlap with generic words like news/week"
+        );
+    }
+
+    #[test]
     fn page_extraction_keeps_trusted_official_source_links_for_official_lanes() {
         let query = "LangGraph official documentation";
         let link = "https://docs.langchain.com/oss/python/langgraph/overview";
@@ -2195,6 +2597,194 @@ mod quality_tests {
             page_extraction_link_preflight_rejection_reason_with_context(query, link, context),
             None
         );
+    }
+
+    #[test]
+    fn official_lanes_prefer_subject_domain_over_generic_official_boilerplate() {
+        let query = "Acme Robotics official site";
+        let official = Candidate {
+            source_kind: "web".to_string(),
+            title: "Acme Robotics".to_string(),
+            locator: "https://www.acmerobotics.com/".to_string(),
+            snippet: "Acme Robotics official homepage for robot vacuum products.".to_string(),
+            excerpt_hash: "official".to_string(),
+            timestamp: None,
+            permissions: None,
+            status_code: 200,
+        };
+        let boilerplate = Candidate {
+            source_kind: "web".to_string(),
+            title: "Clinical trial record".to_string(),
+            locator: "https://pmc.ncbi.nlm.nih.gov/articles/PMC1234567/".to_string(),
+            snippet: "An official website of the United States government. This article mentions Acme Robotics in passing.".to_string(),
+            excerpt_hash: "boilerplate".to_string(),
+            timestamp: None,
+            permissions: None,
+            status_code: 200,
+        };
+        assert!(official_lane_direct_subject_source_signal(
+            query, &official
+        ));
+        assert!(!official_lane_direct_subject_source_signal(
+            query,
+            &boilerplate
+        ));
+        assert!(candidate_has_trusted_official_source_signal(
+            query, &official
+        ));
+        assert!(!candidate_has_trusted_official_source_signal(
+            query,
+            &boilerplate
+        ));
+        assert!(
+            rerank_score(query, &official) > rerank_score(query, &boilerplate),
+            "official={} boilerplate={}",
+            rerank_score(query, &official),
+            rerank_score(query, &boilerplate)
+        );
+        let links = payload_links_for_page_extraction(
+            query,
+            &default_policy(),
+            &json!({
+                "links": [
+                    "https://pmc.ncbi.nlm.nih.gov/articles/PMC1234567/",
+                    "https://www.acmerobotics.com/"
+                ],
+                "summary": "Acme Robotics official site and unrelated official website boilerplate."
+            }),
+            2,
+        );
+        assert_eq!(
+            links.first().map(String::as_str),
+            Some("https://www.acmerobotics.com/"),
+            "{links:#?}"
+        );
+        let fragment = candidate_handoff_summary_fragment(query, &official, false);
+        assert_eq!(fragment, "Acme Robotics", "{fragment}");
+        let noisy_official = Candidate {
+            title: "Official Acme Robotics Website".to_string(),
+            snippet: "You can update your contact preferences at any time in the Keep in touch section of your account.".to_string(),
+            ..official
+        };
+        let noisy_fragment = candidate_handoff_summary_fragment(query, &noisy_official, false);
+        assert_eq!(
+            noisy_fragment, "Official Acme Robotics Website",
+            "{noisy_fragment}"
+        );
+    }
+
+    #[test]
+    fn handoff_summary_strips_markdown_heading_fragments() {
+        let query = "compare Dyson Roborock and iRobot for pet hair in apartments";
+        let candidate = Candidate {
+            source_kind: "exa_api_search_result".to_string(),
+            title: "The Best Robot Vacuums for Pet Hair".to_string(),
+            locator: "https://example.com/robot-vacuums-pet-hair".to_string(),
+            snippet: "#### iRobot Roomba j9+ [...] #### Roborock Qrevo Curv [...] ## iRobot Roomba j9+ [...] With its counter-rotating brush rolls, the Roomba j9+ excels at agitating carpets and capturing pet hair. In testing, it effectively cleaned up after two heavily shedding cats without clogging or leaving noticeable hairballs behind.".to_string(),
+            excerpt_hash: "robot-vacuums".to_string(),
+            timestamp: None,
+            permissions: Some("public_web;structured_feed".to_string()),
+            status_code: 200,
+        };
+        let fragment = candidate_handoff_summary_fragment(query, &candidate, true);
+        assert!(
+            fragment.contains("counter-rotating brush rolls"),
+            "{fragment}"
+        );
+        assert!(!fragment.contains("####"), "{fragment}");
+        assert!(!fragment.contains("[...]"), "{fragment}");
+        assert!(
+            !fragment.starts_with("iRobot Roomba j9+"),
+            "{fragment}"
+        );
+    }
+
+    #[test]
+    fn api_batch_query_summary_strips_heading_fragments_from_structured_provider_evidence() {
+        let query = "compare Roborock and iRobot for pet hair in apartments";
+        let out = run_query_with_fixture(
+            json!({
+                query: {
+                    "ok": true,
+                    "provider": "exa",
+                    "summary": "Robot vacuum pet hair comparison — https://reviews.example.org/robot-vacuum-pet-hair — #### iRobot Roomba j9+ [...] #### Roborock Qrevo Curv [...] The source compares iRobot and Roborock for pet hair in apartments, brush design, dock maintenance, and everyday cleanup.",
+                    "content": "Robot vacuum pet hair comparison — https://reviews.example.org/robot-vacuum-pet-hair — #### iRobot Roomba j9+ [...] #### Roborock Qrevo Curv [...] ## iRobot Roomba j9+ [...] With its counter-rotating brush rolls, the iRobot Roomba j9+ excels at agitating carpets and capturing pet hair. The source compares Roborock and iRobot apartment cleanup with brush design, dock maintenance, noise, and recurring pet-hair pickup.",
+                    "requested_url": "https://api.exa.ai/search",
+                    "status_code": 200
+                }
+            }),
+            query,
+            "small",
+        );
+        assert_eq!(
+            out.get("status").and_then(Value::as_str),
+            Some("ok"),
+            "{out:#?}"
+        );
+        let summary = out.get("summary").and_then(Value::as_str).unwrap_or("");
+        assert!(
+            summary.contains("counter-rotating brush rolls")
+                || summary.contains("compares Roborock and iRobot"),
+            "{summary}"
+        );
+        assert!(!summary.contains("####"), "{summary}");
+        assert!(!summary.contains("[...]"), "{summary}");
+        let claims = out
+            .get("evidence_claims")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            claims
+                .iter()
+                .flat_map(|row| row.get("claim").and_then(Value::as_str))
+                .any(|claim| claim.contains("counter-rotating brush rolls")),
+            "{claims:#?}"
+        );
+        assert!(
+            !claims
+                .iter()
+                .flat_map(|row| row.get("claim").and_then(Value::as_str))
+                .any(|claim| claim.contains("####") || claim.contains("[...]")),
+            "{claims:#?}"
+        );
+    }
+
+    #[test]
+    fn api_batch_query_summary_prefers_clean_claims_over_url_tail_fragments() {
+        let query = "institution research funding impact";
+        let out = run_query_with_fixture(
+            json!({
+                query: {
+                    "ok": true,
+                    "provider": "exa",
+                    "results": [{
+                        "title": "MIT research funding impact",
+                        "url": "https://www.example.com/newsroom/industry/college-news",
+                        "description": "MIT President Sally Kornbluth warned that the institution is doing less research and enrolling fewer graduate students as a result of federal actions, according to a current higher-education news report. https://www.example.com/newsroom/industry/college-news Sign up for a Business Wire account today. Explore ways to use Business Wire features for your next news release."
+                    }],
+                    "requested_url": "https://api.exa.ai/search",
+                    "status_code": 200
+                }
+            }),
+            query,
+            "small",
+        );
+
+        assert_eq!(
+            out.get("status").and_then(Value::as_str),
+            Some("ok"),
+            "{out:#?}"
+        );
+        let summary = out.get("summary").and_then(Value::as_str).unwrap_or("");
+        let lowered = summary.to_ascii_lowercase();
+        assert!(
+            lowered.contains("less research") || lowered.contains("fewer graduate"),
+            "{summary}"
+        );
+        assert!(!lowered.contains("com/newsroom"), "{summary}");
+        assert!(!lowered.contains("sign up"), "{summary}");
+        assert!(!lowered.contains("business wire features"), "{summary}");
     }
 
     #[test]
@@ -2292,7 +2882,7 @@ mod quality_tests {
             .get("search_provider_chain")
             .and_then(Value::as_array)
             .expect("search_provider_chain");
-        assert_eq!(
+        assert_ne!(
             request
                 .get("search_provider_chain_strict")
                 .and_then(Value::as_bool),
@@ -2306,10 +2896,12 @@ mod quality_tests {
             !chain.iter().any(|row| row.as_str() == Some("bing_rss")),
             "{chain:#?}"
         );
-        assert_eq!(
-            request.get("provider").and_then(Value::as_str),
-            Some("duckduckgo_lite")
+        assert!(
+            chain.iter().any(|row| row.as_str() == Some("tavily"))
+                || chain.iter().any(|row| row.as_str() == Some("exa")),
+            "{chain:#?}"
         );
+        assert!(request.get("provider").is_none(), "{request:#?}");
         assert!(!chain.is_empty(), "{chain:#?}");
     }
 
@@ -3067,12 +3659,23 @@ mod quality_tests {
                     "content": "A current engineering note explains web retrieval quality, evidence promotion, source-backed snippets, result-quality lanes, provider fallback, and synthesis-safe retrieval. https://example.org/web-retrieval-quality-evidence-promotion",
                     "requested_url": "https://example.org/web-retrieval-quality-evidence-promotion",
                     "status_code": 200
+                },
+                "fetch::https://example.org/web-retrieval-quality-evidence-promotion": {
+                    "ok": true,
+                    "summary": "Evidence promotion for web retrieval quality requires source-backed snippets, result-quality lanes, provider fallback, and synthesis-safe retrieval before a candidate is promoted as usable evidence.",
+                    "content": "The engineering note states that web retrieval quality should be judged by source-backed snippets, result-quality lanes, provider fallback, and synthesis-safe retrieval. It explains that candidate URL discovery is not enough on its own; a retrieval lane should fetch the source page, extract substantive text, and only then promote the row as citable evidence for downstream synthesis.",
+                    "requested_url": "https://example.org/web-retrieval-quality-evidence-promotion",
+                    "status_code": 200
                 }
             }),
             query,
             "medium",
         );
-        assert_eq!(out.get("status").and_then(Value::as_str), Some("ok"));
+        assert_eq!(
+            out.get("status").and_then(Value::as_str),
+            Some("ok"),
+            "{out:#?}"
+        );
         assert!(
             out.get("evidence_refs")
                 .and_then(Value::as_array)
@@ -3098,27 +3701,238 @@ mod quality_tests {
     }
 
     #[test]
+    fn fallback_headline_candidates_do_not_block_provider_recovery() {
+        let query = "Compare AlphaVac and BetaBot for apartment pet hair";
+        let out = run_query_with_fixture(
+            json!({
+                query: {
+                    "ok": true,
+                    "provider": "google_news_rss",
+                    "summary": "Best pet hair vacuums — https://news.google.com/rss/articles/alpha — Best pet hair vacuums Example Reviews Published: Thu, 21 May 2026 07:00:00 GMT. Source: Example Reviews (reviews.example.com).",
+                    "content": "Best pet hair vacuums — https://news.google.com/rss/articles/alpha — Best pet hair vacuums Example Reviews Published: Thu, 21 May 2026 07:00:00 GMT. Source: Example Reviews (reviews.example.com).",
+                    "requested_url": "https://news.google.com/rss/search?q=AlphaVac+BetaBot+pet+hair",
+                    "status_code": 200
+                },
+                "tavily::Compare AlphaVac and BetaBot for apartment pet hair": {
+                    "ok": true,
+                    "provider": "tavily",
+                    "summary": "AlphaVac vs BetaBot apartment pet-hair field comparison — https://reviews.example.com/alphavac-betabot-pet-hair — The report compares AlphaVac and BetaBot for apartment pet hair, brush design, maintenance, noise, and HEPA filtration.",
+                    "content": "AlphaVac vs BetaBot apartment pet-hair field comparison — https://reviews.example.com/alphavac-betabot-pet-hair — The report compares AlphaVac and BetaBot for apartment pet hair. AlphaVac emphasizes a sealed HEPA filter and low-noise handheld cleanup. BetaBot emphasizes robot scheduling, anti-tangle brush design, dustbin maintenance, and quieter overnight apartment operation.",
+                    "requested_url": "https://api.tavily.com/search",
+                    "status_code": 200
+                },
+                "exa::Compare AlphaVac and BetaBot for apartment pet hair": {
+                    "ok": true,
+                    "provider": "exa",
+                    "summary": "Independent apartment robot vacuum lab notes — https://lab.example.org/alphavac-betabot-noise-maintenance — A separate lab comparison covers AlphaVac and BetaBot apartment noise, pet-hair pickup, edge cleaning, and recurring maintenance tradeoffs.",
+                    "content": "Independent apartment robot vacuum lab notes — https://lab.example.org/alphavac-betabot-noise-maintenance — A separate lab comparison covers AlphaVac and BetaBot apartment noise, pet-hair pickup, edge cleaning, and recurring maintenance tradeoffs with multiple source-backed observations.",
+                    "requested_url": "https://api.exa.ai/search",
+                    "status_code": 200
+                }
+            }),
+            query,
+            "medium",
+        );
+        assert_eq!(out.get("status").and_then(Value::as_str), Some("ok"));
+        let provider_results = out
+            .get("provider_results")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            provider_results.iter().any(|row| {
+                row.get("provider").and_then(Value::as_str) == Some("tavily")
+                    && row.get("result_quality").and_then(Value::as_str) == Some("usable")
+            }),
+            "{provider_results:#?}"
+        );
+        assert!(
+            provider_results.iter().any(|row| {
+                row.get("provider").and_then(Value::as_str) == Some("exa")
+                    && row.get("result_quality").and_then(Value::as_str) == Some("usable")
+            }),
+            "{provider_results:#?}"
+        );
+        assert!(
+            out.get("evidence_refs")
+                .and_then(Value::as_array)
+                .map(|rows| !rows.is_empty())
+                .unwrap_or(false),
+            "{out:#?}"
+        );
+        let lowered = summary_lowered(&out);
+        assert!(!lowered.contains("only low-signal snippets"), "{lowered}");
+        assert!(lowered.contains("comparison findings"), "{lowered}");
+    }
+
+    #[test]
+    fn provider_recovery_requires_all_inferred_comparison_entities_before_stopping() {
+        let query = "Compare AlphaVac BetaBot and GammaSweep for apartment pet hair";
+        let entity_facets = provider_recovery_required_entity_facets(query);
+        assert_eq!(
+            entity_facets
+                .iter()
+                .map(|facet| facet.requested_text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["AlphaVac", "BetaBot", "GammaSweep"]
+        );
+        let alpha = Candidate {
+            source_kind: "tavily_api_search_result".to_string(),
+            title: "AlphaVac apartment pet hair test".to_string(),
+            locator: "https://reviews.example.com/alphavac-pet-hair".to_string(),
+            snippet: "The AlphaVac apartment pet hair comparison covers brush design, suction behavior, edge pickup, maintenance effort, noise, and how it handles compact rooms with shedding pets.".to_string(),
+            excerpt_hash: "alpha".to_string(),
+            timestamp: None,
+            permissions: None,
+            status_code: 200,
+        };
+        let beta = Candidate {
+            source_kind: "exa_api_search_result".to_string(),
+            title: "BetaBot apartment pet hair lab notes".to_string(),
+            locator: "https://lab.example.org/betabot-pet-hair".to_string(),
+            snippet: "Independent BetaBot apartment pet hair notes compare anti-tangle brush behavior, bin maintenance, navigation around furniture, carpet pickup, and noise levels for small homes.".to_string(),
+            excerpt_hash: "beta".to_string(),
+            timestamp: None,
+            permissions: None,
+            status_code: 200,
+        };
+        let gamma = Candidate {
+            source_kind: "exa_api_search_result".to_string(),
+            title: "GammaSweep apartment pet hair field report".to_string(),
+            locator: "https://field.example.net/gammasweep-pet-hair".to_string(),
+            snippet: "The GammaSweep apartment pet hair field report compares recurring pet cleanup, hair wrap, hard-floor pickup, app scheduling, dock maintenance, and everyday apartment fit.".to_string(),
+            excerpt_hash: "gamma".to_string(),
+            timestamp: None,
+            permissions: None,
+            status_code: 200,
+        };
+
+        assert!(
+            !provider_recovery_satisfied(query, &[alpha.clone(), beta.clone()], true),
+            "two strong candidates should not stop recovery while an inferred comparison entity is missing"
+        );
+        assert!(
+            provider_recovery_satisfied(query, &[alpha, beta, gamma], true),
+            "recovery can stop once usable candidates cover every inferred comparison entity"
+        );
+    }
+
+    #[test]
+    fn provider_recovery_does_not_stop_on_social_video_shell_candidates() {
+        let query = "Compare AlphaVac and BetaBot for apartment pet hair";
+        let candidate = Candidate {
+            source_kind: "tavily_api_search_result".to_string(),
+            title: "AlphaVac vs BetaBot best pet hair vacuum | TikTok".to_string(),
+            locator: "https://www.tiktok.com/@cleaning/video/123".to_string(),
+            snippet: "#robotvacuum #cleantok #pets. Keywords: AlphaVac, BetaBot, apartment pet hair, robot vacuum, anti-tangle brush, maintenance, noise, dock, suction, carpet, hardwood.".to_string(),
+            excerpt_hash: "social-shell".to_string(),
+            timestamp: None,
+            permissions: None,
+            status_code: 200,
+        };
+        assert!(
+            !candidate_can_block_provider_recovery(query, &candidate, true),
+            "social/video keyword shells can be telemetry, but must not prevent stronger provider recovery"
+        );
+    }
+
+    #[test]
+    fn provider_recovery_does_not_stop_on_structured_directory_shell_candidates() {
+        let query = "Give me the biggest world news from this week";
+        let candidate = Candidate {
+            source_kind: "tavily_api_search_result".to_string(),
+            title: "World news: latest news and top stories".to_string(),
+            locator: "https://www.cbsnews.com/world".to_string(),
+            snippet: "Latest world news from CBS News — https://www.cbsnews.com/world — World News | Latest Top Stories - Reuters — https://www.reuters.com/world — Top & Breaking World News Today - AP News — https://apnews.com/world-news".to_string(),
+            excerpt_hash: "directory-shell".to_string(),
+            timestamp: None,
+            permissions: Some("public_web;structured_feed".to_string()),
+            status_code: 200,
+        };
+        assert!(
+            !candidate_can_block_provider_recovery(query, &candidate, false),
+            "structured search/feed rows still must be evidence rows; link-directory shells must not prevent stronger provider recovery"
+        );
+    }
+
+    #[test]
+    fn structured_directory_shell_triggers_provider_recovery_lane() {
+        let query = "Give me the biggest world news from this week";
+        let out = run_query_with_fixture(
+            json!({
+                query: {
+                    "ok": true,
+                    "provider": "tavily",
+                    "summary": "World news: latest news and top stories",
+                    "content": "World news: latest news and top stories — https://www.cbsnews.com/world — Latest world news. World News | Latest Top Stories - Reuters — https://www.reuters.com/world — Browse World. Top & Breaking World News Today - AP News — https://apnews.com/world-news — World news home page.",
+                    "requested_url": "https://api.tavily.com/search",
+                    "status_code": 200
+                },
+                format!("exa::{query}"): {
+                    "ok": true,
+                    "provider": "exa",
+                    "summary": "This week in world news, source-backed reporting identifies several major developments across diplomacy, elections, security, and public policy.",
+                    "content": "This week in world news, source-backed reporting identifies several major developments across diplomacy, elections, security, and public policy. The roundup includes dated article links, named source organizations, and enough context for synthesis. https://analysis.example.org/world-news-this-week",
+                    "links": ["https://analysis.example.org/world-news-this-week"],
+                    "requested_url": "https://api.exa.ai/search",
+                    "status_code": 200
+                },
+                "fetch::https://analysis.example.org/world-news-this-week": {
+                    "ok": true,
+                    "summary": "This week in world news, the source-backed roundup reports several major developments across diplomacy, elections, security, and public policy with dated source links.",
+                    "content": "This week in world news, the source-backed roundup reports several major developments across diplomacy, elections, security, and public policy. It provides dated article links, named source organizations, and context that can support a coherent synthesis without treating search-result listing pages as evidence.",
+                    "requested_url": "https://analysis.example.org/world-news-this-week",
+                    "status_code": 200
+                }
+            }),
+            query,
+            "medium",
+        );
+        let provider_results = out
+            .get("provider_results")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            provider_results.iter().any(|row| {
+                row.get("provider").and_then(Value::as_str) == Some("exa")
+                    && row.get("result_quality").and_then(Value::as_str) == Some("usable")
+            }),
+            "{provider_results:#?}\n{out:#?}"
+        );
+        let evidence_pack = out
+            .get("evidence_pack")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            evidence_pack.iter().any(|row| {
+                row.get("source_domain").and_then(Value::as_str)
+                    == Some("analysis.example.org")
+            }),
+            "{evidence_pack:#?}"
+        );
+    }
+
+    #[test]
     fn official_source_provider_recovery_stays_on_source_discovery_lanes() {
         let policy = default_policy();
         let providers = provider_recovery_providers(&policy, "Firecrawl official documentation");
         assert!(
             providers
                 .iter()
-                .any(|provider| provider == "browser_serp" || provider == "duckduckgo_lite"),
+                .any(|provider| provider == "tavily" || provider == "exa"),
             "{providers:#?}"
         );
         assert!(
-            !providers.iter().any(|provider| matches!(
-                provider.as_str(),
-                "serperdev" | "tavily" | "exa" | "brave" | "google_news_rss" | "bing_rss"
-            )),
+            !providers.iter().any(|provider| matches!(provider.as_str(), "google_news_rss" | "bing_rss")),
             "{providers:#?}"
         );
 
         let broad_providers =
             provider_recovery_providers(&policy, "web retrieval quality evidence promotion");
         assert!(
-            broad_providers.iter().any(|provider| provider == "serperdev"),
+            broad_providers.iter().any(|provider| provider == "tavily"),
             "{broad_providers:#?}"
         );
     }
@@ -3156,7 +3970,7 @@ mod quality_tests {
         assert!(
             providers
                 .iter()
-                .any(|provider| provider == "browser_serp" || provider == "duckduckgo_lite"),
+                .any(|provider| provider == "tavily" || provider == "exa"),
             "{providers:#?}"
         );
     }
@@ -3621,7 +4435,12 @@ mod quality_tests {
                 .any(|(candidate, _)| candidate.locator.contains("docs.beta.example.com")),
             "{selected:#?}"
         );
-        let covered = evidence_coverage_from_ranked_candidates(&facets, &selected, 1);
+        let covered = evidence_coverage_from_ranked_candidates(
+            "Compare LangGraph and CrewAI",
+            &facets,
+            &selected,
+            1,
+        );
         assert_eq!(
             covered
                 .as_array()
@@ -3961,7 +4780,7 @@ mod quality_tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         write_test_batch_policy(tmp.path(), true);
         let query = "agent runtime reliability evidence";
-        let recovery_query = "agent runtime reliability evidence detailed source-backed findings";
+        let recovery_query = "agent runtime reliability evidence detailed findings";
         let out = with_fixture(
             json!({
                 query: {

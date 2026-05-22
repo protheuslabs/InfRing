@@ -53,6 +53,7 @@ fn runtime_web_family_metadata(root: &Path, policy: &Value, family: WebProviderF
         } else if selected_provider.is_some() {
             let missing_explicit_credential =
                 configured_provider_is_explicit
+                    && !provider_has_configured_secret_ref(policy, configured, family)
                     && !provider_has_runtime_credential_with(configured, family, |key| {
                         std::env::var(key).ok()
                     }) && provider_descriptor(configured, family)

@@ -146,6 +146,7 @@ mod tests {
                 "tavily".to_string(),
                 "exa".to_string(),
                 "brave".to_string(),
+                "google_news_rss".to_string(),
                 "duckduckgo_lite".to_string()
             ]
         );
@@ -165,6 +166,7 @@ mod tests {
             vec![
                 "duckduckgo".to_string(),
                 "bing_rss".to_string(),
+                "google_news_rss".to_string(),
                 "duckduckgo_lite".to_string(),
                 "serperdev".to_string(),
                 "tavily".to_string(),
@@ -220,6 +222,18 @@ mod tests {
         });
         let chain = provider_chain_from_request("duckduckgo_lite", &request, &policy);
         assert_eq!(chain.first().map(String::as_str), Some("duckduckgo_lite"));
+    }
+
+    #[test]
+    fn explicit_browser_serp_hint_stays_available_without_default_chain() {
+        let request = json!({});
+        let policy = json!({
+            "web_conduit": {
+                "search_provider_order": ["google_news_rss", "bing_rss", "duckduckgo"]
+            }
+        });
+        let chain = provider_chain_from_request("browser_serp", &request, &policy);
+        assert_eq!(chain.first().map(String::as_str), Some("browser_serp"));
     }
 
     #[test]
@@ -428,6 +442,38 @@ mod tests {
         let row = rows.first().cloned().unwrap_or_else(|| json!({}));
         assert_eq!(row.get("circuit_open").and_then(Value::as_bool), Some(false));
         assert_eq!(row.get("consecutive_failures").and_then(Value::as_u64), Some(0));
+    }
+
+    #[test]
+    fn circuit_breaker_ignores_policy_denied_failures() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let policy = json!({
+            "web_conduit": {
+                "provider_circuit_breaker": {
+                    "enabled": true,
+                    "failure_threshold": 2,
+                    "open_for_secs": 120
+                }
+            }
+        });
+        record_provider_attempt(tmp.path(), "tavily", false, "web_conduit_policy_denied", &policy);
+        record_provider_attempt(tmp.path(), "tavily", false, "policy_denied", &policy);
+        record_provider_attempt(tmp.path(), "tavily", false, "provider_network_policy_blocked", &policy);
+        assert!(provider_circuit_open_until(tmp.path(), "tavily", &policy).is_none());
+        let rows = provider_health_snapshot(tmp.path(), &[String::from("tavily")])
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let row = rows.first().cloned().unwrap_or_else(|| json!({}));
+        assert_eq!(row.get("circuit_open").and_then(Value::as_bool), Some(false));
+        assert_eq!(row.get("consecutive_failures").and_then(Value::as_u64), Some(0));
+        let state = load_provider_health(tmp.path());
+        assert_eq!(
+            state
+                .pointer("/providers/tavily/last_failure_class")
+                .and_then(Value::as_str),
+            Some("configuration")
+        );
     }
 
     #[test]

@@ -124,14 +124,29 @@ fn candidate_from_search_payload(query: &str, payload: &Value) -> Result<Candida
     } else {
         format!("Web result from {}", clean_text(&locator, 120))
     };
-    let source_kind = clean_text(
+    let explicit_source_kind = clean_text(
         payload
             .get("source_kind")
             .or_else(|| payload.get("sourceKind"))
             .and_then(Value::as_str)
-            .unwrap_or("web"),
+            .unwrap_or(""),
         80,
     );
+    let payload_type = clean_text(payload.get("type").and_then(Value::as_str).unwrap_or(""), 80);
+    let source_kind = if !explicit_source_kind.is_empty() {
+        explicit_source_kind
+    } else if !payload_type.is_empty() {
+        payload_type
+    } else if payload.get("results").is_none()
+        && payload.get("links").is_none()
+        && (200..400).contains(&payload.get("status_code").and_then(Value::as_i64).unwrap_or(0))
+        && !locator_domain.is_empty()
+        && !is_search_engine_domain(&locator_domain)
+    {
+        "web_conduit_fetch".to_string()
+    } else {
+        "web".to_string()
+    };
     Ok(Candidate {
         source_kind: if source_kind.is_empty() {
             "web".to_string()

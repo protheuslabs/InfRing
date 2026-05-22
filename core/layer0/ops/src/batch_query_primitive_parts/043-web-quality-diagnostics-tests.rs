@@ -804,6 +804,209 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn evidence_selection_prefers_pack_ready_articles_over_directory_diversity() {
+        let mut directory = candidate(
+            "https://www.cnn.com/world",
+            "World news directory with breaking news, video, headlines, opinion, sections, newsletters, latest updates, photos, clips, social links, topic pages, and a broad list of unrelated story links from around the world.",
+        );
+        directory.title = "World news - breaking news, video, headlines and opinion | CNN"
+            .to_string();
+        directory.source_kind = "tavily_api_search_result".to_string();
+        directory.permissions = Some("public_web;structured_feed".to_string());
+
+        let first_article = materialized_candidate(
+            "https://www.aljazeera.com/news/2026/5/20/multipolar-world-summit",
+            "This week's world news includes a May 20, 2026 summit where leaders announced a bilateral cooperation package, and officials said the agreement includes energy, trade, and security commitments for the coming year.",
+        );
+        let second_article = materialized_candidate(
+            "https://www.aljazeera.com/news/2026/5/21/iran-reviews-us-proposal",
+            "This week's world news also includes a May 21, 2026 diplomacy report where mediators said Iran reviewed a US proposal while regional officials reported new talks, prisoner-swap discussions, and ceasefire conditions.",
+        );
+
+        let selected = select_pack_ready_ranked_candidates(
+            "Give me the biggest world news from this week.",
+            vec![
+                (directory, 0.98),
+                (first_article.clone(), 0.78),
+                (second_article.clone(), 0.77),
+            ],
+            &[],
+            2,
+            1,
+        );
+        let locators = selected
+            .iter()
+            .map(|(candidate, _)| candidate.locator.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(locators.len(), 2, "{selected:#?}");
+        assert!(locators.contains(&first_article.locator.as_str()));
+        assert!(locators.contains(&second_article.locator.as_str()));
+        assert!(!locators.contains(&"https://www.cnn.com/world"));
+    }
+
+    #[test]
+    fn evidence_selection_dedupes_locator_and_keeps_richer_materialized_row() {
+        let article_locator =
+            "https://www.aljazeera.com/news/2026/5/20/multipolar-world-summit";
+        let materialized = materialized_candidate(
+            article_locator,
+            "This week's world news includes a May 20, 2026 summit where leaders announced a bilateral cooperation package, and officials said the agreement includes energy, trade, and security commitments for the coming year.",
+        );
+        let mut structured_duplicate = structured_feed_candidate(
+            article_locator,
+            "This week's world news includes a summit headline and a short feed summary saying officials announced bilateral cooperation.",
+        );
+        structured_duplicate.title = "Summit feed summary".to_string();
+        let second_article = materialized_candidate(
+            "https://www.aljazeera.com/news/2026/5/21/iran-reviews-us-proposal",
+            "This week's world news also includes a May 21, 2026 diplomacy report where mediators said Iran reviewed a US proposal while regional officials reported new talks, prisoner-swap discussions, and ceasefire conditions.",
+        );
+
+        let selected = select_pack_ready_ranked_candidates(
+            "Give me the biggest world news from this week.",
+            vec![
+                (structured_duplicate, 0.99),
+                (materialized.clone(), 0.78),
+                (second_article.clone(), 0.77),
+            ],
+            &[],
+            2,
+            1,
+        );
+        let locators = selected
+            .iter()
+            .map(|(candidate, _)| candidate.locator.as_str())
+            .collect::<Vec<_>>();
+        let first = selected
+            .iter()
+            .find(|(candidate, _)| candidate.locator == article_locator)
+            .map(|(candidate, _)| candidate)
+            .expect("deduped article selected");
+
+        assert_eq!(
+            locators
+                .iter()
+                .filter(|locator| **locator == article_locator)
+                .count(),
+            1,
+            "{selected:#?}"
+        );
+        assert_eq!(candidate_materialization_quality(first), "full_materialized");
+        assert!(locators.contains(&second_article.locator.as_str()));
+    }
+
+    #[test]
+    fn social_video_shell_rows_do_not_count_as_usable_evidence() {
+        let mut candidate = materialized_candidate(
+            "https://www.tiktok.com/@reviewer/video/123",
+            "#robotvacuum #cleantok #pets. Keywords: AlphaVac pet hair robot vacuum, BetaBot for pets, GammaClean apartment cleanup, best pet vacuum comparison, short video.",
+        );
+        candidate.title = "AlphaVac vs BetaBot for dog hair | TikTok".to_string();
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "Compare AlphaVac BetaBot and GammaClean for pet hair in apartments",
+            &[],
+            1,
+            &[(candidate, 0.91)],
+            1,
+        );
+        let first = pack
+            .as_array()
+            .and_then(|rows| rows.first())
+            .expect("evidence item");
+        assert_eq!(
+            first
+                .get("counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert!(
+            first
+                .get("quality_flags")
+                .and_then(Value::as_array)
+                .map(|rows| {
+                    rows.iter()
+                        .any(|row| row.as_str() == Some("social_video_shell"))
+                })
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
+    fn generic_media_embed_shell_rows_do_not_count_as_usable_evidence() {
+        let mut candidate = materialized_candidate(
+            "https://media.example.com/ad/robot-vacuum-pet-hair",
+            "Sorry, our video player is not supported in this browser. Share x Social Share This Ad Link Embed Browse Home & Real Estate Appliances iRobot Roomba i7+ TV Spot, 'More Pet Hair' Get Free Access",
+        );
+        candidate.title = "iRobot Roomba i7+ TV Spot, 'More Pet Hair'".to_string();
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "Compare Dyson Roborock and iRobot for pet hair in apartments",
+            &[],
+            1,
+            &[(candidate, 0.91)],
+            1,
+        );
+        let first = pack
+            .as_array()
+            .and_then(|rows| rows.first())
+            .expect("evidence item");
+        assert_eq!(
+            first
+                .get("counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert!(
+            first
+                .get("quality_flags")
+                .and_then(Value::as_array)
+                .map(|rows| {
+                    rows.iter()
+                        .any(|row| row.as_str() == Some("social_video_shell"))
+                })
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
+    fn style_shell_rows_do_not_count_as_content_rich_evidence() {
+        let candidate = materialized_candidate(
+            "https://support.example.com/hc/en-us/sections/downloads",
+            "Downloads Support Center Copyright Zendesk, Inc. Use of this source code is governed under the Apache License, Version 2.0 found at http://www.apache.org/licenses/LICENSE-2.0. :root { --zd-color-black: #000; --zd-color-green-100: #edf8f4; --zd-color-grey-200: #ddd; } body { font-family: system-ui; }",
+        );
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "Compare AlphaVac BetaBot and GammaClean for pet hair in apartments",
+            &[],
+            1,
+            &[(candidate, 0.88)],
+            1,
+        );
+        let quality = evidence_pack_quality_report(&default_policy(), &pack, &json!([]));
+        let first = pack
+            .as_array()
+            .and_then(|rows| rows.first())
+            .expect("evidence item");
+        assert_eq!(
+            first
+                .get("counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            quality
+                .get("content_rich_item_count")
+                .and_then(Value::as_u64),
+            Some(0)
+        );
+        assert_eq!(quality.get("status").and_then(Value::as_str), Some("thin"));
+    }
+
+    #[test]
     fn admitted_api_search_rows_keep_structured_evidence_provenance() {
         let payload = json!({
             "ok": true,
@@ -844,6 +1047,418 @@ mod web_quality_diagnostics_tests {
                 .get("counts_as_usable_evidence")
                 .and_then(Value::as_bool),
             Some(true)
+        );
+    }
+
+    #[test]
+    fn claim_hints_strip_markdown_heading_fragments_before_synthesis() {
+        let hints = evidence_pack_claim_hints(
+            "compare Roborock and iRobot for pet hair",
+            "#### iRobot Roomba j9+ [...] #### Roborock Qrevo Curv [...] ## iRobot Roomba j9+ [...] With its counter-rotating brush rolls, the Roomba j9+ excels at agitating carpets and capturing pet hair. In testing, it effectively cleaned up after two heavily shedding cats without clogging.",
+            4,
+        );
+        assert!(
+            hints.iter().any(|hint| hint.contains("counter-rotating brush rolls")),
+            "{hints:#?}"
+        );
+        assert!(
+            !hints
+                .iter()
+                .any(|hint| hint.contains("####") || hint.contains("[...]")),
+            "{hints:#?}"
+        );
+    }
+
+    #[test]
+    fn claim_hints_keep_first_body_sentence_for_broad_queries() {
+        let hints = evidence_pack_claim_hints(
+            "give me news from this week",
+            "The US Department of Justice has announced that this week's settlement blocks the IRS from reviewing tax filings connected to Trump, his family, and his businesses. Some lawmakers and legal experts say the department has violated federal law with its addendum to the settlement.",
+            2,
+        );
+
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint.contains("blocks the IRS from reviewing tax filings")),
+            "{hints:#?}"
+        );
+    }
+
+    #[test]
+    fn claim_hints_require_query_overlap_even_for_first_sentence() {
+        let hints = evidence_pack_claim_hints(
+            "give me news from this week",
+            "Tony Carruthers was granted a one-year reprieve from death after his executioners failed to find a vein for lethal injection. The US Department of Justice has announced that this week's settlement blocks the IRS from reviewing tax filings connected to Trump, his family, and his businesses.",
+            4,
+        );
+
+        let joined = hints.join(" ").to_ascii_lowercase();
+        assert!(!joined.contains("carruthers"), "{hints:#?}");
+        assert!(
+            joined.contains("this week's settlement")
+                || joined.contains("blocks the irs from reviewing"),
+            "{hints:#?}"
+        );
+    }
+
+    #[test]
+    fn current_intent_rows_without_freshness_do_not_count_as_usable_evidence() {
+        let candidate = materialized_candidate(
+            "https://example.org/ai-agentic-landscape",
+            "AI agentic landscape analysis says agent workflows are reshaping enterprise automation, tool use, orchestration, and software delivery across several organizations.",
+        );
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "AI agentic landscape May 2026 update",
+            &[],
+            1,
+            &[(candidate, 0.91)],
+            1,
+        );
+        let first = pack.pointer("/0").expect("evidence row");
+        assert!(
+            first
+                .get("quality_flags")
+                .and_then(Value::as_array)
+                .map(|flags| flags
+                    .iter()
+                    .any(|flag| flag.as_str() == Some("freshness_unproven")))
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+        assert_eq!(
+            first
+                .get("counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
+    fn current_intent_does_not_treat_retrieval_timestamp_as_source_freshness() {
+        let mut candidate = candidate(
+            "https://www.youtube.com/watch?v=iHo_YnxEiW0",
+            "Top 10 Most RELIABLE NEWS Sources You Can Trust. However, with so many fake news sites out there, and so much propaganda, it can be useful to go over those news sources best known for holding their standards to something more approaching World News | Latest Top Stories - Reuters. 8 Mar 2017.",
+        );
+        candidate.title = "Top 10 Most RELIABLE NEWS Sources You Can Trust - YouTube".to_string();
+        candidate.source_kind = "tavily_api_search_result".to_string();
+        candidate.permissions = Some("public_web;structured_feed".to_string());
+        candidate.timestamp = Some(crate::now_iso());
+
+        let flags = candidate_quality_flags(
+            "Give me the biggest world news from this week.",
+            &candidate,
+            0.93,
+        );
+        assert!(
+            flags
+                .iter()
+                .any(|flag| flag.as_str() == "freshness_unproven"),
+            "{flags:#?}"
+        );
+        assert!(
+            !candidate_counts_as_query_usable_evidence(
+                "Give me the biggest world news from this week.",
+                &candidate,
+                0.93,
+            ),
+            "retrieval timestamps must not make stale source rows usable"
+        );
+    }
+
+    #[test]
+    fn broad_current_claim_hints_accept_event_claims_without_category_overlap() {
+        let hints = evidence_pack_claim_hints(
+            "Give me the biggest world news from this week.",
+            "Russia holds nuclear drills on land, sea and air, joined by its ally Belarus on May 21, 2026. Associated Press updated the report with details from Russia's Defense Ministry.",
+            4,
+        );
+
+        let joined = hints.join(" ").to_ascii_lowercase();
+        assert!(joined.contains("nuclear drills"), "{hints:#?}");
+        assert!(
+            joined.contains("joined by its ally belarus") || joined.contains("associated press"),
+            "{hints:#?}"
+        );
+    }
+
+    #[test]
+    fn anti_bot_page_copy_blocks_candidate_evidence() {
+        let mut candidate = materialized_candidate(
+            "https://www.bloomberg.com/news/articles/2026-05-21/ukraine-starts-major-operation",
+            "Bloomberg - Are you a robot? We've detected unusual activity from your computer network. To continue, please click the box below to let us know you're not a robot.",
+        );
+        candidate.title = "Bloomberg - Are you a robot?".to_string();
+
+        assert!(
+            contains_antibot_marker(&candidate.snippet),
+            "Bloomberg robot-check copy should be classified as anti-bot"
+        );
+        assert!(
+            !candidate_counts_as_query_usable_evidence(
+                "Give me the biggest world news from this week.",
+                &candidate,
+                0.92,
+            ),
+            "anti-bot pages must not count as usable evidence"
+        );
+    }
+
+    #[test]
+    fn evidence_selection_does_not_backfill_non_pack_ready_when_ready_exists() {
+        let ready = materialized_candidate(
+            "https://www.aljazeera.com/news/2026/5/20/multipolar-world-summit",
+            "Politics: Multipolar world summit. Leaders announced bilateral cooperation during Putin's visit to China on May 20, 2026.",
+        );
+        let mut directory = structured_feed_candidate(
+            "https://www.politico.com/news/primary-source",
+            "Updated World News: Top & Breaking World News Today | AP News — https://apnews.com/world-news — Reuters World — https://www.reuters.com/world — headlines, sections, newsletters, photos, videos, and topic pages.",
+        );
+        directory.title = "Primary Source: Latest News, Top Stories & Analysis - POLITICO"
+            .to_string();
+
+        let selected = select_pack_ready_ranked_candidates(
+            "Give me the biggest world news from this week.",
+            vec![(directory, 0.99), (ready.clone(), 0.78)],
+            &[],
+            2,
+            1,
+        );
+
+        assert_eq!(selected.len(), 1, "{selected:#?}");
+        assert_eq!(selected[0].0.locator, ready.locator);
+    }
+
+    #[test]
+    fn weak_required_coverage_keeps_evidence_pack_thin() {
+        let pack = json!([{
+            "title": "Relevant source",
+            "locator": "https://example.org/source",
+            "source_domain": "example.org",
+            "source_kind": "browser_materialized_page",
+            "snippet": "The source says Alpha announced a concrete update this week with enough detail to support a narrow answer.",
+            "claim_hints": ["Alpha announced a concrete update this week with enough detail to support a narrow answer."],
+            "confidence": "usable",
+            "materialization_quality": "full_materialized",
+            "counts_as_usable_evidence": true,
+            "quality_flags": [],
+            "coverage_facets": ["facet_01"]
+        }]);
+        let coverage = json!([{
+            "facet_id": "facet_01",
+            "status": "covered"
+        }, {
+            "facet_id": "facet_02",
+            "status": "weak"
+        }]);
+
+        let quality = evidence_pack_quality_report(&default_policy(), &pack, &coverage);
+        assert_eq!(quality.get("status").and_then(Value::as_str), Some("thin"));
+        assert_eq!(
+            quality.get("weak_facet_count").and_then(Value::as_u64),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn link_directory_shell_rows_do_not_count_as_usable_evidence() {
+        let mut candidate = candidate(
+            "https://theweek.example",
+            "A weekly magazine of news, business, arts and leisure. Recent editions. Evening Review. The Nation — https://www.thenation.example — Latest. Children play on American military helicopter wreckage. A foreign policy headline says this is one assault in a global war. The Guardian — https://www.theguardian.example — France. A politics headline says officials must address reparations.",
+        );
+        candidate.source_kind = "tavily_api_search_result".to_string();
+        candidate.permissions = Some("public_web;structured_feed".to_string());
+
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "give me news from this week",
+            &[],
+            1,
+            &[(candidate, 0.97)],
+            1,
+        );
+        let first = pack.pointer("/0").expect("evidence row");
+        let flags = first
+            .get("quality_flags")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            flags
+                .iter()
+                .any(|flag| flag.as_str() == Some("link_directory_or_aggregator_shell")),
+            "{first:#?}"
+        );
+        assert_eq!(
+            first.get("counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{first:#?}"
+        );
+        assert_eq!(
+            first.get("confidence").and_then(Value::as_str),
+            Some("candidate_only"),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
+    fn materialized_news_index_pages_do_not_count_as_usable_evidence() {
+        let mut candidate = candidate(
+            "https://apnews.example/world-news",
+            "World News: Top & Breaking World News Today. AP News / Menu World SECTIONS Iran war Russia-Ukraine war China Asia Pacific Latin America Europe Africa TOP STORIES Residents burn an Ebola treatment center in Congo as anger grows over the outbreak. The Afternoon Wire Get caught up on what you may have missed throughout the day.",
+        );
+        candidate.source_kind = "web_conduit_fetch_page_enriched".to_string();
+        candidate.permissions = Some("public_web;page_enriched".to_string());
+
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "give me news from this week",
+            &[],
+            1,
+            &[(candidate, 0.97)],
+            1,
+        );
+        let first = pack.pointer("/0").expect("evidence row");
+        assert!(
+            first
+                .get("quality_flags")
+                .and_then(Value::as_array)
+                .map(|flags| flags
+                    .iter()
+                    .any(|flag| flag.as_str() == Some("link_directory_or_aggregator_shell")))
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+        assert_eq!(
+            first.get("counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
+    fn short_multi_story_index_pages_do_not_count_as_usable_evidence() {
+        let mut candidate = candidate(
+            "https://publisher.example/news/world",
+            "World News More World News China Foreign Minister to Chair UN Security Council Meeting in US, Visit Canada Reuters May 22, 2026 The Latest US Sanctions Tanzanian Police Chief Over Human Rights Violations The United States has sanctioned Tanzania's police chief and barred him from entry, citing alleged human rights violations committed by the police force.",
+        );
+        candidate.source_kind = "web_conduit_fetch_page_enriched".to_string();
+        candidate.permissions = Some("public_web;page_enriched".to_string());
+
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "give me news from this week",
+            &[],
+            1,
+            &[(candidate, 0.97)],
+            1,
+        );
+        let first = pack.pointer("/0").expect("evidence row");
+        assert!(
+            first
+                .get("quality_flags")
+                .and_then(Value::as_array)
+                .map(|flags| flags
+                    .iter()
+                    .any(|flag| flag.as_str() == Some("link_directory_or_aggregator_shell")))
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+        assert_eq!(
+            first.get("counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
+    fn broad_current_claim_hints_use_neighboring_date_signal() {
+        let claims = evidence_pack_claim_hints(
+            "Give me the biggest world news from this week.",
+            "Xi and Putin condemn strikes, urge US to end Iran war. The leaders urged ending war in Iran as a matter of utmost urgency. By David Brennan May 20, 2026, 8:51 AM LONDON",
+            2,
+        );
+        assert!(
+            claims
+                .iter()
+                .any(|claim| claim.to_ascii_lowercase().contains("leaders urged")),
+            "{claims:#?}"
+        );
+    }
+
+    #[test]
+    fn broad_current_claim_hints_use_candidate_locator_date_signal() {
+        let mut candidate = candidate(
+            "https://www.cnn.example/2026/05/21/politics/iran-military-rebuild",
+            "Iran rebuilding military industrial base faster than expected, already producing drones, according to US intel. CNN Politics window",
+        );
+        candidate.source_kind = "web_conduit_fetch_page_enriched".to_string();
+        candidate.permissions = Some("public_web;page_enriched".to_string());
+
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "Give me the biggest world news from this week.",
+            &[],
+            1,
+            &[(candidate, 0.97)],
+            1,
+        );
+        let first = pack.pointer("/0").expect("evidence row");
+        assert_eq!(
+            first.get("counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{first:#?}"
+        );
+        assert!(
+            first
+                .get("claim_hints")
+                .and_then(Value::as_array)
+                .map(|claims| !claims.is_empty())
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
+    fn web_summary_does_not_fallback_to_title_when_claim_units_are_absent() {
+        let query = "what are some scientific breakthroughs 2026?";
+        let out = run_query_with_fixture(
+            json!({
+                query: {
+                    "ok": true,
+                    "provider": "google_news_rss",
+                    "results": [{
+                        "title": "7 Space Science And Technology Breakthroughs To Watch For In 2026",
+                        "url": "https://science.example.org/breakthroughs-2026",
+                        "snippet": "7 Space Science And Technology Breakthroughs To Watch For In 2026 Science Example Published: Thu, 01 Jan 2026 08:00:00 GMT"
+                    }],
+                    "status_code": 200
+                }
+            }),
+            query,
+        );
+
+        let summary = out.get("summary").and_then(Value::as_str).unwrap_or("");
+        assert!(
+            summary.contains("no usable findings were extracted"),
+            "{summary}"
+        );
+        assert!(
+            !summary.contains("7 Space Science And Technology Breakthroughs"),
+            "{summary}"
+        );
+        assert_eq!(
+            out.get("evidence_claims")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(0),
+            "{out:#?}"
         );
     }
 
@@ -922,6 +1537,97 @@ mod web_quality_diagnostics_tests {
         assert_eq!(
             claims.pointer("/0/entities/0").and_then(Value::as_str),
             Some("Agent SDK")
+        );
+    }
+
+    #[test]
+    fn claim_hints_reject_url_tails_and_subscription_boilerplate() {
+        let hints = evidence_pack_claim_hints(
+            "institution research funding impact",
+            "MIT President Sally Kornbluth warned that the institution is doing less research and enrolling fewer graduate students as a result of federal actions, reports College and University Breaking News and Press Releases - https://www.example.com/newsroom/industry/college-news - Sign up for a Business Wire account today! Explore ways to use Business Wire features for your next news release.",
+            4,
+        );
+
+        let joined = hints.join(" ").to_ascii_lowercase();
+        assert!(
+            joined.contains("less research") || joined.contains("fewer graduate"),
+            "{hints:#?}"
+        );
+        assert!(!joined.contains("com/newsroom"), "{hints:#?}");
+        assert!(!joined.contains("sign up"), "{hints:#?}");
+        assert!(!joined.contains("business wire features"), "{hints:#?}");
+    }
+
+    #[test]
+    fn claim_hints_decode_html_entities_before_splitting_segments() {
+        let hints = evidence_pack_claim_hints(
+            "latest world news this week",
+            "Trump says he will speak to Taiwan&#x27;s president in break from protocol 18 hours ago Share Save. US President Donald Trump said the call would discuss a possible arms sale.",
+            2,
+        );
+
+        let joined = hints.join(" ");
+        assert!(joined.contains("Taiwan's president"), "{hints:#?}");
+        assert!(!joined.starts_with("s president"), "{hints:#?}");
+    }
+
+    #[test]
+    fn claim_hints_reject_title_bar_source_mashups() {
+        let hints = evidence_pack_claim_hints(
+            "biggest world news this week",
+            "US and Taiwan ‘Multipolar world’: What Xi and Putin announced after Beijing summit | Politics News | Al Jazeera —",
+            2,
+        );
+
+        assert!(hints.is_empty(), "{hints:#?}");
+    }
+
+    #[test]
+    fn current_freshness_accepts_relative_hour_signals() {
+        let candidate = materialized_candidate(
+            "https://www.bbc.com/news/articles/c78qv3w4xzqo",
+            "Trump says he will speak to Taiwan's president in break from protocol 18 hours ago. US President Donald Trump said the call would discuss a possible arms sale.",
+        );
+
+        assert_eq!(
+            evidence_pack_freshness_status("biggest world news this week", &candidate),
+            "current_signal_present"
+        );
+        assert!(
+            !candidate_quality_flags("biggest world news this week", &candidate, 0.7)
+                .iter()
+                .any(|flag| flag == "freshness_unproven")
+        );
+    }
+
+    #[test]
+    fn evidence_claims_reject_url_tails_titles_and_cta_boilerplate() {
+        let pack = json!([{
+            "title": "How Trump's IRS settlement could block tax audits of him, his family and their businesses - BBC News",
+            "locator": "https://www.bbc.com/news/articles/example",
+            "source_domain": "bbc.com",
+            "source_kind": "browser_materialized_page",
+            "snippet": "The US Department of Justice has announced that this week's settlement blocks the IRS from reviewing tax filings connected to Trump and his businesses.",
+            "claim_hints": [
+                "How Trump's IRS settlement could block tax audits of him, his family and their businesses - BBC News",
+                "com/tavily-ai/tavily-agent-wab - This repository provides a simple yet powerful example of building a conversational",
+                "See the latest features and releases",
+                "The US Department of Justice has announced that this week's settlement blocks the IRS from reviewing tax filings connected to Trump and his businesses."
+            ],
+            "confidence": "usable",
+            "materialization_quality": "full_materialized",
+            "counts_as_usable_evidence": true,
+            "quality_flags": [],
+            "coverage_facets": [],
+            "timestamp": "2026-05-20T00:00:00Z"
+        }]);
+
+        let claims = evidence_claims_from_pack(&BatchQueryKeywordPack::default(), &pack, 8);
+        let rows = claims.as_array().expect("claims");
+        assert_eq!(rows.len(), 1, "{claims:#?}");
+        assert_eq!(
+            rows[0].get("claim").and_then(Value::as_str),
+            Some("The US Department of Justice has announced that this week's settlement blocks the IRS from reviewing tax filings connected to Trump and his businesses.")
         );
     }
 
@@ -1045,6 +1751,35 @@ mod web_quality_diagnostics_tests {
         );
         assert_eq!(facets.len(), 1);
         assert_eq!(facets[0].requested_text, "scientific breakthroughs 2026");
+    }
+
+    #[test]
+    fn weak_metadata_facets_do_not_drive_coverage_selection() {
+        let budget = aperture_budget("medium").expect("medium budget");
+        let facets = infer_research_facets(
+            "Give me the biggest world news from this week.",
+            &[
+                "Give me the biggest world news from this week.".to_string(),
+                "world news recent developments".to_string(),
+                "this week source-backed evidence".to_string(),
+            ],
+            &BatchQueryKeywordPack {
+                keywords: vec![
+                    "world news".to_string(),
+                    "this week".to_string(),
+                    "biggest".to_string(),
+                ],
+                facets: vec!["world news".to_string(), "this week".to_string()],
+                metadata_authority: "tool_structured_from_user_query_terms".to_string(),
+                ..BatchQueryKeywordPack::default()
+            },
+            &json!({"batch_query":{"coverage_aware_evidence":{"enabled":true,"max_facets":8}}}),
+            budget,
+        );
+        assert!(
+            facets.is_empty(),
+            "pure breadth/freshness metadata should not force evidence selection: {facets:?}"
+        );
     }
 
     #[test]
@@ -1550,14 +2285,14 @@ mod web_quality_diagnostics_tests {
         ];
         let actionable_ranked = vec![
             (
-                candidate(
+                materialized_candidate(
                     "https://docs.langchain.com/langgraph",
-                    "LangGraph supports durable execution, observability, and human review.",
+                    "LangGraph supports multi-agent workflow coordination with durable execution, observability, and human review.",
                 ),
                 0.91,
             ),
             (
-                candidate(
+                materialized_candidate(
                     "https://docs.crewai.com/overview",
                     "CrewAI offers multi-agent workflow coordination and deployment guides.",
                 ),
@@ -1566,6 +2301,7 @@ mod web_quality_diagnostics_tests {
         ];
         let retained_ranked = actionable_ranked.clone();
         assert!(comparison_partial_preserves_actionable_evidence(
+            "Compare LangGraph and CrewAI for multi-agent workflow coordination",
             &comparison_entities,
             &actionable_ranked,
             &retained_ranked,
@@ -1584,6 +2320,7 @@ mod web_quality_diagnostics_tests {
         )];
         let retained_ranked = actionable_ranked.clone();
         assert!(!comparison_partial_preserves_actionable_evidence(
+            "Compare LangGraph and CrewAI",
             &comparison_entities,
             &actionable_ranked,
             &retained_ranked,

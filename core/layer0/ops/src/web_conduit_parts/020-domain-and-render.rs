@@ -168,6 +168,14 @@ fn web_search_bing_rss_url(query: &str) -> String {
     )
 }
 
+fn web_search_bing_html_url(query: &str, top_k: usize) -> String {
+    format!(
+        "https://www.bing.com/search?q={}&count={}&setlang=en-US",
+        encode_query_component(&clean_text(query, 600)),
+        top_k.clamp(1, 50)
+    )
+}
+
 fn web_search_google_news_rss_url(query: &str) -> String {
     format!(
         "https://news.google.com/rss/search?q={}&hl=en-US&gl=US&ceid=US:en",

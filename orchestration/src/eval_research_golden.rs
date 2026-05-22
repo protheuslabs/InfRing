@@ -6,7 +6,8 @@ use super::eval_research_gate_diagnostics::{
 };
 use super::eval_research_golden_report::{append_failure_events, markdown_report};
 use super::eval_research_golden_scoring::{
-    dimension_average_rows, gate_rate_rows, grade_case, response_diagnostics,
+    citation_artifact_summary, dimension_average_rows, gate_rate_rows, grade_case,
+    response_diagnostics,
 };
 use super::eval_research_golden_utils::*;
 use super::eval_web_retrieval_gate_diagnostics::{
@@ -534,6 +535,14 @@ pub fn run_research_golden(args: &[String]) -> i32 {
                 grade.response_grading_layers,
             );
             object.insert("soft_quality_smoke".to_string(), grade.soft_quality_smoke);
+            object.insert(
+                "answer_unit_evidence_alignment".to_string(),
+                grade.answer_unit_evidence_alignment,
+            );
+            object.insert(
+                "citation_artifacts".to_string(),
+                citation_artifact_summary(&payload),
+            );
         }
         let localization = upstream_failure_localization(&case_row);
         if let Some(object) = case_row.as_object_mut() {
@@ -1423,6 +1432,72 @@ fn measurement_split_report(
         .count() as u64;
     let soft_quality_smoke_flagged_cases =
         total_cases.saturating_sub(soft_quality_smoke_pass_cases);
+    let answer_unit_alignment_evaluated_cases = rows
+        .iter()
+        .filter(|row| bool_at(row, &["answer_unit_evidence_alignment", "evaluated"], false))
+        .count() as u64;
+    let answer_unit_alignment_pass_cases = rows
+        .iter()
+        .filter(|row| bool_at(row, &["answer_unit_evidence_alignment", "pass"], false))
+        .count() as u64;
+    let answer_unit_alignment_evaluated_pass_cases = rows
+        .iter()
+        .filter(|row| {
+            bool_at(row, &["answer_unit_evidence_alignment", "evaluated"], false)
+                && bool_at(row, &["answer_unit_evidence_alignment", "pass"], false)
+        })
+        .count() as u64;
+    let answer_unit_alignment_flagged_cases = rows
+        .iter()
+        .filter(|row| {
+            bool_at(row, &["answer_unit_evidence_alignment", "evaluated"], false)
+                && !bool_at(row, &["answer_unit_evidence_alignment", "pass"], true)
+        })
+        .count() as u64;
+    let answer_unit_alignment_support_rate_average = if answer_unit_alignment_evaluated_cases == 0 {
+        0.0
+    } else {
+        rows.iter()
+            .filter(|row| bool_at(row, &["answer_unit_evidence_alignment", "evaluated"], false))
+            .map(|row| {
+                f64_at(
+                    row,
+                    &["answer_unit_evidence_alignment", "term_support_rate"],
+                    0.0,
+                )
+            })
+            .sum::<f64>()
+            / answer_unit_alignment_evaluated_cases as f64
+    };
+    let mut answer_unit_alignment_blockers = BTreeMap::<String, u64>::new();
+    for row in rows {
+        for blocker in row
+            .pointer("/answer_unit_evidence_alignment/blockers")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            *answer_unit_alignment_blockers
+                .entry(blocker.to_string())
+                .or_insert(0) += 1;
+        }
+    }
+    let top_answer_unit_alignment_blocker = answer_unit_alignment_blockers
+        .iter()
+        .max_by_key(|(_, count)| **count)
+        .map(|(blocker, count)| {
+            json!({
+                "name": blocker,
+                "count": count
+            })
+        })
+        .unwrap_or_else(|| {
+            json!({
+                "name": "none",
+                "count": 0
+            })
+        });
     let mut soft_quality_smoke_blockers = BTreeMap::<String, u64>::new();
     for row in rows {
         for blocker in row
@@ -1529,7 +1604,22 @@ fn measurement_split_report(
             "query_satisfaction_cases": query_satisfaction_cases,
             "query_satisfaction_rate": ratio(query_satisfaction_cases, total_cases),
             "query_satisfaction_average": ratio(query_satisfaction_total, total_cases),
+            "answer_unit_alignment_evaluated_cases": answer_unit_alignment_evaluated_cases,
+            "answer_unit_alignment_flagged_cases": answer_unit_alignment_flagged_cases,
             "note": "measures whether the final answer satisfied the original query and exposed compact citation/source signal; retrieval failures remain counted separately in live_retrieval_health"
+        },
+        "answer_unit_evidence_alignment": {
+            "evaluated_cases": answer_unit_alignment_evaluated_cases,
+            "pass_cases": answer_unit_alignment_pass_cases,
+            "pass_rate": ratio(answer_unit_alignment_pass_cases, total_cases),
+            "evaluated_pass_cases": answer_unit_alignment_evaluated_pass_cases,
+            "evaluated_pass_rate": ratio(answer_unit_alignment_evaluated_pass_cases, answer_unit_alignment_evaluated_cases),
+            "flagged_cases": answer_unit_alignment_flagged_cases,
+            "flagged_rate": ratio(answer_unit_alignment_flagged_cases, total_cases),
+            "average_term_support_rate": answer_unit_alignment_support_rate_average,
+            "top_blocker": top_answer_unit_alignment_blocker,
+            "blocker_counts": answer_unit_alignment_blockers,
+            "note": "Soft generic evidence-alignment lane. It asks whether concrete answer units in the final response can be traced to retrieved evidence/citation artifacts, without assuming any domain or query shape."
         },
         "response_grading_layers": {
             "generic_response_contract_pass_cases": generic_response_contract_pass_cases,
@@ -1704,6 +1794,8 @@ fn upstream_failure_localization(row: &Value) -> Value {
         "",
     );
     let smoke_top_blocker = str_at(row, &["soft_quality_smoke", "top_blocker"], "");
+    let answer_unit_alignment_top_blocker =
+        str_at(row, &["answer_unit_evidence_alignment", "top_blocker"], "");
     let evidence_layer_failed = !bool_at(
         row,
         &[
@@ -1723,86 +1815,107 @@ fn upstream_failure_localization(row: &Value) -> Value {
         true,
     );
     let smoke_failed = !bool_at(row, &["soft_quality_smoke", "pass"], true);
+    let answer_unit_alignment_failed =
+        !bool_at(row, &["answer_unit_evidence_alignment", "pass"], true)
+            && bool_at(row, &["answer_unit_evidence_alignment", "evaluated"], false);
     let authoritative_contract_failures = collect_authoritative_contract_failures(row);
-    let soft_smoke_flags = string_array_at(row, &["soft_quality_smoke", "blockers"]);
+    let mut soft_smoke_flags = string_array_at(row, &["soft_quality_smoke", "blockers"]);
+    soft_smoke_flags.extend(
+        string_array_at(row, &["answer_unit_evidence_alignment", "blockers"])
+            .into_iter()
+            .map(|blocker| format!("answer_unit_evidence_alignment:{blocker}")),
+    );
+    soft_smoke_flags.sort();
+    soft_smoke_flags.dedup();
 
-    let (earliest_failure_layer, earliest_failure_boundary) = if case_pass && !smoke_failed {
-        ("none".to_string(), "none".to_string())
-    } else if transport_failure
-        || !transport_error.is_empty()
-        || response_error == "agent_not_found"
-        || failure_classification == "transport"
-    {
-        let boundary = if !response_error.is_empty() {
-            response_error
-        } else if !transport_error.is_empty() {
-            transport_error
-        } else {
-            "transport_or_agent_lifecycle_failure".to_string()
-        };
-        ("run_stability".to_string(), boundary)
-    } else if workflow_path_failed(row, &first_failed_checkpoint) {
-        let boundary = if !workflow_boundary.is_empty() {
-            workflow_boundary
-        } else if !first_failed_checkpoint.is_empty() {
-            failure_boundary(&first_failed_checkpoint).to_string()
-        } else {
-            "workflow_path_failure".to_string()
-        };
-        ("workflow_path".to_string(), boundary)
-    } else if retrieval_mechanics_failed(row, &web_first_failed_gate, &first_failed_checkpoint) {
-        let boundary = if !web_boundary.is_empty() {
-            web_boundary
-        } else if !web_first_failed_gate.is_empty() {
-            web_failure_boundary(&web_first_failed_gate).to_string()
-        } else if !first_failed_checkpoint.is_empty() {
-            failure_boundary(&first_failed_checkpoint).to_string()
-        } else {
-            "retrieval_mechanics_failure".to_string()
-        };
-        ("retrieval_mechanics".to_string(), boundary)
-    } else if evidence_layer_failed
-        || matches!(
-            first_failed_checkpoint.as_str(),
-            "5e_agent_received_evidence_context"
-        )
-    {
-        let boundary = if !evidence_top_blocker.is_empty() && evidence_top_blocker != "none" {
-            evidence_top_blocker
-        } else if !first_failed_checkpoint.is_empty() {
-            failure_boundary(&first_failed_checkpoint).to_string()
-        } else {
-            "evidence_carrythrough_failure".to_string()
-        };
-        ("evidence_carrythrough".to_string(), boundary)
-    } else if rubric_failed
-        || matches!(
-            first_failed_checkpoint.as_str(),
-            "6a_synthesis_uses_evidence_or_low_evidence_fallback"
-        )
-    {
-        let boundary = if !rubric_top_blocker.is_empty() && rubric_top_blocker != "none" {
-            rubric_top_blocker
-        } else if !first_failed_checkpoint.is_empty() {
-            str_at(
-                row,
-                &["gate_transition_diagnostics", "synthesis_failure_class"],
-                &failure_boundary(&first_failed_checkpoint),
+    let (earliest_failure_layer, earliest_failure_boundary) =
+        if case_pass && !smoke_failed && !answer_unit_alignment_failed {
+            ("none".to_string(), "none".to_string())
+        } else if transport_failure
+            || !transport_error.is_empty()
+            || response_error == "agent_not_found"
+            || failure_classification == "transport"
+        {
+            let boundary = if !response_error.is_empty() {
+                response_error
+            } else if !transport_error.is_empty() {
+                transport_error
+            } else {
+                "transport_or_agent_lifecycle_failure".to_string()
+            };
+            ("run_stability".to_string(), boundary)
+        } else if workflow_path_failed(row, &first_failed_checkpoint) {
+            let boundary = if !workflow_boundary.is_empty() {
+                workflow_boundary
+            } else if !first_failed_checkpoint.is_empty() {
+                failure_boundary(&first_failed_checkpoint).to_string()
+            } else {
+                "workflow_path_failure".to_string()
+            };
+            ("workflow_path".to_string(), boundary)
+        } else if retrieval_mechanics_failed(row, &web_first_failed_gate, &first_failed_checkpoint)
+        {
+            let boundary = if !web_boundary.is_empty() {
+                web_boundary
+            } else if !web_first_failed_gate.is_empty() {
+                web_failure_boundary(&web_first_failed_gate).to_string()
+            } else if !first_failed_checkpoint.is_empty() {
+                failure_boundary(&first_failed_checkpoint).to_string()
+            } else {
+                "retrieval_mechanics_failure".to_string()
+            };
+            ("retrieval_mechanics".to_string(), boundary)
+        } else if evidence_layer_failed
+            || matches!(
+                first_failed_checkpoint.as_str(),
+                "5e_agent_received_evidence_context"
             )
+        {
+            let boundary = if !evidence_top_blocker.is_empty() && evidence_top_blocker != "none" {
+                evidence_top_blocker
+            } else if !first_failed_checkpoint.is_empty() {
+                failure_boundary(&first_failed_checkpoint).to_string()
+            } else {
+                "evidence_carrythrough_failure".to_string()
+            };
+            ("evidence_carrythrough".to_string(), boundary)
+        } else if rubric_failed
+            || matches!(
+                first_failed_checkpoint.as_str(),
+                "6a_synthesis_uses_evidence_or_low_evidence_fallback"
+            )
+        {
+            let boundary = if !rubric_top_blocker.is_empty() && rubric_top_blocker != "none" {
+                rubric_top_blocker
+            } else if !first_failed_checkpoint.is_empty() {
+                str_at(
+                    row,
+                    &["gate_transition_diagnostics", "synthesis_failure_class"],
+                    &failure_boundary(&first_failed_checkpoint),
+                )
+            } else {
+                "synthesis_quality_failure".to_string()
+            };
+            ("synthesis_quality".to_string(), boundary)
+        } else if smoke_failed {
+            let boundary = if !smoke_top_blocker.is_empty() && smoke_top_blocker != "none" {
+                smoke_top_blocker
+            } else {
+                "soft_quality_smoke_flagged".to_string()
+            };
+            ("ux_smoke".to_string(), boundary)
+        } else if answer_unit_alignment_failed {
+            let boundary = if !answer_unit_alignment_top_blocker.is_empty()
+                && answer_unit_alignment_top_blocker != "none"
+            {
+                answer_unit_alignment_top_blocker
+            } else {
+                "answer_unit_evidence_alignment_flagged".to_string()
+            };
+            ("synthesis_quality".to_string(), boundary)
         } else {
-            "synthesis_quality_failure".to_string()
+            ("none".to_string(), "none".to_string())
         };
-        ("synthesis_quality".to_string(), boundary)
-    } else if smoke_failed {
-        let boundary = if !smoke_top_blocker.is_empty() && smoke_top_blocker != "none" {
-            smoke_top_blocker
-        } else {
-            "soft_quality_smoke_flagged".to_string()
-        };
-        ("ux_smoke".to_string(), boundary)
-    } else {
-        ("none".to_string(), "none".to_string())
-    };
 
     json!({
         "schema_version": 1,

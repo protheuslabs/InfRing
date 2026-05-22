@@ -120,6 +120,15 @@ fn workflow_latent_candidate_recovery_needed(
         "/diagnostic_markers/final_response_verifier/missing_evidence_claim_phrases",
         &combined,
     );
+    let outside_evidence_used_for_decision = workflow_recovery_contract_marker(
+        response_workflow,
+        "/diagnostic_markers/final_response_verifier/outside_evidence_source_boundary_phrases",
+        &combined,
+    ) && workflow_recovery_contract_marker(
+        response_workflow,
+        "/diagnostic_markers/final_response_verifier/bounded_answer_signals",
+        &combined,
+    ) && !workflow_response_refuses_unsupported_recommendation(&combined);
     let requests_more_tooling = workflow_recovery_contract_marker(
         response_workflow,
         "/diagnostic_markers/deferred_tool_request_phrases",
@@ -130,7 +139,26 @@ fn workflow_latent_candidate_recovery_needed(
         &combined,
     );
     let private_gate_diagnostic = workflow_private_gate_recovery_signal(response_workflow);
-    claims_missing_tool_backed_evidence || requests_more_tooling || private_gate_diagnostic
+    claims_missing_tool_backed_evidence
+        || outside_evidence_used_for_decision
+        || requests_more_tooling
+        || private_gate_diagnostic
+}
+
+fn workflow_response_refuses_unsupported_recommendation(normalized: &str) -> bool {
+    [
+        "not enough to recommend",
+        "cannot recommend",
+        "can't recommend",
+        "no source backed basis to choose",
+        "no source-backed basis to choose",
+        "no source backed basis to recommend",
+        "no source-backed basis to recommend",
+        "do not use this as a recommendation",
+        "should not be used as a recommendation",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(*needle))
 }
 
 fn workflow_terminal_invariant_promotes_required_latent_candidates(

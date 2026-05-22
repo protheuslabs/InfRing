@@ -6,12 +6,14 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::UNIX_EPOCH;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveLevel10SeedBatchReport {
     pub harness_kind: String,
     pub ok: bool,
     pub batch_root: String,
+    pub seed_started_at_unix_ms: Option<u128>,
     pub attempt_count: usize,
     pub jobs: Vec<LiveLevel10Job>,
     pub failures: Vec<String>,
@@ -44,6 +46,7 @@ pub struct LiveLevel10JudgeReport {
     pub attempt_count: usize,
     pub pass_count: usize,
     pub fail_count: usize,
+    pub timing: LiveLevel10TimingSummary,
     pub attempts: Vec<LiveLevel10AttemptJudge>,
     pub failures: Vec<String>,
 }
@@ -52,8 +55,27 @@ pub struct LiveLevel10JudgeReport {
 pub struct LiveLevel10AttemptJudge {
     pub attempt_id: String,
     pub ok: bool,
+    pub timing: LiveLevel10AttemptTiming,
     pub checks: Vec<LiveLevel10Check>,
     pub failures: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LiveLevel10TimingSummary {
+    pub batch_started_at_unix_ms: Option<u128>,
+    pub judged_at_unix_ms: u128,
+    pub batch_elapsed_ms: Option<u128>,
+    pub first_attempt_completed_at_unix_ms: Option<u128>,
+    pub last_attempt_completed_at_unix_ms: Option<u128>,
+    pub completion_span_ms: Option<u128>,
+    pub average_attempt_elapsed_ms: Option<u128>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LiveLevel10AttemptTiming {
+    pub first_receipt_unix_ms: Option<u128>,
+    pub completed_at_unix_ms: Option<u128>,
+    pub elapsed_ms_since_batch_start: Option<u128>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -110,10 +132,11 @@ fn spec_for_package(package: &str) -> Option<&'static DomainSpec> {
 
 pub fn seed_live_level10_batch(attempt_count: usize) -> LiveLevel10SeedBatchReport {
     let count = attempt_count.max(1);
+    let seed_started_at_unix_ms = millis_now();
     let batch_root = std::env::temp_dir().join(format!(
         "coding-memory-live-level10-batch-{}-{}",
         std::process::id(),
-        millis_now()
+        seed_started_at_unix_ms
     ));
     let prompts_root = batch_root.join("prompts");
     let mut jobs = Vec::new();
@@ -135,6 +158,7 @@ pub fn seed_live_level10_batch(attempt_count: usize) -> LiveLevel10SeedBatchRepo
         harness_kind: "coding_memory_live_level10_seed_v1".to_string(),
         ok: failures.is_empty() && jobs.len() == count,
         batch_root: batch_root.display().to_string(),
+        seed_started_at_unix_ms: Some(seed_started_at_unix_ms),
         attempt_count: jobs.len(),
         jobs,
         failures,
@@ -153,6 +177,10 @@ pub fn judge_live_level10_batch(batch_root: &Path) -> LiveLevel10JudgeReport {
     let seed_report = fs::read_to_string(&jobs_path)
         .ok()
         .and_then(|raw| serde_json::from_str::<LiveLevel10SeedBatchReport>(&raw).ok());
+    let batch_started_at_unix_ms = seed_report
+        .as_ref()
+        .and_then(|report| report.seed_started_at_unix_ms)
+        .or_else(|| file_modified_unix_ms(&jobs_path));
     let jobs = match seed_report {
         Some(report) => report.jobs,
         None => {
@@ -161,7 +189,10 @@ pub fn judge_live_level10_batch(batch_root: &Path) -> LiveLevel10JudgeReport {
         }
     };
 
-    let attempts = jobs.iter().map(judge_live_attempt).collect::<Vec<_>>();
+    let attempts = jobs
+        .iter()
+        .map(|job| judge_live_attempt(job, batch_started_at_unix_ms))
+        .collect::<Vec<_>>();
     for attempt in &attempts {
         if !attempt.ok {
             failures.extend(
@@ -174,6 +205,8 @@ pub fn judge_live_level10_batch(batch_root: &Path) -> LiveLevel10JudgeReport {
     }
     let pass_count = attempts.iter().filter(|attempt| attempt.ok).count();
     let fail_count = attempts.len().saturating_sub(pass_count);
+    let judged_at_unix_ms = millis_now();
+    let timing = summarize_level10_timing(batch_started_at_unix_ms, judged_at_unix_ms, &attempts);
     LiveLevel10JudgeReport {
         harness_kind: "coding_memory_live_level10_judge_v1",
         ok: failures.is_empty() && !attempts.is_empty(),
@@ -181,6 +214,7 @@ pub fn judge_live_level10_batch(batch_root: &Path) -> LiveLevel10JudgeReport {
         attempt_count: attempts.len(),
         pass_count,
         fail_count,
+        timing,
         attempts,
         failures,
     }
@@ -207,7 +241,10 @@ fn seed_live_attempt(
 
     let validation = run_python_validation(&project_root);
     if !validation.ok {
-        return Err(format!("{attempt_id}:seed_validation_failed:{}", validation.detail));
+        return Err(format!(
+            "{attempt_id}:seed_validation_failed:{}",
+            validation.detail
+        ));
     }
 
     let architecture_text = read_to_string(&project_root.join("ARCHITECTURE.md"));
@@ -335,7 +372,10 @@ fn seed_python_project(spec: &DomainSpec, root: &Path) -> Result<(), String> {
     )?;
     write_file(
         &root.join(format!("src/{}/__init__.py", spec.package)),
-        &format!("\"\"\"{} live Level 10 probe package.\"\"\"\n", spec.architecture_name),
+        &format!(
+            "\"\"\"{} live Level 10 probe package.\"\"\"\n",
+            spec.architecture_name
+        ),
     )?;
     write_file(
         &root.join(format!("src/{}/models.py", spec.package)),
@@ -656,7 +696,10 @@ fn worker_prompt(job: &LiveLevel10Job) -> String {
     )
 }
 
-fn judge_live_attempt(job: &LiveLevel10Job) -> LiveLevel10AttemptJudge {
+fn judge_live_attempt(
+    job: &LiveLevel10Job,
+    batch_started_at_unix_ms: Option<u128>,
+) -> LiveLevel10AttemptJudge {
     let mut checks = Vec::new();
     let mut failures = Vec::new();
     let project_root = PathBuf::from(&job.project_root);
@@ -664,6 +707,14 @@ fn judge_live_attempt(job: &LiveLevel10Job) -> LiveLevel10AttemptJudge {
     let roadmap_path = receipts_root.join("project_operator_roadmap.json");
     let checkpoint4_path = receipts_root.join("checkpoint_004_handoff.json");
     let checkpoint5_path = receipts_root.join("checkpoint_005_handoff.json");
+    let timing = attempt_timing(
+        &[
+            roadmap_path.as_path(),
+            checkpoint4_path.as_path(),
+            checkpoint5_path.as_path(),
+        ],
+        batch_started_at_unix_ms,
+    );
 
     let validation = run_python_validation(&project_root);
     push_check(
@@ -825,6 +876,7 @@ fn judge_live_attempt(job: &LiveLevel10Job) -> LiveLevel10AttemptJudge {
     LiveLevel10AttemptJudge {
         attempt_id: job.attempt_id.clone(),
         ok: failures.is_empty(),
+        timing,
         checks,
         failures,
     }
@@ -869,7 +921,10 @@ fn judge_checkpoint_receipt(
             failures,
             "checkpoint_receipt_declares_multi_file_change",
             changed_file_count >= 3,
-            format!("{} changed_file_count={changed_file_count}", receipt_path.display()),
+            format!(
+                "{} changed_file_count={changed_file_count}",
+                receipt_path.display()
+            ),
         );
         for field in [
             "validation_summary",
@@ -966,13 +1021,16 @@ fn run_level10_cli_semantic_probe(project_root: &Path, package: &str) -> Command
     let restored_attempt_store = probe_root.join("restored_attempts.jsonl");
     let restored_workbench_store = probe_root.join("restored_workbench.jsonl");
 
-    let route = run_cli(project_root, package, &["route", "evt-judge", spec.primary_kind]);
+    let route = run_cli(
+        project_root,
+        package,
+        &["route", "evt-judge", spec.primary_kind],
+    );
     if !route.ok || route.stdout.trim() != spec.primary_destination {
         let route_stdout = route.stdout.trim().to_string();
         return route.fail_with(format!(
             "route_expected={};stdout={}",
-            spec.primary_destination,
-            route_stdout
+            spec.primary_destination, route_stdout
         ));
     }
 
@@ -1034,7 +1092,10 @@ fn run_level10_cli_semantic_probe(project_root: &Path, package: &str) -> Command
         ],
     );
     if !migration.ok || !quarantine_path.exists() {
-        return migration.fail_with(format!("migration_or_quarantine_failed:{}", quarantine_path.display()));
+        return migration.fail_with(format!(
+            "migration_or_quarantine_failed:{}",
+            quarantine_path.display()
+        ));
     }
 
     let open = run_cli(
@@ -1120,7 +1181,10 @@ fn run_level10_cli_semantic_probe(project_root: &Path, package: &str) -> Command
         ],
     );
     if !export.ok || !snapshot_path.exists() {
-        return export.fail_with(format!("snapshot-export_failed:{}", snapshot_path.display()));
+        return export.fail_with(format!(
+            "snapshot-export_failed:{}",
+            snapshot_path.display()
+        ));
     }
 
     let import = run_cli(
@@ -1220,7 +1284,10 @@ fn parse_json(raw: &str) -> Option<Value> {
 }
 
 fn json_contains_text(value: &Value, needle: &str) -> bool {
-    value.to_string().to_lowercase().contains(&needle.to_lowercase())
+    value
+        .to_string()
+        .to_lowercase()
+        .contains(&needle.to_lowercase())
 }
 
 fn json_u64_field(value: &Value, field: &str) -> u64 {
@@ -1228,7 +1295,10 @@ fn json_u64_field(value: &Value, field: &str) -> u64 {
 }
 
 fn json_bool_field(value: &Value, field: &str) -> bool {
-    value.get(field).and_then(Value::as_bool).unwrap_or_default()
+    value
+        .get(field)
+        .and_then(Value::as_bool)
+        .unwrap_or_default()
 }
 
 fn json_array_len(value: &Value, field: &str) -> usize {
@@ -1272,6 +1342,67 @@ fn slo_report_has_escalation_signal(value: &Value) -> bool {
         || json_u64_field(value, "retryable_failure_count") > 0
         || nested_u64_field(value, "metrics", "retryable_failures") > 0
         || nested_u64_field(value, "observed", "retryable_failures") > 0
+}
+
+fn summarize_level10_timing(
+    batch_started_at_unix_ms: Option<u128>,
+    judged_at_unix_ms: u128,
+    attempts: &[LiveLevel10AttemptJudge],
+) -> LiveLevel10TimingSummary {
+    let completed = attempts
+        .iter()
+        .filter_map(|attempt| attempt.timing.completed_at_unix_ms)
+        .collect::<Vec<_>>();
+    let first_attempt_completed_at_unix_ms = completed.iter().copied().min();
+    let last_attempt_completed_at_unix_ms = completed.iter().copied().max();
+    let elapsed = attempts
+        .iter()
+        .filter_map(|attempt| attempt.timing.elapsed_ms_since_batch_start)
+        .collect::<Vec<_>>();
+    let average_attempt_elapsed_ms = if elapsed.is_empty() {
+        None
+    } else {
+        Some(elapsed.iter().sum::<u128>() / elapsed.len() as u128)
+    };
+    LiveLevel10TimingSummary {
+        batch_started_at_unix_ms,
+        judged_at_unix_ms,
+        batch_elapsed_ms: batch_started_at_unix_ms
+            .and_then(|started| judged_at_unix_ms.checked_sub(started)),
+        first_attempt_completed_at_unix_ms,
+        last_attempt_completed_at_unix_ms,
+        completion_span_ms: first_attempt_completed_at_unix_ms.and_then(|first| {
+            last_attempt_completed_at_unix_ms.and_then(|last| last.checked_sub(first))
+        }),
+        average_attempt_elapsed_ms,
+    }
+}
+
+fn attempt_timing(
+    receipt_paths: &[&Path],
+    batch_started_at_unix_ms: Option<u128>,
+) -> LiveLevel10AttemptTiming {
+    let receipt_times = receipt_paths
+        .iter()
+        .filter_map(|path| file_modified_unix_ms(path))
+        .collect::<Vec<_>>();
+    let first_receipt_unix_ms = receipt_times.iter().copied().min();
+    let completed_at_unix_ms = receipt_times.iter().copied().max();
+    LiveLevel10AttemptTiming {
+        first_receipt_unix_ms,
+        completed_at_unix_ms,
+        elapsed_ms_since_batch_start: batch_started_at_unix_ms.and_then(|started| {
+            completed_at_unix_ms.and_then(|completed| completed.checked_sub(started))
+        }),
+    }
+}
+
+fn file_modified_unix_ms(path: &Path) -> Option<u128> {
+    fs::metadata(path)
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis())
 }
 
 fn read_json_file(path: &Path) -> Option<Value> {

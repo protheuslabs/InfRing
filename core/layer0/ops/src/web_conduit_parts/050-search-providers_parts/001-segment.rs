@@ -28,7 +28,7 @@ fn api_search_structured_provider(
         WebProviderFamily::Search,
         |key| std::env::var(key).ok(),
     );
-    let Some(api_key) = resolve_search_provider_credential(&policy, &provider) else {
+    let Some(api_key) = resolve_search_provider_credential(root, &policy, &provider) else {
         return json!({
             "ok": false,
             "error": format!("{provider}_api_key_missing"),
@@ -297,7 +297,7 @@ fn api_search_serper(
         WebProviderFamily::Search,
         |key| std::env::var(key).ok(),
     );
-    let Some(api_key) = resolve_search_provider_credential(&policy, "serperdev") else {
+    let Some(api_key) = resolve_search_provider_credential(root, &policy, "serperdev") else {
         return json!({
             "ok": false,
             "error": "serper_api_key_missing",

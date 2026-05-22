@@ -96,13 +96,52 @@ pub(super) fn synthesis_uses_evidence_or_low_evidence_fallback(
             && !response_requests_more_scope_without_substance(&normalized);
     }
     if evidence_extracted || packaged_tool_result {
-        return response_has_source_signal(&normalized)
-            && response_has_research_shape(&normalized)
+        let bounded_partial_shortform = payload_evidence_outcome_posture(payload).as_deref()
+            == Some("bounded_partial_answer")
+            && response_has_low_evidence_signal(&normalized)
+            && response_has_bounded_partial_shortform(&normalized);
+        return (response_has_source_signal(&normalized)
+            || payload_has_final_citation_signal(payload))
+            && (response_has_research_shape(&normalized) || bounded_partial_shortform)
             && !response_overleads_with_tool_status(&normalized)
             && !response_uses_internal_runtime_context_as_evidence(&normalized)
             && !response_requests_more_scope_without_substance(&normalized);
     }
     false
+}
+
+fn payload_evidence_outcome_posture(payload: &Value) -> Option<String> {
+    payload
+        .pointer("/response_workflow/final_llm_response/evidence_outcome_posture")
+        .or_else(|| {
+            payload.pointer("/response_finalization/final_llm_response/evidence_outcome_posture")
+        })
+        .and_then(Value::as_str)
+        .map(|raw| clean_text(raw, 120))
+        .filter(|raw| !raw.is_empty())
+}
+
+fn payload_has_final_citation_signal(payload: &Value) -> bool {
+    [
+        "/citations",
+        "/source_refs",
+        "/response_workflow/citations",
+        "/response_workflow/source_refs",
+        "/response_workflow/final_llm_response/citations",
+        "/response_workflow/final_llm_response/source_refs",
+        "/response_finalization/citations",
+        "/response_finalization/source_refs",
+        "/response_finalization/tool_completion/citations",
+        "/response_finalization/tool_completion/source_refs",
+    ]
+    .iter()
+    .any(|pointer| {
+        payload
+            .pointer(pointer)
+            .and_then(Value::as_array)
+            .map(|rows| rows.iter().any(value_has_content))
+            .unwrap_or(false)
+    })
 }
 
 pub(super) fn raw_provider_result_paths(payload: &Value) -> Vec<String> {
@@ -158,8 +197,12 @@ pub(super) fn evidence_paths(payload: &Value) -> Vec<String> {
         "response_finalization.evidence",
         "response_finalization.evidence_bundle",
         "response_finalization.evidence_refs",
+        "response_finalization.citations",
+        "response_finalization.source_refs",
         "response_finalization.tool_completion.evidence_refs",
         "response_finalization.tool_completion.findings",
+        "response_finalization.tool_completion.citations",
+        "response_finalization.tool_completion.source_refs",
     ]
     .iter()
     .filter_map(|path| {
@@ -283,6 +326,9 @@ fn tool_result_low_signal(payload: &Value) -> bool {
     if !has_tool_execution(payload) {
         return false;
     }
+    if tool_result_has_usable_quality(payload) {
+        return false;
+    }
     let finalization =
         normalize_for_compare(&response_finalization_outcome(payload).unwrap_or_default());
     if finalization.contains("low_signal")
@@ -315,6 +361,33 @@ fn tool_result_low_signal(payload: &Value) -> bool {
         .and_then(Value::as_array)
         .map(|rows| rows.iter().all(tool_row_is_low_signal))
         .unwrap_or(false)
+}
+
+fn tool_result_has_usable_quality(payload: &Value) -> bool {
+    tool_rows(payload)
+        .iter()
+        .any(|row| tool_row_has_usable_quality(row))
+}
+
+fn tool_row_has_usable_quality(row: &Value) -> bool {
+    row.get("tool_result_quality")
+        .map(tool_quality_value_is_usable)
+        .unwrap_or(false)
+}
+
+fn tool_quality_value_is_usable(quality: &Value) -> bool {
+    let status = normalize_for_compare(&str_at(quality, &["status"], ""));
+    if status == "usable" || bool_at(quality, &["usable_evidence"], false) {
+        return true;
+    }
+    let evidence_count = u64_at(quality, &["evidence_count"], 0);
+    let materialized_count = u64_at(
+        quality,
+        &["materialized_candidate_count"],
+        u64_at(quality, &["content_rich_candidate_count"], 0),
+    );
+    let claim_hint_count = u64_at(quality, &["claim_hint_count"], 0);
+    evidence_count > 0 && materialized_count > 0 && claim_hint_count > 0
 }
 
 fn tool_row_is_low_signal(row: &Value) -> bool {
@@ -516,6 +589,24 @@ fn response_has_research_shape(normalized: &str) -> bool {
             "security",
             "evaluate",
             "avoid",
+        ]
+        .iter()
+        .any(|needle| normalized.contains(*needle))
+}
+
+fn response_has_bounded_partial_shortform(normalized: &str) -> bool {
+    normalized.split_whitespace().count() >= 30
+        && [
+            "practical answer",
+            "partial conclusion",
+            "coverage gap",
+            "coverage gaps",
+            "supports only",
+            "does not support",
+            "evaluation plan",
+            "next best search query",
+            "next best query",
+            "next useful action",
         ]
         .iter()
         .any(|needle| normalized.contains(*needle))
@@ -783,4 +874,68 @@ fn response_finalization_outcome(payload: &Value) -> Option<String> {
         .pointer("/response_finalization/outcome")
         .and_then(Value::as_str)
         .map(|raw| clean_text(raw, 600))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn synthesis_gate_accepts_final_package_citations_as_source_signal() {
+        let payload = json!({
+            "response": "For a small team building RAG, I recommend LlamaIndex with Postgres and pgvector as the default. The tradeoff is that this keeps ingestion and retrieval focused while avoiding early managed-vector lock-in. LangChain is better when broad integration is more important than a narrow retrieval stack, while a managed vector database is a later scaling choice.",
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "result": "RAG stack findings",
+                "evidence_refs": [{
+                    "title": "LlamaIndex docs",
+                    "locator": "https://docs.llamaindex.ai/",
+                    "snippet": "LlamaIndex retrieval workflow notes."
+                }]
+            }],
+            "response_finalization": {
+                "citations": [{
+                    "citation_id": "source_1",
+                    "title": "LlamaIndex docs",
+                    "locator": "https://docs.llamaindex.ai/"
+                }]
+            }
+        });
+        assert!(synthesis_uses_evidence_or_low_evidence_fallback(
+            &json!({}),
+            &payload,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn synthesis_gate_accepts_bounded_partial_shortform_with_evidence_posture() {
+        let payload = json!({
+            "response": "The practical answer is that the current evidence supports only a partial conclusion. Here's what I found: coverage gaps still matter for LangGraph, CrewAI, AutoGen, and LlamaIndex, so the safest next step is a practical evaluation plan rather than a firm benchmark ranking.",
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "result": "Web benchmark synthesis",
+                "evidence_refs": [{
+                    "title": "Benchmark roundup",
+                    "locator": "https://example.com/benchmarks",
+                    "snippet": "Coverage is partial and methodology varies across frameworks."
+                }]
+            }],
+            "response_workflow": {
+                "final_llm_response": {
+                    "evidence_outcome_posture": "bounded_partial_answer"
+                }
+            }
+        });
+        assert!(synthesis_uses_evidence_or_low_evidence_fallback(
+            &json!({}),
+            &payload,
+            true,
+            true
+        ));
+    }
 }

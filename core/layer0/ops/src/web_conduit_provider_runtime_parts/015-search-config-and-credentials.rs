@@ -223,6 +223,54 @@ fn search_provider_config_section<'a>(policy: &'a Value, provider: &str) -> Opti
     policy.pointer(&format!("/web_conduit/search_provider_config/{provider}"))
 }
 
+fn normalize_secret_ref(raw: &str, provider: &str) -> String {
+    let cleaned = clean_text(raw, 240);
+    if cleaned.is_empty() {
+        return String::new();
+    }
+    if let Some(rest) = cleaned.strip_prefix("secret://web/search/") {
+        let parts = rest
+            .split('/')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        if let Some(provider_part) = parts.first() {
+            return format!("web_search_{}_api_key", provider_part.replace('-', "_"));
+        }
+    }
+    if let Some(rest) = cleaned.strip_prefix("secret://") {
+        return rest
+            .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("_");
+    }
+    if cleaned == "default" {
+        return format!("web_search_{provider}_api_key");
+    }
+    cleaned
+}
+
+fn configured_secret_id(policy: &Value, provider: &str) -> Option<String> {
+    let section = search_provider_config_section(policy, provider)?;
+    for key in ["secret_id", "secret_ref", "api_key_secret_ref"] {
+        let raw = section.get(key).and_then(Value::as_str).unwrap_or_default();
+        let normalized = normalize_secret_ref(raw, provider);
+        if !normalized.is_empty() {
+            return Some(normalized);
+        }
+    }
+    None
+}
+
+fn provider_has_configured_secret_ref(
+    policy: &Value,
+    provider: &str,
+    family: WebProviderFamily,
+) -> bool {
+    family == WebProviderFamily::Search && configured_secret_id(policy, provider).is_some()
+}
+
 pub(crate) fn resolve_provider_credential_source_with_env<F>(
     policy: &Value,
     provider: &str,
@@ -238,6 +286,9 @@ where
     }
     if family == WebProviderFamily::Search {
         if let Some(section) = search_provider_config_section(policy, provider) {
+            if configured_secret_id(policy, provider).is_some() {
+                return "policy_secret_ref".to_string();
+            }
             if let Some(api_key) = section.get("api_key").and_then(Value::as_str) {
                 if !clean_text(api_key, 600).is_empty() {
                     return "policy_inline".to_string();
@@ -268,8 +319,25 @@ where
     }
 }
 
-pub(crate) fn resolve_search_provider_credential(policy: &Value, provider: &str) -> Option<String> {
+pub(crate) fn resolve_search_provider_credential(
+    root: &Path,
+    policy: &Value,
+    provider: &str,
+) -> Option<String> {
     if let Some(section) = search_provider_config_section(policy, provider) {
+        if let Some(secret_id) = configured_secret_id(policy, provider) {
+            let resolved = crate::secret_broker_kernel::resolve_secret_value_for_runtime(
+                root,
+                &secret_id,
+                "web_conduit_search_provider",
+            );
+            if resolved.get("ok").and_then(Value::as_bool) == Some(true) {
+                let value = clean_text(resolved.get("value").and_then(Value::as_str).unwrap_or(""), 600);
+                if !value.is_empty() {
+                    return Some(value);
+                }
+            }
+        }
         if let Some(api_key) = section.get("api_key").and_then(Value::as_str) {
             let cleaned = clean_text(api_key, 600);
             if !cleaned.is_empty() {
@@ -339,6 +407,49 @@ mod openclaw_search_helper_tests {
         assert_eq!(
             out.get("unsupported_filter").and_then(Value::as_str),
             Some("country")
+        );
+    }
+
+    #[test]
+    fn search_provider_secret_ref_resolves_via_encrypted_secret_broker_file() {
+        let root = tempfile::tempdir().expect("tempdir");
+        std::env::set_var("SECRET_BROKER_KEY", "web-provider-secret-ref-test-key");
+        let payload = json!({
+            "secret_id": "web_search_tavily_api_key",
+            "value": "tvly-secret-ref-test",
+            "rotated_at": "2026-05-20T00:00:00Z",
+            "with_audit": false
+        });
+        let exit = crate::secret_broker_kernel::run(
+            root.path(),
+            &[
+                "put-secret".to_string(),
+                format!("--payload={}", payload),
+            ],
+        );
+        assert_eq!(exit, 0);
+        let policy = json!({
+            "web_conduit": {
+                "search_provider_config": {
+                    "tavily": {
+                        "secret_id": "web_search_tavily_api_key",
+                        "api_key_env": "TAVILY_API_KEY"
+                    }
+                }
+            }
+        });
+        assert_eq!(
+            resolve_provider_credential_source_with_env(
+                &policy,
+                "tavily",
+                WebProviderFamily::Search,
+                |_key| None
+            ),
+            "policy_secret_ref"
+        );
+        assert_eq!(
+            resolve_search_provider_credential(root.path(), &policy, "tavily").as_deref(),
+            Some("tvly-secret-ref-test")
         );
     }
 }

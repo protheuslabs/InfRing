@@ -177,32 +177,117 @@ fn non_search_engine_links(payload: &Value, max_links: usize) -> Vec<String> {
     }
     let mut out = Vec::<String>::new();
     let mut seen = HashSet::<String>::new();
-    for row in payload
-        .get("links")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-    {
-        let link = canonical_search_result_locator(row.as_str().unwrap_or(""), &[]);
+    let mut push_link = |raw: &str, out: &mut Vec<String>, seen: &mut HashSet<String>| {
+        let link = canonical_search_result_locator(raw, &[]);
         let Some(link) = normalize_document_candidate_link(&link) else {
-            continue;
+            return;
         };
         if link.is_empty() || !seen.insert(link.to_ascii_lowercase()) {
-            continue;
+            return;
         }
         let domain = extract_domains_from_text(&link, 1)
             .into_iter()
             .next()
             .unwrap_or_default();
         if domain.is_empty() || is_search_engine_domain(&domain) {
-            continue;
+            return;
         }
         out.push(link);
+    };
+    for row in payload
+        .get("links")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        push_link(row.as_str().unwrap_or(""), &mut out, &mut seen);
         if out.len() >= max_links.max(1) {
             break;
         }
     }
+    if out.len() < max_links.max(1) {
+        let origin = payload_base_origin(payload);
+        for link in payload_text_links(payload, max_links.saturating_mul(4).max(max_links), origin.as_deref()) {
+            push_link(&link, &mut out, &mut seen);
+            if out.len() >= max_links.max(1) {
+                break;
+            }
+        }
+    }
     out
+}
+
+fn payload_base_origin(payload: &Value) -> Option<String> {
+    let requested_url = payload
+        .get("requested_url")
+        .or_else(|| payload.pointer("/receipt/requested_url"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let (scheme, host, _, _) = parse_page_extraction_http_url(requested_url)?;
+    Some(format!("{scheme}://{host}"))
+}
+
+fn payload_text_links(payload: &Value, max_links: usize, origin: Option<&str>) -> Vec<String> {
+    if max_links == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::<String>::new();
+    let mut seen = HashSet::<String>::new();
+    let text = clean_text(
+        &[
+            payload.get("summary").and_then(Value::as_str).unwrap_or(""),
+            payload.get("content").and_then(Value::as_str).unwrap_or(""),
+            payload.get("markdown").and_then(Value::as_str).unwrap_or(""),
+            payload.get("text").and_then(Value::as_str).unwrap_or(""),
+        ]
+        .join(" "),
+        8_000,
+    );
+    for link in http_links_from_text(&text)
+        .into_iter()
+        .chain(relative_links_from_text(&text, origin).into_iter())
+    {
+        if seen.insert(link.to_ascii_lowercase()) {
+            out.push(link);
+            if out.len() >= max_links.max(1) {
+                break;
+            }
+        }
+    }
+    out
+}
+
+fn http_links_from_text(text: &str) -> Vec<String> {
+    static URL_RE: OnceLock<Regex> = OnceLock::new();
+    let re = URL_RE.get_or_init(|| Regex::new(r#"https?://[^\s<>\)\]\}"']+"#).expect("url"));
+    re.find_iter(text)
+        .map(|matched| {
+            matched
+                .as_str()
+                .trim_matches(|ch: char| matches!(ch, ',' | '.' | ';' | ':' | ')' | ']' | '}'))
+                .to_string()
+        })
+        .collect()
+}
+
+fn relative_links_from_text(text: &str, origin: Option<&str>) -> Vec<String> {
+    let Some(origin) = origin else {
+        return Vec::new();
+    };
+    text.split_whitespace()
+        .filter_map(|token| {
+            let trimmed = token.trim_matches(|ch: char| {
+                matches!(ch, '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\'' | ',' | '.' | ';' | ':')
+            });
+            if !trimmed.starts_with('/') || trimmed.starts_with("//") || trimmed.len() < 6 {
+                return None;
+            }
+            if !page_extraction_link_has_article_like_path(&format!("{origin}{trimmed}")) {
+                return None;
+            }
+            Some(format!("{origin}{trimmed}"))
+        })
+        .collect()
 }
 
 fn normalize_document_candidate_link(link: &str) -> Option<String> {

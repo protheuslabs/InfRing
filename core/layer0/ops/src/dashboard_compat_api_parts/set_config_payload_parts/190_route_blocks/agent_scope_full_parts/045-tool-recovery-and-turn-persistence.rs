@@ -662,6 +662,45 @@ fn compact_tool_evidence_item(source: &str, row: &Value) -> Value {
     })
 }
 
+fn tool_evidence_row_counts_as_synthesis_evidence(row: &Value) -> bool {
+    if row
+        .get("counts_as_usable_evidence")
+        .and_then(Value::as_bool)
+        == Some(false)
+    {
+        return false;
+    }
+    let confidence = clean_text(
+        row.get("confidence").and_then(Value::as_str).unwrap_or(""),
+        80,
+    )
+    .to_ascii_lowercase();
+    if matches!(confidence.as_str(), "candidate_only" | "low_confidence_raw" | "rejected") {
+        return false;
+    }
+    let flags = compact_string_array(row.get("quality_flags").or_else(|| row.get("flags")), 12, 80);
+    if flags
+        .as_array()
+        .map(|rows| {
+            rows.iter().filter_map(Value::as_str).any(|flag| {
+                matches!(
+                    flag,
+                    "junk_marker"
+                        | "style_or_script_dump"
+                        | "social_video_shell"
+                        | "weak_query_overlap_only"
+                        | "low_confidence_raw"
+                        | "low_score"
+                )
+            })
+        })
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    true
+}
+
 fn compact_string_array(value: Option<&Value>, limit: usize, item_len: usize) -> Value {
     value
         .and_then(Value::as_array)
@@ -720,12 +759,18 @@ fn synthesis_evidence_pack_for_tools(response_tools: &[Value], limit: usize) -> 
     let mut items = Vec::<Value>::new();
     for tool in response_tools {
         for row in tool_hidden_array(tool, "evidence_pack") {
+            if !tool_evidence_row_counts_as_synthesis_evidence(&row) {
+                continue;
+            }
             if items.len() >= limit {
                 return Value::Array(items);
             }
             items.push(compact_tool_evidence_item("evidence_pack", &row));
         }
         for row in tool_hidden_array(tool, "evidence_pack_candidates") {
+            if !tool_evidence_row_counts_as_synthesis_evidence(&row) {
+                continue;
+            }
             if items.len() >= limit {
                 return Value::Array(items);
             }
@@ -736,12 +781,6 @@ fn synthesis_evidence_pack_for_tools(response_tools: &[Value], limit: usize) -> 
                 return Value::Array(items);
             }
             items.push(compact_tool_evidence_item("evidence_ref", &row));
-        }
-        for row in tool_hidden_array(tool, "provider_results") {
-            if items.len() >= limit {
-                return Value::Array(items);
-            }
-            items.push(compact_tool_evidence_item("provider_result", &row));
         }
     }
     if items.is_empty() {
@@ -1537,6 +1576,67 @@ mod tool_turn_response_text_tests {
                 .pointer("/final_output_contract/visible_chat_source")
                 .and_then(Value::as_str),
             Some("llm_final_answer_only")
+        );
+    }
+
+    #[test]
+    fn workflow_synthesis_input_filters_candidate_only_and_provider_payload_rows() {
+        let input = workflow_synthesis_input_for_final_response(
+            "Compare AlphaVac and BetaBot",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "provider_results": [{
+                    "provider": "tavily",
+                    "summary": "Raw provider payload should remain telemetry, not synthesis evidence."
+                }],
+                "evidence_pack": [
+                    {
+                        "pack_version": "evidence_pack_v1",
+                        "source_kind": "web_page_enriched",
+                        "title": "Candidate-only shell",
+                        "locator": "https://candidate.example/shell",
+                        "source_domain": "candidate.example",
+                        "snippet": "This candidate-only row should not be handed to synthesis as evidence.",
+                        "claim_hints": ["candidate-only row"],
+                        "confidence": "candidate_only",
+                        "materialization_quality": "candidate_only",
+                        "counts_as_usable_evidence": false
+                    },
+                    {
+                        "pack_version": "evidence_pack_v1",
+                        "source_kind": "browser_materialized_page",
+                        "title": "Usable source",
+                        "locator": "https://evidence.example/source",
+                        "source_domain": "evidence.example",
+                        "snippet": "The usable source compares AlphaVac and BetaBot with direct evidence.",
+                        "claim_hints": ["The usable source compares AlphaVac and BetaBot."],
+                        "confidence": "usable",
+                        "materialization_quality": "full_materialized",
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+            &json!({}),
+        );
+        let rows = input
+            .get("evidence_pack")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(rows.len(), 1, "{input:#?}");
+        assert_eq!(
+            rows.first()
+                .and_then(|row| row.get("title"))
+                .and_then(Value::as_str),
+            Some("Usable source"),
+            "{input:#?}"
+        );
+        assert!(
+            !rows
+                .iter()
+                .any(|row| row.get("source").and_then(Value::as_str) == Some("provider_result")),
+            "{input:#?}"
         );
     }
 

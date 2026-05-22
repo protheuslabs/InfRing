@@ -86,6 +86,109 @@ impl PageExtractionFetchBudget {
     }
 }
 
+fn hub_discovery_low_relevance_issue(stage: &str, candidate: &Candidate, suffix: &str) -> String {
+    if looks_like_competitive_programming_dump(&format!(
+        "{} {} {}",
+        candidate.title, candidate.snippet, candidate.locator
+    )) {
+        format!("{stage}:hub_discovery_query_result_mismatch")
+    } else {
+        format!("{stage}:hub_discovery_{suffix}")
+    }
+}
+
+fn try_expand_relevant_hub_payload(
+    root: &Path,
+    stage: &str,
+    query: &str,
+    policy: &Value,
+    hub_payload: &Value,
+    benchmark_intent: bool,
+    fetch_budget: &PageExtractionFetchBudget,
+    candidates: &mut Vec<Candidate>,
+    issues: &mut Vec<String>,
+    retained_low_confidence: &mut usize,
+) -> usize {
+    if !page_extraction_hub_discovery_enabled(policy) || !fetch_budget.has_remaining() {
+        return 0;
+    }
+    let max_links = page_extraction_hub_discovery_max_links(policy);
+    if max_links == 0 {
+        return 0;
+    }
+    let (links, prefetch_rejections) = payload_links_for_page_extraction_with_rejections(
+        query,
+        policy,
+        hub_payload,
+        max_links,
+    );
+    for rejection in prefetch_rejections {
+        issues.push(format!(
+            "{stage}:hub_discovery_candidate_prefetch_rejected:{rejection}"
+        ));
+    }
+    let mut promoted = 0usize;
+    for link in links {
+        let link_candidate = page_extraction_link_candidate(&link);
+        let trusted_primary_lane = is_official_source_query_lane(query)
+            || candidate_has_trusted_primary_source_signal(query, &link_candidate);
+        match fetch_budget.reserve(policy, &link, trusted_primary_lane) {
+            PageExtractionFetchReservation::Reserved => {}
+            PageExtractionFetchReservation::Duplicate => continue,
+            PageExtractionFetchReservation::Exhausted => {
+                issues.push(format!("{stage}:hub_discovery_fetch_budget_exhausted"));
+                break;
+            }
+        }
+        let fetch_payload =
+            stage_fetch_payload(root, stage, &link, &page_extraction_extract_mode(policy));
+        if !fetch_payload
+            .get("ok")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            issues.push(format!(
+                "{stage}:hub_discovery_fetch:{}",
+                stage_error(&fetch_payload, "web_fetch_failed")
+            ));
+            continue;
+        }
+        match candidate_from_search_payload(query, &fetch_payload) {
+            Ok(mut candidate) => {
+                if candidate.locator.is_empty()
+                    || is_search_engine_domain(&candidate_domain_hint(&candidate))
+                {
+                    candidate.locator = link.clone();
+                }
+                mark_candidate_as_page_enriched(&mut candidate);
+                if candidate_is_synthesis_eligible(query, &candidate, benchmark_intent) {
+                    merge_or_push_page_enriched_candidate(query, policy, candidates, candidate);
+                    promoted += 1;
+                } else if let Some(candidate) =
+                    retain_low_confidence_candidate(policy, &candidate, retained_low_confidence)
+                {
+                    issues.push(hub_discovery_low_relevance_issue(
+                        stage,
+                        &candidate,
+                        "fetch_candidate_low_relevance_retained_low_confidence",
+                    ));
+                    candidates.push(candidate);
+                } else {
+                    issues.push(hub_discovery_low_relevance_issue(
+                        stage,
+                        &candidate,
+                        "fetch_candidate_low_relevance",
+                    ));
+                }
+            }
+            Err(err) => {
+                issues.push(format!("{stage}:hub_discovery_fetch_candidate:{err}"));
+            }
+        }
+    }
+    promoted
+}
+
 fn collect_candidates_from_stage_payload(
     root: &Path,
     stage: &str,
@@ -277,6 +380,21 @@ fn collect_candidates_from_stage_payload(
                             &mut candidates,
                             &mut issues,
                         )
+                    {
+                        continue;
+                    } else if candidate_looks_like_relevant_discovery_hub(query, &candidate)
+                        && try_expand_relevant_hub_payload(
+                            root,
+                            stage,
+                            query,
+                            policy,
+                            &fetch_payload,
+                            benchmark_intent,
+                            fetch_budget,
+                            &mut candidates,
+                            &mut issues,
+                            &mut retained_low_confidence,
+                        ) > 0
                     {
                         continue;
                     } else if let Some(candidate) = retain_low_confidence_candidate(
@@ -659,6 +777,125 @@ fn has_usable_synthesis_candidate(candidates: &[Candidate]) -> bool {
         .any(|candidate| !candidate_is_low_confidence_retained(candidate))
 }
 
+fn candidate_source_kind_is_fallback_search_surface(candidate: &Candidate) -> bool {
+    let source = candidate.source_kind.to_ascii_lowercase();
+    matches!(
+        source.as_str(),
+        "google_news_rss" | "bing_rss" | "duckduckgo" | "duckduckgo_lite" | "direct_http"
+    ) || source.contains("_rss")
+        || source.contains("headline_feed")
+}
+
+fn candidate_can_block_provider_recovery(
+    query: &str,
+    candidate: &Candidate,
+    benchmark_intent: bool,
+) -> bool {
+    if candidate_is_low_confidence_retained(candidate)
+        || candidate_source_kind_is_fallback_search_surface(candidate)
+    {
+        return false;
+    }
+    if candidate_has_non_evidence_payload(candidate) {
+        return false;
+    }
+    if candidate
+        .permissions
+        .as_deref()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .contains("structured_feed")
+    {
+        return true;
+    }
+    if benchmark_intent
+        && !content_rich_text(&format!("{} {}", candidate.title, candidate.snippet))
+        && !looks_like_metric_rich_text(&candidate.snippet)
+        && !candidate_has_trusted_primary_source_signal(query, candidate)
+    {
+        return false;
+    }
+    candidate_is_synthesis_eligible(query, candidate, benchmark_intent)
+}
+
+fn provider_recovery_required_entity_facets(query: &str) -> Vec<ResearchFacet> {
+    if !is_benchmark_or_comparison_intent(query) {
+        return Vec::new();
+    }
+    let mut entities = aperture_budget("medium")
+        .and_then(|budget| inferred_comparison_query_pack(query, budget))
+        .map(|pack| pack.entities)
+        .unwrap_or_default();
+    if entities.len() < 2 {
+        entities = comparison_entities_from_query(query);
+    }
+    let mut seen = HashSet::<String>::new();
+    let mut facets = Vec::<ResearchFacet>::new();
+    for entity in entities {
+        let cleaned = clean_text(&entity, 120);
+        if cleaned.is_empty() || !seen.insert(cleaned.to_ascii_lowercase()) {
+            continue;
+        }
+        if let Some(mut facet) = research_facet_from_metadata_text(&cleaned, facets.len(), "entity") {
+            facet.id = format!("provider_recovery_entity_{:02}", facets.len() + 1);
+            facets.push(facet);
+        }
+    }
+    assign_distinctive_facet_terms(&mut facets);
+    facets
+}
+
+fn provider_recovery_covered_entity_count(
+    query: &str,
+    candidates: &[Candidate],
+    benchmark_intent: bool,
+    entity_facets: &[ResearchFacet],
+) -> usize {
+    if entity_facets.is_empty() {
+        return 0;
+    }
+    let mut covered = HashSet::<String>::new();
+    for candidate in candidates {
+        if !candidate_can_block_provider_recovery(query, candidate, benchmark_intent) {
+            continue;
+        }
+        for facet in entity_facets {
+            if candidate_matches_facet(facet, candidate, 1) {
+                covered.insert(facet.id.clone());
+            }
+        }
+    }
+    covered.len()
+}
+
+fn provider_recovery_satisfied(query: &str, candidates: &[Candidate], benchmark_intent: bool) -> bool {
+    let min_usable = if benchmark_intent { 2 } else { 1 };
+    let min_domains = if benchmark_intent { 2 } else { 1 };
+    let mut usable = 0usize;
+    let mut domains = HashSet::<String>::new();
+    for candidate in candidates {
+        if !candidate_can_block_provider_recovery(query, candidate, benchmark_intent) {
+            continue;
+        }
+        usable += 1;
+        let domain = candidate_domain_hint(candidate).to_ascii_lowercase();
+        if !domain.is_empty() && domain != "source" && !is_search_engine_domain(&domain) {
+            domains.insert(domain);
+        }
+    }
+    if usable < min_usable || domains.len() < min_domains {
+        return false;
+    }
+    let entity_facets = provider_recovery_required_entity_facets(query);
+    if entity_facets.len() >= 2
+        && provider_recovery_covered_entity_count(query, candidates, benchmark_intent, &entity_facets)
+            < entity_facets.len()
+    {
+        return false;
+    }
+    true
+}
+
 fn hidden_provider_result_quality(
     payload_ok: bool,
     candidate_count: usize,
@@ -982,8 +1219,17 @@ fn retrieve_web_candidates_for_query(
         issues.extend(duckduckgo_issues);
     }
 
-    if !has_usable_synthesis_candidate(&candidates) {
+    if !provider_recovery_satisfied(query, &candidates, benchmark_intent) {
+        let mut attempted_providers = provider_results
+            .iter()
+            .filter_map(|row| row.get("provider").and_then(Value::as_str))
+            .map(|provider| provider.to_ascii_lowercase())
+            .collect::<HashSet<_>>();
         for provider in provider_recovery_providers(policy, query) {
+            if attempted_providers.contains(&provider) {
+                continue;
+            }
+            attempted_providers.insert(provider.clone());
             let provider_payload =
                 stage_search_payload(root, Some(&provider), query, Some(&provider), policy, search_scope);
             let (mut provider_candidates, provider_issues, provider_result) =
@@ -1002,7 +1248,9 @@ fn retrieve_web_candidates_for_query(
             issues.extend(provider_issues);
             if has_usable_synthesis_candidate(&provider_candidates) {
                 candidates.append(&mut provider_candidates);
-                break;
+                if provider_recovery_satisfied(query, &candidates, benchmark_intent) {
+                    break;
+                }
             } else if !provider_candidates.is_empty() {
                 candidates.append(&mut provider_candidates);
             }

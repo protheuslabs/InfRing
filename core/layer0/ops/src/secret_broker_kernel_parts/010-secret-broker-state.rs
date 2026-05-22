@@ -6,6 +6,8 @@ use base64::Engine;
 use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use hmac::{Hmac, Mac};
 use rand::Rng;
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -65,6 +67,12 @@ enum ProviderConfig {
         rotated_at_env: String,
     },
     JsonFile {
+        enabled: bool,
+        paths: Vec<String>,
+        field: String,
+        rotated_at_field: String,
+    },
+    EncryptedFile {
         enabled: bool,
         paths: Vec<String>,
         field: String,
@@ -170,6 +178,7 @@ fn usage() {
     println!("secret-broker-kernel commands:");
     println!("  infring-ops secret-broker-kernel load-policy [--payload-base64=<json>]");
     println!("  infring-ops secret-broker-kernel load-secret --payload-base64=<json>");
+    println!("  infring-ops secret-broker-kernel put-secret --payload-base64=<json>");
     println!("  infring-ops secret-broker-kernel rotation-health [--payload-base64=<json>]");
     println!("  infring-ops secret-broker-kernel status [--payload-base64=<json>]");
     println!("  infring-ops secret-broker-kernel issue-handle --payload-base64=<json>");
@@ -409,7 +418,7 @@ fn sha16(value: &str) -> String {
 }
 
 fn sign_handle(body: &str, key: &str) -> Result<String, String> {
-    let mut mac = HmacSha256::new_from_slice(key.as_bytes())
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(key.as_bytes())
         .map_err(|err| format!("hmac_init_failed:{err}"))?;
     mac.update(body.as_bytes());
     Ok(hex::encode(mac.finalize().into_bytes()))
@@ -419,7 +428,7 @@ fn verify_handle_sig(body: &str, sig_hex: &str, key: &str) -> bool {
     let Ok(sig) = hex::decode(sig_hex) else {
         return false;
     };
-    let Ok(mut mac) = HmacSha256::new_from_slice(key.as_bytes()) else {
+    let Ok(mut mac) = <HmacSha256 as Mac>::new_from_slice(key.as_bytes()) else {
         return false;
     };
     mac.update(body.as_bytes());

@@ -189,20 +189,67 @@ fn web_result_domain_topic_mismatch_score(query: &str, summary: &str, evidence_r
 }
 
 fn web_search_off_topic_results_fallback(
-    _query: &str,
-    _mismatch_score: f64,
-    _domains: &[String],
+    query: &str,
+    mismatch_score: f64,
+    domains: &[String],
 ) -> String {
-    String::new()
+    let query = clean_text(query, 220);
+    let score = (mismatch_score * 100.0).round() / 100.0;
+    let mut summary = if query.is_empty() {
+        format!("Web search returned off-topic or weak source matches (mismatch score {score}).")
+    } else {
+        format!(
+            "Web search for `{query}` returned off-topic or weak source matches (mismatch score {score})."
+        )
+    };
+    let domains = domains
+        .iter()
+        .map(|row| clean_text(row, 120))
+        .filter(|row| !row.is_empty())
+        .take(4)
+        .collect::<Vec<_>>();
+    if !domains.is_empty() {
+        summary.push_str(&format!(" Candidate domains seen: {}.", domains.join(", ")));
+    }
+    summary.push_str(" No source-backed answer should be synthesized from this result set.");
+    trim_text(&summary, 1_200)
 }
 
 fn web_search_no_findings_fallback(
-    _query: &str,
-    _combined: &str,
-    _requested_url: &str,
-    _domain: &str,
+    query: &str,
+    combined: &str,
+    requested_url: &str,
+    domain: &str,
 ) -> String {
-    String::new()
+    let query = clean_text(query, 220);
+    let mut domains = extract_search_result_domains(combined, 4);
+    let explicit_domain = clean_text(domain, 120);
+    if !explicit_domain.is_empty()
+        && !domains
+            .iter()
+            .any(|row| row.eq_ignore_ascii_case(&explicit_domain))
+    {
+        domains.push(explicit_domain);
+    }
+    let requested_url = clean_text(requested_url, 220);
+    if domains.is_empty() && !requested_url.is_empty() {
+        domains.push(requested_url);
+    }
+    let mut summary = if query.is_empty() {
+        "Web search did not return usable source-backed findings.".to_string()
+    } else {
+        format!("Web search for `{query}` did not return usable source-backed findings.")
+    };
+    let domains = domains
+        .into_iter()
+        .map(|row| clean_text(&row, 120))
+        .filter(|row| !row.is_empty())
+        .take(4)
+        .collect::<Vec<_>>();
+    if !domains.is_empty() {
+        summary.push_str(&format!(" Candidate sources seen: {}.", domains.join(", ")));
+    }
+    trim_text(&summary, 1_200)
 }
 
 fn extract_search_result_findings(summary: &str, max_items: usize) -> Vec<String> {

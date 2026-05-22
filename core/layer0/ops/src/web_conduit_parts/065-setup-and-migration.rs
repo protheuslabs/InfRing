@@ -388,7 +388,7 @@ pub fn api_setup(root: &Path, request: &Value) -> Value {
     let selected_requires_credential =
         provider_requires_credential(&selected_provider, WebProviderFamily::Search);
     let ready = !selected_requires_credential
-        || resolve_search_provider_credential(&next_policy, &selected_provider).is_some();
+        || resolve_search_provider_credential(root, &next_policy, &selected_provider).is_some();
     if apply {
         if let Err(err) = write_json_atomic(&policy_path_value, &next_policy) {
             return json!({

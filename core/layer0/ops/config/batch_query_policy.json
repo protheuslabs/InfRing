@@ -346,10 +346,10 @@
       "min_claim_hints": 3,
       "record_recovery_queries": true,
       "templates": [
-        "{entities} {facet} detailed source-backed findings",
-        "{entities} {facet} primary report results",
-        "{query} detailed source-backed findings",
-        "{query} primary report or official results"
+        "{entities} {facet} detailed findings",
+        "{entities} {facet} source-backed evidence",
+        "{query} detailed findings",
+        "{query} source-backed evidence"
       ],
       "non_goals": [
         "do_not_treat_candidate_titles_as_claim_support",
@@ -560,10 +560,10 @@
           "do_not_promote_blocker_shells_as_evidence"
         ]
       },
-      "candidate_locator_followup": {
-        "enabled": true,
-        "max_per_stage": 3,
-        "selection": "merge_structured_result_locators_with_payload_links_when_candidates_are_thin_or_coverage_is_weak",
+  "candidate_locator_followup": {
+    "enabled": true,
+    "max_per_stage": 3,
+    "selection": "merge_structured_result_locators_with_payload_links_when_candidates_are_thin_or_coverage_is_weak",
         "source_patterns": [
           "firecrawl_search_result_scrape_merge",
           "firecrawl_high_volume_candidate_map_rerank_filter",
@@ -572,10 +572,20 @@
         "non_goals": [
           "do_not_bind_to_a_specific_provider",
           "do_not_fetch_every_candidate_without_budget",
-          "do_not_treat_candidate_count_as_evidence_quality"
-        ]
-      },
-      "url_hygiene": {
+      "do_not_treat_candidate_count_as_evidence_quality"
+    ]
+  },
+  "hub_discovery": {
+    "enabled": true,
+    "max_links_per_hub": 2,
+    "mode": "fetch_relevant_directory_pages_only_to_discover_article_like_links",
+    "non_goals": [
+      "do_not_promote_directory_pages_as_evidence",
+      "do_not_fetch_hubs_without_query_or_context_signal",
+      "do_not_recurse_indefinitely_through_link_directories"
+    ]
+  },
+  "url_hygiene": {
         "enabled": true,
         "drop_fragment_for_dedupe": true,
         "canonical_dedupe_prefer_https_and_non_www": true,
@@ -1601,13 +1611,22 @@
           "google_news_rss",
           "bing_rss",
           "duckduckgo_lite"
+        ],
+        "official_source_providers": [
+          "tavily",
+          "exa",
+          "brave",
+          "serperdev",
+          "browser_serp",
+          "duckduckgo_lite",
+          "duckduckgo"
         ]
       }
     },
     "query_recovery": {
       "broad_current_research": {
         "enabled": true,
-        "max_queries": 10,
+        "max_queries": 4,
         "intent_markers": [
           "breakthrough",
           "breakthroughs",
@@ -1625,23 +1644,14 @@
         ],
         "templates": [
           "{query}",
-          "{query} primary evidence",
-          "{query} primary sources",
-          "{query} official sources",
-          "{query} recent publications",
-          "{query} institution announcements",
-          "{query} research publications",
-          "{query} official announcements",
-          "{query} technical reports",
-          "{query} datasets",
-          "{query} methodology evidence",
-          "{query} peer reviewed evidence",
-          "{query} source list"
+          "{query} latest",
+          "{query} recent report",
+          "{query} source-backed evidence"
         ]
       },
       "general_research": {
         "enabled": true,
-        "max_queries": 10,
+        "max_queries": 5,
         "intent_markers": [
           "assess",
           "avoid",
@@ -1677,18 +1687,10 @@
         ],
         "templates": [
           "{query}",
-          "{query} primary source evidence",
-          "{query} official documentation project sources",
-          "{query} independent analysis comparison evidence",
-          "{query} risks limitations security reliability evidence",
-          "{query} production usage examples case studies",
-          "{query} methodology evidence",
-          "{query} technical report",
-          "{query} source diversity evidence",
-          "{query} changelog release notes",
-          "{query} repository issues adoption evidence",
-          "{query} benchmark methodology evidence",
-          "{query} security advisory evidence"
+          "{query} source-backed evidence",
+          "{query} independent analysis",
+          "{query} reports data",
+          "{query} limitations risks"
         ]
       }
     }

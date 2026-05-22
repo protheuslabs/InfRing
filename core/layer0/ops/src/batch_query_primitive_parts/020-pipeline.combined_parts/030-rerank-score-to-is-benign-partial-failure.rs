@@ -40,6 +40,16 @@ fn rerank_score(query: &str, candidate: &Candidate) -> f64 {
     } else {
         0.0
     };
+    let direct_official_source = official_lane_direct_subject_source_signal(query, candidate);
+    let direct_official_source_bonus = if direct_official_source { 0.32 } else { 0.0 };
+    let official_lane_mismatch_penalty = if is_official_source_query_lane(query)
+        && !direct_official_source
+        && !candidate_has_trusted_primary_source_signal(query, candidate)
+    {
+        0.14
+    } else {
+        0.0
+    };
     let definition_penalty = if benchmark_intent && looks_like_definition_candidate(candidate) {
         0.72
     } else {
@@ -75,12 +85,14 @@ fn rerank_score(query: &str, candidate: &Candidate) -> f64 {
         + metric_bonus
         + framework_catalog_bonus
         + framework_catalog_source_bonus
+        + direct_official_source_bonus
         + source_trust_adjustment(candidate)
         + recency_adjustment(query, candidate)
         - definition_penalty
         - comparison_noise_penalty
         - low_signal_penalty
         - off_intent_noise_penalty
+        - official_lane_mismatch_penalty
         - weak_overlap_penalty;
     if benchmark_intent && !looks_like_metric_rich_text(&candidate.snippet) {
         score -= 0.12;
@@ -153,4 +165,11 @@ fn is_benign_partial_failure(detail: &str) -> bool {
         || lowered.contains("fetch_candidate_low_relevance")
         || lowered.contains("no_usable_summary")
         || lowered.contains("fixture_missing")
+}
+
+fn is_diagnostic_only_after_complete_coverage(detail: &str) -> bool {
+    let lowered = clean_text(detail, 320).to_ascii_lowercase();
+    lowered.contains("page_extraction_global_budget_exhausted")
+        || lowered.contains("page_extraction_candidate_prefetch_rejected")
+        || lowered.contains("trusted_primary_lane_preserved")
 }

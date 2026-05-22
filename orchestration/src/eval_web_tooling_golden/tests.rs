@@ -84,11 +84,13 @@ fn synthetic_payload_exposes_direct_tool_artifacts_to_retrieval_grader() {
             {"title": "LangGraph vs CrewAI docs", "snippet": "LangGraph and CrewAI are both agent frameworks used for production AI agents, with LangGraph emphasizing stateful orchestration and CrewAI emphasizing role-based coordination."}
         ],
         "evidence_refs": [
-            {"title": "LangGraph vs CrewAI docs", "snippet": "LangGraph and CrewAI are both agent frameworks used for production AI agents, with LangGraph emphasizing stateful orchestration and CrewAI emphasizing role-based coordination.", "claim_hints": ["stateful orchestration", "role-based coordination"], "source_domain": "langchain.com"}
+            {"title": "LangGraph vs CrewAI docs", "snippet": "LangGraph and CrewAI are both agent frameworks used for production AI agents, with LangGraph emphasizing stateful orchestration and CrewAI emphasizing role-based coordination.", "claim_hints": ["stateful orchestration", "role-based coordination"], "source_domain": "langchain.com", "materialization_quality": "full_materialized", "counts_as_usable_evidence": true}
         ],
         "tool_result_quality": {
             "claim_hint_count": 2,
-            "content_rich_candidate_count": 1
+            "content_rich_candidate_count": 1,
+            "materialized_candidate_count": 1,
+            "usable_evidence": true
         }
     });
     let payload = synthesize_tooling_eval_payload("batch_query", &request, &direct_payload);
@@ -121,11 +123,74 @@ fn derived_request_pack_moves_generic_required_entities_into_facets() {
             .map(Vec::len),
         Some(2)
     );
+    assert!(pack
+        .pointer("/input/queries")
+        .and_then(Value::as_array)
+        .map(|rows| rows.len() > 1)
+        .unwrap_or(false));
+}
+
+#[test]
+fn derived_request_pack_uses_facet_lanes_for_broad_current_prompts() {
+    let case = json!({
+        "id": "case_broad",
+        "prompt": "Give me an update on the AI agentic landscape in May 2026.",
+        "required_facets": ["AI agentic landscape", "May 2026"]
+    });
+    let pack = request_pack_for_case(&case, None, "batch_query");
+    let queries = pack
+        .pointer("/input/queries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let query_strings = queries.iter().filter_map(Value::as_str).collect::<Vec<_>>();
     assert!(
-        pack.pointer("/input/queries")
+        pack.pointer("/input/required_coverage/entities")
             .and_then(Value::as_array)
-            .map(|rows| rows.len() > 1)
-            .unwrap_or(false)
+            .map(Vec::is_empty)
+            .unwrap_or(false),
+        "{pack:#?}"
+    );
+    assert!(
+        query_strings
+            .iter()
+            .any(|row| row.contains("AI agentic landscape recent developments")),
+        "{query_strings:#?}"
+    );
+    assert!(
+        query_strings
+            .iter()
+            .any(|row| row.contains("AI agentic landscape independent analysis")),
+        "{query_strings:#?}"
+    );
+    assert!(
+        query_strings
+            .iter()
+            .all(|row| !row.contains("May 2026 official site")),
+        "{query_strings:#?}"
+    );
+}
+
+#[test]
+fn derived_request_pack_adds_public_sentiment_lanes_for_sentiment_prompts() {
+    let case = json!({
+        "id": "case_sentiment",
+        "prompt": "Summarize public sentiment around Figma AI features in 2026.",
+        "required_entities": ["Figma AI"],
+        "required_facets": ["public sentiment", "2026"]
+    });
+    let pack = request_pack_for_case(&case, None, "batch_query");
+    let queries = pack
+        .pointer("/input/queries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let query_strings = queries.iter().filter_map(Value::as_str).collect::<Vec<_>>();
+    assert!(
+        query_strings
+            .iter()
+            .any(|row| row.contains("public sentiment user reports")),
+        "{query_strings:#?}"
     );
 }
 
@@ -156,5 +221,34 @@ fn request_pack_prefers_web_tooling_setup_prompt_when_present() {
             ""
         ),
         "tooling_setup_prompt_request"
+    );
+}
+
+#[test]
+fn derived_request_pack_adds_entity_discovery_lanes_for_named_subjects() {
+    let case = json!({
+        "id": "case_browser_agents",
+        "prompt": "Research browser-use, Playwright-based browser agents, and OpenHands for browser task automation. Which is most appropriate for repeatable QA-style workflows?",
+        "required_entities": ["browser-use", "Playwright", "OpenHands"]
+    });
+    let pack = request_pack_for_case(&case, None, "batch_query");
+    let queries = pack
+        .pointer("/input/queries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert!(queries.len() >= 4, "{queries:#?}");
+    let query_strings = queries.iter().filter_map(Value::as_str).collect::<Vec<_>>();
+    assert!(
+        query_strings
+            .iter()
+            .any(|row| row.contains("browser-use official site")),
+        "{query_strings:#?}"
+    );
+    assert!(
+        query_strings
+            .iter()
+            .any(|row| row.contains("OpenHands official documentation")),
+        "{query_strings:#?}"
     );
 }

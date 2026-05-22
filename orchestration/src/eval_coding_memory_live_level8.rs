@@ -11,6 +11,7 @@ use std::time::Duration;
 
 const LEVEL8_WORKER_TIMEOUT_SECONDS: u64 = 900;
 const LEVEL8_WORKER_HEARTBEAT_SECONDS: u64 = 30;
+const LEVEL8_PROVIDER_TIMEOUT_SECONDS: u64 = 300;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveLevel8SeedBatchReport {
@@ -219,11 +220,11 @@ pub fn judge_live_level8_batch(batch_root: &Path) -> LiveLevel8JudgeReport {
                 &mut failures
             };
             target.extend(
-                    attempt
-                        .failures
-                        .iter()
-                        .map(|failure| format!("{}:{failure}", attempt.attempt_id)),
-                );
+                attempt
+                    .failures
+                    .iter()
+                    .map(|failure| format!("{}:{failure}", attempt.attempt_id)),
+            );
         }
     }
     let pass_count = attempts.iter().filter(|attempt| attempt.ok).count();
@@ -260,7 +261,10 @@ pub fn run_live_level8_batch(attempt_count: usize, infra_retries: usize) -> Live
     let mut worker_runs = Vec::new();
     let mut failures = seed.failures.clone();
     if let Err(error) = fs::create_dir_all(&outputs_root) {
-        failures.push(format!("create_agent_outputs_failed:{}:{error}", outputs_root.display()));
+        failures.push(format!(
+            "create_agent_outputs_failed:{}:{error}",
+            outputs_root.display()
+        ));
     }
     eprintln!(
         "level8_batch_start attempts={} infra_retries={} batch_root={}",
@@ -325,8 +329,10 @@ fn run_live_level8_worker(
     for retry_index in 0..=infra_retries {
         run_count += 1;
         let start = millis_now();
-        let stdout_path = outputs_root.join(format!("{}.try{}.stdout.log", job.attempt_id, run_count));
-        let stderr_path = outputs_root.join(format!("{}.try{}.stderr.log", job.attempt_id, run_count));
+        let stdout_path =
+            outputs_root.join(format!("{}.try{}.stdout.log", job.attempt_id, run_count));
+        let stderr_path =
+            outputs_root.join(format!("{}.try{}.stderr.log", job.attempt_id, run_count));
         eprintln!(
             "level8_worker_start attempt={} try={}/{} timeout_seconds={} stdout={} stderr={}",
             job.attempt_id,
@@ -344,8 +350,8 @@ fn run_live_level8_worker(
             &stdout_path,
             &stderr_path,
         );
-        duration_seconds = duration_seconds
-            .saturating_add(((millis_now().saturating_sub(start)) / 1000) as u64);
+        duration_seconds =
+            duration_seconds.saturating_add(((millis_now().saturating_sub(start)) / 1000) as u64);
         if output.timed_out {
             timeout_count += 1;
         }
@@ -396,7 +402,8 @@ fn run_live_level8_worker(
         };
         if final_infra_failure.is_some() && retry_index < infra_retries {
             retried_infra_failure = true;
-            let retry_path = outputs_root.join(format!("{}.infra_try{}.log", job.attempt_id, run_count));
+            let retry_path =
+                outputs_root.join(format!("{}.infra_try{}.log", job.attempt_id, run_count));
             let _ = fs::rename(&output_path, retry_path);
             eprintln!(
                 "level8_worker_retry attempt={} completed_try={} reason={} next_try={}",
@@ -455,6 +462,22 @@ fn level8_worker_timeout_seconds() -> u64 {
         .unwrap_or(LEVEL8_WORKER_TIMEOUT_SECONDS)
 }
 
+fn level8_worker_provider() -> String {
+    std::env::var("INFRING_LEVEL8_PROVIDER").unwrap_or_else(|_| "ollama".to_string())
+}
+
+fn level8_worker_model() -> String {
+    std::env::var("INFRING_LEVEL8_MODEL").unwrap_or_else(|_| "kimi-k2.6:cloud".to_string())
+}
+
+fn level8_worker_provider_timeout_seconds() -> u64 {
+    std::env::var("INFRING_LEVEL8_PROVIDER_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(LEVEL8_PROVIDER_TIMEOUT_SECONDS)
+}
+
 fn run_level8_worker_command(
     job: &LiveLevel8Job,
     ordinal: usize,
@@ -496,10 +519,14 @@ fn run_level8_worker_command(
         .arg("infring-agent-run")
         .arg(format!("--name=level8-native-{ordinal}-try{run_count}"))
         .arg("--workflow=coding_project_operator")
-        .arg("--provider=ollama")
-        .arg("--model=kimi-k2.6:cloud")
+        .arg(format!("--provider={}", level8_worker_provider()))
+        .arg(format!("--model={}", level8_worker_model()))
         .arg(format!("--prompt=@{}", job.prompt_path))
         .current_dir(workspace_root())
+        .env(
+            "INFRING_PROVIDER_TIMEOUT_SECONDS",
+            level8_worker_provider_timeout_seconds().to_string(),
+        )
         .stdout(Stdio::from(stdout_file))
         .stderr(Stdio::from(stderr_file));
     let mut child = match command.spawn() {
@@ -761,7 +788,7 @@ fn seed_python_project(spec: &DomainSpec, root: &Path) -> Result<(), String> {
 
 fn worker_prompt(job: &LiveLevel8Job) -> String {
     format!(
-        "You are running a live Level 8 coding-memory resume probe. You are not alone in the broader codebase: do not revert or modify anything outside the assigned temp run directory. Your write ownership is limited to {project_root} and {receipts_root}.\n\nGoal: continue the existing local Python project by using current files plus stored checkpoint memory. Do not ask follow-up questions. Complete one coherent checkpoint slice that is harder than an in-memory ledger.\n\nEnvironment:\n- Project root: {project_root}\n- Python package: {package}\n- Isolated memory DB: {memory_db_path}\n- Resume token: {resume_token}\n- Prior memory row id: {prior_memory_row_id}\n- Expected new memory row id: {expected_new_memory_row_id}\n- Memory CLI command pattern: INFRING_MEMORY_DB_PATH={memory_db_path} cargo run --quiet --manifest-path /Users/jay/.openclaw/workspace/core/layer0/memory/Cargo.toml --bin memory-cli -- <command>\n- Validation command from project root: {validation_command}\n\nWorkflow requirements:\n1. Read the local project files first. Current files are authoritative.\n2. Retrieve checkpoint memory using the resume token and/or row id with the memory CLI.\n3. Decide the next checkpoint from local context plus memory.\n4. Implement checkpoint_002_persistent_delivery_operations in multiple files.\n5. The slice must add persistent delivery-attempt storage, preferably JSONL or another stdlib file format, not just an in-memory list.\n6. Add a DeliveryAttempt-style model or equivalent durable record with event id, destination, status/outcome, retryable classification, and timestamp or attempt id.\n7. Integrate the delivery attempt operations with the routing/service layer while preserving baseline route behavior and the existing `route` CLI command.\n8. Add an operator-facing CLI/report surface that can summarize attempts by destination and retryable failures, and include import/export or equivalent durable file round-trip behavior.\n9. Add regression tests for baseline preservation, persistence round trip, report summary, retryable failure detection, and CLI/report behavior.\n10. Run the validation command.\n11. Write a checkpoint receipt under {receipts_root}/checkpoint_002_handoff.json.\n12. Write a new checkpoint memory row to the isolated DB using the expected new memory row id and tags coding,checkpoint,resume,project_context. Include changed files, validation result, known risks, and recommended next checkpoint.\n\nFinal response should include: whether it passed, changed file paths, validation command/result, new memory row id, and any caveats. Do not commit anything.\n",
+        "You are running a live Level 8 coding-memory resume probe. You are not alone in the broader codebase: do not revert or modify anything outside the assigned temp run directory. Your write ownership is limited to {project_root} and {receipts_root}.\n\nGoal: continue the existing local Python project by using current files plus stored checkpoint memory. Do not ask follow-up questions. Complete one coherent checkpoint slice that is harder than an in-memory ledger.\n\nEnvironment:\n- Project root: {project_root}\n- Python package: {package}\n- Isolated memory DB: {memory_db_path}\n- Resume token: {resume_token}\n- Prior memory row id: {prior_memory_row_id}\n- Expected new memory row id: {expected_new_memory_row_id}\n- Memory CLI command pattern: INFRING_MEMORY_DB_PATH={memory_db_path} cargo run --quiet --manifest-path /Users/jay/.openclaw/workspace/core/layer0/memory/Cargo.toml --bin memory-cli -- <command>\n- Validation command from project root: {validation_command}\n\nWorkflow requirements:\n1. Read the local project files first. Current files are authoritative.\n2. Retrieve checkpoint memory using the resume token and/or row id with the memory CLI.\n3. Decide the next checkpoint from local context plus memory.\n4. Implement checkpoint_002_persistent_delivery_operations in multiple files.\n5. The slice must add persistent delivery-attempt storage, preferably JSONL or another stdlib file format, not just an in-memory list.\n6. Add a DeliveryAttempt-style model or equivalent durable record with event id, destination, status/outcome, retryable classification, and timestamp or attempt id.\n7. Integrate the delivery attempt operations with the routing/service layer while preserving baseline route behavior and the existing `route` CLI command.\n8. Add an operator-facing CLI/report surface that can summarize attempts by destination and retryable failures, and include import/export or equivalent durable file round-trip behavior.\n9. Add regression tests for baseline preservation, persistence round trip, report summary, retryable failure detection, and CLI/report behavior.\n10. Run the validation command.\n11. Write a checkpoint receipt under {receipts_root}/checkpoint_002_handoff.json.\n12. Write a new checkpoint memory row to the isolated DB using the expected new memory row id and tags coding,checkpoint,resume,project_context. Include changed files, validation result, known risks, and recommended next checkpoint.\n\nCompletion guardrails:\n- Do not stop after only adding a model/repository or tests. That is an incomplete checkpoint.\n- Do not write a checkpoint receipt that lists pending service/router/CLI integration; continue implementing the integration instead.\n- The checkpoint is incomplete unless service integration, report summary, CLI import/export or durable round-trip behavior, regression tests, checkpoint receipt, and checkpoint memory write are all complete.\n- The checkpoint receipt must include completed_checkpoint=checkpoint_002_persistent_delivery_operations, changed_files with at least three source/test/CLI files, validation_summary or validation_results, known_risks, and recommended_next_checkpoint.\n\nFinal response should include: whether it passed, changed file paths, validation command/result, new memory row id, and any caveats. Do not commit anything.\n",
         project_root = job.project_root,
         receipts_root = job.receipts_root,
         package = job.package,
@@ -930,7 +957,11 @@ fn classify_worker_infra_failure(job: &LiveLevel8Job) -> Option<String> {
 
 fn classify_worker_infra_failure_text(text: &str) -> Option<String> {
     let lower = text.to_ascii_lowercase();
-    if lower.contains("503 service unavailable")
+    if lower.contains("502 bad gateway")
+        || lower.contains("503 service unavailable")
+        || lower.contains("504 gateway timeout")
+        || lower.contains("bad gateway")
+        || lower.contains("gateway timeout")
         || lower.contains("temporarily overloaded")
         || lower.contains("model is temporarily overloaded")
     {
@@ -939,8 +970,16 @@ fn classify_worker_infra_failure_text(text: &str) -> Option<String> {
     if lower.contains("internal server error") {
         return Some("provider_internal_server_error".to_string());
     }
+    if lower.contains("no space left on device")
+        || lower.contains("failed to write")
+            && (lower.contains("target/debug") || lower.contains("rustc"))
+    {
+        return Some("host_disk_exhausted".to_string());
+    }
     if lower.contains("provider:ollama_run_timeout")
         || lower.contains("ollama_run_timeout:timeout_seconds")
+        || lower.contains("provider:ollama_run_failed")
+        || lower.contains("ollama_run_failed")
         || lower.contains("worker_spawn_failed")
     {
         return Some("provider_timeout_or_spawn_failure".to_string());

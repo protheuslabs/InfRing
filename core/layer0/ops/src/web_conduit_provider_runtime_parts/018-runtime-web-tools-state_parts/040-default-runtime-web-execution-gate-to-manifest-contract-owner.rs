@@ -77,7 +77,7 @@ fn runtime_web_family_health(
         selected_provider_key_source.as_str(),
         selected_provider_requires_credential,
     ) {
-        (Some("config" | "env" | "not_required"), _) => "resolved",
+        (Some("config" | "env" | "secret_broker" | "not_required"), _) => "resolved",
         (Some("missing"), true) => "missing",
         (Some("missing"), false) => "not_required",
         _ => "unknown",

@@ -168,15 +168,17 @@ fn current_live_agent_reason(
         return None;
     }
     let registry = curl_json("GET", base_url, "/api/agents", &json!({}), timeout_seconds);
-    let row = live_agent_registry_rows(&registry).into_iter().find(|row| {
-        clean_text(
-            row.get("agent_id")
-                .or_else(|| row.get("id"))
-                .and_then(Value::as_str)
-                .unwrap_or(""),
-            240,
-        ) == requested
-    })?;
+    let row = live_agent_registry_rows(&registry)
+        .into_iter()
+        .find(|row| {
+            clean_text(
+                row.get("agent_id")
+                    .or_else(|| row.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                240,
+            ) == requested
+        })?;
     live_agent_row_active(row).then_some("requested_live_agent_active".to_string())
 }
 

@@ -43,8 +43,7 @@ pub fn forge_level6_existing_project_fixture_report() -> ForgeLevel6ExistingProj
         seed_failures.push(format!("fixture_root_create_failed:{error}"));
     }
     seed_level6_fixture(&root, &mut seed_failures);
-    let mut report =
-        forge_level6_existing_project_report_for_path_kind(&root, "generated_fixture");
+    let mut report = forge_level6_existing_project_report_for_path_kind(&root, "generated_fixture");
     report.failures.extend(seed_failures);
     report.ok = report.ok && report.failures.is_empty();
     report
@@ -189,7 +188,8 @@ fn forge_level6_existing_project_report_for_path_kind(
             count_occurrences(&workflow_text, "slice_id") >= 2
                 || count_files_with_name_containing(&workflow_files, "slice") >= 2,
             "error",
-            "Level 6 should show multiple coordinated slices rather than one broad edit".to_string(),
+            "Level 6 should show multiple coordinated slices rather than one broad edit"
+                .to_string(),
         ),
     ];
 
@@ -239,7 +239,14 @@ fn forge_level6_existing_project_report_for_path_kind(
             "validation_receipt_indicates_pass",
             contains_any(
                 &receipt_text,
-                &["PASS", "pass", "0 failures", "0 failed", "exit 0", "exit code 0"],
+                &[
+                    "PASS",
+                    "pass",
+                    "0 failures",
+                    "0 failed",
+                    "exit 0",
+                    "exit code 0",
+                ],
             ),
             "error",
             "validation receipt should indicate passing tests or smoke validation".to_string(),
@@ -270,7 +277,12 @@ fn forge_level6_existing_project_report_for_path_kind(
             "repair_policy_or_event_recorded",
             contains_any(
                 &workflow_text,
-                &["repair_events", "bounded_repair", "max_repair_attempts", "repair_policy"],
+                &[
+                    "repair_events",
+                    "bounded_repair",
+                    "max_repair_attempts",
+                    "repair_policy",
+                ],
             ),
             "error",
             "Level 6 should record repair policy or repair events".to_string(),
@@ -279,7 +291,11 @@ fn forge_level6_existing_project_report_for_path_kind(
             "checkpoint_handoff_present",
             contains_any(
                 &workflow_text,
-                &["checkpoint_handoff", "recommended_next_checkpoint", "final_checkpoint"],
+                &[
+                    "checkpoint_handoff",
+                    "recommended_next_checkpoint",
+                    "final_checkpoint",
+                ],
             ),
             "error",
             "candidate should return a checkpoint handoff instead of open-ended coding".to_string(),
@@ -349,12 +365,7 @@ fn dimension(dimension: &'static str, checks: Vec<ForgeLevel6Check>) -> ForgeLev
     }
 }
 
-fn check(
-    id: &'static str,
-    ok: bool,
-    severity: &'static str,
-    detail: String,
-) -> ForgeLevel6Check {
+fn check(id: &'static str, ok: bool, severity: &'static str, detail: String) -> ForgeLevel6Check {
     ForgeLevel6Check {
         id,
         ok,
@@ -547,7 +558,10 @@ fn count_files_with_name_containing(files: &[PathBuf], needle: &str) -> usize {
 }
 
 fn display_paths(paths: &[PathBuf]) -> Vec<String> {
-    paths.iter().map(|path| path.display().to_string()).collect()
+    paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect()
 }
 
 #[cfg(test)]

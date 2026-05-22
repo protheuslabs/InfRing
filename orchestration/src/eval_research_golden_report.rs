@@ -239,6 +239,35 @@ pub(super) fn markdown_report(report: &Value) -> String {
         )
     ));
     out.push_str(&format!(
+        "- answer_unit_evidence_alignment: evaluated={}/{} pass={}/{} ({:.3}) flagged={}/{} ({:.3}) support={:.3} top_blocker={}\n",
+        u64_at(split, &["answer_unit_evidence_alignment", "evaluated_cases"], 0),
+        u64_at(summary, &["cases"], 0),
+        u64_at(split, &["answer_unit_evidence_alignment", "evaluated_pass_cases"], 0),
+        u64_at(split, &["answer_unit_evidence_alignment", "evaluated_cases"], 0),
+        f64_at(
+            split,
+            &["answer_unit_evidence_alignment", "evaluated_pass_rate"],
+            0.0
+        ),
+        u64_at(split, &["answer_unit_evidence_alignment", "flagged_cases"], 0),
+        u64_at(summary, &["cases"], 0),
+        f64_at(
+            split,
+            &["answer_unit_evidence_alignment", "flagged_rate"],
+            0.0
+        ),
+        f64_at(
+            split,
+            &["answer_unit_evidence_alignment", "average_term_support_rate"],
+            0.0
+        ),
+        str_at(
+            split,
+            &["answer_unit_evidence_alignment", "top_blocker", "name"],
+            "none"
+        )
+    ));
+    out.push_str(&format!(
         "- web_tooling: top_layer={} top_failure={} raw_candidates/case={:.3} usable_evidence_rate={:.3}\n",
         str_at(
             split,
@@ -306,12 +335,22 @@ pub(super) fn markdown_report(report: &Value) -> String {
         "  - access_materialization: blocked_rate={:.3} content_rich_per_candidate={:.3}\n",
         f64_at(
             split,
-            &["web_tooling", "operator_metrics", "blocker_rates", "access_blocked_or_throttled_case_rate"],
+            &[
+                "web_tooling",
+                "operator_metrics",
+                "blocker_rates",
+                "access_blocked_or_throttled_case_rate"
+            ],
             0.0
         ),
         f64_at(
             split,
-            &["web_tooling", "operator_metrics", "conversion_rates", "content_rich_per_candidate"],
+            &[
+                "web_tooling",
+                "operator_metrics",
+                "conversion_rates",
+                "content_rich_per_candidate"
+            ],
             0.0
         )
     ));
@@ -319,7 +358,12 @@ pub(super) fn markdown_report(report: &Value) -> String {
         "  - claim_extraction: claim_hints_per_evidence={:.3}\n",
         f64_at(
             split,
-            &["web_tooling", "operator_metrics", "conversion_rates", "claim_hints_per_evidence"],
+            &[
+                "web_tooling",
+                "operator_metrics",
+                "conversion_rates",
+                "claim_hints_per_evidence"
+            ],
             0.0
         )
     ));

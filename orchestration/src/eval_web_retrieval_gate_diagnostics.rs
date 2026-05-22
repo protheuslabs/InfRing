@@ -15,14 +15,21 @@ pub(super) fn web_retrieval_gate_diagnostics(
     let tool_attempted = has_tool_execution(payload);
     let candidate_count = u64_at(retrieval_quality, &["candidate_count"], 0);
     let evidence_count = u64_at(retrieval_quality, &["evidence_count"], 0);
-    let materialized_candidate_count = u64_at(
-        retrieval_quality,
-        &["materialized_candidate_count"],
-        0,
-    );
+    let materialized_candidate_count =
+        u64_at(retrieval_quality, &["materialized_candidate_count"], 0);
     let content_rich_candidate_count =
         u64_at(retrieval_quality, &["content_rich_candidate_count"], 0);
     let claim_hint_count = u64_at(retrieval_quality, &["claim_hint_count"], 0);
+    let direct_claim_contract_present = bool_at(
+        retrieval_quality,
+        &["classification_inputs", "direct_contract_present"],
+        false,
+    );
+    let direct_evidence_claim_count = u64_at(
+        retrieval_quality,
+        &["classification_inputs", "direct_evidence_claim_count"],
+        0,
+    );
     let usable_evidence = bool_at(retrieval_quality, &["usable_evidence"], false);
     let retrieval_status = str_at(retrieval_quality, &["status"], "unknown");
     let request_shape_present = request_input
@@ -38,7 +45,11 @@ pub(super) fn web_retrieval_gate_diagnostics(
     let packaged_evidence_present = evidence_count > 0;
     let content_rich_candidates_present =
         content_rich_candidate_count > 0 && materialized_candidate_count > 0;
-    let claim_extraction_present = claim_hint_count > 0;
+    let claim_extraction_present = if direct_claim_contract_present {
+        direct_evidence_claim_count > 0
+    } else {
+        claim_hint_count > 0
+    };
     let provider_not_empty_or_degraded = !matches!(
         retrieval_status.as_str(),
         "not_attempted"
@@ -65,7 +76,7 @@ pub(super) fn web_retrieval_gate_diagnostics(
         &["classes", "access_denied_or_forbidden"],
         false,
     );
-    let provider_config_missing = bool_at(
+    let access_provider_config_missing = bool_at(
         &access_blocker,
         &["classes", "provider_configuration_missing"],
         false,
@@ -79,9 +90,14 @@ pub(super) fn web_retrieval_gate_diagnostics(
         &["materialization_failure_report", "top_reason", "reason"],
         "none",
     );
-    let browser_materialization_failed_hard = browser_materialization_failed
-        && (access_blocked_or_throttled || materialization_top_reason == "browser_materialization_failed");
+    let recovered_usable_retrieval = usable_evidence
+        && packaged_evidence_present
+        && content_rich_candidates_present
+        && claim_extraction_present
+        && provider_not_empty_or_degraded;
     let provider_supply = web_provider_supply_diagnostics(payload, retrieval_quality);
+    let provider_config_missing = access_provider_config_missing
+        || bool_at(&provider_supply, &["missing_configuration_detected"], false);
     let provider_config_usable = bool_at(&provider_supply, &["configuration_usable"], true);
     let provider_circuit_open_detected =
         bool_at(&provider_supply, &["circuit_open_detected"], false);
@@ -90,13 +106,28 @@ pub(super) fn web_retrieval_gate_diagnostics(
         u64_at(&provider_supply, &["raw_row_count"], 0) > 0 || raw_candidates_present;
     let provider_candidates_survive_filtering =
         u64_at(&provider_supply, &["candidate_row_count"], 0) > 0 || candidate_count > 0;
-    let provider_circuits_closed = !provider_circuit_open_detected
-        || (provider_candidates_survive_filtering && packaged_evidence_present && usable_evidence);
+    let retrieval_continued_past_access = provider_raw_rows_available
+        && provider_candidates_survive_filtering
+        && packaged_evidence_present;
+    let retrieval_continued_past_browser_materialization =
+        retrieval_continued_past_access && content_rich_candidates_present;
+    let provider_config_missing_hard = provider_config_missing && !provider_config_usable;
+    let rate_limited_hard =
+        rate_limited && !recovered_usable_retrieval && !retrieval_continued_past_access;
+    let anti_bot_challenge_hard =
+        anti_bot_challenge && !recovered_usable_retrieval && !retrieval_continued_past_access;
+    let access_blocked_or_throttled_hard = access_blocked_or_throttled
+        && !recovered_usable_retrieval
+        && !retrieval_continued_past_access;
+    let browser_materialization_failed_hard = browser_materialization_failed
+        && !usable_evidence
+        && !retrieval_continued_past_browser_materialization
+        && (access_blocked_or_throttled
+            || materialization_top_reason == "browser_materialization_failed");
+    let provider_circuits_closed =
+        !provider_circuit_open_detected || retrieval_continued_past_access;
     let provider_surface_ready = !provider_surface_degraded
-        || (provider_candidates_survive_filtering
-            && packaged_evidence_present
-            && content_rich_candidates_present
-            && claim_extraction_present);
+        || (retrieval_continued_past_access && content_rich_candidates_present);
     let blocker_recovery_lane_visible =
         bool_at(
             &browser_materialization_recovery,
@@ -151,9 +182,11 @@ pub(super) fn web_retrieval_gate_diagnostics(
         web_gate(
             "web_3b1_provider_quota_not_rate_limited",
             tool_attempted,
-            !rate_limited,
-            if rate_limited {
+            !rate_limited_hard,
+            if rate_limited_hard {
                 "provider or retrieval lane reported rate-limit, quota, Retry-After, throttling, or HTTP 429 signals"
+            } else if rate_limited {
+                "rate-limit or quota signal appeared on at least one lane, but retrieval still produced candidates and evidence"
             } else if tool_attempted {
                 "no provider rate-limit, quota, Retry-After, throttling, or HTTP 429 signal was detected"
             } else {
@@ -164,9 +197,11 @@ pub(super) fn web_retrieval_gate_diagnostics(
         web_gate(
             "web_3b2_no_bot_challenge_or_waf",
             tool_attempted,
-            !anti_bot_challenge,
-            if anti_bot_challenge {
+            !anti_bot_challenge_hard,
+            if anti_bot_challenge_hard {
                 "tool artifacts contained CAPTCHA, human-verification, Cloudflare, WAF, or bot-wall challenge signals"
+            } else if anti_bot_challenge {
+                "tool artifacts contained challenge signals on at least one lane, but retrieval still produced usable evidence"
             } else if tool_attempted {
                 "no CAPTCHA, human-verification, Cloudflare, WAF, or bot-wall challenge signal was detected"
             } else {
@@ -203,9 +238,11 @@ pub(super) fn web_retrieval_gate_diagnostics(
         web_gate(
             "web_3b5_provider_configuration_available",
             tool_attempted,
-            !provider_config_missing,
-            if provider_config_missing {
+            !provider_config_missing_hard,
+            if provider_config_missing_hard {
                 "tool artifacts indicate provider credentials, provider admission, or required provider configuration is missing"
+            } else if provider_config_missing {
+                "provider configuration gap was detected on at least one lane, but configured provider supply continued far enough to produce candidates and evidence"
             } else if tool_attempted {
                 "no missing provider credential, admission, or configuration signal was detected"
             } else {
@@ -216,9 +253,11 @@ pub(super) fn web_retrieval_gate_diagnostics(
         web_gate(
             "web_3b_access_not_blocked_or_throttled",
             tool_attempted,
-            !access_blocked_or_throttled,
-            if access_blocked_or_throttled {
+            !access_blocked_or_throttled_hard,
+            if access_blocked_or_throttled_hard {
                 "tool attempt appears blocked or throttled by an access, rate-limit, CAPTCHA, bot-wall, or similar web-control signal"
+            } else if access_blocked_or_throttled {
+                "an access blocker signal appeared on at least one lane, but retrieval still produced usable evidence"
             } else if tool_attempted {
                 "no access-block, CAPTCHA, bot-wall, or rate-limit signal was detected in the tool artifacts"
             } else {
@@ -228,9 +267,9 @@ pub(super) fn web_retrieval_gate_diagnostics(
         ),
         web_gate(
             "web_3c_blocker_recovery_lane_visible",
-            access_blocked_or_throttled,
-            !access_blocked_or_throttled || blocker_recovery_lane_visible,
-            if !access_blocked_or_throttled {
+            access_blocked_or_throttled_hard,
+            !access_blocked_or_throttled_hard || blocker_recovery_lane_visible,
+            if !access_blocked_or_throttled_hard {
                 "no access blocker was detected, so a browser-materialization recovery lane is not required"
             } else if blocker_recovery_lane_visible {
                 "access blocker was detected and the payload exposes browser-materialization recovery capability, recommendation, or attempt metadata"
@@ -438,8 +477,11 @@ pub(super) fn web_retrieval_gate_diagnostics(
             },
             vec![
                 "retrieval_quality.claim_hint_count".to_string(),
+                "retrieval_quality.classification_inputs.direct_contract_present".to_string(),
+                "retrieval_quality.classification_inputs.direct_evidence_claim_count".to_string(),
                 "tool_result_quality.claim_hint_count".to_string(),
                 "evidence_pack.claim_hints".to_string(),
+                "evidence_claims".to_string(),
             ],
         ),
         web_gate(
@@ -520,6 +562,8 @@ pub(super) fn web_retrieval_gate_diagnostics(
         "evidence_count": evidence_count,
         "content_rich_candidate_count": content_rich_candidate_count,
         "claim_hint_count": claim_hint_count,
+        "direct_claim_contract_present": direct_claim_contract_present,
+        "direct_evidence_claim_count": direct_evidence_claim_count,
         "usable_evidence": usable_evidence,
         "access_blocker": access_blocker,
         "browser_materialization_recovery": browser_materialization_recovery,
@@ -1229,6 +1273,16 @@ fn web_operator_case_metrics(
         .pointer("/prompt_relevance/topic_relevant_evidence")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    let direct_claim_contract_present = bool_at(
+        retrieval_quality,
+        &["classification_inputs", "direct_contract_present"],
+        false,
+    );
+    let direct_evidence_claim_count = u64_at(
+        retrieval_quality,
+        &["classification_inputs", "direct_evidence_claim_count"],
+        0,
+    );
     json!({
         "schema_version": 1,
         "readout": web_operator_case_readout(primary_bottleneck, retrieval_status),
@@ -1277,6 +1331,8 @@ fn web_operator_case_metrics(
         },
         "claim_extraction": {
             "claim_hint_count": claim_hint_count,
+            "direct_claim_contract_present": direct_claim_contract_present,
+            "direct_evidence_claim_count": direct_evidence_claim_count,
             "claim_hints_per_evidence_rate": ratio(claim_hint_count, evidence_count)
         },
         "usable_evidence": {
@@ -2724,6 +2780,7 @@ mod tests {
             "candidate_count": 20,
             "evidence_count": 6,
             "content_rich_candidate_count": 6,
+            "materialized_candidate_count": 6,
             "claim_hint_count": 2,
             "usable_evidence": false,
             "quality_flags": ["explicit_low_signal_marker"]
@@ -2768,6 +2825,167 @@ mod tests {
             .expect("web_7 gate");
         assert_eq!(gate_4c.get("status").and_then(Value::as_str), Some("pass"));
         assert_eq!(gate_7.get("status").and_then(Value::as_str), Some("fail"));
+    }
+
+    #[test]
+    fn claim_extraction_gate_uses_direct_evidence_claim_contract_when_present() {
+        let payload = json!({
+            "pending_tool_request": {
+                "tool_key": "batch_query",
+                "input": {
+                    "query": "Give me news from this week",
+                    "queries": ["Give me news from this week"],
+                    "keywords": ["news", "this week"]
+                }
+            },
+            "tools": [{
+                "status": "partial"
+            }],
+            "evidence_refs": [
+                {
+                    "title": "Generic current events page",
+                    "snippet": "A thin row that should not count as claim-backed evidence.",
+                    "claim_hints": ["Thin inferred hint"]
+                }
+            ]
+        });
+        let retrieval_quality = json!({
+            "status": "usable",
+            "candidate_count": 8,
+            "evidence_count": 4,
+            "content_rich_candidate_count": 4,
+            "materialized_candidate_count": 4,
+            "claim_hint_count": 6,
+            "usable_evidence": false,
+            "classification_inputs": {
+                "direct_contract_present": true,
+                "direct_evidence_claim_count": 0
+            }
+        });
+        let query_metadata = json!({
+            "metadata_present": true,
+            "rich_query_pack_or_narrow_marker": true
+        });
+        let transitions = json!({
+            "checkpoints": [{
+                "checkpoint": "5e_agent_received_evidence_context",
+                "status": "pass"
+            }]
+        });
+        let diag = web_retrieval_gate_diagnostics(
+            &payload,
+            &retrieval_quality,
+            &query_metadata,
+            &transitions,
+        );
+        let gate_5c = diag
+            .get("gates")
+            .and_then(Value::as_array)
+            .and_then(|rows| {
+                rows.iter().find(|row| {
+                    row.get("gate").and_then(Value::as_str)
+                        == Some("web_5c_claim_extraction_present")
+                })
+            })
+            .cloned()
+            .expect("web_5c gate");
+        assert_eq!(gate_5c.get("status").and_then(Value::as_str), Some("fail"));
+        assert_eq!(
+            diag.pointer("/first_failed_gate").and_then(Value::as_str),
+            Some("web_5c_claim_extraction_present")
+        );
+        assert_eq!(
+            diag.pointer("/operator_metrics/claim_extraction/direct_evidence_claim_count")
+                .and_then(Value::as_u64),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn nonblocking_provider_failures_do_not_mask_claim_extraction_gap() {
+        let payload = json!({
+            "pending_tool_request": {
+                "tool_key": "batch_query",
+                "input": {
+                    "query": "Compare Alpha and Beta",
+                    "queries": ["Compare Alpha and Beta"],
+                    "keywords": ["Alpha", "Beta"]
+                }
+            },
+            "tools": [{
+                "status": "partial"
+            }],
+            "partial_failure_details": [
+                "provider_circuit_open",
+                "provider_error",
+                "missing api key",
+                "rate_limited",
+                "captcha challenge"
+            ],
+            "provider_results": [{
+                "provider_raw_count": 40,
+                "candidate_rows": 12,
+                "synthesis_candidate_count": 6,
+                "result_quality": "provider_error"
+            }],
+            "evidence_refs": [{
+                "title": "Alpha and Beta overview",
+                "snippet": "The source names Alpha and Beta but does not expose a usable claim."
+            }]
+        });
+        let retrieval_quality = json!({
+            "status": "low_signal",
+            "candidate_count": 12,
+            "evidence_count": 4,
+            "content_rich_candidate_count": 4,
+            "materialized_candidate_count": 4,
+            "claim_hint_count": 0,
+            "usable_evidence": false
+        });
+        let query_metadata = json!({
+            "metadata_present": true,
+            "rich_query_pack_or_narrow_marker": true
+        });
+        let transitions = json!({
+            "checkpoints": [{
+                "checkpoint": "5e_agent_received_evidence_context",
+                "status": "pass"
+            }]
+        });
+        let diag = web_retrieval_gate_diagnostics(
+            &payload,
+            &retrieval_quality,
+            &query_metadata,
+            &transitions,
+        );
+        let gates = diag
+            .get("gates")
+            .and_then(Value::as_array)
+            .cloned()
+            .expect("gates");
+        for name in [
+            "web_3b1_provider_quota_not_rate_limited",
+            "web_3b2_no_bot_challenge_or_waf",
+            "web_3b5_provider_configuration_available",
+            "web_3b_access_not_blocked_or_throttled",
+            "web_4b_search_provider_circuit_closed",
+            "web_4c_search_provider_surface_ready",
+        ] {
+            let gate = gates
+                .iter()
+                .find(|row| row.get("gate").and_then(Value::as_str) == Some(name))
+                .cloned()
+                .unwrap_or_else(|| panic!("missing {name}"));
+            assert_eq!(
+                gate.get("status").and_then(Value::as_str),
+                Some("pass"),
+                "{name}: {gate:#?}"
+            );
+        }
+        assert_eq!(
+            diag.pointer("/first_failed_gate").and_then(Value::as_str),
+            Some("web_5c_claim_extraction_present")
+        );
     }
 
     #[test]
@@ -2882,5 +3100,200 @@ mod tests {
             .cloned()
             .expect("web_3d gate");
         assert_eq!(gate_3d.get("status").and_then(Value::as_str), Some("pass"));
+    }
+
+    #[test]
+    fn browser_materialization_gate_allows_usable_retrieval_even_if_browser_failed() {
+        let payload = json!({
+            "pending_tool_request": {
+                "tool_key": "batch_query",
+                "input": {
+                    "query": "Compare OpenAI Agents SDK with LangChain/LangGraph"
+                }
+            },
+            "tools": [{
+                "status": "partial"
+            }]
+        });
+        let retrieval_quality = json!({
+            "status": "usable",
+            "candidate_count": 14,
+            "evidence_count": 8,
+            "content_rich_candidate_count": 11,
+            "materialized_candidate_count": 8,
+            "claim_hint_count": 10,
+            "usable_evidence": true,
+            "browser_materialization": {
+                "attempted": true,
+                "failed": true
+            },
+            "materialization_failure_report": {
+                "top_reason": {"reason": "browser_materialization_failed", "count": 22},
+                "reason_rows": [
+                    {"reason": "browser_materialization_failed", "count": 22}
+                ]
+            }
+        });
+        let query_metadata = json!({
+            "metadata_present": true,
+            "rich_query_pack_or_narrow_marker": true
+        });
+        let transitions = json!({
+            "checkpoints": [{
+                "checkpoint": "5e_agent_received_evidence_context",
+                "status": "pass"
+            }]
+        });
+        let diag = web_retrieval_gate_diagnostics(
+            &payload,
+            &retrieval_quality,
+            &query_metadata,
+            &transitions,
+        );
+        let gate_3d = diag
+            .get("gates")
+            .and_then(Value::as_array)
+            .and_then(|rows| {
+                rows.iter().find(|row| {
+                    row.get("gate").and_then(Value::as_str)
+                        == Some("web_3d_browser_materialization_not_failed")
+                })
+            })
+            .cloned()
+            .expect("web_3d gate");
+        assert_eq!(gate_3d.get("status").and_then(Value::as_str), Some("pass"));
+    }
+
+    #[test]
+    fn browser_materialization_gate_allows_relevance_failure_after_content_arrived() {
+        let payload = json!({
+            "pending_tool_request": {
+                "tool_key": "batch_query",
+                "input": {
+                    "query": "Compare Firecrawl, Tavily, and Exa"
+                }
+            },
+            "tools": [{
+                "status": "partial"
+            }]
+        });
+        let retrieval_quality = json!({
+            "status": "low_relevance",
+            "candidate_count": 41,
+            "evidence_count": 21,
+            "content_rich_candidate_count": 17,
+            "materialized_candidate_count": 11,
+            "claim_hint_count": 1,
+            "usable_evidence": false,
+            "browser_materialization": {
+                "attempted": true,
+                "failed": true
+            },
+            "materialization_failure_report": {
+                "top_reason": {"reason": "browser_materialization_failed", "count": 9},
+                "reason_rows": [
+                    {"reason": "browser_materialization_failed", "count": 9}
+                ]
+            }
+        });
+        let query_metadata = json!({
+            "metadata_present": true,
+            "rich_query_pack_or_narrow_marker": true
+        });
+        let transitions = json!({
+            "checkpoints": [{
+                "checkpoint": "5e_agent_received_evidence_context",
+                "status": "pass"
+            }]
+        });
+        let diag = web_retrieval_gate_diagnostics(
+            &payload,
+            &retrieval_quality,
+            &query_metadata,
+            &transitions,
+        );
+        let gate_3d = diag
+            .get("gates")
+            .and_then(Value::as_array)
+            .and_then(|rows| {
+                rows.iter().find(|row| {
+                    row.get("gate").and_then(Value::as_str)
+                        == Some("web_3d_browser_materialization_not_failed")
+                })
+            })
+            .cloned()
+            .expect("web_3d gate");
+        assert_eq!(gate_3d.get("status").and_then(Value::as_str), Some("pass"));
+        assert_eq!(
+            diag.get("first_failed_gate").and_then(Value::as_str),
+            Some("web_7_usable_evidence_available")
+        );
+    }
+
+    #[test]
+    fn access_and_anti_bot_gates_allow_recovered_usable_retrieval() {
+        let payload = json!({
+            "pending_tool_request": {
+                "tool_key": "batch_query",
+                "input": {
+                    "query": "Research MCP maturity"
+                }
+            },
+            "tools": [{
+                "status": "partial",
+                "result": "Unfortunately, bots use DuckDuckGo too. Please complete the following challenge to verify you are human."
+            }]
+        });
+        let retrieval_quality = json!({
+            "status": "usable",
+            "candidate_count": 20,
+            "evidence_count": 12,
+            "content_rich_candidate_count": 9,
+            "materialized_candidate_count": 6,
+            "claim_hint_count": 7,
+            "usable_evidence": true,
+            "browser_materialization": {
+                "attempted": true,
+                "failed": false
+            }
+        });
+        let query_metadata = json!({
+            "metadata_present": true,
+            "rich_query_pack_or_narrow_marker": true
+        });
+        let transitions = json!({
+            "checkpoints": [{
+                "checkpoint": "5e_agent_received_evidence_context",
+                "status": "pass"
+            }]
+        });
+        let diag = web_retrieval_gate_diagnostics(
+            &payload,
+            &retrieval_quality,
+            &query_metadata,
+            &transitions,
+        );
+        let gates = diag
+            .get("gates")
+            .and_then(Value::as_array)
+            .cloned()
+            .expect("gates");
+        let gate_3b2 = gates
+            .iter()
+            .find(|row| {
+                row.get("gate").and_then(Value::as_str) == Some("web_3b2_no_bot_challenge_or_waf")
+            })
+            .cloned()
+            .expect("web_3b2 gate");
+        let gate_3b = gates
+            .iter()
+            .find(|row| {
+                row.get("gate").and_then(Value::as_str)
+                    == Some("web_3b_access_not_blocked_or_throttled")
+            })
+            .cloned()
+            .expect("web_3b access gate");
+        assert_eq!(gate_3b2.get("status").and_then(Value::as_str), Some("pass"));
+        assert_eq!(gate_3b.get("status").and_then(Value::as_str), Some("pass"));
     }
 }

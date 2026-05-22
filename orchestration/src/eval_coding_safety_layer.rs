@@ -267,7 +267,9 @@ pub fn safe_file_read(
         return Err("invalid_line_range:end_zero".to_string());
     }
     if start > requested_end {
-        return Err(format!("invalid_line_range:start_gt_end:{start}>{requested_end}"));
+        return Err(format!(
+            "invalid_line_range:start_gt_end:{start}>{requested_end}"
+        ));
     }
     if total_lines > 0 && start > total_lines {
         return Err(format!(
@@ -348,7 +350,11 @@ pub fn safe_file_write(
 
     Ok(SafeFileWriteReceipt {
         path: path.display().to_string(),
-        created_or_overwritten: if file_exists { "overwritten" } else { "created" },
+        created_or_overwritten: if file_exists {
+            "overwritten"
+        } else {
+            "created"
+        },
         overwrite_allowed: overwrite,
         snapshot_ref,
         previous_content_hash,
@@ -370,7 +376,11 @@ pub fn safe_file_patch(
 
     let source = fs::read_to_string(path).map_err(|error| format!("read_source_failed:{error}"))?;
     let previous_content_hash = content_hash(&source);
-    let line_ending = if source.contains("\r\n") { "\r\n" } else { "\n" };
+    let line_ending = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let normalized_search = normalize_line_endings(search, line_ending);
     let normalized_replacement = normalize_line_endings(replacement, line_ending);
     let match_count = source.match_indices(&normalized_search).count();
@@ -429,7 +439,11 @@ pub fn validation_command_runner(
         exit_code,
         stdout,
         stderr,
-        status: if output.status.success() { "passed" } else { "failed" },
+        status: if output.status.success() {
+            "passed"
+        } else {
+            "failed"
+        },
         description,
     })
 }
@@ -469,7 +483,11 @@ fn truncate_line(line: &str, max_line_chars: usize, notes: &mut Vec<String>) -> 
     line.chars().take(max_line_chars).collect::<String>()
 }
 
-fn write_snapshot(snapshot_root: &Path, original_path: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
+fn write_snapshot(
+    snapshot_root: &Path,
+    original_path: &Path,
+    bytes: &[u8],
+) -> Result<PathBuf, String> {
     fs::create_dir_all(snapshot_root).map_err(|error| format!("snapshot_dir_failed:{error}"))?;
     let name = sanitize_path_for_snapshot(original_path);
     let path = snapshot_root.join(format!("{}-{}.bak", name, content_hash_bytes(bytes)));

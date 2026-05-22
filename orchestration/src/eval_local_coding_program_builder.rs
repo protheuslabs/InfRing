@@ -185,7 +185,10 @@ fn materialize_slice(
 
     let mut validation_results = validate_written_files(task_root, &wrote_files);
     if slice.child_workflow_id == "local_code_edit_execution" && wrote_files.is_empty() {
-        failures.push(format!("local_code_edit_slice_wrote_no_files:{}", slice.name));
+        failures.push(format!(
+            "local_code_edit_slice_wrote_no_files:{}",
+            slice.name
+        ));
         validation_results.push(LocalCodingProgramBuilderLabValidationResult {
             check: "local_code_edit_slice_materialization",
             status: "failed",
@@ -221,11 +224,13 @@ fn validate_written_files(
         .map(|relative_path| {
             let path = task_root.join(relative_path);
             match std::fs::metadata(&path) {
-                Ok(metadata) if metadata.len() > 0 => LocalCodingProgramBuilderLabValidationResult {
-                    check: "file_materialized",
-                    status: "passed",
-                    evidence: format!("{relative_path} exists with {} bytes", metadata.len()),
-                },
+                Ok(metadata) if metadata.len() > 0 => {
+                    LocalCodingProgramBuilderLabValidationResult {
+                        check: "file_materialized",
+                        status: "passed",
+                        evidence: format!("{relative_path} exists with {} bytes", metadata.len()),
+                    }
+                }
                 Ok(_) => LocalCodingProgramBuilderLabValidationResult {
                     check: "file_materialized",
                     status: "failed",
@@ -599,8 +604,10 @@ mod tests {
             assert!(execution
                 .slice_results
                 .iter()
-                .any(|slice| slice.child_workflow_id == "local_code_edit_execution"
-                    && !slice.wrote_files.is_empty()));
+                .any(
+                    |slice| slice.child_workflow_id == "local_code_edit_execution"
+                        && !slice.wrote_files.is_empty()
+                ));
         }
 
         let single_file = report

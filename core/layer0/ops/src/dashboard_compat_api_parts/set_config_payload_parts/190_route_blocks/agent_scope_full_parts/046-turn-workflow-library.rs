@@ -468,7 +468,7 @@ fn workflow_final_answer_instruction(contract: &Value) -> String {
     workflow_final_output_contract(contract)
         .get("chat_requirement")
         .and_then(Value::as_str)
-        .map(|row| clean_text(row, 2_400))
+        .map(|row| clean_text(row, 8_000))
         .unwrap_or_default()
 }
 
@@ -1760,12 +1760,16 @@ mod workflow_control_tests {
 
     #[test]
     fn workflow_final_answer_prompt_keeps_cd_synthesis_requirements() {
-        let prompt = workflow_final_answer_prompt_context();
+        let prompt = workflow_final_answer_prompt_context_for_tools(&[json!({
+            "name": "web_search"
+        })]);
         assert!(prompt.contains("User-visible reply"));
         assert!(prompt.contains("do not echo menu options"));
         assert!(prompt.contains("source-backed"));
         assert!(prompt.contains("best bounded answer"));
         assert!(prompt.contains("Never use training"));
+        assert!(prompt.contains("do not let it carry the conclusion"));
+        assert!(prompt.contains("did not use outside evidence as the decision basis"));
     }
 
     #[test]

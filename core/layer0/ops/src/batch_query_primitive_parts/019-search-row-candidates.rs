@@ -582,9 +582,10 @@ fn comparison_guard_failure_artifacts(
         return (json!([]), None);
     }
     let coverage_ok = comparison_entities.iter().all(|entity| {
-        actionable_ranked
-            .iter()
-            .any(|(row, _)| candidate_mentions_entity(row, entity))
+        actionable_ranked.iter().any(|(row, score)| {
+            candidate_counts_as_query_usable_evidence(query, row, *score)
+                && candidate_mentions_entity(row, entity)
+        })
     });
     if coverage_ok {
         return (json!([]), None);
@@ -609,30 +610,34 @@ fn comparison_guard_failure_artifacts(
 }
 
 fn comparison_entity_coverage_count(
+    query: &str,
     comparison_entities: &[String],
     actionable_ranked: &[(Candidate, f64)],
-    retained_ranked: &[(Candidate, f64)],
+    _retained_ranked: &[(Candidate, f64)],
 ) -> usize {
     comparison_entities
         .iter()
         .filter(|entity| {
-            actionable_ranked
-                .iter()
-                .any(|(row, _)| candidate_mentions_entity(row, entity))
-                || retained_ranked
-                    .iter()
-                    .any(|(row, _)| candidate_mentions_entity(row, entity))
+            actionable_ranked.iter().any(|(row, score)| {
+                candidate_counts_as_query_usable_evidence(query, row, *score)
+                    && candidate_mentions_entity(row, entity)
+            })
         })
         .count()
 }
 
 fn comparison_partial_preserves_actionable_evidence(
+    query: &str,
     comparison_entities: &[String],
     actionable_ranked: &[(Candidate, f64)],
     retained_ranked: &[(Candidate, f64)],
 ) -> bool {
     let min_covered_entities = comparison_entities.len().min(2);
     min_covered_entities > 0
-        && comparison_entity_coverage_count(comparison_entities, actionable_ranked, retained_ranked)
-            >= min_covered_entities
+        && comparison_entity_coverage_count(
+            query,
+            comparison_entities,
+            actionable_ranked,
+            retained_ranked,
+        ) >= min_covered_entities
 }

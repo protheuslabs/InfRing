@@ -17,6 +17,7 @@ fn selected_provider_key_source(
     };
     let normalized = match raw.as_str() {
         "policy_inline" => "config",
+        "policy_secret_ref" => "secret_broker",
         "policy_env" | "env" => "env",
         "not_required" => "not_required",
         _ => "missing",

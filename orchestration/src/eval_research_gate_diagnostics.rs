@@ -387,6 +387,9 @@ fn first_failure_stage_hint(payload: &Value) -> String {
 }
 
 fn tool_result_low_signal_diag(payload: &Value) -> bool {
+    if tool_result_has_usable_quality_diag(payload) {
+        return false;
+    }
     let finalization =
         normalize_for_compare(&response_finalization_outcome(payload).unwrap_or_default());
     if finalization.contains("low_signal")
@@ -413,6 +416,38 @@ fn tool_result_low_signal_diag(payload: &Value) -> bool {
         .and_then(Value::as_array)
         .map(|rows| rows.iter().all(tool_row_is_low_signal_diag))
         .unwrap_or(false)
+}
+
+fn tool_result_has_usable_quality_diag(payload: &Value) -> bool {
+    payload
+        .get("tools")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(tool_row_has_usable_quality_diag)
+        || payload
+            .pointer("/response_finalization/tool_completion/tool_attempts")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .any(tool_row_has_usable_quality_diag)
+}
+
+fn tool_row_has_usable_quality_diag(row: &Value) -> bool {
+    row.get("tool_result_quality")
+        .map(tool_quality_value_is_usable_diag)
+        .unwrap_or(false)
+}
+
+fn tool_quality_value_is_usable_diag(quality: &Value) -> bool {
+    let status = normalize_for_compare(&str_at(quality, &["status"], ""));
+    if status == "usable" || bool_at(quality, &["usable_evidence"], false) {
+        return true;
+    }
+    let evidence_count = u64_at(quality, &["evidence_count"], 0);
+    let content_rich_count = u64_at(quality, &["content_rich_candidate_count"], 0);
+    let claim_hint_count = u64_at(quality, &["claim_hint_count"], 0);
+    evidence_count > 0 && content_rich_count > 0 && claim_hint_count > 0
 }
 
 fn tool_row_is_low_signal_diag(row: &Value) -> bool {
@@ -693,14 +728,60 @@ fn response_uses_internal_runtime_context_as_evidence_diag(normalized: &str) -> 
 
 fn required_entity_coverage_diag(case: &Value, normalized_response: &str) -> f64 {
     let entities = string_array_at(case, &["required_entities"]);
-    if entities.is_empty() {
+    let prompt = normalize_for_compare(&str_at(case, &["prompt"], ""));
+    let user_stated_entities = entities
+        .iter()
+        .filter(|entity| normalized_response_covers_entity_diag(&prompt, entity))
+        .collect::<Vec<_>>();
+    if user_stated_entities.is_empty() {
         return 1.0;
     }
-    let covered = entities
+    let covered = user_stated_entities
         .iter()
-        .filter(|entity| normalized_response.contains(&normalize_for_compare(entity)))
+        .filter(|entity| normalized_response_covers_entity_diag(normalized_response, entity))
         .count() as u64;
-    ratio(covered, entities.len() as u64)
+    ratio(covered, user_stated_entities.len() as u64)
+}
+
+fn normalized_response_covers_entity_diag(normalized_response: &str, entity: &str) -> bool {
+    let normalized_entity = normalize_for_compare(entity);
+    if normalized_entity.is_empty() {
+        return false;
+    }
+    if normalized_response.contains(&normalized_entity) {
+        return true;
+    }
+    if normalized_response.contains(&simple_plural_variant_diag(&normalized_entity))
+        || normalized_response.contains(&simple_singular_variant_diag(&normalized_entity))
+    {
+        return true;
+    }
+    let tokens = normalized_entity
+        .split_whitespace()
+        .filter(|token| token.len() > 2)
+        .collect::<Vec<_>>();
+    !tokens.is_empty()
+        && tokens
+            .iter()
+            .all(|token| token_or_simple_variant_present_diag(normalized_response, token))
+}
+
+fn token_or_simple_variant_present_diag(normalized_response: &str, token: &str) -> bool {
+    normalized_response.contains(token)
+        || normalized_response.contains(&simple_plural_variant_diag(token))
+        || normalized_response.contains(&simple_singular_variant_diag(token))
+}
+
+fn simple_plural_variant_diag(value: &str) -> String {
+    if value.ends_with('s') {
+        value.to_string()
+    } else {
+        format!("{value}s")
+    }
+}
+
+fn simple_singular_variant_diag(value: &str) -> String {
+    value.strip_suffix('s').unwrap_or(value).to_string()
 }
 
 pub(super) fn gate_transition_rate_rows(
