@@ -111,6 +111,8 @@ pub(super) fn web_retrieval_gate_diagnostics(
     let claim_quality_ready = bool_at(&evidence_quality, &["claim_quality_ready"], false);
     let citation_renderability_ready =
         bool_at(&evidence_quality, &["citation_renderability_ready"], false);
+    let evidence_packet_contract_ready =
+        bool_at(&evidence_quality, &["evidence_packet_contract_ready"], false);
     let answerability_ready = bool_at(&evidence_quality, &["answerability_ready"], false);
     let rate_limited_hard =
         rate_limited && !recovered_usable_retrieval && !retrieval_continued_past_access;

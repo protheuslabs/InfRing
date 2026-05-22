@@ -25,6 +25,7 @@ fn web_operator_aggregate_metrics(
     claim_quality_ready_cases: u64,
     citation_renderability_ready_cases: u64,
     answerability_ready_cases: u64,
+    evidence_packet_contract_ready_cases: u64,
     evidence_item_count_total: u64,
     low_quality_evidence_item_count_total: u64,
     quality_claim_count_total: u64,
@@ -84,6 +85,7 @@ fn web_operator_aggregate_metrics(
             "claim_quality_ready_case_rate": ratio(claim_quality_ready_cases, measured_cases),
             "citation_renderability_ready_case_rate": ratio(citation_renderability_ready_cases, measured_cases),
             "answerability_ready_case_rate": ratio(answerability_ready_cases, measured_cases),
+            "evidence_packet_contract_ready_case_rate": ratio(evidence_packet_contract_ready_cases, measured_cases),
             "low_quality_evidence_item_rate": ratio(
                 low_quality_evidence_item_count_total,
                 evidence_item_count_total
@@ -114,6 +116,7 @@ fn web_operator_aggregate_metrics(
             "claim_quality_ready_case_rate": "Share of cases where extracted claims looked like concrete answer material rather than headings, source labels, or boilerplate.",
             "citation_renderability_ready_case_rate": "Share of cases where claim/evidence material retained enough locator/title/domain data to render citations.",
             "answerability_ready_case_rate": "Share of cases where clean evidence, concrete claims, and citation data all existed together.",
+            "evidence_packet_contract_ready_case_rate": "Share of cases where answerable evidence also preserved source identity, source type, useful extract, concrete claim material, and query-relevance rationale.",
             "usable_evidence_case_rate": "Share of measured cases where retrieval produced evidence strong enough for synthesis.",
             "provider_starved_or_degraded_case_rate": "Share of cases where the first meaningful blocker was missing/degraded provider supply.",
             "access_blocked_or_throttled_case_rate": "Share of cases with detected bot wall, rate-limit, CAPTCHA, auth, or access-control signals."
@@ -190,6 +193,9 @@ fn web_operator_case_readout(primary_bottleneck: &str, retrieval_status: &str) -
         "answerability_not_ready" => {
             "evidence and claims exist, but the package is not yet coherent enough for a bounded useful answer".to_string()
         }
+        "evidence_packet_contract_not_ready" => {
+            "evidence can look answerable, but selected packets do not preserve the fields a chat response needs to cite and explain the answer".to_string()
+        }
         "retrieval_quality_not_usable" => {
             "evidence reached the tool layer, but quality is too weak for source-backed synthesis".to_string()
         }
@@ -226,6 +232,7 @@ fn web_failure_layer(gate: &str) -> &'static str {
         | "web_5d_source_quality_ready"
         | "web_5f_citation_renderability_ready"
         | "web_5g_answerability_ready"
+        | "web_5h_evidence_packet_contract_ready"
         | "web_7_usable_evidence_available"
         | "web_8_evidence_context_to_synthesis" => "usable_evidence_packaging",
         "web_5c_claim_extraction_present" | "web_5e_claim_quality_ready" => "claim_extraction",
@@ -295,6 +302,9 @@ fn web_operator_next_action(primary_bottleneck: &str) -> &'static str {
         }
         "answerability_not_ready" => {
             "improve selected evidence quality and claim support before tuning synthesis style"
+        }
+        "evidence_packet_contract_not_ready" => {
+            "preserve source identity, source type, relevant extracts, concrete claim material, and query-relevance rationale in each selected evidence packet"
         }
         "retrieval_quality_not_usable" => "increase candidate quality and source diversity",
         "evidence_context_handoff_missing" => "inspect evidence-to-synthesis handoff",

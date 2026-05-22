@@ -152,8 +152,12 @@
             "evidence_refs": [{
                 "title": "Search API documentation",
                 "locator": "https://docs.example.com/search-api",
+                "source_type": "official_docs",
+                "source_kind": "official_docs",
                 "source_domain": "docs.example.com",
                 "snippet": "The documentation describes a search API that returns answer-ready result objects with source links, snippets, and raw content fields for retrieval workflows.",
+                "relevant_extract": "The documentation describes a search API that returns answer-ready result objects with source links, snippets, and raw content fields for retrieval workflows.",
+                "why_relevant_to_query": "It directly describes web research API result fields that matter for comparing retrieval tooling.",
                 "claim_hints": [
                     "The search API returns structured result objects with source links, snippets, and raw content fields for retrieval workflows."
                 ]
@@ -193,6 +197,7 @@
             "web_5e_claim_quality_ready",
             "web_5f_citation_renderability_ready",
             "web_5g_answerability_ready",
+            "web_5h_evidence_packet_contract_ready",
             "web_7_usable_evidence_available",
         ] {
             let gate = diag
@@ -210,4 +215,76 @@
                 "{gate_name}: {gate:#?}"
             );
         }
+    }
+
+    #[test]
+    fn evidence_packet_contract_gate_rejects_answerable_but_unexplained_packets() {
+        let payload = json!({
+            "pending_tool_request": {
+                "tool_key": "batch_query",
+                "input": {
+                    "query": "compare web research APIs",
+                    "queries": ["compare web research APIs"],
+                    "keywords": ["web research APIs", "source links", "raw content"]
+                }
+            },
+            "tools": [{
+                "status": "usable"
+            }],
+            "evidence_refs": [{
+                "title": "Search API documentation",
+                "locator": "https://docs.example.com/search-api",
+                "source_type": "official_docs",
+                "source_kind": "official_docs",
+                "source_domain": "docs.example.com",
+                "snippet": "The documentation describes a search API that returns answer-ready result objects with source links, snippets, and raw content fields for retrieval workflows.",
+                "relevant_extract": "The documentation describes a search API that returns answer-ready result objects with source links, snippets, and raw content fields for retrieval workflows.",
+                "claim_hints": [
+                    "The search API returns structured result objects with source links, snippets, and raw content fields for retrieval workflows."
+                ]
+            }]
+        });
+        let retrieval_quality = json!({
+            "status": "usable",
+            "candidate_count": 6,
+            "evidence_count": 1,
+            "content_rich_candidate_count": 1,
+            "materialized_candidate_count": 1,
+            "claim_hint_count": 1,
+            "usable_evidence": true
+        });
+        let query_metadata = json!({
+            "metadata_present": true,
+            "rich_query_pack_or_narrow_marker": true
+        });
+        let transitions = json!({
+            "checkpoints": [{
+                "checkpoint": "5e_agent_received_evidence_context",
+                "status": "pass"
+            }]
+        });
+        let diag = web_retrieval_gate_diagnostics(
+            &payload,
+            &retrieval_quality,
+            &query_metadata,
+            &transitions,
+        );
+        assert_eq!(
+            diag.pointer("/first_failed_gate").and_then(Value::as_str),
+            Some("web_5h_evidence_packet_contract_ready")
+        );
+        assert_eq!(
+            diag.pointer("/evidence_quality/evidence_packet_contract/ready")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        let empty = Vec::new();
+        assert!(
+            diag.pointer("/evidence_quality/evidence_packet_contract/missing_fields")
+                .and_then(Value::as_array)
+                .unwrap_or(&empty)
+                .iter()
+                .any(|row| row.as_str() == Some("why_relevant_to_query")),
+            "{diag:#?}"
+        );
     }

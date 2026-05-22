@@ -13,8 +13,12 @@
             "evidence_refs": [{
                 "title": "Web research API comparison",
                 "locator": "https://docs.example.com/web-research-api-comparison",
+                "source_type": "official_docs",
+                "source_kind": "official_docs",
                 "source_domain": "docs.example.com",
                 "snippet": "The comparison describes differences between web research APIs, including search result structure, crawling support, and source citation handling for agent workflows.",
+                "relevant_extract": "The comparison describes differences between web research APIs, including search result structure, crawling support, and source citation handling for agent workflows.",
+                "why_relevant_to_query": "It directly supports a comparison of web research APIs by describing retrieval result structure and citation handling.",
                 "claim_hints": [
                     "The comparison describes differences between web research APIs across result structure, crawling support, and citation handling for agent workflows."
                 ]
@@ -84,8 +88,12 @@
             "evidence_refs": [{
                 "title": "Web research API comparison",
                 "locator": "https://docs.example.com/web-research-api-comparison",
+                "source_type": "official_docs",
+                "source_kind": "official_docs",
                 "source_domain": "docs.example.com",
                 "snippet": "The comparison describes differences between web research APIs, including search result structure, crawling support, and source citation handling for agent workflows.",
+                "relevant_extract": "The comparison describes differences between web research APIs, including search result structure, crawling support, and source citation handling for agent workflows.",
+                "why_relevant_to_query": "It directly supports a comparison of web research APIs by describing retrieval result structure and citation handling.",
                 "claim_hints": [
                     "The comparison describes differences between web research APIs across result structure, crawling support, and citation handling for agent workflows."
                 ]

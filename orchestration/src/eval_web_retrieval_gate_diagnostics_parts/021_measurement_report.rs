@@ -47,6 +47,7 @@ pub(super) fn web_retrieval_measurement_report(
     let mut claim_quality_ready_cases = 0_u64;
     let mut citation_renderability_ready_cases = 0_u64;
     let mut answerability_ready_cases = 0_u64;
+    let mut evidence_packet_contract_ready_cases = 0_u64;
     let mut low_quality_evidence_item_count_total = 0_u64;
     let mut evidence_item_count_total = 0_u64;
     let mut concrete_claim_count_total = 0_u64;
@@ -257,6 +258,19 @@ pub(super) fn web_retrieval_measurement_report(
         ) {
             answerability_ready_cases = answerability_ready_cases.saturating_add(1);
         }
+        if bool_at(
+            row,
+            &[
+                "web_tool_gate_diagnostics",
+                "operator_metrics",
+                "evidence_quality",
+                "evidence_packet_contract_ready",
+            ],
+            false,
+        ) {
+            evidence_packet_contract_ready_cases =
+                evidence_packet_contract_ready_cases.saturating_add(1);
+        }
         evidence_item_count_total = evidence_item_count_total.saturating_add(u64_at(
             row,
             &[
@@ -455,6 +469,7 @@ pub(super) fn web_retrieval_measurement_report(
         claim_quality_ready_cases,
         citation_renderability_ready_cases,
         answerability_ready_cases,
+        evidence_packet_contract_ready_cases,
         evidence_item_count_total,
         low_quality_evidence_item_count_total,
         quality_claim_count_total,

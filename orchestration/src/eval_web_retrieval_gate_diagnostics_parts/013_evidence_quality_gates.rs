@@ -93,20 +93,35 @@
             evidence_quality_refs(&evidence_quality),
         ),
         web_gate(
+            "web_5h_evidence_packet_contract_ready",
+            packaged_evidence_present && claim_extraction_present && answerability_ready,
+            evidence_packet_contract_ready,
+            if evidence_packet_contract_ready {
+                "at least half of selected evidence items carry source identity, source type, extract, concrete claim material, and query-relevance rationale"
+            } else if packaged_evidence_present && claim_extraction_present && answerability_ready {
+                "evidence appears answerable, but selected packets do not preserve enough source, extract, claim, and relevance fields for chat-safe synthesis"
+            } else {
+                "evidence packet contract cannot be assessed before answerable evidence exists"
+            },
+            evidence_quality_refs(&evidence_quality),
+        ),
+        web_gate(
             "web_7_usable_evidence_available",
             packaged_evidence_present || tool_attempted,
             usable_evidence
                 && content_rich_candidates_present
                 && claim_extraction_present
-                && answerability_ready,
+                && answerability_ready
+                && evidence_packet_contract_ready,
             if usable_evidence
                 && content_rich_candidates_present
                 && claim_extraction_present
                 && answerability_ready
+                && evidence_packet_contract_ready
             {
-                "retrieval quality classifies the packaged, materialized, claim-bearing, citation-ready evidence as usable"
+                "retrieval quality classifies the packaged, materialized, claim-bearing, citation-ready evidence packet as usable"
             } else {
-                "packaged output exists only as thin, unmaterialized, claim-poor, citation-poor, low-signal/no-results/degraded evidence or no usable evidence was available"
+                "packaged output exists only as thin, unmaterialized, claim-poor, citation-poor, low-signal/no-results/degraded evidence, lacks the evidence-packet contract, or no usable evidence was available"
             },
             vec![
                 "retrieval_quality.usable_evidence".to_string(),
@@ -114,6 +129,7 @@
                 "retrieval_quality.materialized_candidate_count".to_string(),
                 "retrieval_quality.content_rich_candidate_count".to_string(),
                 "retrieval_quality.claim_hint_count".to_string(),
+                "evidence_quality.evidence_packet_contract".to_string(),
             ],
         ),
         web_gate(

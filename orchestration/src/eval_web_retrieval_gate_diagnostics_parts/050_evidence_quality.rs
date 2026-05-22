@@ -6,6 +6,8 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
     scan.source_domains.dedup();
     scan.low_quality_flags.sort_unstable();
     scan.low_quality_flags.dedup();
+    scan.evidence_packet_missing_fields.sort_unstable();
+    scan.evidence_packet_missing_fields.dedup();
     scan.refs.sort_unstable();
     scan.refs.dedup();
 
@@ -64,6 +66,13 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
     let citation_renderability_ready = citation_ready_claim_count > 0
         || (scan.citation_ready_evidence_item_count > 0
             && (claim_hint_count > 0 || direct_claim_count > 0 || pack_claim_hint_count > 0));
+    let evidence_packet_item_count = scan
+        .evidence_item_count
+        .max(scan.evidence_packet_ready_count);
+    let evidence_packet_ready_rate =
+        ratio(scan.evidence_packet_ready_count, evidence_packet_item_count);
+    let evidence_packet_contract_ready =
+        scan.evidence_packet_ready_count > 0 && evidence_packet_ready_rate >= 0.5;
     let answerability_ready =
         source_quality_ready && claim_quality_ready && citation_renderability_ready;
 
@@ -72,6 +81,7 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         "source_quality_ready": source_quality_ready,
         "claim_quality_ready": claim_quality_ready,
         "citation_renderability_ready": citation_renderability_ready,
+        "evidence_packet_contract_ready": evidence_packet_contract_ready,
         "answerability_ready": answerability_ready,
         "evidence_item_count": evidence_item_count,
         "clean_evidence_item_count": clean_evidence_count,
@@ -89,6 +99,22 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         "source_domain_count": scan.source_domains.len() as u64,
         "source_domains": scan.source_domains,
         "low_quality_flags": scan.low_quality_flags,
+        "evidence_packet_contract": {
+            "schema_version": 1,
+            "ready": evidence_packet_contract_ready,
+            "ready_item_count": scan.evidence_packet_ready_count,
+            "item_count": evidence_packet_item_count,
+            "ready_rate": evidence_packet_ready_rate,
+            "missing_fields": scan.evidence_packet_missing_fields,
+            "required_field_groups": [
+                "source_identity",
+                "source_type",
+                "relevant_extract",
+                "claim_hints",
+                "why_relevant_to_query"
+            ],
+            "note": "Generic EvidencePacket contract: each answerable packet should carry source identity, source type, an extract, concrete claim material, and a query-relevance explanation. Dates are optional when unavailable."
+        },
         "artifact_refs": scan.refs,
         "note": "Generic evidence-quality readout: checks whether packaged evidence has clean source-backed material, concrete claim text, and citation renderability without assuming the query domain."
     })
@@ -126,6 +152,8 @@ struct EvidenceQualityScan {
     concrete_claim_count: u64,
     low_quality_claim_count: u64,
     citation_ready_claim_count: u64,
+    evidence_packet_ready_count: u64,
+    evidence_packet_missing_fields: Vec<String>,
     source_domains: Vec<String>,
     low_quality_flags: Vec<String>,
     refs: Vec<String>,
@@ -214,6 +242,15 @@ fn analyze_evidence_quality_object(
         scan.clean_evidence_item_count = scan.clean_evidence_item_count.saturating_add(1);
     }
 
+    let packet_missing_fields = evidence_packet_missing_fields(map);
+    if packet_missing_fields.is_empty() && !low_quality {
+        scan.evidence_packet_ready_count = scan.evidence_packet_ready_count.saturating_add(1);
+    } else {
+        for field in packet_missing_fields {
+            push_unique_case_insensitive(&mut scan.evidence_packet_missing_fields, field);
+        }
+    }
+
     for claim in evidence_object_claim_strings(map) {
         scan.claim_count = scan.claim_count.saturating_add(1);
         let low_claim = claim_text_low_quality(&claim);
@@ -227,6 +264,83 @@ fn analyze_evidence_quality_object(
             }
         }
     }
+}
+
+fn evidence_packet_missing_fields(map: &serde_json::Map<String, Value>) -> Vec<&'static str> {
+    let mut missing = Vec::new();
+    if !evidence_packet_source_identity_ready(map) {
+        missing.push("source_identity");
+    }
+    if !evidence_packet_source_type_ready(map) {
+        missing.push("source_type");
+    }
+    if !evidence_packet_relevant_extract_ready(map) {
+        missing.push("relevant_extract");
+    }
+    if !evidence_packet_claim_hints_ready(map) {
+        missing.push("claim_hints");
+    }
+    if !evidence_packet_relevance_reason_ready(map) {
+        missing.push("why_relevant_to_query");
+    }
+    missing
+}
+
+fn evidence_packet_source_identity_ready(map: &serde_json::Map<String, Value>) -> bool {
+    let locator_present = [
+        "locator",
+        "url",
+        "source_url",
+        "link",
+        "source_locator",
+        "citation",
+    ]
+    .iter()
+    .any(|key| map.get(*key).map(value_has_content).unwrap_or(false));
+    let title_or_domain_present = ["title", "source_title", "source_ref"]
+        .iter()
+        .any(|key| map.get(*key).map(value_has_content).unwrap_or(false))
+        || source_domain_value(map).is_some();
+    locator_present && title_or_domain_present
+}
+
+fn evidence_packet_source_type_ready(map: &serde_json::Map<String, Value>) -> bool {
+    ["source_type", "source_kind", "source_class"]
+        .iter()
+        .any(|key| map.get(*key).map(value_has_content).unwrap_or(false))
+}
+
+fn evidence_packet_relevant_extract_ready(map: &serde_json::Map<String, Value>) -> bool {
+    let mut values = evidence_object_content_strings(map);
+    collect_value_strings(
+        map.get("relevant_extract").unwrap_or(&Value::Null),
+        &mut values,
+    );
+    values
+        .iter()
+        .any(|raw| !content_text_low_quality(raw) && word_count(raw) >= 8)
+}
+
+fn evidence_packet_claim_hints_ready(map: &serde_json::Map<String, Value>) -> bool {
+    evidence_object_claim_strings(map)
+        .iter()
+        .any(|claim| !claim_text_low_quality(claim) && claim_text_concrete(claim))
+}
+
+fn evidence_packet_relevance_reason_ready(map: &serde_json::Map<String, Value>) -> bool {
+    let direct_reason = [
+        "why_relevant_to_query",
+        "relevance_reason",
+        "selection_reason",
+        "coverage_reason",
+    ]
+    .iter()
+    .filter_map(|key| map.get(*key).and_then(Value::as_str))
+    .any(|raw| {
+        let cleaned = clean_text(raw, 300);
+        !cleaned.is_empty() && !content_text_low_quality(&cleaned) && word_count(&cleaned) >= 4
+    });
+    direct_reason || map.get("coverage_facets").map(value_has_content).unwrap_or(false)
 }
 
 fn evidence_object_citation_ready(map: &serde_json::Map<String, Value>) -> bool {

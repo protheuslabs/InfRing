@@ -128,6 +128,25 @@ fn web_operator_case_metrics(
                 false
             ),
             "answerability_ready": bool_at(evidence_quality, &["answerability_ready"], false),
+            "evidence_packet_contract_ready": bool_at(
+                evidence_quality,
+                &["evidence_packet_contract_ready"],
+                false
+            ),
+            "evidence_packet_ready_item_count": u64_at(
+                evidence_quality,
+                &["evidence_packet_contract", "ready_item_count"],
+                0
+            ),
+            "evidence_packet_ready_rate": f64_at(
+                evidence_quality,
+                &["evidence_packet_contract", "ready_rate"],
+                0.0
+            ),
+            "evidence_packet_missing_fields": evidence_quality
+                .pointer("/evidence_packet_contract/missing_fields")
+                .cloned()
+                .unwrap_or_else(|| json!([])),
             "clean_evidence_rate": f64_at(evidence_quality, &["clean_evidence_rate"], 0.0),
             "concrete_claim_rate": f64_at(evidence_quality, &["concrete_claim_rate"], 0.0),
             "citation_ready_claim_rate": f64_at(

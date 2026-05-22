@@ -640,15 +640,72 @@ fn compact_tool_evidence_item(source: &str, row: &Value) -> Value {
             "ref": clean_text(raw, 240)
         });
     }
+    let source_kind = clean_text(
+        row.get("source_kind")
+            .or_else(|| row.get("source_type"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        80,
+    );
+    let source_class = clean_text(
+        row.get("source_class")
+            .or_else(|| row.get("source_type"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        80,
+    );
+    let source_type = clean_text(
+        row.get("source_type")
+            .or_else(|| row.get("source_kind"))
+            .or_else(|| row.get("source_class"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        80,
+    );
+    let relevant_extract = clean_text(
+        row.get("relevant_extract")
+            .or_else(|| row.get("extract"))
+            .or_else(|| row.get("support_snippet"))
+            .or_else(|| row.get("raw_content_excerpt"))
+            .or_else(|| row.get("snippet"))
+            .or_else(|| row.get("snippet_preview"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        700,
+    );
+    let why_relevant_to_query = clean_text(
+        row.get("why_relevant_to_query")
+            .or_else(|| row.get("relevance_reason"))
+            .or_else(|| row.get("selection_reason"))
+            .or_else(|| row.get("coverage_reason"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        360,
+    );
+    let published_or_observed_date = clean_text(
+        row.get("published_or_observed_date")
+            .or_else(|| row.get("published_date"))
+            .or_else(|| row.get("published_at"))
+            .or_else(|| row.get("observed_at"))
+            .or_else(|| row.get("timestamp"))
+            .or_else(|| row.get("date"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        80,
+    );
     json!({
         "source": source,
+        "evidence_packet_version": "evidence_packet_v1",
         "pack_version": clean_text(row.get("pack_version").and_then(Value::as_str).unwrap_or(""), 80),
-        "source_kind": clean_text(row.get("source_kind").and_then(Value::as_str).unwrap_or(""), 80),
-        "source_class": clean_text(row.get("source_class").and_then(Value::as_str).unwrap_or(""), 80),
+        "source_type": source_type,
+        "source_kind": source_kind,
+        "source_class": source_class,
         "title": clean_text(row.get("title").and_then(Value::as_str).unwrap_or(""), 180),
         "locator": clean_text(row.get("locator").or_else(|| row.get("url")).and_then(Value::as_str).unwrap_or(""), 260),
         "source_domain": clean_text(row.get("source_domain").or_else(|| row.get("domain")).and_then(Value::as_str).unwrap_or(""), 120),
         "snippet": clean_text(row.get("snippet").or_else(|| row.get("snippet_preview")).and_then(Value::as_str).unwrap_or(""), 420),
+        "relevant_extract": relevant_extract,
+        "why_relevant_to_query": why_relevant_to_query,
         "claim_hints": compact_string_array(row.get("claim_hints"), 6, 180),
         "term_hints": compact_string_array(row.get("term_hints"), 8, 80),
         "score": row.get("score").cloned().unwrap_or(Value::Null),
@@ -658,6 +715,7 @@ fn compact_tool_evidence_item(source: &str, row: &Value) -> Value {
         "quality_flags": compact_string_array(row.get("quality_flags").or_else(|| row.get("flags")), 8, 80),
         "coverage_facets": row.get("coverage_facets").cloned().unwrap_or_else(|| json!([])),
         "freshness": row.get("freshness").cloned().unwrap_or(Value::Null),
+        "published_or_observed_date": published_or_observed_date,
         "evidence_claims": compact_claim_array(row.get("evidence_claims"), 4)
     })
 }
@@ -1495,6 +1553,9 @@ mod tool_turn_response_text_tests {
                     "locator": "https://example.test/battery",
                     "source_domain": "example.test",
                     "snippet": "A lab reported a battery chemistry milestone.",
+                    "relevant_extract": "A lab reported a battery chemistry milestone that may matter for a 2026 breakthroughs briefing.",
+                    "why_relevant_to_query": "It provides a source-backed example for the user's request about scientific breakthroughs in 2026.",
+                    "published_or_observed_date": "2026-05-01",
                     "claim_hints": ["battery chemistry milestone"],
                     "quality_flags": ["primary_source_needed"],
                     "score": 0.84,
@@ -1546,6 +1607,36 @@ mod tool_turn_response_text_tests {
                 .pointer("/evidence_pack/0/title")
                 .and_then(Value::as_str),
             Some("Battery milestone")
+        );
+        assert_eq!(
+            input
+                .pointer("/evidence_pack/0/evidence_packet_version")
+                .and_then(Value::as_str),
+            Some("evidence_packet_v1")
+        );
+        assert_eq!(
+            input
+                .pointer("/evidence_pack/0/source_type")
+                .and_then(Value::as_str),
+            Some("browser_materialized_page")
+        );
+        assert_eq!(
+            input
+                .pointer("/evidence_pack/0/relevant_extract")
+                .and_then(Value::as_str),
+            Some("A lab reported a battery chemistry milestone that may matter for a 2026 breakthroughs briefing.")
+        );
+        assert_eq!(
+            input
+                .pointer("/evidence_pack/0/why_relevant_to_query")
+                .and_then(Value::as_str),
+            Some("It provides a source-backed example for the user's request about scientific breakthroughs in 2026.")
+        );
+        assert_eq!(
+            input
+                .pointer("/evidence_pack/0/published_or_observed_date")
+                .and_then(Value::as_str),
+            Some("2026-05-01")
         );
         assert_eq!(
             input
