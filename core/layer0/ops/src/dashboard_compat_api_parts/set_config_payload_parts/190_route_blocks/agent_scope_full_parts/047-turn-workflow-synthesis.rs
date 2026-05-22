@@ -1017,6 +1017,138 @@ fn tool_evidence_outcome_posture(response_tools: &[Value]) -> &'static str {
     }
 }
 
+fn evidence_packet_text_field(row: &Value, keys: &[&str], max_len: usize) -> String {
+    for key in keys {
+        let value = clean_text(row.get(*key).and_then(Value::as_str).unwrap_or(""), max_len);
+        if !value.is_empty() {
+            return value;
+        }
+    }
+    String::new()
+}
+
+fn evidence_packet_first_string(value: Option<&Value>, max_len: usize) -> String {
+    match value {
+        Some(Value::String(raw)) => clean_text(raw, max_len),
+        Some(Value::Array(rows)) => rows
+            .iter()
+            .find_map(|row| {
+                let value = evidence_packet_first_string(Some(row), max_len);
+                (!value.is_empty()).then_some(value)
+            })
+            .unwrap_or_default(),
+        Some(Value::Object(map)) => {
+            for key in ["claim", "text", "summary", "snippet", "relevant_extract"] {
+                let value = clean_text(map.get(key).and_then(Value::as_str).unwrap_or(""), max_len);
+                if !value.is_empty() {
+                    return value;
+                }
+            }
+            String::new()
+        }
+        _ => String::new(),
+    }
+}
+
+fn evidence_packet_claim_text(row: &Value) -> String {
+    let claim = evidence_packet_first_string(row.get("claim_hints"), 260);
+    if !claim.is_empty() {
+        return claim;
+    }
+    let claim = evidence_packet_first_string(row.get("evidence_claims"), 260);
+    if !claim.is_empty() {
+        return claim;
+    }
+    evidence_packet_text_field(row, &["claim", "finding", "summary"], 260)
+}
+
+fn evidence_packet_source_label(row: &Value) -> String {
+    let title = evidence_packet_text_field(row, &["title", "source_title", "source_ref"], 120);
+    let domain = evidence_packet_text_field(row, &["source_domain", "domain"], 80);
+    let locator = evidence_packet_text_field(row, &["locator", "url", "link"], 160);
+    if !title.is_empty() && !domain.is_empty() {
+        format!("{title}, {domain}")
+    } else if !title.is_empty() {
+        title
+    } else if !domain.is_empty() {
+        domain
+    } else {
+        locator
+    }
+}
+
+fn evidence_packet_counts_as_usable(row: &Value) -> bool {
+    if row.get("counts_as_usable_evidence").and_then(Value::as_bool) == Some(false) {
+        return false;
+    }
+    let confidence = clean_text(row.get("confidence").and_then(Value::as_str).unwrap_or(""), 80)
+        .to_ascii_lowercase();
+    !matches!(
+        confidence.as_str(),
+        "candidate_only" | "low_confidence_raw" | "rejected"
+    )
+}
+
+fn evidence_packet_answer_unit(row: &Value) -> Option<String> {
+    if !evidence_packet_counts_as_usable(row) {
+        return None;
+    }
+    let claim = evidence_packet_claim_text(row);
+    let extract = evidence_packet_text_field(
+        row,
+        &[
+            "relevant_extract",
+            "support_snippet",
+            "snippet",
+            "summary",
+            "content",
+        ],
+        360,
+    );
+    let answer_text = if !claim.is_empty() {
+        claim
+    } else {
+        first_sentence(&extract, 260)
+    };
+    if answer_text.is_empty() {
+        return None;
+    }
+    let source = evidence_packet_source_label(row);
+    let unit = if source.is_empty() {
+        answer_text
+    } else {
+        format!("{answer_text} Source: {source}.")
+    };
+    Some(clean_text(&unit, 520))
+}
+
+fn evidence_packet_answer_units(response_tools: &[Value], limit: usize) -> Vec<String> {
+    let mut units = Vec::<String>::new();
+    let mut seen = std::collections::HashSet::<String>::new();
+    let limit = limit.clamp(1, 8);
+    for tool in response_tools {
+        for key in ["evidence_pack", "evidence_refs", "evidence_pack_candidates"] {
+            for row in tool_hidden_array(tool, key) {
+                let Some(unit) = evidence_packet_answer_unit(&row) else {
+                    continue;
+                };
+                let dedupe_key = unit.to_ascii_lowercase();
+                if seen.insert(dedupe_key) {
+                    units.push(unit);
+                }
+                if units.len() >= limit {
+                    return units;
+                }
+            }
+        }
+    }
+    units
+}
+
+fn response_tools_have_answer_ready_evidence_packets(response_tools: &[Value]) -> bool {
+    !evidence_packet_answer_units(response_tools, 1).is_empty()
+}
+
 fn annotate_final_evidence_outcome_posture(workflow: &mut Value, response_tools: &[Value]) {
     let posture = tool_evidence_outcome_posture(response_tools);
     workflow["final_llm_response"]["evidence_outcome_posture"] =
@@ -1027,6 +1159,23 @@ fn annotate_final_evidence_outcome_posture(workflow: &mut Value, response_tools:
 
 fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[Value]) -> String {
     let _ = message;
+    let answer_units = evidence_packet_answer_units(response_tools, 4);
+    if !answer_units.is_empty() {
+        let coverage_note = clean_text(
+            &first_sentence(&fallback_coverage_lane_sentence(response_tools), 280),
+            320,
+        );
+        let mut parts = vec![
+            "Based on the retrieved evidence, the strongest supported answer is:".to_string(),
+        ];
+        for unit in answer_units {
+            parts.push(format!("- {unit}"));
+        }
+        if !coverage_note.is_empty() {
+            parts.push(format!("Limit: {coverage_note}"));
+        }
+        return clean_text(&parts.join("\n"), 2_400);
+    }
     let failure_reason = clean_text(
         &first_sentence(&response_tools_failure_reason_for_user(response_tools, 4), 320),
         360,
@@ -1204,6 +1353,7 @@ fn rejected_synthesized_response_is_salvageable(
         || response_looks_like_raw_tool_payload_dump(&cleaned)
         || response_looks_like_unsynthesized_web_snippet_dump(&cleaned)
         || response_looks_like_raw_web_artifact_dump(&cleaned)
+        || response_looks_like_retrieval_recap_substituted_for_answer(&cleaned)
         || response_contains_prompt_scaffold(&cleaned)
     {
         return false;
@@ -1673,6 +1823,13 @@ fn tool_backed_final_verifier_violation_reason(
     }
     let first = first_sentence(&cleaned, 420).to_ascii_lowercase();
     let full = cleaned.to_ascii_lowercase();
+    if response_tools_have_answer_ready_evidence_packets(response_tools)
+        && response_looks_like_retrieval_recap_substituted_for_answer(&cleaned)
+    {
+        return Some(
+            "final_response_verifier_contract:retrieval_recap_substituted_for_answer".to_string(),
+        );
+    }
     let status_first = final_response_verifier_contract_marker_for_tools(
         response_tools,
         "/diagnostic_markers/final_response_verifier/opening_status_phrases",
@@ -1731,6 +1888,43 @@ fn tool_backed_final_verifier_violation_reason(
         ));
     }
     None
+}
+
+fn response_looks_like_retrieval_recap_substituted_for_answer(response_text: &str) -> bool {
+    let normalized = clean_text(response_text, 8_000).to_ascii_lowercase();
+    if normalized.is_empty() {
+        return false;
+    }
+    let first = first_sentence(&normalized, 700);
+    let trace_marker_count = [
+        "recorded evidence so far",
+        "here's what i found",
+        "here s what i found",
+        "web search:",
+        "from web retrieval",
+        "tool trace complete",
+        "search surfaced",
+        "retrieval state",
+        "coverage is fragmented",
+        "provider timeouts",
+        "provider starvation",
+        "results are incomplete",
+    ]
+    .iter()
+    .filter(|marker| normalized.contains(**marker))
+    .count();
+    let opens_as_status_or_inventory = [
+        "the safest bounded answer",
+        "i found some",
+        "here's what",
+        "here s what",
+        "the current retrieval",
+        "recorded evidence",
+        "web search",
+    ]
+    .iter()
+    .any(|marker| first.contains(*marker));
+    trace_marker_count >= 2 || (trace_marker_count >= 1 && opens_as_status_or_inventory)
 }
 
 fn workflow_final_answer_explicitly_refuses_unsupported_recommendation(normalized: &str) -> bool {
@@ -1958,7 +2152,7 @@ fn workflow_final_synthesis_retry_prompt_context(
     }
     clean_text(
         &format!(
-            "Internal final-response verifier retry. The previous candidate failed `{}`. Previous excerpt: {}. Produce the user-facing answer from the same recorded evidence and user goal. Lead with the best bounded answer the evidence supports, then state limits or gaps. If the failure names missing coverage lanes, cover each named lane or explicitly mark its evidence as weak or missing. If the failure names missing citation/source signal, preserve compact source grounding for claims supported by recorded evidence, using whatever natural wording fits the answer. If the previous candidate opened by reporting tool/search/retrieval status, make that status supporting context after the answer instead. Do not mention this verifier, workflow gates, tool traces, or a required output format.",
+            "Internal final-response verifier retry. The previous candidate failed `{}`. Previous excerpt: {}. Produce the user-facing answer from the same recorded evidence and user goal. Lead with the best bounded answer the evidence supports, then state limits or gaps. If the failure names missing coverage lanes, cover each named lane or explicitly mark its evidence as weak or missing. If the failure names missing citation/source signal, preserve compact source grounding for claims supported by recorded evidence, using whatever natural wording fits the answer. If the failure names retrieval recap or the previous candidate opened by reporting tool/search/retrieval status, convert EvidencePacket claim_hints/relevant_extract/source refs into answer units instead of listing sources or tool status. Do not mention this verifier, workflow gates, tool traces, or a required output format.",
             clean_text(last_reject_reason, 120),
             clean_text(last_invalid_excerpt, 240)
         ),
@@ -4711,10 +4905,132 @@ mod workflow_fallback_tests {
                 ]
             })],
         );
-        assert!(response.starts_with("The practical answer is"), "{response}");
-        assert!(response.contains("partial conclusion"), "{response}");
+        assert!(
+            response.starts_with("Based on the retrieved evidence"),
+            "{response}"
+        );
+        assert!(response.contains("LangGraph focuses on"), "{response}");
+        assert!(
+            response.contains("Source: LangGraph overview."),
+            "{response}"
+        );
         assert!(!response.contains("tool_evidence_runtime_fallback_suppressed"));
         assert!(!response.contains("Recorded evidence so far"));
+    }
+
+    #[test]
+    fn tool_evidence_fallback_uses_answer_ready_evidence_packets() {
+        let response = fallback_final_response_from_tool_evidence(
+            "What are some scientific breakthroughs in 2026?",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "evidence_pack": [{
+                    "pack_version": "evidence_pack_v1",
+                    "source_kind": "research_news",
+                    "source_class": "scholarly_or_research",
+                    "title": "Battery milestone report",
+                    "locator": "https://example.test/battery-2026",
+                    "source_domain": "example.test",
+                    "relevant_extract": "A research group reported a solid-state battery chemistry milestone with improved cycle stability in 2026.",
+                    "why_relevant_to_query": "It is a source-backed example of a scientific breakthrough reported in the requested year.",
+                    "claim_hints": [
+                        "A 2026 solid-state battery chemistry milestone improved cycle stability."
+                    ],
+                    "counts_as_usable_evidence": true
+                }]
+            })],
+        );
+        assert!(
+            response.starts_with("Based on the retrieved evidence"),
+            "{response}"
+        );
+        assert!(response.contains("solid-state battery chemistry milestone"), "{response}");
+        assert!(response.contains("Source: Battery milestone report, example.test."), "{response}");
+        assert!(!response.contains("Here's what I found"), "{response}");
+        assert!(!response.contains("Recorded evidence so far"), "{response}");
+        assert!(!response.contains("From web retrieval"), "{response}");
+    }
+
+    #[test]
+    fn final_verifier_rejects_retrieval_recap_when_answer_packets_exist() {
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "is_error": false,
+            "evidence_pack": [{
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "LangGraph docs",
+                "locator": "https://docs.example.test/langgraph",
+                "source_domain": "docs.example.test",
+                "relevant_extract": "LangGraph supports stateful graph-based agent orchestration for long-running workflows.",
+                "why_relevant_to_query": "It directly supports the requested comparison of agent workflow frameworks.",
+                "claim_hints": [
+                    "LangGraph supports stateful graph-based agent orchestration for long-running workflows."
+                ],
+                "counts_as_usable_evidence": true
+            }]
+        })];
+        let bad_response = "The safest bounded answer is that the current retrieval state does not support a source-backed conclusion yet. Recorded evidence so far: Here's what I found: web search: From web retrieval: docs.example.test: LangGraph docs.";
+        assert_eq!(
+            tool_backed_final_verifier_violation_reason(bad_response, &tools).as_deref(),
+            Some("final_response_verifier_contract:retrieval_recap_substituted_for_answer")
+        );
+    }
+
+    #[test]
+    fn rejected_retrieval_recap_is_rewritten_from_evidence_packets() {
+        let mut workflow = json!({
+            "response": "",
+            "text": "",
+            "message": "",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": false,
+                "status": "synthesis_failed"
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "is_error": false,
+            "evidence_pack": [{
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "CrewAI docs",
+                "locator": "https://docs.example.test/crewai",
+                "source_domain": "docs.example.test",
+                "relevant_extract": "CrewAI emphasizes role-based multi-agent orchestration for collaborative agent workflows.",
+                "why_relevant_to_query": "It directly supports a comparison of agent workflow frameworks.",
+                "claim_hints": [
+                    "CrewAI emphasizes role-based multi-agent orchestration for collaborative agent workflows."
+                ],
+                "counts_as_usable_evidence": true
+            }]
+        })];
+        let bad_response = "The safest bounded answer is that the current retrieval state does not support a source-backed conclusion yet. Recorded evidence so far: Here's what I found: web search: From web retrieval: docs.example.test: CrewAI docs.";
+        assert!(maybe_apply_rejected_tool_evidence_fallback(
+            &mut workflow,
+            "Compare LangGraph and CrewAI.",
+            &tools,
+            bad_response,
+            bad_response,
+            "final_response_verifier_contract:retrieval_recap_substituted_for_answer",
+        ));
+        let response = workflow.get("response").and_then(Value::as_str).unwrap_or("");
+        assert!(response.contains("CrewAI emphasizes role-based"), "{response}");
+        assert!(!response.contains("Here's what I found"), "{response}");
+        assert!(!response.contains("Recorded evidence so far"), "{response}");
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/status")
+                .and_then(Value::as_str),
+            Some("tool_evidence_fallback_used")
+        );
     }
 
     #[test]
@@ -4894,7 +5210,15 @@ mod workflow_fallback_tests {
             .get("response")
             .and_then(Value::as_str)
             .unwrap_or("");
-        assert!(response.starts_with("The practical answer is"), "{response}");
+        assert!(
+            response.starts_with("Based on the retrieved evidence"),
+            "{response}"
+        );
+        assert!(response.contains("LangGraph is production-oriented"), "{response}");
+        assert!(
+            response.contains("Source: Framework comparison."),
+            "{response}"
+        );
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/status")
