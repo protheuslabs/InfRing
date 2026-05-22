@@ -2,6 +2,7 @@
 
 Status: active reset ledger  
 Parent doctrine: `docs/workspace/primitive_first_system_doctrine.md`
+Current reset spine: `docs/workspace/coding_primitive_spine_reset.md`
 
 ## Purpose
 

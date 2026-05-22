@@ -93,6 +93,8 @@ struct UsefulWorkCase {
     seed: fn(&Path) -> Result<(), String>,
 }
 
+const LEVEL2_MAX_WORKER_RUNTIME_MS: u128 = 180_000;
+
 const CASES: &[UsefulWorkCase] = &[
     UsefulWorkCase {
         task_id: "existing_behavior_patch",
@@ -250,6 +252,17 @@ fn seed_case(
             validation.detail
         ));
     }
+    let semantic_probe_dir = project_root.join(".infring");
+    fs::create_dir_all(&semantic_probe_dir).map_err(|error| {
+        format!(
+            "{attempt_id}:semantic_probe_dir_create_failed:{}:{error}",
+            semantic_probe_dir.display()
+        )
+    })?;
+    write_file(
+        &semantic_probe_dir.join("semantic_probe.py"),
+        case.semantic_probe,
+    )?;
     let prompt_path = prompts_root.join(format!("{attempt_id}.txt"));
     write_file(&prompt_path, &worker_prompt(&project_root, case))?;
     let seed_completed_at_unix_ms = millis_now();
@@ -278,7 +291,7 @@ fn seed_case(
 
 fn worker_prompt(project_root: &Path, case: &UsefulWorkCase) -> String {
     format!(
-        "You are running Native Coding Useful-Work Eval v1. Use the Infring native coding workflow and tools, not a simulated Codex worker. Your write ownership is limited to this project root: {project_root}\n\nTask: {goal}\n\nRules:\n1. Current local files are authoritative. Read relevant existing files before modifying behavior.\n2. This is an implementation task, so baseline validation passing before mutation is not completion evidence.\n3. Add or patch source and tests so the requested behavior exists semantically.\n4. Treat user-named functions, classes, attributes, constructor arguments, and input shapes as public API requirements. Put public helpers in the existing module that owns the adjacent preserved behavior, or re-export them there, unless the prompt explicitly names a new module.\n5. Regression tests must import and call the same public API shape requested by the task, not only an internal helper or alternate module.\n6. Run this validation command from project root: PYTHONPATH=src python3 -m unittest discover -s tests\n7. If validation fails, use the command output as repair input and patch the code/tests.\n8. Final response must list changed files, validation command/result, caveats, and receipt-backed evidence.\n9. Do not commit anything.\n",
+        "You are running Native Coding Useful-Work Eval v1. Use the Infring native coding workflow and tools, not a simulated Codex worker. Your write ownership is limited to this project root: {project_root}\n\nTask: {goal}\n\nRules:\n1. Current local files are authoritative. Read relevant existing files before modifying behavior.\n2. This is an implementation task, so baseline validation passing before mutation is not completion evidence.\n3. Add or patch source and tests so the requested behavior exists semantically.\n4. Treat user-named functions, classes, attributes, constructor arguments, and input shapes as public API requirements. Put public helpers in the existing module that owns the adjacent preserved behavior, or re-export them there, unless the prompt explicitly names a new module.\n5. Regression tests must import and call the same public API shape requested by the task, not only an internal helper or alternate module.\n6. Run this validation command from project root: PYTHONPATH=src python3 -m unittest discover -s tests\n7. Run this semantic probe command from project root after validation: PYTHONPATH=src python3 .infring/semantic_probe.py\n8. If validation or the semantic probe fails, use the command output as repair input and patch the code/tests.\n9. Final response must list changed files, validation command/result, semantic probe result, caveats, and receipt-backed evidence.\n10. Do not commit anything.\n",
         project_root = project_root.display(),
         goal = case.prompt_goal,
     )
@@ -381,6 +394,19 @@ fn judge_job(
         "final_answer_reports_validation",
         receipt_evidence.has_validation_summary,
         receipt_evidence.final_answer_detail,
+    );
+    let worker_runtime_ok = receipt_evidence
+        .worker_runtime_ms
+        .map(|runtime_ms| runtime_ms <= LEVEL2_MAX_WORKER_RUNTIME_MS)
+        .unwrap_or(false);
+    push_check(
+        &mut checks,
+        "worker_runtime_within_level2_budget",
+        worker_runtime_ok,
+        format!(
+            "worker_runtime_ms={:?} max_worker_runtime_ms={}",
+            receipt_evidence.worker_runtime_ms, LEVEL2_MAX_WORKER_RUNTIME_MS
+        ),
     );
 
     for check in &checks {
@@ -532,6 +558,7 @@ struct ReceiptEvidence {
     has_changed_file_summary: bool,
     has_validation_summary: bool,
     first_mutation_ms: Option<u128>,
+    worker_runtime_ms: Option<u128>,
     detail: String,
     final_answer_detail: String,
 }
@@ -546,6 +573,7 @@ fn native_receipt_evidence(batch_root: &Path, job: &NativeCodingUsefulWorkJob) -
     let raw = fs::read_to_string(&output_path).unwrap_or_default();
     let journal_raw = fs::read_to_string(&journal_path).unwrap_or_default();
     let raw_lower = format!("{raw}\n{journal_raw}").to_ascii_lowercase();
+    let output = serde_json::from_str::<serde_json::Value>(&raw).ok();
     let journal = serde_json::from_str::<serde_json::Value>(&journal_raw).ok();
     let journal_receipts = journal
         .as_ref()
@@ -588,6 +616,22 @@ fn native_receipt_evidence(batch_root: &Path, job: &NativeCodingUsefulWorkJob) -
         .unwrap_or(false)
         || raw_lower.contains("validation")
         || raw_lower.contains("test");
+    let worker_runtime_ms = output
+        .as_ref()
+        .and_then(|value| value.get("receipt"))
+        .and_then(|receipt| receipt.get("phase_latency_ms"))
+        .and_then(|latency| latency.get("total"))
+        .and_then(serde_json::Value::as_u64)
+        .map(u128::from)
+        .or_else(|| {
+            output
+                .as_ref()
+                .and_then(|value| value.get("trace_summary"))
+                .and_then(|trace| trace.get("phase_latency_ms"))
+                .and_then(|latency| latency.get("total"))
+                .and_then(serde_json::Value::as_u64)
+                .map(u128::from)
+        });
     ReceiptEvidence {
         has_native_receipts,
         has_mutation_receipt,
@@ -595,8 +639,9 @@ fn native_receipt_evidence(batch_root: &Path, job: &NativeCodingUsefulWorkJob) -
         has_changed_file_summary,
         has_validation_summary,
         first_mutation_ms: first_project_mutation_mtime(job),
+        worker_runtime_ms,
         detail: format!(
-            "output_path={} journal_path={} has_native_receipts={has_native_receipts} has_mutation_receipt={has_mutation_receipt} has_validation_receipt={has_validation_receipt}",
+            "output_path={} journal_path={} has_native_receipts={has_native_receipts} has_mutation_receipt={has_mutation_receipt} has_validation_receipt={has_validation_receipt} worker_runtime_ms={worker_runtime_ms:?}",
             output_path.display(),
             journal_path.display()
         ),

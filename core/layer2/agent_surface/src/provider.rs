@@ -138,13 +138,17 @@ impl ProviderClient for OllamaCliProvider {
         } else {
             format!("{system}\n\n{}", request.prompt)
         };
-        let mut child = Command::new(&binary)
-            .arg("run")
-            .arg(&model)
-            .arg("--nowordwrap")
-            .arg("--hidethinking")
-            .arg("--think")
-            .arg("false")
+        let omit_thinking_flags = request
+            .metadata
+            .get("omit_ollama_thinking_flags")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let mut command = Command::new(&binary);
+        command.arg("run").arg(&model).arg("--nowordwrap");
+        if !omit_thinking_flags {
+            command.arg("--hidethinking").arg("--think").arg("false");
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

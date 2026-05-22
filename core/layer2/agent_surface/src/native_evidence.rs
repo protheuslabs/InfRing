@@ -403,6 +403,10 @@ pub(crate) fn native_tool_prompt_evidence_gaps(
     {
         reasons.push("missing_test_change_receipt".to_string());
     }
+    reasons.extend(native_tool_public_interface_verification_gaps(
+        original_prompt,
+        receipts,
+    ));
     if native_tool_prompt_requires_doc_changes(&prompt_lower)
         && !native_tool_changed_path_matches(receipts, |path| {
             let lower = path.to_ascii_lowercase();
@@ -438,6 +442,100 @@ pub(crate) fn native_tool_prompt_evidence_gaps(
     }
     reasons.sort();
     reasons.dedup();
+    reasons
+}
+
+fn native_tool_public_interface_verification_gaps(
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> Vec<String> {
+    let prompt_lower = original_prompt.to_ascii_lowercase();
+    if !native_tool_prompt_requires_product_mutation(&prompt_lower)
+        || !native_tool_has_successful_mutation(receipts)
+    {
+        return Vec::new();
+    }
+
+    let mut reasons = Vec::<String>::new();
+    reasons.extend(native_tool_changed_test_import_surface_gaps(
+        original_prompt,
+        receipts,
+    ));
+    reasons.extend(native_tool_preserved_module_public_surface_gaps(
+        original_prompt,
+        receipts,
+    ));
+    reasons.sort();
+    reasons.dedup();
+    reasons
+}
+
+fn native_tool_changed_test_import_surface_gaps(
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> Vec<String> {
+    let Some(project_root) = native_tool_prompt_project_root(original_prompt).map(PathBuf::from)
+    else {
+        return Vec::new();
+    };
+    let mut reasons = Vec::<String>::new();
+    for path in native_tool_changed_paths(receipts) {
+        if !native_tool_path_looks_like_test(&path) {
+            continue;
+        }
+        let Ok(test_text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for (module, symbols) in native_tool_python_from_imports(&test_text) {
+            let Some(module_path) = native_tool_python_module_path(&project_root, &module) else {
+                continue;
+            };
+            let Ok(module_text) = fs::read_to_string(&module_path) else {
+                continue;
+            };
+            for symbol in symbols {
+                if native_tool_python_import_symbol_is_noise(&symbol) {
+                    continue;
+                }
+                if !native_tool_source_defines_or_exports_public_api(&module_text, &symbol) {
+                    reasons.push(format!(
+                        "missing_public_interface_verification:{}:{}",
+                        module, symbol
+                    ));
+                }
+            }
+        }
+    }
+    reasons
+}
+
+fn native_tool_preserved_module_public_surface_gaps(
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> Vec<String> {
+    let requested_names = native_tool_prompt_requested_public_api_names(original_prompt);
+    if requested_names.is_empty() {
+        return Vec::new();
+    }
+    let preserved_paths = native_tool_prompt_preserved_api_source_paths(original_prompt, receipts);
+    if preserved_paths.is_empty() {
+        return Vec::new();
+    }
+    let mut reasons = Vec::<String>::new();
+    for path in preserved_paths {
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for name in &requested_names {
+            if native_tool_source_defines_or_exports_public_api(&text, name) {
+                continue;
+            }
+            reasons.push(format!(
+                "missing_public_interface_verification:{}:{}",
+                path, name
+            ));
+        }
+    }
     reasons
 }
 
@@ -820,6 +918,18 @@ fn native_tool_path_looks_like_source(path: &str) -> bool {
             || lower.ends_with(".kt"))
 }
 
+fn native_tool_path_looks_like_test(path: &str) -> bool {
+    let lower = path.replace('\\', "/").to_ascii_lowercase();
+    lower.contains("/tests/")
+        || lower.contains("/test/")
+        || lower.contains("test_")
+        || lower.ends_with("_test.py")
+        || lower.ends_with(".test.js")
+        || lower.ends_with(".spec.js")
+        || lower.ends_with(".test.ts")
+        || lower.ends_with(".spec.ts")
+}
+
 fn native_tool_source_defines_public_api(text: &str, name: &str) -> bool {
     let lower_text = text.to_ascii_lowercase();
     let lower_name = name.to_ascii_lowercase();
@@ -837,6 +947,85 @@ fn native_tool_source_defines_public_api(text: &str, name: &str) -> bool {
     ]
     .iter()
     .any(|needle| lower_text.contains(needle))
+}
+
+fn native_tool_source_defines_or_exports_public_api(text: &str, name: &str) -> bool {
+    if native_tool_source_defines_public_api(text, name) {
+        return true;
+    }
+    let lower_text = text.to_ascii_lowercase();
+    let lower_name = name.to_ascii_lowercase();
+    lower_text.contains(&format!("import {lower_name}"))
+        || lower_text.contains(&format!("{lower_name} = "))
+        || lower_text.contains(&format!("\"{lower_name}\""))
+        || lower_text.contains(&format!("'{lower_name}'"))
+}
+
+fn native_tool_python_from_imports(text: &str) -> Vec<(String, Vec<String>)> {
+    let mut imports = Vec::<(String, Vec<String>)>::new();
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        let Some(rest) = line.strip_prefix("from ") else {
+            continue;
+        };
+        let Some((module, symbols_raw)) = rest.split_once(" import ") else {
+            continue;
+        };
+        if module.starts_with('.') || module.is_empty() {
+            continue;
+        }
+        let symbols = symbols_raw
+            .split(',')
+            .filter_map(|symbol| {
+                let symbol = symbol.trim().split_whitespace().next().unwrap_or("");
+                let symbol = symbol.trim_matches(|ch: char| {
+                    matches!(ch, '(' | ')' | '[' | ']' | '{' | '}' | '\\')
+                });
+                if symbol.is_empty() || symbol == "*" {
+                    None
+                } else {
+                    Some(symbol.to_string())
+                }
+            })
+            .collect::<Vec<_>>();
+        if !symbols.is_empty() {
+            imports.push((module.trim().to_string(), symbols));
+        }
+    }
+    imports
+}
+
+fn native_tool_python_module_path(project_root: &std::path::Path, module: &str) -> Option<PathBuf> {
+    let relative = module.replace('.', "/");
+    let source_path = project_root.join("src").join(format!("{relative}.py"));
+    if source_path.exists() {
+        return Some(source_path);
+    }
+    let package_path = project_root.join("src").join(relative).join("__init__.py");
+    if package_path.exists() {
+        return Some(package_path);
+    }
+    None
+}
+
+fn native_tool_python_import_symbol_is_noise(symbol: &str) -> bool {
+    matches!(
+        symbol,
+        "Path"
+            | "Dict"
+            | "List"
+            | "Tuple"
+            | "Set"
+            | "Optional"
+            | "Any"
+            | "Union"
+            | "Callable"
+            | "dataclass"
+            | "field"
+            | "Enum"
+            | "BaseModel"
+            | "TestCase"
+    )
 }
 
 fn native_tool_prompt_marks_path_optional(original_prompt: &str, path: &str) -> bool {

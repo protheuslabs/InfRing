@@ -334,6 +334,7 @@ fn native_tool_missing_product_mutation_action(
         .filter(|reason| {
             reason.starts_with("incomplete_product_slice")
                 || reason.starts_with("missing_product_source_evidence:")
+                || reason.starts_with("missing_public_interface_verification:")
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -342,7 +343,7 @@ fn native_tool_missing_product_mutation_action(
     }
     let repair_hint = native_tool_product_slice_repair_hint(&product_slice_reasons);
     Some(format!(
-        "The current mutation is too shallow for the requested product slice. Do not write checkpoint handoff or memory closure yet. Do not keep reading context if source/test context has already been observed. Return JSON tool_calls with file_write/file_patch updates that cover the missing product evidence: {}. {} Prefer source + tests + CLI/docs as one bounded vertical slice, then run validation.",
+        "The current mutation is too shallow for the requested product slice or public interface. Do not write checkpoint handoff or memory closure yet. Do not keep reading context if source/test context has already been observed. Return JSON tool_calls with file_write/file_patch updates that cover the missing product evidence and expose the requested public API from the module/import surface under test: {}. {} Prefer source + tests + CLI/docs as one bounded vertical slice, then run validation.",
         product_slice_reasons.join(", "),
         repair_hint
     ))

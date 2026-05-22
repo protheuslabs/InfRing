@@ -6,6 +6,8 @@ Behavioral source model: `docs/workspace/coding_runtime_model_v1.md`
 
 Assimilation package: `docs/workspace/coding_behavioral_assimilation_v1.md`
 
+Level 1 reference trace: `docs/workspace/coding_level1_reference_trace_observations.md`
+
 Purpose: define the exact implementation contract for rebuilding Infring coding as a primitive-first runtime spine. This document converts the behavioral model into buildable primitives, schemas, transitions, ownership boundaries, and eval promotion rules.
 
 ## Design goal

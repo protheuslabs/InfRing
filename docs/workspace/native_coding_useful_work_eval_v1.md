@@ -22,6 +22,7 @@ Each attempt must satisfy all checks:
 - `validation_receipt_observed_or_command_verified`: validation is receipt-backed when possible, with judge command verification as the fallback proof.
 - `final_answer_reports_changed_files`: the final worker output includes changed-file reporting.
 - `final_answer_reports_validation`: the final worker output reports validation or test status.
+- `worker_runtime_within_level2_budget`: each Level 2 worker runtime must stay within the current hard budget.
 
 ## No-fake-success rules
 
@@ -42,6 +43,16 @@ The judge reports:
 - `attempts[].timing.time_to_first_mutation_ms`
 
 These metrics let us distinguish capability improvements from slower, more brittle loops.
+
+## Level 2 latency gate
+
+Correctness alone is not a Level 2 pass. A worker that eventually succeeds after an excessive local edit loop is operationally unhealthy.
+
+Current hard gate:
+
+- `LEVEL2_MAX_WORKER_RUNTIME_MS = 180000`
+
+Any Level 2 attempt above this worker-runtime budget fails even if validation and semantic probes pass.
 
 ## Harness commands
 

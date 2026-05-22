@@ -29,7 +29,10 @@ fn main() {
             }
         }
         "judge" => {
-            let Some(batch_root) = args.iter().find_map(|arg| arg.strip_prefix("--batch-root=")) else {
+            let Some(batch_root) = args
+                .iter()
+                .find_map(|arg| arg.strip_prefix("--batch-root="))
+            else {
                 eprintln!("missing --batch-root=PATH");
                 std::process::exit(2);
             };

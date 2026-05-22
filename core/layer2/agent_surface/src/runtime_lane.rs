@@ -339,6 +339,27 @@ pub fn run_runtime_lane_with_registry(
         return Ok(response);
     }
 
+    if let Some(response) = runtime_lane_try_bounded_existing_project_edit_loop(
+        &name,
+        &initial_prompt,
+        provider.as_deref(),
+        model.as_ref(),
+        &metadata,
+        &tools,
+        &capability_packs,
+        &required_pack_permissions,
+        &permissions,
+        wasm_sandbox.as_ref(),
+        voice_session.as_ref(),
+        receipt_merkle.as_ref(),
+        previous_receipt_root.as_ref(),
+        &state_path,
+        &mut durable_state,
+        providers,
+    ) {
+        return Ok(response);
+    }
+
     if let Some(response) = runtime_lane_try_model_manifest_planner(
         &name,
         &initial_prompt,
@@ -719,6 +740,12 @@ enum DeterministicLocalAction {
         content: String,
         overwrite: bool,
     },
+    PatchFile {
+        target_path: PathBuf,
+        old: String,
+        new: String,
+        allow_multiple: bool,
+    },
     CommandRun {
         cwd: PathBuf,
         cmd: Vec<String>,
@@ -892,8 +919,11 @@ fn runtime_lane_try_deterministic_local_loop(
         }
         DeterministicLocalLoopGate::Candidate(candidate) => {
             let dispatch_started = Instant::now();
-            let dispatcher =
-                NativeToolDispatcher::new(&["file_write".to_string(), "command_run".to_string()]);
+            let dispatcher = NativeToolDispatcher::new(&[
+                "file_write".to_string(),
+                "file_patch".to_string(),
+                "command_run".to_string(),
+            ]);
             let mut receipts = Vec::<NativeToolReceipt>::new();
             for (index, action) in candidate.actions.iter().enumerate() {
                 let call = match action {
@@ -908,6 +938,22 @@ fn runtime_lane_try_deterministic_local_loop(
                             "path": target_path.display().to_string(),
                             "content": content,
                             "overwrite": overwrite,
+                            "deterministic_local_loop": true,
+                        }),
+                    },
+                    DeterministicLocalAction::PatchFile {
+                        target_path,
+                        old,
+                        new,
+                        allow_multiple,
+                    } => NativeToolCall {
+                        id: format!("deterministic_local_loop_{}", index + 1),
+                        name: "file_patch".to_string(),
+                        args: json!({
+                            "path": target_path.display().to_string(),
+                            "old": old,
+                            "new": new,
+                            "allow_multiple": allow_multiple,
                             "deterministic_local_loop": true,
                         }),
                     },
@@ -964,6 +1010,564 @@ fn runtime_lane_try_deterministic_local_loop(
             ))
         }
     }
+}
+
+fn runtime_lane_try_bounded_existing_project_edit_loop(
+    name: &str,
+    prompt: &str,
+    provider: Option<&str>,
+    model: Option<&String>,
+    metadata: &Value,
+    tools: &[String],
+    capability_packs: &[String],
+    required_pack_permissions: &[String],
+    permissions: &crate::rbac_memory::PermissionManifest,
+    wasm_sandbox: Option<&Value>,
+    voice_session: Option<&Value>,
+    receipt_merkle: Option<&Value>,
+    previous_receipt_root: Option<&String>,
+    state_path: &Path,
+    durable_state: &mut RuntimeLaneDurableState,
+    providers: &ProviderClientRegistry,
+) -> Option<RuntimeLaneResponse> {
+    let workspace_root = runtime_lane_extract_workspace_root(prompt)?;
+    if !runtime_lane_bounded_existing_project_edit_loop_eligible(
+        prompt,
+        &workspace_root,
+        tools,
+        capability_packs,
+        permissions,
+    ) {
+        return None;
+    }
+
+    let total_started = Instant::now();
+    let gate_started = Instant::now();
+    let context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
+    if context_pack.trim().is_empty() {
+        return None;
+    }
+    let execution_shape_gate_ms =
+        gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let provider_id = provider.unwrap_or_else(|| providers.default_provider_id());
+    let provider_client = match providers.from_provider_id(provider_id) {
+        Ok(provider) => provider,
+        Err(error) => {
+            return Some(runtime_lane_fail_closed_with_state(
+                "runtime_lane_bounded_existing_project_edit_loop_provider_unavailable",
+                json!({
+                    "lane": "bounded_existing_project_edit_loop",
+                    "failure_code": error.code.as_str(),
+                    "failure_message": error.message,
+                    "phase_latency_ms": {
+                        "workflow_load": 0,
+                        "execution_shape_gate": execution_shape_gate_ms,
+                        "provider_start": 0,
+                        "model_call": 0,
+                        "tool_dispatch": 0,
+                        "mutation": 0,
+                        "validation": 0,
+                        "repair": 0,
+                        "final_synthesis": 0,
+                        "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                    }
+                }),
+                permissions,
+                wasm_sandbox,
+                voice_session,
+                state_path,
+                durable_state,
+            ));
+        }
+    };
+    let fast_lane_model = runtime_lane_metadata_string(
+        metadata,
+        &[
+            "/native_success_criteria/fast_lane_model",
+            "/workflow/native_success_criteria/fast_lane_model",
+        ],
+    )
+    .or_else(|| model.cloned());
+    let fast_lane_repair_model = runtime_lane_metadata_string(
+        metadata,
+        &[
+            "/native_success_criteria/fast_lane_repair_model",
+            "/workflow/native_success_criteria/fast_lane_repair_model",
+        ],
+    )
+    .or_else(|| model.cloned());
+    let fast_lane_omit_ollama_thinking_flags = runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+            "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+        ],
+    )
+    .unwrap_or(false);
+    let fast_lane_repair_omit_ollama_thinking_flags = runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+            "/workflow/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+            "/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+            "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+        ],
+    )
+    .unwrap_or(false);
+    let strong_first_pass_reason =
+        runtime_lane_bounded_existing_project_strong_first_pass_reason(prompt);
+    let fast_lane_first_pass_model = if strong_first_pass_reason.is_some() {
+        fast_lane_repair_model
+            .clone()
+            .or_else(|| fast_lane_model.clone())
+    } else {
+        fast_lane_model.clone()
+    };
+    let fast_lane_first_pass_omit_ollama_thinking_flags =
+        if strong_first_pass_reason.is_some() {
+            fast_lane_repair_omit_ollama_thinking_flags
+        } else {
+            fast_lane_omit_ollama_thinking_flags
+        };
+    let model_started = Instant::now();
+    let mut provider_response = match provider_client.complete(&ProviderRequest {
+            prompt: runtime_lane_bounded_existing_project_edit_loop_prompt(
+                prompt,
+                &workspace_root,
+                &context_pack,
+            ),
+            system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
+            tools: Vec::new(),
+            model: fast_lane_first_pass_model.clone(),
+            metadata: json!({
+                "provider_timeout_seconds": metadata
+                    .pointer("/native_success_criteria/fast_lane_provider_timeout_seconds")
+                    .and_then(Value::as_u64)
+                    .or_else(|| metadata.pointer("/workflow/native_success_criteria/fast_lane_provider_timeout_seconds").and_then(Value::as_u64))
+                    .unwrap_or(60),
+                "omit_ollama_thinking_flags": fast_lane_first_pass_omit_ollama_thinking_flags,
+                "lane": "bounded_existing_project_edit_loop",
+                "strong_first_pass_reason": strong_first_pass_reason,
+                "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+            }),
+        }) {
+        Ok(response) => response,
+        Err(error) => {
+            let model_call_ms = model_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+            return Some(runtime_lane_fail_closed_with_state(
+                "runtime_lane_bounded_existing_project_edit_loop_provider_failed",
+                json!({
+                    "lane": "bounded_existing_project_edit_loop",
+                    "failure_code": error.code.as_str(),
+                    "failure_message": error.message,
+                    "planner_model": fast_lane_first_pass_model,
+                    "strong_first_pass_reason": strong_first_pass_reason,
+                    "phase_latency_ms": {
+                        "workflow_load": 0,
+                        "execution_shape_gate": execution_shape_gate_ms,
+                        "provider_start": 0,
+                        "model_call": model_call_ms,
+                        "tool_dispatch": 0,
+                        "mutation": 0,
+                        "validation": 0,
+                        "repair": 0,
+                        "final_synthesis": 0,
+                        "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                    }
+                }),
+                permissions,
+                wasm_sandbox,
+                voice_session,
+                state_path,
+                durable_state,
+            ));
+        }
+    };
+    let mut candidate = match runtime_lane_model_manifest_candidate_from_output(
+        &provider_response.output,
+        tools,
+        capability_packs,
+        permissions,
+    ) {
+        Ok(candidate) => candidate,
+        Err(failure) => {
+            let repair_prompt = runtime_lane_model_manifest_planner_retry_prompt(
+                prompt,
+                &workspace_root,
+                &context_pack,
+                "bounded_existing_project_manifest_repair",
+                &failure.failure_code,
+                &failure.failure_message,
+                failure.needed_input.as_deref(),
+            );
+            match provider_client.complete(&ProviderRequest {
+                prompt: repair_prompt,
+                system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
+                tools: Vec::new(),
+                model: fast_lane_repair_model.clone(),
+                metadata: json!({
+                    "provider_timeout_seconds": metadata
+                        .pointer("/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
+                        .and_then(Value::as_u64)
+                        .or_else(|| metadata.pointer("/workflow/native_success_criteria/fast_lane_repair_provider_timeout_seconds").and_then(Value::as_u64))
+                        .unwrap_or(45),
+                    "omit_ollama_thinking_flags": runtime_lane_metadata_bool(
+                        metadata,
+                        &[
+                            "/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                            "/workflow/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                            "/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                            "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                        ],
+                    )
+                    .unwrap_or(false),
+                    "lane": "bounded_existing_project_edit_loop",
+                    "attempt": "manifest_repair",
+                    "previous_failure_code": failure.failure_code,
+                    "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+                }),
+            }) {
+                Ok(repair_response) => {
+                    match runtime_lane_model_manifest_candidate_from_output(
+                        &repair_response.output,
+                        tools,
+                        capability_packs,
+                        permissions,
+                    ) {
+                        Ok(candidate) => {
+                            provider_response = repair_response;
+                            candidate
+                        }
+                        Err(repair_failure) => {
+                            let model_call_ms = model_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                            return Some(runtime_lane_fail_closed_with_state(
+                                "runtime_lane_bounded_existing_project_edit_loop_manifest_failed",
+                                json!({
+                                    "lane": "bounded_existing_project_edit_loop",
+                                    "failure_code": repair_failure.failure_code,
+                                    "failure_message": repair_failure.failure_message,
+                                    "needed_input": repair_failure.needed_input,
+                                    "provider_output_preview": repair_failure.provider_output_preview,
+                                    "previous_failure_code": failure.failure_code,
+                                    "planner_model": fast_lane_repair_model.clone(),
+                                    "phase_latency_ms": {
+                                        "workflow_load": 0,
+                                        "execution_shape_gate": execution_shape_gate_ms,
+                                        "provider_start": 0,
+                                        "model_call": model_call_ms,
+                                        "tool_dispatch": 0,
+                                        "mutation": 0,
+                                        "validation": 0,
+                                        "repair": 0,
+                                        "final_synthesis": 0,
+                                        "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                                    }
+                                }),
+                                permissions,
+                                wasm_sandbox,
+                                voice_session,
+                                state_path,
+                                durable_state,
+                            ));
+                        }
+                    }
+                }
+                Err(error) => {
+                    let model_call_ms = model_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                    return Some(runtime_lane_fail_closed_with_state(
+                        "runtime_lane_bounded_existing_project_edit_loop_manifest_repair_failed",
+                        json!({
+                            "lane": "bounded_existing_project_edit_loop",
+                            "failure_code": error.code.as_str(),
+                            "failure_message": error.message,
+                            "previous_failure_code": failure.failure_code,
+                            "planner_model": fast_lane_repair_model.clone(),
+                            "phase_latency_ms": {
+                                "workflow_load": 0,
+                                "execution_shape_gate": execution_shape_gate_ms,
+                                "provider_start": 0,
+                                "model_call": model_call_ms,
+                                "tool_dispatch": 0,
+                                "mutation": 0,
+                                "validation": 0,
+                                "repair": 0,
+                                "final_synthesis": 0,
+                                "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                            }
+                        }),
+                        permissions,
+                        wasm_sandbox,
+                        voice_session,
+                        state_path,
+                        durable_state,
+                    ));
+                }
+            }
+        }
+    };
+    let validation_command = runtime_lane_extract_validation_command(prompt, &workspace_root);
+    let mut validation_call_id = None;
+    runtime_lane_attach_semantic_probe_action(
+        &mut candidate,
+        validation_command.as_ref(),
+        "bounded_existing_project_edit_loop_validation",
+        &mut validation_call_id,
+    );
+    let semantic_probe = runtime_lane_extract_semantic_probe_command(prompt, &workspace_root);
+    let mut semantic_probe_call_id = None;
+    runtime_lane_attach_semantic_probe_action(
+        &mut candidate,
+        semantic_probe.as_ref(),
+        "bounded_existing_project_edit_loop",
+        &mut semantic_probe_call_id,
+    );
+    let model_call_ms = model_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let dispatch_started = Instant::now();
+    let mut receipts =
+        runtime_lane_dispatch_model_manifest_actions(&candidate, "bounded_existing_project_edit_loop");
+    if !receipts
+        .iter()
+        .any(runtime_lane_receipt_is_successful_mutation)
+    {
+        if let Some(failure_summary) = runtime_lane_first_receipt_failure_summary(&receipts) {
+            let repair_context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
+            let repair_prompt = runtime_lane_model_manifest_planner_retry_prompt(
+                prompt,
+                &workspace_root,
+                &repair_context_pack,
+                "bounded_existing_project_tool_dispatch_repair",
+                "tool_dispatch_failed",
+                &failure_summary,
+                Some("Return a corrected manifest that avoids the rejected action, preserves existing public exports, mutates source/tests, and runs validation plus the semantic probe when supplied."),
+            );
+            if let Ok(repair_response) = provider_client.complete(&ProviderRequest {
+                prompt: repair_prompt,
+                system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
+                tools: Vec::new(),
+                model: fast_lane_repair_model.clone(),
+                metadata: json!({
+                    "provider_timeout_seconds": metadata
+                        .pointer("/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
+                        .and_then(Value::as_u64)
+                        .or_else(|| metadata.pointer("/workflow/native_success_criteria/fast_lane_repair_provider_timeout_seconds").and_then(Value::as_u64))
+                        .unwrap_or(45),
+                    "omit_ollama_thinking_flags": runtime_lane_metadata_bool(
+                        metadata,
+                        &[
+                            "/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                            "/workflow/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                            "/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                            "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                        ],
+                    )
+                    .unwrap_or(false),
+                    "lane": "bounded_existing_project_edit_loop",
+                    "attempt": "tool_dispatch_repair",
+                    "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+                }),
+            }) {
+                if let Ok(mut repair_candidate) = runtime_lane_model_manifest_candidate_from_output(
+                    &repair_response.output,
+                    tools,
+                    capability_packs,
+                    permissions,
+                ) {
+                    let mut repair_probe_call_id = None;
+                    let mut repair_validation_call_id = None;
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut repair_candidate,
+                        validation_command.as_ref(),
+                        "bounded_existing_project_edit_loop_tool_repair_validation",
+                        &mut repair_validation_call_id,
+                    );
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut repair_candidate,
+                        semantic_probe.as_ref(),
+                        "bounded_existing_project_edit_loop_tool_repair",
+                        &mut repair_probe_call_id,
+                    );
+                    let repair_receipts = runtime_lane_dispatch_model_manifest_actions(
+                        &repair_candidate,
+                        "bounded_existing_project_edit_loop_tool_repair",
+                    );
+                    if repair_receipts
+                        .iter()
+                        .any(runtime_lane_receipt_is_successful_mutation)
+                    {
+                        candidate = repair_candidate;
+                        receipts = repair_receipts;
+                        provider_response = repair_response;
+                    }
+                }
+            }
+        }
+    }
+    if runtime_lane_receipts_need_repair(&receipts, candidate.requires_validation) {
+        if let Some(failure_summary) = runtime_lane_first_receipt_failure_summary(&receipts) {
+            let repair_context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
+            let repair_prompt = runtime_lane_model_manifest_planner_retry_prompt(
+                prompt,
+                &workspace_root,
+                &repair_context_pack,
+                "bounded_existing_project_validation_repair",
+                "post_mutation_validation_failed",
+                &failure_summary,
+                Some("Return a small repair manifest that patches the current files, preserves existing public API behavior, fixes validation or tool errors, and reruns validation."),
+            );
+            if let Ok(repair_response) = provider_client.complete(&ProviderRequest {
+                prompt: repair_prompt,
+                system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
+                tools: Vec::new(),
+                model: fast_lane_repair_model.clone(),
+                metadata: json!({
+                    "provider_timeout_seconds": metadata
+                        .pointer("/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
+                        .and_then(Value::as_u64)
+                        .or_else(|| metadata.pointer("/workflow/native_success_criteria/fast_lane_repair_provider_timeout_seconds").and_then(Value::as_u64))
+                        .unwrap_or(45),
+                    "omit_ollama_thinking_flags": runtime_lane_metadata_bool(
+                        metadata,
+                        &[
+                            "/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                            "/workflow/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                            "/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                            "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                        ],
+                    )
+                    .unwrap_or(false),
+                    "lane": "bounded_existing_project_edit_loop",
+                    "attempt": "validation_repair",
+                    "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+                }),
+            }) {
+                if let Ok(mut repair_candidate) = runtime_lane_model_manifest_candidate_from_output(
+                    &repair_response.output,
+                    tools,
+                    capability_packs,
+                    permissions,
+                ) {
+                    let mut repair_probe_call_id = None;
+                    let mut repair_validation_call_id = None;
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut repair_candidate,
+                        validation_command.as_ref(),
+                        "bounded_existing_project_edit_loop_validation_repair_validation",
+                        &mut repair_validation_call_id,
+                    );
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut repair_candidate,
+                        semantic_probe.as_ref(),
+                        "bounded_existing_project_edit_loop_validation_repair",
+                        &mut repair_probe_call_id,
+                    );
+                    let repair_receipts = runtime_lane_dispatch_model_manifest_actions(
+                        &repair_candidate,
+                        "bounded_existing_project_edit_loop_validation_repair",
+                    );
+                    if repair_receipts
+                        .iter()
+                        .any(runtime_lane_receipt_is_successful_mutation)
+                    {
+                        candidate = repair_candidate;
+                        receipts = repair_receipts;
+                        provider_response = repair_response;
+                    }
+                }
+            }
+        }
+    }
+    if let Some(failure) =
+        runtime_lane_semantic_probe_failure(&receipts, semantic_probe_call_id.as_deref())
+    {
+        let repair_context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
+        if let Ok(repair_response) = provider_client.complete(&ProviderRequest {
+            prompt: runtime_lane_model_manifest_semantic_repair_prompt(
+                prompt,
+                &workspace_root,
+                &repair_context_pack,
+                &failure,
+            ),
+            system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
+            tools: Vec::new(),
+                model: fast_lane_repair_model.clone(),
+                metadata: json!({
+                "provider_timeout_seconds": metadata
+                    .pointer("/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
+                    .and_then(Value::as_u64)
+                    .or_else(|| metadata.pointer("/workflow/native_success_criteria/fast_lane_repair_provider_timeout_seconds").and_then(Value::as_u64))
+                    .unwrap_or(45),
+                "omit_ollama_thinking_flags": runtime_lane_metadata_bool(
+                    metadata,
+                    &[
+                        "/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                        "/workflow/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                        "/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                        "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                    ],
+                )
+                .unwrap_or(false),
+                "lane": "bounded_existing_project_edit_loop",
+                "attempt": "post_validation_semantic_completion_repair",
+                "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+            }),
+        }) {
+            if let Ok(mut repair_candidate) = runtime_lane_model_manifest_candidate_from_output(
+                &repair_response.output,
+                tools,
+                capability_packs,
+                permissions,
+            ) {
+                let mut repair_probe_call_id = None;
+                let mut repair_validation_call_id = None;
+                runtime_lane_attach_semantic_probe_action(
+                    &mut repair_candidate,
+                    validation_command.as_ref(),
+                    "bounded_existing_project_edit_loop_semantic_repair_validation",
+                    &mut repair_validation_call_id,
+                );
+                runtime_lane_attach_semantic_probe_action(
+                    &mut repair_candidate,
+                    semantic_probe.as_ref(),
+                    "bounded_existing_project_edit_loop_semantic_repair",
+                    &mut repair_probe_call_id,
+                );
+                let mut repair_receipts = runtime_lane_dispatch_model_manifest_actions(
+                    &repair_candidate,
+                    "bounded_existing_project_edit_loop_semantic_repair",
+                );
+                receipts.append(&mut repair_receipts);
+            }
+        }
+    }
+    let tool_dispatch_ms = dispatch_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let mut response = runtime_lane_model_manifest_planner_response(
+        name,
+        metadata,
+        tools,
+        capability_packs,
+        required_pack_permissions,
+        permissions,
+        wasm_sandbox,
+        voice_session,
+        receipt_merkle,
+        previous_receipt_root,
+        state_path,
+        durable_state,
+        candidate,
+        receipts,
+        provider_response,
+        execution_shape_gate_ms,
+        model_call_ms,
+        tool_dispatch_ms,
+        total_started,
+    );
+    runtime_lane_relabel_generated_manifest_response(
+        &mut response,
+        "bounded_existing_project_edit_loop",
+        "runtime_lane_bounded_existing_project_edit_loop_failed",
+        "compact_existing_project_patch_first_loop",
+    );
+    Some(response)
 }
 
 fn runtime_lane_try_model_manifest_planner(
@@ -1044,38 +1648,77 @@ fn runtime_lane_try_model_manifest_planner(
         Ok(response) => response,
         Err(error) => {
             if runtime_lane_provider_error_is_timeout(error.code.as_str(), &error.message) {
-                let model_call_ms = model_started
-                    .elapsed()
-                    .as_millis()
-                    .min(u128::from(u64::MAX)) as u64;
-                return Some(runtime_lane_fail_closed_with_state(
-                    "runtime_lane_model_manifest_provider_failed",
-                    json!({
+                let retry_prompt = runtime_lane_model_manifest_planner_retry_prompt(
+                    prompt,
+                    &workspace_root,
+                    &context_pack,
+                    "provider_timeout_recovery",
+                    error.code.as_str(),
+                    &error.message,
+                    Some("Return the smallest deterministic manifest that mutates source/tests and runs validation plus any semantic probe command from the task."),
+                );
+                match provider_client.complete(&ProviderRequest {
+                    prompt: retry_prompt,
+                    system: Some(planner_system.clone()),
+                    tools: Vec::new(),
+                    model: model.cloned(),
+                    metadata: json!({
+                        "provider_timeout_seconds": metadata
+                            .pointer("/native_success_criteria/recovery_provider_timeout_seconds")
+                            .and_then(Value::as_u64)
+                            .or_else(|| metadata.pointer("/workflow/native_success_criteria/recovery_provider_timeout_seconds").and_then(Value::as_u64))
+                            .unwrap_or(90)
+                            .max(90),
                         "lane": "model_manifest_planner",
-                        "failure_code": error.code.as_str(),
-                        "failure_message": error.message,
-                        "repair_attempted": false,
-                        "retry_skipped": "provider_timeout_doom_loop_interrupt",
-                        "phase_latency_ms": {
-                            "workflow_load": 0,
-                            "execution_shape_gate": execution_shape_gate_ms,
-                            "provider_start": 0,
-                            "model_call": model_call_ms,
-                            "tool_dispatch": 0,
-                            "mutation": 0,
-                            "validation": 0,
-                            "repair": 0,
-                            "final_synthesis": 0,
-                            "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
-                        }
+                        "attempt": "provider_timeout_recovery",
+                        "previous_failure_code": error.code.as_str(),
+                        "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
                     }),
-                    permissions,
-                    wasm_sandbox,
-                    voice_session,
-                    state_path,
-                    durable_state,
-                ));
-            }
+                }) {
+                    Ok(response) => response,
+                    Err(recovery_error) => {
+                        let model_call_ms = model_started
+                            .elapsed()
+                            .as_millis()
+                            .min(u128::from(u64::MAX)) as u64;
+                        return Some(runtime_lane_fail_closed_with_state(
+                            "runtime_lane_model_manifest_provider_failed",
+                            json!({
+                                "lane": "model_manifest_planner",
+                                "failure_code": recovery_error.code.as_str(),
+                                "failure_message": recovery_error.message,
+                                "first_failure_code": error.code.as_str(),
+                                "first_failure_message": error.message,
+                                "repair_attempted": true,
+                                "recovery_artifact": {
+                                    "kind": "provider_timeout_recovery_artifact_v1",
+                                    "status": "provider_timeout_before_mutation",
+                                    "next_action": "retry_with_compact_context_or_fallback_lane",
+                                    "mutation_receipts_present": false,
+                                    "success_claim_allowed": false
+                                },
+                                "phase_latency_ms": {
+                                    "workflow_load": 0,
+                                    "execution_shape_gate": execution_shape_gate_ms,
+                                    "provider_start": 0,
+                                    "model_call": model_call_ms,
+                                    "tool_dispatch": 0,
+                                    "mutation": 0,
+                                    "validation": 0,
+                                    "repair": 0,
+                                    "final_synthesis": 0,
+                                    "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                                }
+                            }),
+                            permissions,
+                            wasm_sandbox,
+                            voice_session,
+                            state_path,
+                            durable_state,
+                        ));
+                    }
+                }
+            } else {
             let retry_prompt = runtime_lane_model_manifest_planner_retry_prompt(
                 prompt,
                 &workspace_root,
@@ -1138,9 +1781,10 @@ fn runtime_lane_try_model_manifest_planner(
                     ));
                 }
             }
+            }
         }
     };
-    let candidate = match runtime_lane_model_manifest_candidate_from_output(
+    let mut candidate = match runtime_lane_model_manifest_candidate_from_output(
         &provider_response.output,
         tools,
         capability_packs,
@@ -1260,54 +1904,95 @@ fn runtime_lane_try_model_manifest_planner(
             }
         }
     };
+    let validation_command = runtime_lane_extract_validation_command(prompt, &workspace_root);
+    let mut validation_call_id = None;
+    runtime_lane_attach_semantic_probe_action(&mut candidate, validation_command.as_ref(), "model_manifest_planner_validation", &mut validation_call_id);
+    let semantic_probe = runtime_lane_extract_semantic_probe_command(prompt, &workspace_root);
+    let mut semantic_probe_call_id = None;
+    runtime_lane_attach_semantic_probe_action(&mut candidate, semantic_probe.as_ref(), "model_manifest_planner", &mut semantic_probe_call_id);
     let model_call_ms = model_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let dispatch_started = Instant::now();
-    let dispatcher = NativeToolDispatcher::new(&["file_write".to_string(), "command_run".to_string()]);
-    let mut receipts = Vec::<NativeToolReceipt>::new();
-    for (index, action) in candidate.actions.iter().enumerate() {
-        let call = match action {
-            DeterministicLocalAction::WriteFile {
-                target_path,
-                content,
-                overwrite,
-            } => NativeToolCall {
-                id: format!("model_manifest_planner_{}", index + 1),
-                name: "file_write".to_string(),
-                args: json!({
-                    "path": target_path.display().to_string(),
-                    "content": content,
-                    "overwrite": overwrite,
-                    "model_manifest_planner": true,
-                }),
+    let mut receipts = runtime_lane_dispatch_model_manifest_actions(&candidate, "model_manifest_planner");
+    if let Some(failure) = runtime_lane_semantic_probe_failure(&receipts, semantic_probe_call_id.as_deref()) {
+        let repair_context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
+        let semantic_repair_prompt = runtime_lane_model_manifest_semantic_repair_prompt(
+            prompt,
+            &workspace_root,
+            &repair_context_pack,
+            &failure,
+        );
+        match provider_client.complete(&ProviderRequest {
+            prompt: semantic_repair_prompt,
+            system: Some(runtime_lane_model_manifest_planner_system(preamble)),
+            tools: Vec::new(),
+            model: model.cloned(),
+            metadata: json!({
+                "provider_timeout_seconds": metadata
+                    .pointer("/native_success_criteria/provider_timeout_seconds")
+                    .and_then(Value::as_u64)
+                    .or_else(|| metadata.pointer("/workflow/native_success_criteria/provider_timeout_seconds").and_then(Value::as_u64))
+                    .unwrap_or(90),
+                "lane": "model_manifest_planner",
+                "attempt": "post_validation_semantic_completion_repair",
+                "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+            }),
+        }) {
+            Ok(repair_response) => match runtime_lane_model_manifest_candidate_from_output(
+                &repair_response.output,
+                tools,
+                capability_packs,
+                permissions,
+            ) {
+                Ok(mut repair_candidate) => {
+                    let mut repair_probe_call_id = None;
+                    let mut repair_validation_call_id = None;
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut repair_candidate,
+                        validation_command.as_ref(),
+                        "model_manifest_planner_semantic_repair_validation",
+                        &mut repair_validation_call_id,
+                    );
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut repair_candidate,
+                        semantic_probe.as_ref(),
+                        "model_manifest_planner_semantic_repair",
+                        &mut repair_probe_call_id,
+                    );
+                    let mut repair_receipts = runtime_lane_dispatch_model_manifest_actions(
+                        &repair_candidate,
+                        "model_manifest_planner_semantic_repair",
+                    );
+                    receipts.append(&mut repair_receipts);
+                }
+                Err(repair_failure) => receipts.push(runtime_lane_semantic_repair_failure_receipt(
+                    "model_manifest_planner_semantic_repair_manifest_failed",
+                    "manifest_parse_failed",
+                    &repair_failure.failure_message,
+                    json!({
+                        "needed_input": repair_failure.needed_input,
+                        "provider_output_preview": repair_failure.provider_output_preview,
+                        "failed_probe": {
+                            "command": failure.command,
+                            "exit_code": failure.exit_code,
+                            "stdout_tail": failure.stdout_tail,
+                            "stderr_tail": failure.stderr_tail,
+                        }
+                    }),
+                )),
             },
-            DeterministicLocalAction::CommandRun {
-                cwd,
-                cmd,
-                timeout_seconds,
-                max_output_bytes,
-            } => NativeToolCall {
-                id: format!("model_manifest_planner_{}", index + 1),
-                name: "command_run".to_string(),
-                args: json!({
-                    "cwd": cwd.display().to_string(),
-                    "cmd": cmd,
-                    "timeout_seconds": timeout_seconds,
-                    "max_output_bytes": max_output_bytes,
-                    "model_manifest_planner": true,
+            Err(repair_error) => receipts.push(runtime_lane_semantic_repair_failure_receipt(
+                "model_manifest_planner_semantic_repair_provider_failed",
+                repair_error.code.as_str(),
+                &repair_error.message,
+                json!({
+                    "failed_probe": {
+                        "command": failure.command,
+                        "exit_code": failure.exit_code,
+                        "stdout_tail": failure.stdout_tail,
+                        "stderr_tail": failure.stderr_tail,
+                    }
                 }),
-            },
-        };
-        let receipt = dispatcher.dispatch(call);
-        let should_stop = receipt.status != "ok"
-            || (receipt.tool_name == "command_run"
-                && !receipt
-                    .result
-                    .get("success")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true));
-        receipts.push(receipt);
-        if should_stop {
-            break;
+            )),
         }
     }
     let tool_dispatch_ms = dispatch_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
@@ -1355,46 +2040,16 @@ fn runtime_lane_deterministic_local_loop_response(
 ) -> RuntimeLaneResponse {
     let mutation_count = receipts
         .iter()
-        .filter(|receipt| receipt.status == "ok" && receipt.tool_name == "file_write")
+        .filter(|receipt| runtime_lane_receipt_is_successful_mutation(receipt))
         .count();
-    let validation_receipts = receipts
-        .iter()
-        .filter(|receipt| receipt.tool_name == "command_run")
-        .collect::<Vec<_>>();
-    let validation_ok = validation_receipts
-        .last()
-        .map(|receipt| {
-            receipt.status == "ok"
-                && receipt
-                    .result
-                    .get("success")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true)
-        })
-        .unwrap_or(!candidate.requires_validation);
+    let validation_ok = runtime_lane_receipts_validation_ok(&receipts, candidate.requires_validation);
     let ok = !receipts.is_empty()
         && receipts.iter().all(|receipt| receipt.status == "ok")
         && mutation_count > 0
         && validation_ok;
     let changed_files = receipts
         .iter()
-        .filter(|receipt| receipt.status == "ok" && receipt.tool_name == "file_write")
-        .filter_map(|receipt| {
-            Some(json!({
-                "path": receipt.result.get("path")?.as_str()?,
-                "operation": if receipt
-                    .result
-                    .get("created")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                {
-                    "created"
-                } else {
-                    "written"
-                },
-                "receipt_ref": receipt.call_id,
-            }))
-        })
+        .filter_map(runtime_lane_changed_file_summary_item)
         .collect::<Vec<_>>();
     let receipt_refs = receipts
         .iter()
@@ -1403,7 +2058,7 @@ fn runtime_lane_deterministic_local_loop_response(
         .collect::<Vec<_>>();
     let mutation_ms = receipts
         .iter()
-        .filter(|receipt| receipt.tool_name == "file_write")
+        .filter(|receipt| runtime_lane_receipt_is_mutation_tool(receipt))
         .map(|receipt| receipt.duration_ms)
         .sum::<u64>();
     let validation_ms = receipts
@@ -1569,46 +2224,16 @@ fn runtime_lane_model_manifest_planner_response(
 ) -> RuntimeLaneResponse {
     let mutation_count = receipts
         .iter()
-        .filter(|receipt| receipt.status == "ok" && receipt.tool_name == "file_write")
+        .filter(|receipt| runtime_lane_receipt_is_successful_mutation(receipt))
         .count();
-    let validation_receipts = receipts
-        .iter()
-        .filter(|receipt| receipt.tool_name == "command_run")
-        .collect::<Vec<_>>();
-    let validation_ok = validation_receipts
-        .last()
-        .map(|receipt| {
-            receipt.status == "ok"
-                && receipt
-                    .result
-                    .get("success")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true)
-        })
-        .unwrap_or(!candidate.requires_validation);
+    let validation_ok = runtime_lane_receipts_validation_ok(&receipts, candidate.requires_validation);
     let ok = !receipts.is_empty()
         && receipts.iter().all(|receipt| receipt.status == "ok")
         && mutation_count > 0
         && validation_ok;
     let changed_files = receipts
         .iter()
-        .filter(|receipt| receipt.status == "ok" && receipt.tool_name == "file_write")
-        .filter_map(|receipt| {
-            Some(json!({
-                "path": receipt.result.get("path")?.as_str()?,
-                "operation": if receipt
-                    .result
-                    .get("created")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                {
-                    "created"
-                } else {
-                    "written"
-                },
-                "receipt_ref": receipt.call_id,
-            }))
-        })
+        .filter_map(runtime_lane_changed_file_summary_item)
         .collect::<Vec<_>>();
     let receipt_refs = receipts
         .iter()
@@ -1617,7 +2242,7 @@ fn runtime_lane_model_manifest_planner_response(
         .collect::<Vec<_>>();
     let mutation_ms = receipts
         .iter()
-        .filter(|receipt| receipt.tool_name == "file_write")
+        .filter(|receipt| runtime_lane_receipt_is_mutation_tool(receipt))
         .map(|receipt| receipt.duration_ms)
         .sum::<u64>();
     let validation_ms = receipts
@@ -2048,6 +2673,12 @@ fn runtime_lane_deterministic_local_loop_candidate(
                 let Some(path) = action
                     .get("path")
                     .or_else(|| action.get("target_path"))
+                    .or_else(|| action.get("target_file"))
+                    .or_else(|| action.get("target"))
+                    .or_else(|| action.get("file"))
+                    .or_else(|| action.get("file_path"))
+                    .or_else(|| action.get("filepath"))
+                    .or_else(|| action.get("filename"))
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
@@ -2103,6 +2734,101 @@ fn runtime_lane_deterministic_local_loop_candidate(
                     target_path,
                     content: ensure_trailing_newline(content.to_string()),
                     overwrite,
+                });
+            }
+            "file_patch" | "patch_file" | "patch" => {
+                if permission_for(permissions, "file.patch") != PermissionTrit::Allow {
+                    return DeterministicLocalLoopGate::Blocked {
+                        failure_code: "permission_denied",
+                        failure_message: "file.patch permission is required for patch actions."
+                            .to_string(),
+                        needed_input: Some(
+                            "Grant file.patch or use write_file with overwrite=true.".to_string(),
+                        ),
+                    };
+                }
+                let Some(path) = action
+                    .get("path")
+                    .or_else(|| action.get("target_path"))
+                    .or_else(|| action.get("target_file"))
+                    .or_else(|| action.get("target"))
+                    .or_else(|| action.get("file"))
+                    .or_else(|| action.get("file_path"))
+                    .or_else(|| action.get("filepath"))
+                    .or_else(|| action.get("filename"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                else {
+                    return DeterministicLocalLoopGate::Blocked {
+                        failure_code: "path_required",
+                        failure_message: "file_patch actions require path.".to_string(),
+                        needed_input: Some("Add a path to each file_patch action.".to_string()),
+                    };
+                };
+                let Some(old) = action
+                    .get("old")
+                    .or_else(|| action.get("find"))
+                    .or_else(|| action.get("search"))
+                    .or_else(|| action.get("old_text"))
+                    .or_else(|| action.get("search_text"))
+                    .or_else(|| action.get("find_text"))
+                    .or_else(|| action.get("before_text"))
+                    .or_else(|| action.get("before"))
+                    .or_else(|| action.get("original"))
+                    .or_else(|| action.get("original_text"))
+                    .and_then(Value::as_str)
+                else {
+                    return DeterministicLocalLoopGate::Blocked {
+                        failure_code: "old_required",
+                        failure_message: "file_patch actions require old/find/search text."
+                            .to_string(),
+                        needed_input: Some(
+                            "Add exact old text from the local context pack.".to_string(),
+                        ),
+                    };
+                };
+                let Some(new) = action
+                    .get("new")
+                    .or_else(|| action.get("replace"))
+                    .or_else(|| action.get("replacement"))
+                    .or_else(|| action.get("new_text"))
+                    .or_else(|| action.get("replace_text"))
+                    .or_else(|| action.get("replacement_text"))
+                    .or_else(|| action.get("after_text"))
+                    .or_else(|| action.get("after"))
+                    .or_else(|| action.get("updated"))
+                    .or_else(|| action.get("updated_text"))
+                    .and_then(Value::as_str)
+                else {
+                    return DeterministicLocalLoopGate::Blocked {
+                        failure_code: "new_required",
+                        failure_message: "file_patch actions require new/replacement text."
+                            .to_string(),
+                        needed_input: Some("Add replacement text.".to_string()),
+                    };
+                };
+                let target_path =
+                    match runtime_lane_resolve_target_path(path, Some(&workspace_root)) {
+                        Ok(path) => path,
+                        Err(error) => {
+                            return DeterministicLocalLoopGate::Blocked {
+                                failure_code: "unsafe_or_unresolved_target_path",
+                                failure_message: error,
+                                needed_input: Some(
+                                    "Use a safe path inside workspace_root.".to_string(),
+                                ),
+                            };
+                        }
+                    };
+                actions.push(DeterministicLocalAction::PatchFile {
+                    target_path,
+                    old: old.to_string(),
+                    new: new.to_string(),
+                    allow_multiple: action
+                        .get("allow_multiple")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                 });
             }
             "command_run" | "run_command" | "validate" | "validation" => {
@@ -2194,16 +2920,22 @@ fn runtime_lane_deterministic_local_loop_candidate(
                 .unwrap_or(12000),
         });
     }
-    let write_count = actions
+    let mutation_count = actions
         .iter()
-        .filter(|action| matches!(action, DeterministicLocalAction::WriteFile { .. }))
+        .filter(|action| {
+            matches!(
+                action,
+                DeterministicLocalAction::WriteFile { .. }
+                    | DeterministicLocalAction::PatchFile { .. }
+            )
+        })
         .count();
-    if write_count == 0 {
+    if mutation_count == 0 {
         return DeterministicLocalLoopGate::Blocked {
             failure_code: "mutation_action_required",
-            failure_message: "Deterministic local loops require at least one write_file action."
+            failure_message: "Deterministic local loops require at least one mutation action."
                 .to_string(),
-            needed_input: Some("Add a write_file action with path and content.".to_string()),
+            needed_input: Some("Add a write_file or file_patch action.".to_string()),
         };
     }
     DeterministicLocalLoopGate::Candidate(DeterministicLocalLoopCandidate {
@@ -2221,6 +2953,9 @@ fn runtime_lane_manifest_action_payload(action: &Value) -> (Option<&str>, &Value
         "create_file",
         "file_write",
         "write",
+        "file_patch",
+        "patch_file",
+        "patch",
         "command_run",
         "run_command",
         "validation",
@@ -2231,6 +2966,120 @@ fn runtime_lane_manifest_action_payload(action: &Value) -> (Option<&str>, &Value
         }
     }
     (None, action)
+}
+
+fn runtime_lane_bounded_existing_project_edit_loop_eligible(
+    prompt: &str,
+    workspace_root: &Path,
+    tools: &[String],
+    capability_packs: &[String],
+    permissions: &crate::rbac_memory::PermissionManifest,
+) -> bool {
+    if !runtime_lane_direct_mutation_surface_enabled(tools, capability_packs) {
+        return false;
+    }
+    if permission_for(permissions, "file.write") != PermissionTrit::Allow
+        || permission_for(permissions, "file.patch") != PermissionTrit::Allow
+        || permission_for(permissions, "command.run") != PermissionTrit::Allow
+    {
+        return false;
+    }
+    if runtime_lane_extract_explicit_file_content(prompt).is_some()
+        || runtime_lane_extract_deterministic_manifest(prompt).is_some()
+    {
+        return false;
+    }
+    if !workspace_root.join("src").exists() && !workspace_root.join("tests").exists() {
+        return false;
+    }
+    let lower = prompt.to_ascii_lowercase();
+    let has_mutation_intent = [
+        "create", "write", "build", "implement", "add", "generate", "make", "extend",
+    ]
+    .iter()
+    .any(|token| lower.contains(token));
+    let existing_project_signal = [
+        "existing",
+        "local files",
+        "local package",
+        "read relevant",
+        "preserve",
+        "regression tests",
+        "validation command",
+    ]
+    .iter()
+    .any(|token| lower.contains(token));
+    let broad_architecture_signal = [
+        "from scratch",
+        "new project",
+        "architecture",
+        "stack",
+        "database",
+        "multi-service",
+        "deploy",
+        "docker",
+    ]
+    .iter()
+    .any(|token| lower.contains(token));
+    has_mutation_intent && existing_project_signal && !broad_architecture_signal
+}
+
+fn runtime_lane_bounded_existing_project_strong_first_pass_reason(
+    prompt: &str,
+) -> Option<&'static str> {
+    let lower = prompt.to_ascii_lowercase();
+    if lower.contains("semantic probe command") {
+        return Some("semantic_probe_required");
+    }
+    if lower.contains("validation command") || lower.contains("run validation") {
+        return Some("validation_command_required");
+    }
+    if lower.contains("regression test")
+        || lower.contains("add tests")
+        || lower.contains("existing tests")
+    {
+        return Some("regression_tests_required");
+    }
+    if lower.contains("multi-file")
+        || lower.contains("multi file")
+        || lower.contains("multi-requirement")
+        || lower.contains("multi requirement")
+        || lower.contains("vertical slice")
+    {
+        return Some("multi_file_or_multi_requirement_task");
+    }
+    if lower.contains("preserve")
+        && (lower.contains("existing behavior") || lower.contains("public api"))
+    {
+        return Some("preserve_existing_public_behavior");
+    }
+    None
+}
+
+fn runtime_lane_bounded_existing_project_edit_loop_system() -> String {
+    "You are the bounded_existing_project_edit_loop fast lane for a primitive-first local coding runtime.\n\
+Return only valid JSON. No markdown. No prose.\n\
+Use this exact shape: {\"deterministic_local_loop\":{\"workspace_root\":\"/absolute/path\",\"actions\":[...]}}.\n\
+Allowed actions: file_patch with path, old, new, allow_multiple; write_file with path, content, overwrite; command_run with cmd.\n\
+Prefer file_patch for existing-file localized edits. Use write_file only for new files or broad replacements.\n\
+Keep the action list small. Use exact old text from the context pack for patches. Preserve existing behavior.\n\
+Include focused regression tests when requested. Include validation and semantic probe commands when present.\n\
+Only return {\"structured_blocker\":{\"reason\":\"insufficient_context\"}} when the context pack lacks the source/test files needed to make a safe edit. If relevant source and tests are present, produce the smallest safe manifest."
+        .to_string()
+}
+
+fn runtime_lane_bounded_existing_project_edit_loop_prompt(
+    prompt: &str,
+    workspace_root: &Path,
+    context_pack: &str,
+) -> String {
+    let compact_context = runtime_lane_compact_context_pack(context_pack);
+    format!(
+        "Workspace root: {}\n\nUser task:\n{}\n\nCompact authoritative local context:\n{}\n\nReturn the smallest safe deterministic_local_loop manifest. Prefer patch actions for existing files. Run validation and the semantic probe command if supplied by the task.",
+        workspace_root.display(),
+        prompt.trim(),
+        compact_context
+    )
 }
 
 fn runtime_lane_model_manifest_planner_eligible(
@@ -2285,9 +3134,10 @@ fn runtime_lane_model_manifest_planner_system(preamble: Option<&str>) -> String 
 Return only valid JSON. Do not use markdown. Do not include prose.\n\
 Your JSON must be either {{\"deterministic_local_loop\":{{...}}}} or the inner manifest object.\n\
 The manifest must include workspace_root and actions.\n\
-Allowed actions are write_file/create_file with path and content, plus optional validation with cmd.\n\
-Use relative paths inside workspace_root. Do not use parent directory segments. Do not overwrite unrelated existing files. When the provided local context pack shows an existing file must be edited, return its full replacement content with overwrite=true and preserve unrelated behavior.\n\
+Allowed actions are file_patch with path, old, new, and optional allow_multiple; write_file/create_file with path and content; plus optional validation with cmd.\n\
+Use relative paths inside workspace_root. Do not use parent directory segments. Do not overwrite unrelated existing files. For existing files, prefer file_patch with exact old text from the local context pack when the edit is small and localized. Use write_file with overwrite=true only when creating a new file or replacing most of an existing file while preserving unrelated behavior.\n\
 Keep this lane for bounded local coding tasks. If a local context pack is provided, treat it as the completed discovery step. Return structured_blocker only when the provided context is insufficient, the task needs architecture decisions, external packages, secrets, or user input.\n\
+If the task provides a semantic probe or public API probe command, include it as a command_run action after validation. Validation passing without the provided semantic probe is not completion evidence.\n\
 When the task names a public class/object plus companion behavior over that object's state, expose the behavior as an instance method on the class; a top-level wrapper may delegate to that method when useful.\n\
 When the task names a result/decision object, prefer a small dataclass-like value object with attributes over an enum unless the task explicitly asks for enum constants. For override or resolution helpers, include fields for the primary decision value and provenance/source when the task names those concepts.\n\
 When the task asks for a multi-file slice or names a public capability noun, create or update a semantically named module for that capability when the package layout allows it, and keep imports from that module working.\n\
@@ -2333,13 +3183,35 @@ fn runtime_lane_model_manifest_planner_retry_prompt(
 ) -> String {
     let compact_context = runtime_lane_compact_context_pack(context_pack);
     format!(
-        "Workspace root: {}\n\nUser task:\n{}\n\nPrevious planner attempt failed before completion.\nRetry kind: {}\nFailure code: {}\nFailure message: {}\nNeeded input: {}\n\nCompact local context pack:\n{}\n\nReturn only corrected deterministic_local_loop JSON. Use this exact outer shape: {{\"deterministic_local_loop\":{{\"workspace_root\":\"{}\",\"actions\":[...]}}}}. Every write action must include type=\"write_file\", path, content, and overwrite. Every validation action must include type=\"command_run\" and cmd. Keep the manifest minimal and complete.",
+        "Workspace root: {}\n\nUser task:\n{}\n\nPrevious planner attempt failed before completion.\nRetry kind: {}\nFailure code: {}\nFailure message: {}\nNeeded input: {}\n\nCompact local context pack:\n{}\n\nReturn only corrected deterministic_local_loop JSON. Use this exact outer shape: {{\"deterministic_local_loop\":{{\"workspace_root\":\"{}\",\"actions\":[...]}}}}. Prefer type=\"file_patch\" with path, old, and new for localized edits. Use type=\"write_file\" with path, content, and overwrite only for new files or broad replacements. Every validation action must include type=\"command_run\" and cmd. Keep the manifest minimal and complete.",
         workspace_root.display(),
         prompt.trim(),
         retry_kind,
         failure_code,
         failure_message,
         needed_input.unwrap_or("none"),
+        compact_context,
+        workspace_root.display()
+    )
+}
+
+fn runtime_lane_model_manifest_semantic_repair_prompt(
+    prompt: &str,
+    workspace_root: &Path,
+    context_pack: &str,
+    failure: &RuntimeLaneSemanticProbeFailure,
+) -> String {
+    let compact_context = runtime_lane_compact_context_pack(context_pack);
+    format!(
+        "Workspace root: {}\n\nUser task:\n{}\n\nPost-validation semantic completion probe failed after mutation and validation.\nThis is a bounded repair, not a restart. Patch only the public API shape, placement, return type, or behavior needed by the probe while preserving existing tests and behavior.\n\nFailed command: {}\nExit code: {}\nStdout tail:\n{}\nStderr tail:\n{}\n\nCompact local context pack:\n{}\n\nReturn only corrected deterministic_local_loop JSON. Use this exact outer shape: {{\"deterministic_local_loop\":{{\"workspace_root\":\"{}\",\"actions\":[...]}}}}. Prefer the smallest file_patch source/test actions, rerun validation, and rerun the semantic probe command.",
+        workspace_root.display(),
+        prompt.trim(),
+        failure.command,
+        failure.exit_code
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        failure.stdout_tail,
+        failure.stderr_tail,
         compact_context,
         workspace_root.display()
     )
@@ -2425,6 +3297,456 @@ fn runtime_lane_compact_context_pack(context_pack: &str) -> String {
     out
 }
 
+#[derive(Debug, Clone)]
+struct RuntimeLaneSemanticProbeCommand {
+    cwd: PathBuf,
+    cmd: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeLaneSemanticProbeFailure {
+    command: String,
+    exit_code: Option<i64>,
+    stdout_tail: String,
+    stderr_tail: String,
+}
+
+fn runtime_lane_extract_semantic_probe_command(
+    prompt: &str,
+    workspace_root: &Path,
+) -> Option<RuntimeLaneSemanticProbeCommand> {
+    let marker = "semantic probe command from project root";
+    let line = prompt
+        .lines()
+        .find(|line| line.to_ascii_lowercase().contains(marker))?;
+    let command = line.split_once(':')?.1.trim();
+    if command.is_empty() {
+        return None;
+    }
+    Some(RuntimeLaneSemanticProbeCommand {
+        cwd: workspace_root.to_path_buf(),
+        cmd: vec!["sh".to_string(), "-c".to_string(), command.to_string()],
+    })
+}
+
+fn runtime_lane_extract_validation_command(
+    prompt: &str,
+    workspace_root: &Path,
+) -> Option<RuntimeLaneSemanticProbeCommand> {
+    let marker = "validation command from project root";
+    let line = prompt
+        .lines()
+        .find(|line| line.to_ascii_lowercase().contains(marker))?;
+    let command = line.split_once(':')?.1.trim();
+    if command.is_empty() {
+        return None;
+    }
+    Some(RuntimeLaneSemanticProbeCommand {
+        cwd: workspace_root.to_path_buf(),
+        cmd: vec![
+            "sh".to_string(),
+            "-lc".to_string(),
+            runtime_lane_normalize_shell_command(command),
+        ],
+    })
+}
+
+fn runtime_lane_attach_semantic_probe_action(
+    candidate: &mut DeterministicLocalLoopCandidate,
+    semantic_probe: Option<&RuntimeLaneSemanticProbeCommand>,
+    call_prefix: &str,
+    semantic_probe_call_id: &mut Option<String>,
+) {
+    let Some(semantic_probe) = semantic_probe else {
+        return;
+    };
+    let existing_index = candidate.actions.iter().position(|action| {
+        matches!(
+            action,
+            DeterministicLocalAction::CommandRun { cwd, cmd, .. }
+                if cwd == &semantic_probe.cwd
+                    && runtime_lane_commands_equivalent(cmd, &semantic_probe.cmd)
+        )
+    });
+    let index = match existing_index {
+        Some(index) => index,
+        None => {
+            candidate.actions.push(DeterministicLocalAction::CommandRun {
+                cwd: semantic_probe.cwd.clone(),
+                cmd: semantic_probe.cmd.clone(),
+                timeout_seconds: 30,
+                max_output_bytes: 12000,
+            });
+            candidate.requires_validation = true;
+            candidate.actions.len() - 1
+        }
+    };
+    *semantic_probe_call_id = Some(format!("{call_prefix}_{}", index + 1));
+}
+
+fn runtime_lane_commands_equivalent(left: &[String], right: &[String]) -> bool {
+    if left == right {
+        return true;
+    }
+    match (
+        runtime_lane_shell_command_payload(left),
+        runtime_lane_shell_command_payload(right),
+    ) {
+        (Some(left), Some(right)) => left.trim() == right.trim(),
+        _ => false,
+    }
+}
+
+fn runtime_lane_shell_command_payload(command: &[String]) -> Option<&str> {
+    if command.len() < 3 {
+        return None;
+    }
+    let shell = command.first()?.as_str();
+    let flag = command.get(1)?.as_str();
+    if !matches!(shell, "sh" | "bash") || !matches!(flag, "-c" | "-lc") {
+        return None;
+    }
+    command.get(2).map(String::as_str)
+}
+
+fn runtime_lane_dispatch_model_manifest_actions(
+    candidate: &DeterministicLocalLoopCandidate,
+    call_prefix: &str,
+) -> Vec<NativeToolReceipt> {
+    let dispatcher = NativeToolDispatcher::new(&[
+        "file_write".to_string(),
+        "file_patch".to_string(),
+        "command_run".to_string(),
+    ]);
+    let mut receipts = Vec::<NativeToolReceipt>::new();
+    for (index, action) in candidate.actions.iter().enumerate() {
+        let call = match action {
+            DeterministicLocalAction::WriteFile {
+                target_path,
+                content,
+                overwrite,
+            } => NativeToolCall {
+                id: format!("{call_prefix}_{}", index + 1),
+                name: "file_write".to_string(),
+                args: json!({
+                    "path": target_path.display().to_string(),
+                    "content": content,
+                    "overwrite": overwrite,
+                    "model_manifest_planner": true,
+                }),
+            },
+            DeterministicLocalAction::PatchFile {
+                target_path,
+                old,
+                new,
+                allow_multiple,
+            } => NativeToolCall {
+                id: format!("{call_prefix}_{}", index + 1),
+                name: "file_patch".to_string(),
+                args: json!({
+                    "path": target_path.display().to_string(),
+                    "old": old,
+                    "new": new,
+                    "allow_multiple": allow_multiple,
+                    "model_manifest_planner": true,
+                }),
+            },
+            DeterministicLocalAction::CommandRun {
+                cwd,
+                cmd,
+                timeout_seconds,
+                max_output_bytes,
+            } => NativeToolCall {
+                id: format!("{call_prefix}_{}", index + 1),
+                name: "command_run".to_string(),
+                args: json!({
+                    "cwd": cwd.display().to_string(),
+                    "cmd": cmd,
+                    "timeout_seconds": timeout_seconds,
+                    "max_output_bytes": max_output_bytes,
+                    "model_manifest_planner": true,
+                }),
+            },
+        };
+        let receipt = dispatcher.dispatch(call);
+        let should_stop = receipt.status != "ok"
+            || (receipt.tool_name == "command_run"
+                && !receipt
+                    .result
+                    .get("success")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true));
+        receipts.push(receipt);
+        if should_stop {
+            break;
+        }
+    }
+    receipts
+}
+
+fn runtime_lane_semantic_probe_failure(
+    receipts: &[NativeToolReceipt],
+    semantic_probe_call_id: Option<&str>,
+) -> Option<RuntimeLaneSemanticProbeFailure> {
+    let semantic_probe_call_id = semantic_probe_call_id?;
+    let receipt = receipts
+        .iter()
+        .find(|receipt| receipt.call_id == semantic_probe_call_id)?;
+    let success = receipt.status == "ok"
+        && receipt
+            .result
+            .get("success")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+    if success {
+        return None;
+    }
+    let command = receipt
+        .result
+        .get("cmd")
+        .map(Value::to_string)
+        .unwrap_or_else(|| semantic_probe_call_id.to_string());
+    Some(RuntimeLaneSemanticProbeFailure {
+        command,
+        exit_code: receipt.result.get("exit_code").and_then(Value::as_i64),
+        stdout_tail: receipt
+            .result
+            .get("stdout")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .chars()
+            .rev()
+            .take(2000)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect(),
+        stderr_tail: receipt
+            .result
+            .get("stderr")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .chars()
+            .rev()
+            .take(2000)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect(),
+    })
+}
+
+fn runtime_lane_semantic_repair_failure_receipt(
+    call_id: &str,
+    failure_code: &str,
+    failure_message: &str,
+    details: Value,
+) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: call_id.to_string(),
+        tool_name: "semantic_completion_repair".to_string(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "kind": "post_validation_semantic_completion_repair_artifact_v1",
+            "failure_code": failure_code,
+            "failure_message": failure_message,
+            "success_claim_allowed": false,
+            "details": details,
+        }),
+        error: Some(failure_message.to_string()),
+    }
+}
+
+fn runtime_lane_receipt_is_mutation_tool(receipt: &NativeToolReceipt) -> bool {
+    matches!(receipt.tool_name.as_str(), "file_write" | "file_patch")
+}
+
+fn runtime_lane_receipt_is_successful_mutation(receipt: &NativeToolReceipt) -> bool {
+    receipt.status == "ok" && runtime_lane_receipt_is_mutation_tool(receipt)
+}
+
+fn runtime_lane_changed_file_summary_item(receipt: &NativeToolReceipt) -> Option<Value> {
+    if !runtime_lane_receipt_is_successful_mutation(receipt) {
+        return None;
+    }
+    let operation = match receipt.tool_name.as_str() {
+        "file_patch" => "patched",
+        "file_write" => {
+            if receipt
+                .result
+                .get("created")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                "created"
+            } else {
+                "written"
+            }
+        }
+        _ => return None,
+    };
+    Some(json!({
+        "path": receipt.result.get("path")?.as_str()?,
+        "operation": operation,
+        "receipt_ref": receipt.call_id,
+    }))
+}
+
+fn runtime_lane_first_receipt_failure_summary(receipts: &[NativeToolReceipt]) -> Option<String> {
+    receipts.iter().find_map(|receipt| {
+        if receipt.status != "ok" {
+            return Some(format!(
+                "tool={} call_id={} status={} error={}",
+                receipt.tool_name,
+                receipt.call_id,
+                receipt.status,
+                receipt.error.clone().unwrap_or_else(|| "unknown".to_string())
+            ));
+        }
+        if receipt.tool_name == "command_run"
+            && !receipt
+                .result
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+        {
+            return Some(format!(
+                "tool=command_run call_id={} exit_code={} stderr_tail={}",
+                receipt.call_id,
+                receipt
+                    .result
+                    .get("exit_code")
+                    .and_then(Value::as_i64)
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "unknown".to_string()),
+                runtime_lane_tail(
+                    receipt
+                        .result
+                        .get("stderr")
+                        .and_then(Value::as_str)
+                        .unwrap_or(""),
+                    800,
+                )
+            ));
+        }
+        None
+    })
+}
+
+fn runtime_lane_receipts_need_repair(
+    receipts: &[NativeToolReceipt],
+    requires_validation: bool,
+) -> bool {
+    if receipts.iter().any(|receipt| receipt.status != "ok") {
+        return true;
+    }
+    if !requires_validation {
+        return false;
+    }
+    receipts.iter().any(|receipt| {
+        receipt.tool_name == "command_run"
+            && !receipt
+                .result
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+    })
+}
+
+fn runtime_lane_receipts_validation_ok(
+    receipts: &[NativeToolReceipt],
+    requires_validation: bool,
+) -> bool {
+    if !requires_validation {
+        return true;
+    }
+    let mut saw_command = false;
+    for receipt in receipts
+        .iter()
+        .filter(|receipt| receipt.tool_name == "command_run")
+    {
+        saw_command = true;
+        if receipt.status != "ok"
+            || !receipt
+                .result
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+        {
+            return false;
+        }
+    }
+    saw_command
+}
+
+fn runtime_lane_tail(value: &str, max_chars: usize) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    let start = chars.len().saturating_sub(max_chars);
+    chars[start..].iter().collect()
+}
+
+fn runtime_lane_relabel_generated_manifest_response(
+    response: &mut RuntimeLaneResponse,
+    lane: &str,
+    failure_status: &str,
+    lane_reason: &str,
+) {
+    response.output = response.output.replace("model_manifest_planner", lane);
+    if !response.ok {
+        response.error = Some(failure_status.to_string());
+    }
+    if let Some(receipt) = response.receipt.as_object_mut() {
+        receipt.insert("lane".to_string(), json!(lane));
+        receipt.insert("lane_reason".to_string(), json!(lane_reason));
+        if !response.ok {
+            receipt.insert("status".to_string(), json!(failure_status));
+        }
+    }
+    if let Some(contract) = response.contract.as_object_mut() {
+        contract.insert(
+            "agent_status".to_string(),
+            json!(if response.ok { "ok" } else { failure_status }),
+        );
+        if let Some(execution_shape) = contract
+            .get_mut("execution_shape")
+            .and_then(Value::as_object_mut)
+        {
+            execution_shape.insert("lane".to_string(), json!(lane));
+            execution_shape.insert(
+                "escalation_reason".to_string(),
+                json!("bounded_existing_project_fast_lane_selected"),
+            );
+        }
+    }
+    if let Some(trace) = response.trace_summary.as_object_mut() {
+        trace.insert(
+            "status".to_string(),
+            json!(if response.ok { "ok" } else { failure_status }),
+        );
+        trace.insert("lane".to_string(), json!(lane));
+    }
+}
+
+fn runtime_lane_metadata_string(metadata: &Value, pointers: &[&str]) -> Option<String> {
+    pointers
+        .iter()
+        .filter_map(|pointer| metadata.pointer(pointer))
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .next()
+}
+
+fn runtime_lane_metadata_bool(metadata: &Value, pointers: &[&str]) -> Option<bool> {
+    pointers
+        .iter()
+        .filter_map(|pointer| metadata.pointer(pointer))
+        .filter_map(Value::as_bool)
+        .next()
+}
+
 fn runtime_lane_provider_error_is_timeout(code: &str, message: &str) -> bool {
     let code = code.to_ascii_lowercase();
     let message = message.to_ascii_lowercase();
@@ -2453,6 +3775,8 @@ fn runtime_lane_model_manifest_candidate_from_output(
             provider_output_preview: output.chars().take(1600).collect::<String>(),
         });
     };
+    let mut manifest = manifest;
+    runtime_lane_normalize_model_manifest_for_execution(&mut manifest);
     let manifest_prompt = format!(
         "```json\n{}\n```",
         serde_json::to_string(&manifest).unwrap_or_else(|_| "{}".to_string())
@@ -2483,6 +3807,60 @@ fn runtime_lane_model_manifest_candidate_from_output(
             ),
             provider_output_preview: output.chars().take(1600).collect::<String>(),
         }),
+    }
+}
+
+fn runtime_lane_normalize_model_manifest_for_execution(manifest: &mut Value) {
+    let manifest_root = if manifest.get("deterministic_local_loop").is_some() {
+        manifest
+            .get_mut("deterministic_local_loop")
+            .expect("deterministic_local_loop checked")
+    } else {
+        manifest
+    };
+    let actions = if manifest_root.get("actions").is_some() {
+        manifest_root.get_mut("actions")
+    } else {
+        manifest_root.get_mut("files")
+    }
+    .and_then(Value::as_array_mut);
+    let Some(actions) = actions else {
+        return;
+    };
+    for action in actions {
+        runtime_lane_normalize_model_manifest_action(action);
+    }
+}
+
+fn runtime_lane_normalize_model_manifest_action(action: &mut Value) {
+    let Some(object) = action.as_object_mut() else {
+        return;
+    };
+    for key in ["write_file", "file_write", "write"] {
+        if let Some(payload) = object.get_mut(key).and_then(Value::as_object_mut) {
+            payload.entry("overwrite".to_string()).or_insert(json!(true));
+            return;
+        }
+    }
+    let kind = object
+        .get("type")
+        .or_else(|| object.get("kind"))
+        .or_else(|| object.get("action"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(str::to_ascii_lowercase);
+    let is_write = match kind.as_deref() {
+        Some("write_file" | "file_write" | "write") => true,
+        Some("create_file") => false,
+        Some(_) => false,
+        None => {
+            object.contains_key("content")
+                && !object.contains_key("cmd")
+                && !object.contains_key("command")
+        }
+    };
+    if is_write {
+        object.entry("overwrite".to_string()).or_insert(json!(true));
     }
 }
 
@@ -2735,26 +4113,14 @@ fn runtime_lane_persist_native_run_journal(
 fn runtime_lane_parse_deterministic_manifest_from_text(text: &str) -> Option<Value> {
     for block in runtime_lane_fenced_blocks(text) {
         if let Ok(parsed) = serde_json::from_str::<Value>(&block) {
-            if parsed.get("structured_blocker").is_some() {
-                return None;
-            }
-            if parsed.get("deterministic_local_loop").is_some()
-                || parsed.get("actions").is_some()
-                || parsed.get("files").is_some()
-            {
-                return Some(parsed);
+            if let Some(manifest) = runtime_lane_manifest_from_json_value(&parsed) {
+                return Some(manifest);
             }
         }
     }
     if let Ok(parsed) = serde_json::from_str::<Value>(text.trim()) {
-        if parsed.get("structured_blocker").is_some() {
-            return None;
-        }
-        if parsed.get("deterministic_local_loop").is_some()
-            || parsed.get("actions").is_some()
-            || parsed.get("files").is_some()
-        {
-            return Some(parsed);
+        if let Some(manifest) = runtime_lane_manifest_from_json_value(&parsed) {
+            return Some(manifest);
         }
     }
     let start = text.find('{')?;
@@ -2763,15 +4129,77 @@ fn runtime_lane_parse_deterministic_manifest_from_text(text: &str) -> Option<Val
         return None;
     }
     let parsed = serde_json::from_str::<Value>(&text[start..=end]).ok()?;
-    if parsed.get("structured_blocker").is_some() {
-        None
-    } else if parsed.get("deterministic_local_loop").is_some()
-        || parsed.get("actions").is_some()
-        || parsed.get("files").is_some()
+    runtime_lane_manifest_from_json_value(&parsed)
+}
+
+fn runtime_lane_manifest_from_json_value(value: &Value) -> Option<Value> {
+    if value.get("structured_blocker").is_some() {
+        return None;
+    }
+    if value.get("deterministic_local_loop").is_some()
+        || value.get("actions").is_some()
+        || value.get("files").is_some()
+        || value.get("edits").is_some()
+        || value.get("operations").is_some()
     {
-        Some(parsed)
+        let mut manifest = value.clone();
+        runtime_lane_normalize_manifest_action_container(&mut manifest);
+        return Some(manifest);
+    }
+    for key in [
+        "manifest",
+        "deterministic_manifest",
+        "deterministic_local_loop_manifest",
+        "local_loop",
+        "result",
+        "output",
+        "payload",
+        "plan",
+        "final",
+        "answer",
+        "json",
+    ] {
+        if let Some(inner) = value.get(key) {
+            if let Some(manifest) = runtime_lane_manifest_from_json_value(inner) {
+                return Some(manifest);
+            }
+        }
+    }
+    if let Some(object) = value.as_object() {
+        for inner in object.values() {
+            if let Some(manifest) = runtime_lane_manifest_from_json_value(inner) {
+                return Some(manifest);
+            }
+        }
+    }
+    if let Some(array) = value.as_array() {
+        for inner in array {
+            if let Some(manifest) = runtime_lane_manifest_from_json_value(inner) {
+                return Some(manifest);
+            }
+        }
+    }
+    None
+}
+
+fn runtime_lane_normalize_manifest_action_container(manifest: &mut Value) {
+    let manifest_root = if manifest.get("deterministic_local_loop").is_some() {
+        manifest
+            .get_mut("deterministic_local_loop")
+            .expect("deterministic_local_loop checked")
     } else {
-        None
+        manifest
+    };
+    if manifest_root.get("actions").is_none() {
+        if let Some(edits) = manifest_root.get("edits").cloned() {
+            if let Some(object) = manifest_root.as_object_mut() {
+                object.insert("actions".to_string(), edits);
+            }
+        } else if let Some(operations) = manifest_root.get("operations").cloned() {
+            if let Some(object) = manifest_root.as_object_mut() {
+                object.insert("actions".to_string(), operations);
+            }
+        }
     }
 }
 
@@ -2807,9 +4235,38 @@ fn runtime_lane_manifest_command(value: &Value) -> Option<Vec<String>> {
         if command.is_empty() {
             None
         } else {
-            Some(vec!["sh".to_string(), "-lc".to_string(), command.to_string()])
+            Some(vec![
+                "sh".to_string(),
+                "-lc".to_string(),
+                runtime_lane_normalize_shell_command(command),
+            ])
         }
     }
+}
+
+fn runtime_lane_normalize_shell_command(command: &str) -> String {
+    let tokens = command.split_whitespace().collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return command.to_string();
+    }
+    let script_index = tokens
+        .iter()
+        .position(|token| !token.contains('=') || token.starts_with("./") || token.starts_with('/'));
+    let Some(script_index) = script_index else {
+        return command.to_string();
+    };
+    let script = tokens[script_index];
+    if !script.ends_with(".py") || script.ends_with("python.py") {
+        return command.to_string();
+    }
+    if script_index > 0 && matches!(tokens.get(script_index - 1), Some(&"python" | &"python3")) {
+        return command.to_string();
+    }
+    let mut normalized = Vec::with_capacity(tokens.len() + 1);
+    normalized.extend(tokens[..script_index].iter().copied());
+    normalized.push("python3");
+    normalized.extend(tokens[script_index..].iter().copied());
+    normalized.join(" ")
 }
 
 fn runtime_lane_direct_mutation_surface_enabled(tools: &[String], capability_packs: &[String]) -> bool {
