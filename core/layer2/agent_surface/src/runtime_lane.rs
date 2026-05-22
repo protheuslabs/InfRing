@@ -1436,6 +1436,16 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                 }) {
                     Ok(response) => response,
                     Err(error) => {
+                        let failure_message = format!("{:?}", error);
+                        receipts.push(runtime_lane_validation_repair_failure_receipt(
+                            &format!(
+                                "bounded_existing_project_edit_loop_validation_repair_provider_{}",
+                                repair_attempt_index + 1
+                            ),
+                            "provider_call_failed",
+                            &failure_message,
+                            json!({"repair_attempt_index": repair_attempt_index}),
+                        ));
                         repair_failure_summary = format!(
                             "Validation repair provider call failed on attempt {}.\nerror: {:?}",
                             repair_attempt_index + 1,
@@ -1452,6 +1462,24 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                 ) {
                     Ok(candidate) => candidate,
                     Err(repair_failure) => {
+                        let failure_message = format!(
+                            "{}: {}",
+                            repair_failure.failure_code,
+                            repair_failure.failure_message
+                        );
+                        receipts.push(runtime_lane_validation_repair_failure_receipt(
+                            &format!(
+                                "bounded_existing_project_edit_loop_validation_repair_manifest_{}",
+                                repair_attempt_index + 1
+                            ),
+                            "manifest_not_executable",
+                            &failure_message,
+                            json!({
+                                "repair_attempt_index": repair_attempt_index,
+                                "needed_input": repair_failure.needed_input,
+                                "provider_output_preview": repair_failure.provider_output_preview,
+                            }),
+                        ));
                         repair_failure_summary = format!(
                             "Validation repair manifest was not executable on attempt {}.\nfailure_code: {}\nfailure_message: {}\nneeded_input: {:?}\nprovider_output_preview: {}",
                             repair_attempt_index + 1,
@@ -3648,6 +3676,28 @@ fn runtime_lane_semantic_repair_failure_receipt(
         duration_ms: 0,
         result: json!({
             "kind": "post_validation_semantic_completion_repair_artifact_v1",
+            "failure_code": failure_code,
+            "failure_message": failure_message,
+            "success_claim_allowed": false,
+            "details": details,
+        }),
+        error: Some(failure_message.to_string()),
+    }
+}
+
+fn runtime_lane_validation_repair_failure_receipt(
+    call_id: &str,
+    failure_code: &str,
+    failure_message: &str,
+    details: Value,
+) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: call_id.to_string(),
+        tool_name: "validation_repair".to_string(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "kind": "post_validation_repair_artifact_v1",
             "failure_code": failure_code,
             "failure_message": failure_message,
             "success_claim_allowed": false,
