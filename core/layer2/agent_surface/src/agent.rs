@@ -5390,6 +5390,9 @@ fn native_tool_pre_mutation_validation_bootstrap_receipt(
 fn native_tool_prompt_validation_shell_command(original_prompt: &str) -> Option<String> {
     let lower = original_prompt.to_ascii_lowercase();
     let markers = [
+        "first run this validation command from project root to observe the failure:",
+        "first run this validation command from project root:",
+        "run this validation command from project root to observe the failure:",
         "validation command from project root:",
         "validation command before final response:",
         "run this validation command before final response:",
@@ -5411,6 +5414,7 @@ fn native_tool_prompt_validation_shell_command(original_prompt: &str) -> Option<
         for delimiter in [
             ". Run this semantic",
             ". Run the semantic",
+            ". Then inspect",
             ". Then run",
             ". Do not",
         ] {
