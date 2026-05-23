@@ -1626,13 +1626,33 @@ fn native_tool_bounded_patch_artifact_lane(
     let mut provider_call_count = 1u64;
     let response = match provider.complete(&request) {
         Ok(response) => response,
-        Err(error) if native_tool_provider_error_is_timeout(&error) => return Ok(None),
+        Err(error) if native_tool_provider_error_is_timeout(&error) => {
+            native_tool_persist_run_journal(
+                metadata,
+                original_prompt,
+                "bounded_patch_artifact_fallback",
+                provider_call_count,
+                &receipts,
+                None,
+                Some("provider_timeout_before_patch_artifact"),
+            );
+            return Ok(None);
+        }
         Err(error) => return Err(error),
     };
 
     let patches =
         native_tool_bounded_patch_artifact_patches(&response.output, &project_root, &context_paths);
     if patches.is_empty() {
+        native_tool_persist_run_journal(
+            metadata,
+            original_prompt,
+            "bounded_patch_artifact_fallback",
+            provider_call_count,
+            &receipts,
+            Some(&response.output),
+            Some("missing_or_invalid_patch_artifact"),
+        );
         return Ok(None);
     }
     for (idx, patch) in patches.into_iter().enumerate() {
@@ -1649,6 +1669,15 @@ fn native_tool_bounded_patch_artifact_lane(
         receipts.push(receipt);
     }
     if !native_tool_has_successful_mutation(&receipts) {
+        native_tool_persist_run_journal(
+            metadata,
+            original_prompt,
+            "bounded_patch_artifact_fallback",
+            provider_call_count,
+            &receipts,
+            Some(&response.output),
+            Some("patch_artifact_apply_failed_before_mutation"),
+        );
         return Ok(None);
     }
 
@@ -1793,7 +1822,7 @@ fn native_tool_bounded_patch_file_context(paths: &[PathBuf]) -> Option<String> {
 }
 
 fn native_tool_bounded_patch_artifact_system_prompt() -> String {
-    "You are Infring's bounded patch artifact generator. Return only valid JSON. Do not use markdown, prose, or tool calls. Your JSON must have this shape: {\"patches\":[{\"path\":\"/absolute/path\",\"old\":\"exact existing text\",\"new\":\"replacement text\"}]}. Each old field must be an exact contiguous substring from the supplied file context. Prefer the smallest complete source/test patch set. Do not include validation output, explanations, or final answers.".to_string()
+    "You are Infring's bounded patch artifact generator. Return only a machine-applicable patch artifact, with no prose, no tool calls, and no final answer. Preferred format is valid JSON: {\"patches\":[{\"path\":\"/absolute/path\",\"old\":\"exact existing text\",\"new\":\"replacement text\"}]}. You may also return Aider-style SEARCH/REPLACE blocks with a file path heading immediately before each block. Each old/SEARCH field must be an exact contiguous substring from the supplied file context. Prefer the smallest complete source/test patch set. Do not include validation output or explanations.".to_string()
 }
 
 fn native_tool_bounded_patch_artifact_prompt(
@@ -1819,16 +1848,29 @@ fn native_tool_bounded_patch_artifact_patches(
     project_root: &Path,
     allowed_paths: &[PathBuf],
 ) -> Vec<NativeToolBoundedPatch> {
+    let allowed = allowed_paths
+        .iter()
+        .filter_map(|path| path.canonicalize().ok())
+        .collect::<Vec<_>>();
+    let json_patches =
+        native_tool_bounded_patch_artifact_json_patches(output, project_root, &allowed);
+    if !json_patches.is_empty() {
+        return json_patches;
+    }
+    native_tool_bounded_patch_artifact_search_replace_patches(output, project_root, &allowed)
+}
+
+fn native_tool_bounded_patch_artifact_json_patches(
+    output: &str,
+    project_root: &Path,
+    allowed: &[PathBuf],
+) -> Vec<NativeToolBoundedPatch> {
     let Some(value) = native_tool_parse_bounded_patch_artifact_json(output) else {
         return Vec::new();
     };
     let Some(patches) = value.get("patches").and_then(Value::as_array) else {
         return Vec::new();
     };
-    let allowed = allowed_paths
-        .iter()
-        .filter_map(|path| path.canonicalize().ok())
-        .collect::<Vec<_>>();
     let mut out = Vec::<NativeToolBoundedPatch>::new();
     for patch in patches {
         let Some(path) = patch.get("path").and_then(Value::as_str) else {
@@ -1861,6 +1903,86 @@ fn native_tool_bounded_patch_artifact_patches(
         });
     }
     out
+}
+
+fn native_tool_bounded_patch_artifact_search_replace_patches(
+    output: &str,
+    project_root: &Path,
+    allowed: &[PathBuf],
+) -> Vec<NativeToolBoundedPatch> {
+    let mut patches = Vec::<NativeToolBoundedPatch>::new();
+    let mut cursor = 0usize;
+    while let Some(search_rel) = output[cursor..].find("<<<<<<< SEARCH") {
+        let search_start = cursor + search_rel;
+        let before = &output[..search_start];
+        let Some(path) = native_tool_search_replace_path_heading(before, project_root, allowed)
+        else {
+            cursor = search_start + "<<<<<<< SEARCH".len();
+            continue;
+        };
+        let old_start = search_start + "<<<<<<< SEARCH".len();
+        let Some(separator_rel) = output[old_start..].find("=======") else {
+            break;
+        };
+        let separator_start = old_start + separator_rel;
+        let new_start = separator_start + "=======".len();
+        let Some(end_rel) = output[new_start..].find(">>>>>>> REPLACE") else {
+            break;
+        };
+        let end_start = new_start + end_rel;
+        let old = output[old_start..separator_start]
+            .trim_matches('\n')
+            .to_string();
+        let new = output[new_start..end_start]
+            .trim_matches('\n')
+            .to_string();
+        if !old.is_empty() && old != new {
+            patches.push(NativeToolBoundedPatch { path, old, new });
+        }
+        cursor = end_start + ">>>>>>> REPLACE".len();
+    }
+    patches
+}
+
+fn native_tool_search_replace_path_heading(
+    before: &str,
+    project_root: &Path,
+    allowed: &[PathBuf],
+) -> Option<String> {
+    for raw_line in before.lines().rev().take(8) {
+        let cleaned = raw_line
+            .trim()
+            .trim_matches('`')
+            .trim_matches('*')
+            .trim()
+            .trim_end_matches(':')
+            .trim();
+        if cleaned.is_empty()
+            || cleaned.starts_with("```")
+            || cleaned.starts_with('#')
+            || cleaned.contains("SEARCH")
+            || cleaned.contains("REPLACE")
+        {
+            continue;
+        }
+        let candidate = cleaned
+            .split_whitespace()
+            .last()
+            .unwrap_or(cleaned)
+            .trim_matches(|ch: char| matches!(ch, '"' | '\'' | '(' | ')' | '[' | ']'));
+        let resolved = if candidate.starts_with('/') {
+            PathBuf::from(candidate)
+        } else {
+            project_root.join(candidate.trim_start_matches("./"))
+        };
+        let Ok(canonical) = resolved.canonicalize() else {
+            continue;
+        };
+        if allowed.iter().any(|allowed| allowed == &canonical) {
+            return Some(resolved.display().to_string());
+        }
+    }
+    None
 }
 
 fn native_tool_parse_bounded_patch_artifact_json(output: &str) -> Option<Value> {
