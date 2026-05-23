@@ -375,6 +375,18 @@ impl AgentContract {
                 )?;
                 if !outcome.observability_receipts.is_empty() {
                     all_receipts.extend(outcome.observability_receipts);
+                    let observation = native_tool_observation_prompt(&all_receipts);
+                    let bounded_patch_fallback_rule = native_tool_orchestration_prompt_text(
+                        &self.metadata,
+                        "bounded_patch_artifact_fallback_continuation_rule",
+                        "The bounded patch artifact lane attempted this task and did not reach terminal success. Continue from the receipt-backed observations below. If patches already mutated files but validation failed, repair from the failed validation output instead of restarting discovery. Return only JSON tool calls next.",
+                    );
+                    prompt = format!(
+                        "{}\n\n{}\n\nNative tool observations:\n{}",
+                        self.initial_prompt,
+                        bounded_patch_fallback_rule,
+                        observation
+                    );
                 }
                 if let Some(result) = outcome.terminal {
                     return Ok(result);
@@ -390,6 +402,7 @@ impl AgentContract {
             }
         }
         if !micro_direct_write_task
+            && all_receipts.is_empty()
             && native_tool_bootstrap_context_before_first_provider(&self.metadata)
             && native_tool_requires_successful_mutation(&self.metadata)
             && native_tool_prompt_has_multiple_requirements(&self.initial_prompt)
@@ -1734,22 +1747,12 @@ fn native_tool_bounded_patch_artifact_lane(
             Some(&response.output),
             Some("patch_artifact_apply_failed_before_mutation"),
         );
-        return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+        return Ok(NativeToolBoundedPatchLaneOutcome::fallback_with_receipts(
             "patch_artifact_apply_failed_before_mutation",
             json!({
-                "patch_receipts": receipts
-                    .iter()
-                    .map(|receipt| {
-                        json!({
-                            "call_id": receipt.call_id.clone(),
-                            "tool_name": receipt.tool_name.clone(),
-                            "status": receipt.status.clone(),
-                            "error": receipt.error.clone(),
-                            "path": receipt.result.get("path").cloned().unwrap_or(Value::Null),
-                        })
-                    })
-                    .collect::<Vec<_>>(),
+                "patch_receipts": native_tool_bounded_patch_lane_receipt_summary(&receipts),
             }),
+            receipts,
         ));
     }
 
@@ -1814,12 +1817,14 @@ fn native_tool_bounded_patch_artifact_lane(
         )));
     }
 
-    Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+    Ok(NativeToolBoundedPatchLaneOutcome::fallback_with_receipts(
         "unresolved_evidence_after_patch_lane",
         json!({
             "evidence_gaps": native_tool_prompt_evidence_gaps(original_prompt, &receipts),
             "has_successful_validation": native_tool_has_successful_validation_command(&receipts),
+            "lane_receipts": native_tool_bounded_patch_lane_receipt_summary(&receipts),
         }),
+        receipts,
     ))
 }
 
@@ -1845,6 +1850,49 @@ impl NativeToolBoundedPatchLaneOutcome {
             )],
         }
     }
+
+    fn fallback_with_receipts(
+        reason: &str,
+        details: Value,
+        mut receipts: Vec<NativeToolReceipt>,
+    ) -> Self {
+        receipts.push(native_tool_bounded_patch_artifact_marker_receipt(
+            reason, details,
+        ));
+        Self {
+            terminal: None,
+            observability_receipts: receipts,
+        }
+    }
+}
+
+fn native_tool_bounded_patch_lane_receipt_summary(receipts: &[NativeToolReceipt]) -> Vec<Value> {
+    receipts
+        .iter()
+        .map(|receipt| {
+            json!({
+                "call_id": receipt.call_id.clone(),
+                "tool_name": receipt.tool_name.clone(),
+                "status": receipt.status.clone(),
+                "error": receipt.error.clone(),
+                "path": receipt.result.get("path").cloned().unwrap_or(Value::Null),
+                "success": receipt.result.get("success").cloned().unwrap_or(Value::Null),
+                "exit_code": receipt.result.get("exit_code").cloned().unwrap_or(Value::Null),
+                "stdout_tail": receipt
+                    .result
+                    .get("stdout")
+                    .and_then(Value::as_str)
+                    .map(|text| text.chars().rev().take(1200).collect::<String>().chars().rev().collect::<String>())
+                    .unwrap_or_default(),
+                "stderr_tail": receipt
+                    .result
+                    .get("stderr")
+                    .and_then(Value::as_str)
+                    .map(|text| text.chars().rev().take(1200).collect::<String>().chars().rev().collect::<String>())
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
 }
 
 fn native_tool_bounded_patch_artifact_marker_receipt(
@@ -4258,18 +4306,25 @@ fn native_tool_auto_validation_receipt(
     }
     let project_root = native_tool_prompt_project_root(original_prompt)?;
     let project_root_path = std::path::PathBuf::from(&project_root);
-    let cmd = if prompt_lower.contains("pytest")
+    let cmd = if let Some(command) = native_tool_prompt_validation_shell_command(original_prompt) {
+        vec!["sh".to_string(), "-c".to_string(), command]
+    } else if prompt_lower.contains("pytest")
         || (project_root_path.join("pyproject.toml").exists()
             && project_root_path.join("tests").is_dir())
     {
-        vec!["python3", "-m", "pytest", "-q"]
+        vec![
+            "python3".to_string(),
+            "-m".to_string(),
+            "pytest".to_string(),
+            "-q".to_string(),
+        ]
     } else if prompt_lower.contains("unittest")
         || (project_root_path.join("src").is_dir() && project_root_path.join("tests").is_dir())
     {
         vec![
-            "sh",
-            "-c",
-            "PYTHONPATH=src python3 -m unittest discover -s tests",
+            "sh".to_string(),
+            "-c".to_string(),
+            "PYTHONPATH=src python3 -m unittest discover -s tests".to_string(),
         ]
     } else {
         return None;
@@ -4284,6 +4339,56 @@ fn native_tool_auto_validation_receipt(
             "max_output_bytes": 12000
         }),
     }))
+}
+
+fn native_tool_prompt_validation_shell_command(original_prompt: &str) -> Option<String> {
+    let lower = original_prompt.to_ascii_lowercase();
+    let markers = [
+        "validation command from project root:",
+        "validation command before final response:",
+        "run this validation command before final response:",
+        "run this validation command from project root:",
+    ];
+    for marker in markers {
+        let Some(start) = lower.find(marker) else {
+            continue;
+        };
+        let raw = &original_prompt[start + marker.len()..];
+        let mut command = raw
+            .split('\n')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .trim_matches('`')
+            .trim()
+            .to_string();
+        for delimiter in [
+            ". Run this semantic",
+            ". Run the semantic",
+            ". Then run",
+            ". Do not",
+        ] {
+            if let Some((head, _tail)) = command.split_once(delimiter) {
+                command = head.trim().to_string();
+            }
+        }
+        if command.ends_with('.') {
+            command.pop();
+        }
+        let command_lower = command.to_ascii_lowercase();
+        if command.is_empty()
+            || !(command_lower.contains("python")
+                || command_lower.contains("pytest")
+                || command_lower.contains("cargo test")
+                || command_lower.contains("npm test")
+                || command_lower.contains("pnpm test")
+                || command_lower.contains("yarn test"))
+        {
+            continue;
+        }
+        return Some(command);
+    }
+    None
 }
 
 fn native_tool_recovery_max_turns(metadata: &Value) -> u64 {
