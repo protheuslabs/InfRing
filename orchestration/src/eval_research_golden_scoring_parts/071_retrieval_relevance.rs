@@ -16,6 +16,26 @@ fn evidence_prompt_relevance_from_texts(
     strict_claim_overlap: bool,
 ) -> Value {
     let prompt_terms = research_prompt_topic_terms(normalized_prompt, 12);
+    if strict_claim_overlap
+        && prompt_terms.is_empty()
+        && strict_broad_current_event_prompt(normalized_prompt)
+        && !evidence_texts.is_empty()
+    {
+        let relevant_evidence_count = evidence_texts
+            .iter()
+            .filter(|text| evidence_text_has_concrete_current_event_signal(text))
+            .count() as u64;
+        return json!({
+            "schema_version": 1,
+            "topic_relevant_evidence": relevant_evidence_count > 0,
+            "prompt_terms": prompt_terms,
+            "evidence_text_count": evidence_texts.len(),
+            "relevant_evidence_count": relevant_evidence_count,
+            "min_overlap_terms": 0,
+            "broad_current_event_claim_check": true,
+            "note": "Broad current-event prompts may have no durable topic terms, so strict evidence-claim relevance falls back to concrete event/action signal instead of accepting evergreen source metadata."
+        });
+    }
     if prompt_terms.len() < 2 || evidence_texts.is_empty() {
         return json!({
             "schema_version": 1,
@@ -45,6 +65,64 @@ fn evidence_prompt_relevance_from_texts(
         "min_overlap_terms": min_overlap,
         "note": note
     })
+}
+
+fn strict_broad_current_event_prompt(normalized_prompt: &str) -> bool {
+    contains_any(
+        normalized_prompt,
+        &[
+            " news",
+            "headline",
+            "headlines",
+            "current event",
+            "current events",
+            "world news",
+            "this week",
+            "today",
+        ],
+    )
+}
+
+fn evidence_text_has_concrete_current_event_signal(normalized_text: &str) -> bool {
+    if contains_any(
+        normalized_text,
+        &[
+            "news sources are everywhere",
+            "latest news photos videos",
+            "current news latest news",
+            "top headlines on",
+            "section index",
+            "homepage",
+            "landing page",
+        ],
+    ) {
+        return false;
+    }
+    contains_any(
+        normalized_text,
+        &[
+            "announced",
+            "approved",
+            "attacked",
+            "canceled",
+            "cancelled",
+            "charged",
+            "died",
+            "killed",
+            "launched",
+            "passed",
+            "released",
+            "reported",
+            "responded",
+            "recaptured",
+            "resigned",
+            "raised fears",
+            "shift",
+            "sued",
+            "voted",
+            "warned",
+        ],
+    )
 }
 
 fn direct_evidence_claim_count(payload: &Value) -> u64 {

@@ -3,6 +3,7 @@ struct ExcellentDiagnosticInput<'a> {
     citation_behavior: &'a Value,
     query_satisfaction: &'a Value,
     answer_unit_evidence_alignment: &'a Value,
+    answer_unit_usefulness: &'a Value,
     normalized_response: &'a str,
     source_signal: bool,
     final_answer_present: bool,
@@ -65,6 +66,16 @@ fn excellent_diagnostics(input: ExcellentDiagnosticInput<'_>) -> Value {
             .get("pass")
             .and_then(Value::as_bool)
             .unwrap_or(true);
+    let answer_units_useful_for_prompt = !input
+        .answer_unit_usefulness
+        .get("evaluated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || input
+            .answer_unit_usefulness
+            .get("pass")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
     let mut subgates = serde_json::Map::new();
     subgates.insert(
         "excellent_1_query_satisfaction".to_string(),
@@ -113,6 +124,10 @@ fn excellent_diagnostics(input: ExcellentDiagnosticInput<'_>) -> Value {
         "excellent_11_answer_units_trace_to_evidence".to_string(),
         json!(answer_units_trace_to_evidence),
     );
+    subgates.insert(
+        "excellent_15_answer_units_useful_for_prompt".to_string(),
+        json!(answer_units_useful_for_prompt),
+    );
 
     let ordered = [
         (
@@ -130,6 +145,10 @@ fn excellent_diagnostics(input: ExcellentDiagnosticInput<'_>) -> Value {
         (
             "excellent_11_answer_units_trace_to_evidence",
             "answer_units_not_traceable_to_evidence",
+        ),
+        (
+            "excellent_15_answer_units_useful_for_prompt",
+            "answer_units_not_useful_for_prompt",
         ),
         (
             "excellent_1_query_satisfaction",

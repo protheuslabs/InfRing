@@ -437,6 +437,10 @@ pub(super) fn run_research_golden_cases(
                 grade.answer_unit_evidence_alignment,
             );
             object.insert(
+                "answer_unit_usefulness".to_string(),
+                grade.answer_unit_usefulness,
+            );
+            object.insert(
                 "citation_artifacts".to_string(),
                 citation_artifact_summary(&payload),
             );

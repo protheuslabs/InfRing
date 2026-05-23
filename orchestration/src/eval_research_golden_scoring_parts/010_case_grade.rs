@@ -19,6 +19,7 @@ pub(super) struct CaseGrade {
     pub(super) response_grading_layers: Value,
     pub(super) soft_quality_smoke: Value,
     pub(super) answer_unit_evidence_alignment: Value,
+    pub(super) answer_unit_usefulness: Value,
 }
 
 pub(super) fn grade_case(
@@ -114,11 +115,21 @@ pub(super) fn grade_case(
     );
     let answer_unit_evidence_alignment =
         answer_unit_evidence_alignment(payload, &response_text, &retrieval_quality);
+    let answer_unit_usefulness =
+        answer_unit_usefulness_for_prompt(&normalized_prompt, &response_text, &retrieval_quality);
     let answer_unit_alignment_blocks_excellent = answer_unit_evidence_alignment
         .get("evaluated")
         .and_then(Value::as_bool)
         .unwrap_or(false)
         && !answer_unit_evidence_alignment
+            .get("pass")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+    let answer_unit_usefulness_blocks_excellent = answer_unit_usefulness
+        .get("evaluated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        && !answer_unit_usefulness
             .get("pass")
             .and_then(Value::as_bool)
             .unwrap_or(true);
@@ -201,6 +212,9 @@ pub(super) fn grade_case(
     if answer_unit_alignment_hard_failure(&answer_unit_evidence_alignment) {
         failures.push("answer_units_not_traceable_to_evidence".to_string());
     }
+    if answer_unit_usefulness_hard_failure(&answer_unit_usefulness) {
+        failures.push("answer_units_not_useful_for_prompt".to_string());
+    }
     if score < pass_score {
         failures.push(format!("research_score_below_pass:{score}<{pass_score}"));
     }
@@ -221,6 +235,7 @@ pub(super) fn grade_case(
         excellent_score,
         failures: &failures,
         answer_unit_evidence_alignment: &answer_unit_evidence_alignment,
+        answer_unit_usefulness: &answer_unit_usefulness,
     });
     let excellent_blockers = string_array_at(&excellent_diagnostics, &["blockers"]);
     CaseGrade {
@@ -229,7 +244,8 @@ pub(super) fn grade_case(
         excellent: score >= excellent_score
             && failures.is_empty()
             && excellent_blockers.is_empty()
-            && !answer_unit_alignment_blocks_excellent,
+            && !answer_unit_alignment_blocks_excellent
+            && !answer_unit_usefulness_blocks_excellent,
         gates,
         dimension_scores,
         failures,
@@ -247,5 +263,36 @@ pub(super) fn grade_case(
         response_grading_layers,
         soft_quality_smoke,
         answer_unit_evidence_alignment,
+        answer_unit_usefulness,
     }
+}
+
+fn answer_unit_usefulness_hard_failure(usefulness: &Value) -> bool {
+    if !usefulness
+        .get("evaluated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    if usefulness
+        .get("pass")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+    {
+        return false;
+    }
+    let process_metadata_units = usefulness
+        .get("process_metadata_units")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let direct_useful_units = usefulness
+        .get("direct_useful_units")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let usable_evidence = usefulness
+        .get("usable_evidence")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    process_metadata_units >= 2 || (usable_evidence && direct_useful_units == 0)
 }

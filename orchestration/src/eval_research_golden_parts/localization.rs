@@ -125,6 +125,8 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
     let smoke_top_blocker = str_at(row, &["soft_quality_smoke", "top_blocker"], "");
     let answer_unit_alignment_top_blocker =
         str_at(row, &["answer_unit_evidence_alignment", "top_blocker"], "");
+    let answer_unit_usefulness_top_blocker =
+        str_at(row, &["answer_unit_usefulness", "top_blocker"], "");
     let evidence_layer_failed = !bool_at(
         row,
         &[
@@ -147,6 +149,8 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
     let answer_unit_alignment_failed =
         !bool_at(row, &["answer_unit_evidence_alignment", "pass"], true)
             && bool_at(row, &["answer_unit_evidence_alignment", "evaluated"], false);
+    let answer_unit_usefulness_failed = !bool_at(row, &["answer_unit_usefulness", "pass"], true)
+        && bool_at(row, &["answer_unit_usefulness", "evaluated"], false);
     let authoritative_contract_failures = collect_authoritative_contract_failures(row);
     let mut soft_smoke_flags = string_array_at(row, &["soft_quality_smoke", "blockers"]);
     soft_smoke_flags.extend(
@@ -154,97 +158,113 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
             .into_iter()
             .map(|blocker| format!("answer_unit_evidence_alignment:{blocker}")),
     );
+    soft_smoke_flags.extend(
+        string_array_at(row, &["answer_unit_usefulness", "blockers"])
+            .into_iter()
+            .map(|blocker| format!("answer_unit_usefulness:{blocker}")),
+    );
     soft_smoke_flags.sort();
     soft_smoke_flags.dedup();
 
-    let (earliest_failure_layer, earliest_failure_boundary) =
-        if case_pass && !smoke_failed && !answer_unit_alignment_failed {
-            ("none".to_string(), "none".to_string())
-        } else if transport_failure
-            || !transport_error.is_empty()
-            || response_error == "agent_not_found"
-            || failure_classification == "transport"
-        {
-            let boundary = if !response_error.is_empty() {
-                response_error
-            } else if !transport_error.is_empty() {
-                transport_error
-            } else {
-                "transport_or_agent_lifecycle_failure".to_string()
-            };
-            ("run_stability".to_string(), boundary)
-        } else if workflow_path_failed(row, &first_failed_checkpoint) {
-            let boundary = if !workflow_boundary.is_empty() {
-                workflow_boundary
-            } else if !first_failed_checkpoint.is_empty() {
-                failure_boundary(&first_failed_checkpoint).to_string()
-            } else {
-                "workflow_path_failure".to_string()
-            };
-            ("workflow_path".to_string(), boundary)
-        } else if retrieval_mechanics_failed(row, &web_first_failed_gate, &first_failed_checkpoint)
-        {
-            let boundary = if !web_boundary.is_empty() {
-                web_boundary
-            } else if !web_first_failed_gate.is_empty() {
-                web_failure_boundary(&web_first_failed_gate).to_string()
-            } else if !first_failed_checkpoint.is_empty() {
-                failure_boundary(&first_failed_checkpoint).to_string()
-            } else {
-                "retrieval_mechanics_failure".to_string()
-            };
-            ("retrieval_mechanics".to_string(), boundary)
-        } else if evidence_layer_failed
-            || matches!(
-                first_failed_checkpoint.as_str(),
-                "5e_agent_received_evidence_context"
-            )
-        {
-            let boundary = if !evidence_top_blocker.is_empty() && evidence_top_blocker != "none" {
-                evidence_top_blocker
-            } else if !first_failed_checkpoint.is_empty() {
-                failure_boundary(&first_failed_checkpoint).to_string()
-            } else {
-                "evidence_carrythrough_failure".to_string()
-            };
-            ("evidence_carrythrough".to_string(), boundary)
-        } else if rubric_failed
-            || matches!(
-                first_failed_checkpoint.as_str(),
-                "6a_synthesis_uses_evidence_or_low_evidence_fallback"
-            )
-        {
-            let boundary = if !rubric_top_blocker.is_empty() && rubric_top_blocker != "none" {
-                rubric_top_blocker
-            } else if !first_failed_checkpoint.is_empty() {
-                str_at(
-                    row,
-                    &["gate_transition_diagnostics", "synthesis_failure_class"],
-                    &failure_boundary(&first_failed_checkpoint),
-                )
-            } else {
-                "synthesis_quality_failure".to_string()
-            };
-            ("synthesis_quality".to_string(), boundary)
-        } else if smoke_failed {
-            let boundary = if !smoke_top_blocker.is_empty() && smoke_top_blocker != "none" {
-                smoke_top_blocker
-            } else {
-                "soft_quality_smoke_flagged".to_string()
-            };
-            ("ux_smoke".to_string(), boundary)
-        } else if answer_unit_alignment_failed {
-            let boundary = if !answer_unit_alignment_top_blocker.is_empty()
-                && answer_unit_alignment_top_blocker != "none"
-            {
-                answer_unit_alignment_top_blocker
-            } else {
-                "answer_unit_evidence_alignment_flagged".to_string()
-            };
-            ("synthesis_quality".to_string(), boundary)
+    let (earliest_failure_layer, earliest_failure_boundary) = if case_pass
+        && !smoke_failed
+        && !answer_unit_alignment_failed
+        && !answer_unit_usefulness_failed
+    {
+        ("none".to_string(), "none".to_string())
+    } else if transport_failure
+        || !transport_error.is_empty()
+        || response_error == "agent_not_found"
+        || failure_classification == "transport"
+    {
+        let boundary = if !response_error.is_empty() {
+            response_error
+        } else if !transport_error.is_empty() {
+            transport_error
         } else {
-            ("none".to_string(), "none".to_string())
+            "transport_or_agent_lifecycle_failure".to_string()
         };
+        ("run_stability".to_string(), boundary)
+    } else if workflow_path_failed(row, &first_failed_checkpoint) {
+        let boundary = if !workflow_boundary.is_empty() {
+            workflow_boundary
+        } else if !first_failed_checkpoint.is_empty() {
+            failure_boundary(&first_failed_checkpoint).to_string()
+        } else {
+            "workflow_path_failure".to_string()
+        };
+        ("workflow_path".to_string(), boundary)
+    } else if retrieval_mechanics_failed(row, &web_first_failed_gate, &first_failed_checkpoint) {
+        let boundary = if !web_boundary.is_empty() {
+            web_boundary
+        } else if !web_first_failed_gate.is_empty() {
+            web_failure_boundary(&web_first_failed_gate).to_string()
+        } else if !first_failed_checkpoint.is_empty() {
+            failure_boundary(&first_failed_checkpoint).to_string()
+        } else {
+            "retrieval_mechanics_failure".to_string()
+        };
+        ("retrieval_mechanics".to_string(), boundary)
+    } else if evidence_layer_failed
+        || matches!(
+            first_failed_checkpoint.as_str(),
+            "5e_agent_received_evidence_context"
+        )
+    {
+        let boundary = if !evidence_top_blocker.is_empty() && evidence_top_blocker != "none" {
+            evidence_top_blocker
+        } else if !first_failed_checkpoint.is_empty() {
+            failure_boundary(&first_failed_checkpoint).to_string()
+        } else {
+            "evidence_carrythrough_failure".to_string()
+        };
+        ("evidence_carrythrough".to_string(), boundary)
+    } else if rubric_failed
+        || matches!(
+            first_failed_checkpoint.as_str(),
+            "6a_synthesis_uses_evidence_or_low_evidence_fallback"
+        )
+    {
+        let boundary = if !rubric_top_blocker.is_empty() && rubric_top_blocker != "none" {
+            rubric_top_blocker
+        } else if !first_failed_checkpoint.is_empty() {
+            str_at(
+                row,
+                &["gate_transition_diagnostics", "synthesis_failure_class"],
+                &failure_boundary(&first_failed_checkpoint),
+            )
+        } else {
+            "synthesis_quality_failure".to_string()
+        };
+        ("synthesis_quality".to_string(), boundary)
+    } else if smoke_failed {
+        let boundary = if !smoke_top_blocker.is_empty() && smoke_top_blocker != "none" {
+            smoke_top_blocker
+        } else {
+            "soft_quality_smoke_flagged".to_string()
+        };
+        ("ux_smoke".to_string(), boundary)
+    } else if answer_unit_alignment_failed {
+        let boundary = if !answer_unit_alignment_top_blocker.is_empty()
+            && answer_unit_alignment_top_blocker != "none"
+        {
+            answer_unit_alignment_top_blocker
+        } else {
+            "answer_unit_evidence_alignment_flagged".to_string()
+        };
+        ("synthesis_quality".to_string(), boundary)
+    } else if answer_unit_usefulness_failed {
+        let boundary = if !answer_unit_usefulness_top_blocker.is_empty()
+            && answer_unit_usefulness_top_blocker != "none"
+        {
+            answer_unit_usefulness_top_blocker
+        } else {
+            "answer_unit_usefulness_flagged".to_string()
+        };
+        ("synthesis_quality".to_string(), boundary)
+    } else {
+        ("none".to_string(), "none".to_string())
+    };
 
     json!({
         "schema_version": 1,

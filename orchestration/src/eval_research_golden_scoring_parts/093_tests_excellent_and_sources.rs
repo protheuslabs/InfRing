@@ -283,6 +283,51 @@
     }
 
     #[test]
+    fn visible_internal_posture_label_is_projection_failure() {
+        let case = json!({
+            "prompt": "What changed in the AI agent landscape this month?",
+            "expected_gate_path": {
+                "gate_1": "tool_required",
+                "gate_2": "web_research",
+                "gate_3": "batch_query",
+                "gate_4_required_fields": ["query", "aperture"]
+            }
+        });
+        let payload = json!({
+            "response": "**bounded_partial_answer** Based on the retrieved evidence, major agent platforms added background-agent and sandboxing features this month.",
+            "pending_tool_request": {
+                "status": "executed",
+                "selected_tool_family": "web_research",
+                "tool_name": "batch_query",
+                "tool_key": "batch_query",
+                "input": {
+                    "query": "AI agent landscape this month",
+                    "aperture": "medium"
+                }
+            },
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "candidate_count": 1,
+                "content_rich_candidate_count": 1,
+                "claim_hint_count": 1,
+                "evidence_refs": [{
+                    "title": "AI agent platform update",
+                    "locator": "https://example.test/agent-update",
+                    "snippet": "Major agent platforms added background-agent and sandboxing features this month.",
+                    "claim_hints": ["Major agent platforms added background-agent and sandboxing features this month."]
+                }]
+            }]
+        });
+
+        let grade = grade_case(&case, &payload, 85, 95);
+        assert!(!grade.pass);
+        assert!(grade
+            .failures
+            .contains(&"internal_workflow_state_leaked".to_string()));
+    }
+
+    #[test]
     fn soft_quality_smoke_allows_mild_evidence_caveat_when_answer_is_still_direct() {
         let case = json!({
             "prompt": "Compare Alpha and Beta for production use.",

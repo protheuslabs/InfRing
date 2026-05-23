@@ -1145,6 +1145,156 @@ fn evidence_packet_answer_units(response_tools: &[Value], limit: usize) -> Vec<S
     units
 }
 
+fn workflow_answer_unit_contains_any(haystack: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| haystack.contains(*needle))
+}
+
+fn workflow_answer_unit_prompt_asks_for_process_or_schedule(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    workflow_answer_unit_contains_any(
+        &normalized,
+        &[
+            "schedule",
+            "scheduled",
+            "deadline",
+            "nomination",
+            "nominations",
+            "application",
+            "registration",
+            "calendar",
+            "when",
+            "date",
+            "dates",
+            "announce",
+            "announcement",
+            "announcements",
+        ],
+    )
+}
+
+fn workflow_answer_unit_is_process_or_metadata_fact(unit: &str) -> bool {
+    let normalized = unit.to_ascii_lowercase();
+    workflow_answer_unit_contains_any(
+        &normalized,
+        &[
+            "announcements are scheduled",
+            "announcement is scheduled",
+            "is scheduled for",
+            "are scheduled for",
+            "nominations closed",
+            "nomination period",
+            "nominations are open",
+            "deadline",
+            "registration",
+            "application window",
+            "calendar",
+            "press release",
+        ],
+    )
+}
+
+fn workflow_answer_unit_goal_terms(message: &str) -> Vec<String> {
+    let mut terms = Vec::<String>::new();
+    for raw in message.split_whitespace() {
+        let token = raw
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric())
+            .collect::<String>()
+            .to_ascii_lowercase();
+        if token.len() < 4 {
+            continue;
+        }
+        if matches!(
+            token.as_str(),
+            "what"
+                | "some"
+                | "give"
+                | "from"
+                | "this"
+                | "that"
+                | "with"
+                | "about"
+                | "current"
+                | "latest"
+                | "news"
+                | "week"
+                | "month"
+                | "year"
+                | "update"
+                | "overview"
+                | "landscape"
+                | "compare"
+                | "best"
+        ) {
+            continue;
+        }
+        if token.chars().all(|ch| ch.is_ascii_digit()) {
+            continue;
+        }
+        let term = if token.len() > 5 && token.ends_with('s') {
+            token.trim_end_matches('s').to_string()
+        } else {
+            token
+        };
+        if !terms.iter().any(|existing| existing == &term) {
+            terms.push(term);
+        }
+        if terms.len() >= 8 {
+            break;
+        }
+    }
+    terms
+}
+
+fn workflow_answer_unit_matches_goal(unit: &str, goal_terms: &[String]) -> bool {
+    if goal_terms.is_empty() {
+        return true;
+    }
+    let normalized = unit.to_ascii_lowercase();
+    goal_terms.iter().any(|term| normalized.contains(term))
+        || workflow_answer_unit_contains_any(
+            &normalized,
+            &[
+                "reported",
+                "observed",
+                "discovered",
+                "launched",
+                "released",
+                "approved",
+                "published",
+                "improved",
+                "milestone",
+                "first ",
+                "new ",
+            ],
+        )
+}
+
+fn evidence_packet_answer_units_for_goal(
+    message: &str,
+    response_tools: &[Value],
+    limit: usize,
+) -> Vec<String> {
+    let units = evidence_packet_answer_units(response_tools, limit);
+    if units.is_empty() || workflow_answer_unit_prompt_asks_for_process_or_schedule(message) {
+        return units;
+    }
+    let goal_terms = workflow_answer_unit_goal_terms(message);
+    let filtered = units
+        .iter()
+        .filter(|unit| {
+            !workflow_answer_unit_is_process_or_metadata_fact(unit)
+                && workflow_answer_unit_matches_goal(unit, &goal_terms)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if filtered.is_empty() {
+        units
+    } else {
+        filtered
+    }
+}
+
 fn response_tools_have_answer_ready_evidence_packets(response_tools: &[Value]) -> bool {
     !evidence_packet_answer_units(response_tools, 1).is_empty()
 }
@@ -1158,8 +1308,7 @@ fn annotate_final_evidence_outcome_posture(workflow: &mut Value, response_tools:
 }
 
 fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[Value]) -> String {
-    let _ = message;
-    let answer_units = evidence_packet_answer_units(response_tools, 4);
+    let answer_units = evidence_packet_answer_units_for_goal(message, response_tools, 4);
     if !answer_units.is_empty() {
         let coverage_note = clean_text(
             &first_sentence(&fallback_coverage_lane_sentence(response_tools), 280),
@@ -4951,6 +5100,59 @@ mod workflow_fallback_tests {
         assert!(!response.contains("Here's what I found"), "{response}");
         assert!(!response.contains("Recorded evidence so far"), "{response}");
         assert!(!response.contains("From web retrieval"), "{response}");
+    }
+
+    #[test]
+    fn tool_evidence_fallback_filters_process_metadata_when_goal_needs_substantive_units() {
+        let response = fallback_final_response_from_tool_evidence(
+            "What are some scientific breakthroughs in 2026?",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "evidence_pack": [
+                    {
+                        "title": "Nobel Prize schedule",
+                        "locator": "https://example.test/nobel-schedule",
+                        "source_domain": "example.test",
+                        "relevant_extract": "The 2026 Nobel Prize announcements are scheduled for October.",
+                        "claim_hints": ["The 2026 Nobel Prize announcements are scheduled for October."],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "Battery milestone report",
+                        "locator": "https://example.test/battery-2026",
+                        "source_domain": "example.test",
+                        "relevant_extract": "A research group reported a solid-state battery chemistry milestone with improved cycle stability in 2026.",
+                        "claim_hints": ["A 2026 solid-state battery chemistry milestone improved cycle stability."],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(response.contains("solid-state battery chemistry milestone"), "{response}");
+        assert!(!response.contains("Nobel Prize announcements are scheduled"), "{response}");
+    }
+
+    #[test]
+    fn tool_evidence_fallback_keeps_process_metadata_when_goal_asks_for_schedule() {
+        let response = fallback_final_response_from_tool_evidence(
+            "When are the 2026 Nobel Prize announcements scheduled?",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "evidence_pack": [{
+                    "title": "Nobel Prize schedule",
+                    "locator": "https://example.test/nobel-schedule",
+                    "source_domain": "example.test",
+                    "relevant_extract": "The 2026 Nobel Prize announcements are scheduled for October.",
+                    "claim_hints": ["The 2026 Nobel Prize announcements are scheduled for October."],
+                    "counts_as_usable_evidence": true
+                }]
+            })],
+        );
+        assert!(response.contains("Nobel Prize announcements are scheduled"), "{response}");
     }
 
     #[test]

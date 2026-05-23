@@ -127,7 +127,9 @@ fn sanitize_workflow_visible_response_text(response_text: &str) -> String {
 
 fn strip_internal_evidence_posture_prefix(response_text: &str) -> String {
     let cleaned = clean_chat_text(response_text, 32_000);
-    let trimmed = cleaned.trim_start();
+    let trimmed = cleaned
+        .trim_start()
+        .trim_start_matches(|ch: char| ch == '*' || ch == '`' || ch == '_' || ch.is_whitespace());
     for posture in [
         "supported_answer",
         "bounded_partial_answer",
@@ -137,7 +139,7 @@ fn strip_internal_evidence_posture_prefix(response_text: &str) -> String {
             continue;
         };
         let after_posture = after_posture.trim_start_matches(|ch: char| {
-            ch.is_whitespace() || matches!(ch, ':' | '-' | '.' | ';')
+            ch.is_whitespace() || matches!(ch, ':' | '-' | '.' | ';' | '*' | '`' | '_')
         });
         return clean_chat_text(after_posture.trim_start(), 32_000);
     }
@@ -354,6 +356,16 @@ mod visible_response_sanitizer_tests {
         assert_eq!(
             sanitize_workflow_visible_response_text(response),
             "Here is the useful answer from the recorded evidence."
+        );
+    }
+
+    #[test]
+    fn sanitizer_strips_markdown_internal_evidence_posture_prefix_from_visible_answer() {
+        let response =
+            "**bounded_partial_answer** Based on the retrieved evidence, here is the useful answer.";
+        assert_eq!(
+            sanitize_workflow_visible_response_text(response),
+            "Based on the retrieved evidence, here is the useful answer."
         );
     }
 

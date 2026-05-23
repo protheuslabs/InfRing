@@ -284,6 +284,50 @@ pub(super) fn measurement_split_report(
                 "count": 0
             })
         });
+    let answer_unit_usefulness_evaluated_cases = rows
+        .iter()
+        .filter(|row| bool_at(row, &["answer_unit_usefulness", "evaluated"], false))
+        .count() as u64;
+    let answer_unit_usefulness_pass_cases = rows
+        .iter()
+        .filter(|row| bool_at(row, &["answer_unit_usefulness", "pass"], false))
+        .count() as u64;
+    let answer_unit_usefulness_flagged_cases = rows
+        .iter()
+        .filter(|row| {
+            bool_at(row, &["answer_unit_usefulness", "evaluated"], false)
+                && !bool_at(row, &["answer_unit_usefulness", "pass"], true)
+        })
+        .count() as u64;
+    let mut answer_unit_usefulness_blockers = BTreeMap::<String, u64>::new();
+    for row in rows {
+        for blocker in row
+            .pointer("/answer_unit_usefulness/blockers")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            *answer_unit_usefulness_blockers
+                .entry(blocker.to_string())
+                .or_insert(0) += 1;
+        }
+    }
+    let top_answer_unit_usefulness_blocker = answer_unit_usefulness_blockers
+        .iter()
+        .max_by_key(|(_, count)| **count)
+        .map(|(blocker, count)| {
+            json!({
+                "name": blocker,
+                "count": count
+            })
+        })
+        .unwrap_or_else(|| {
+            json!({
+                "name": "none",
+                "count": 0
+            })
+        });
     let mut soft_quality_smoke_blockers = BTreeMap::<String, u64>::new();
     for row in rows {
         for blocker in row
@@ -392,6 +436,8 @@ pub(super) fn measurement_split_report(
             "query_satisfaction_average": ratio(query_satisfaction_total, total_cases),
             "answer_unit_alignment_evaluated_cases": answer_unit_alignment_evaluated_cases,
             "answer_unit_alignment_flagged_cases": answer_unit_alignment_flagged_cases,
+            "answer_unit_usefulness_evaluated_cases": answer_unit_usefulness_evaluated_cases,
+            "answer_unit_usefulness_flagged_cases": answer_unit_usefulness_flagged_cases,
             "note": "measures whether the final answer satisfied the original query and exposed compact citation/source signal; retrieval failures remain counted separately in live_retrieval_health"
         },
         "answer_unit_evidence_alignment": {
@@ -406,6 +452,16 @@ pub(super) fn measurement_split_report(
             "top_blocker": top_answer_unit_alignment_blocker,
             "blocker_counts": answer_unit_alignment_blockers,
             "note": "Soft generic evidence-alignment lane. It asks whether concrete answer units in the final response can be traced to retrieved evidence/citation artifacts, without assuming any domain or query shape."
+        },
+        "answer_unit_usefulness": {
+            "evaluated_cases": answer_unit_usefulness_evaluated_cases,
+            "pass_cases": answer_unit_usefulness_pass_cases,
+            "pass_rate": ratio(answer_unit_usefulness_pass_cases, total_cases),
+            "flagged_cases": answer_unit_usefulness_flagged_cases,
+            "flagged_rate": ratio(answer_unit_usefulness_flagged_cases, total_cases),
+            "top_blocker": top_answer_unit_usefulness_blocker,
+            "blocker_counts": answer_unit_usefulness_blockers,
+            "note": "Soft generic prompt-usefulness lane. It asks whether evidenced answer units directly answer the user's requested semantic object instead of merely surfacing source metadata or administrative facts."
         },
         "response_grading_layers": {
             "generic_response_contract_pass_cases": generic_response_contract_pass_cases,

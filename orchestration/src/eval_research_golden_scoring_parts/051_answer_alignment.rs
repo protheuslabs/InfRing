@@ -88,6 +88,185 @@ fn answer_unit_evidence_alignment(
     })
 }
 
+fn answer_unit_usefulness_for_prompt(
+    normalized_prompt: &str,
+    response_text: &str,
+    retrieval_quality: &Value,
+) -> Value {
+    let usable_evidence = retrieval_quality
+        .get("usable_evidence")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let prompt_terms = answer_unit_usefulness_prompt_terms(normalized_prompt);
+    let prompt_asks_process = prompt_asks_for_process_or_schedule(normalized_prompt);
+    let mut checked_units = Vec::<Value>::new();
+    let mut low_usefulness_units = Vec::<Value>::new();
+    let mut process_metadata_units = 0_u64;
+    let mut substantive_units = 0_u64;
+    let mut direct_useful_units = 0_u64;
+
+    for unit in answer_text_units(response_text).iter().take(18) {
+        let normalized_unit = normalize_for_compare(unit);
+        if answer_unit_is_hedged_or_gap(&normalized_unit) {
+            continue;
+        }
+        if normalized_unit.split_whitespace().count() < 5 {
+            continue;
+        }
+        substantive_units += 1;
+        let overlap = answer_unit_prompt_overlap(&prompt_terms, &normalized_unit);
+        let process_metadata =
+            !prompt_asks_process && answer_unit_is_process_or_metadata_fact(&normalized_unit);
+        if process_metadata {
+            process_metadata_units += 1;
+        }
+        let direct_useful = !process_metadata
+            && (prompt_terms.is_empty()
+                || overlap > 0
+                || answer_unit_has_high_commitment_claim(&normalized_unit)
+                || answer_unit_has_substantive_development_signal(&normalized_unit));
+        if direct_useful {
+            direct_useful_units += 1;
+        }
+        let row = json!({
+            "unit_preview": clean_text(unit, 300),
+            "prompt_overlap": overlap as u64,
+            "process_or_metadata_fact": process_metadata,
+            "directly_useful_for_prompt": direct_useful,
+        });
+        if (!direct_useful || process_metadata) && checked_units.len() < 12 {
+            low_usefulness_units.push(row.clone());
+        }
+        if checked_units.len() < 12 {
+            checked_units.push(row);
+        }
+    }
+
+    let evaluated = substantive_units > 0;
+    let process_overrepresented = process_metadata_units >= 2
+        || (process_metadata_units > 0 && process_metadata_units * 2 >= substantive_units.max(1));
+    let direct_answer_units_missing = evaluated && usable_evidence && direct_useful_units == 0;
+    let mut blockers = Vec::<String>::new();
+    if process_overrepresented {
+        blockers.push("process_metadata_units_overrepresented".to_string());
+    }
+    if direct_answer_units_missing {
+        blockers.push("direct_answer_units_missing".to_string());
+    }
+    json!({
+        "schema_version": 1,
+        "lane_id": "answer_unit_prompt_usefulness_v1",
+        "pass": blockers.is_empty(),
+        "evaluated": evaluated,
+        "usable_evidence": usable_evidence,
+        "prompt_terms": prompt_terms,
+        "prompt_asks_process_or_schedule": prompt_asks_process,
+        "substantive_units": substantive_units,
+        "direct_useful_units": direct_useful_units,
+        "process_metadata_units": process_metadata_units,
+        "checked_units": checked_units,
+        "low_usefulness_units": low_usefulness_units,
+        "blockers": blockers,
+        "top_blocker": blockers.first().cloned().unwrap_or_else(|| "none".to_string()),
+        "note": "Generic prompt-usefulness smoke lane. Evidence-backed facts only count as answer units when they directly answer the user's requested semantic object; administrative or source-metadata facts are only useful when the prompt asks for them."
+    })
+}
+
+fn answer_unit_usefulness_prompt_terms(normalized_prompt: &str) -> Vec<String> {
+    research_prompt_topic_terms(normalized_prompt, 12)
+        .into_iter()
+        .filter(|term| !answer_unit_prompt_term_is_temporal_or_generic(term))
+        .collect()
+}
+
+fn answer_unit_prompt_term_is_temporal_or_generic(term: &str) -> bool {
+    if term.chars().all(|ch| ch.is_ascii_digit()) {
+        return true;
+    }
+    matches!(
+        term,
+        "today"
+            | "week"
+            | "month"
+            | "year"
+            | "current"
+            | "latest"
+            | "recent"
+            | "update"
+            | "news"
+    )
+}
+
+fn answer_unit_prompt_overlap(prompt_terms: &[String], normalized_unit: &str) -> usize {
+    prompt_terms
+        .iter()
+        .filter(|term| normalized_unit.contains(term.as_str()))
+        .count()
+}
+
+fn prompt_asks_for_process_or_schedule(normalized_prompt: &str) -> bool {
+    contains_any(
+        normalized_prompt,
+        &[
+            " schedule",
+            " scheduled",
+            " deadline",
+            " nomination",
+            " nominations",
+            " application",
+            " registration",
+            " calendar",
+            " when ",
+            " date",
+            " dates",
+            " announce",
+            " announcement",
+            " announcements",
+        ],
+    )
+}
+
+fn answer_unit_is_process_or_metadata_fact(normalized_unit: &str) -> bool {
+    contains_any(
+        normalized_unit,
+        &[
+            "announcements are scheduled",
+            "announcement is scheduled",
+            "is scheduled for",
+            "are scheduled for",
+            "nominations closed",
+            "nomination period",
+            "nominations are open",
+            "deadline",
+            "registration",
+            "application window",
+            "calendar",
+            "press release",
+        ],
+    )
+}
+
+fn answer_unit_has_substantive_development_signal(normalized_unit: &str) -> bool {
+    contains_any(
+        normalized_unit,
+        &[
+            " first ",
+            " new ",
+            " discovered",
+            " discovery",
+            " breakthrough",
+            " milestone",
+            " improved",
+            " launched",
+            " released",
+            " approved",
+            " observed",
+            " demonstrated",
+            " achieved",
+        ],
+    )
+}
+
 fn evidence_alignment_texts(payload: &Value) -> Vec<String> {
     let mut texts = evidence_relevance_texts(payload);
     let artifacts = citation_artifact_summary(payload);

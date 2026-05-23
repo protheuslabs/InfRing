@@ -350,6 +350,88 @@
     }
 
     #[test]
+    fn answer_unit_usefulness_flags_admin_facts_when_prompt_needs_substantive_answer_units() {
+        let case = json!({
+            "prompt": "What are some scientific breakthroughs 2026?",
+            "expected_gate_path": {
+                "gate_1": "tool_required",
+                "gate_2": "web_research",
+                "gate_3": "batch_query",
+                "gate_4_required_fields": ["query", "aperture"]
+            }
+        });
+        let payload = json!({
+            "response": "Based on the retrieved evidence, here are concrete 2026 scientific developments. Particle physics: CERN reported the first observation of a new meson state in 2026. Nobel Prize cycle: The 2026 Nobel Prize announcements are scheduled for October. Peace Prize nominations closed with 287 candidates.",
+            "pending_tool_request": {
+                "status": "executed",
+                "selected_tool_family": "web_research",
+                "tool_name": "batch_query",
+                "tool_key": "batch_query",
+                "input": {
+                    "query": "scientific breakthroughs 2026",
+                    "aperture": "medium"
+                }
+            },
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "candidate_count": 3,
+                "materialized_candidate_count": 3,
+                "content_rich_candidate_count": 3,
+                "claim_hint_count": 3,
+                "evidence_refs": [
+                    {
+                        "title": "CERN meson observation",
+                        "locator": "https://example.test/cern-meson",
+                        "snippet": "CERN reported the first observation of a new meson state in 2026.",
+                        "claim_hints": ["CERN reported the first observation of a new meson state in 2026."]
+                    },
+                    {
+                        "title": "Nobel Prize schedule",
+                        "locator": "https://example.test/nobel-schedule",
+                        "snippet": "The 2026 Nobel Prize announcements are scheduled for October.",
+                        "claim_hints": ["The 2026 Nobel Prize announcements are scheduled for October."]
+                    },
+                    {
+                        "title": "Peace Prize nominations",
+                        "locator": "https://example.test/peace-nominations",
+                        "snippet": "Peace Prize nominations closed with 287 candidates.",
+                        "claim_hints": ["Peace Prize nominations closed with 287 candidates."]
+                    }
+                ]
+            }]
+        });
+
+        let grade = grade_case(&case, &payload, 85, 95);
+        assert!(!grade.pass, "{:?}", grade.failures);
+        assert!(grade
+            .failures
+            .contains(&"answer_units_not_useful_for_prompt".to_string()));
+        assert_eq!(
+            grade
+                .answer_unit_usefulness
+                .get("top_blocker")
+                .and_then(Value::as_str),
+            Some("process_metadata_units_overrepresented")
+        );
+    }
+
+    #[test]
+    fn answer_unit_usefulness_allows_schedule_facts_when_prompt_asks_for_schedule() {
+        let retrieval_quality = json!({
+            "usable_evidence": true,
+            "status": "usable"
+        });
+        let usefulness = answer_unit_usefulness_for_prompt(
+            &normalize_for_compare("When are the 2026 Nobel Prize announcements scheduled?"),
+            "The 2026 Nobel Prize announcements are scheduled for October.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(usefulness.get("pass").and_then(Value::as_bool), Some(true));
+    }
+
+    #[test]
     fn response_truncation_detector_flags_incomplete_table_tail() {
         assert!(response_looks_truncated_or_incomplete(
             "Comparison:\n| Dimension | Best signal |\n| SDK ecosystem | Tavily (AWS"

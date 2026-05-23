@@ -887,9 +887,9 @@ fn synthesis_evidence_claims_for_tools(response_tools: &[Value], limit: usize) -
     Value::Array(items)
 }
 
-fn synthesis_answer_units_for_tools(response_tools: &[Value], limit: usize) -> Value {
+fn synthesis_answer_units_for_tools(message: &str, response_tools: &[Value], limit: usize) -> Value {
     Value::Array(
-        evidence_packet_answer_units(response_tools, limit)
+        evidence_packet_answer_units_for_goal(message, response_tools, limit)
             .into_iter()
             .map(Value::String)
             .collect(),
@@ -1003,7 +1003,7 @@ fn workflow_synthesis_input_for_final_response(
         "tool_receipt_refs": synthesis_tool_receipt_refs(response_tools),
         "evidence_pack": synthesis_evidence_pack_for_tools(response_tools, 8),
         "evidence_claims": synthesis_evidence_claims_for_tools(response_tools, 12),
-        "answer_units": synthesis_answer_units_for_tools(response_tools, 8),
+        "answer_units": synthesis_answer_units_for_tools(message, response_tools, 8),
         "coverage_gaps": synthesis_coverage_gaps(response_tools),
         "final_output_contract": final_output_contract
     })

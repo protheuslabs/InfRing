@@ -347,6 +347,9 @@ fn internal_workflow_leak(response_text: &str) -> bool {
         "finalization_outcome",
         "visible_response_source",
         "llm_gate_instruction",
+        "supported_answer",
+        "bounded_partial_answer",
+        "evidence_insufficient_answer",
     ]
     .iter()
     .any(|needle| normalized.contains(*needle))

@@ -268,6 +268,22 @@ pub(super) fn markdown_report(report: &Value) -> String {
         )
     ));
     out.push_str(&format!(
+        "- answer_unit_usefulness: evaluated={}/{} pass={}/{} ({:.3}) flagged={}/{} ({:.3}) top_blocker={}\n",
+        u64_at(split, &["answer_unit_usefulness", "evaluated_cases"], 0),
+        u64_at(summary, &["cases"], 0),
+        u64_at(split, &["answer_unit_usefulness", "pass_cases"], 0),
+        u64_at(summary, &["cases"], 0),
+        f64_at(split, &["answer_unit_usefulness", "pass_rate"], 0.0),
+        u64_at(split, &["answer_unit_usefulness", "flagged_cases"], 0),
+        u64_at(summary, &["cases"], 0),
+        f64_at(split, &["answer_unit_usefulness", "flagged_rate"], 0.0),
+        str_at(
+            split,
+            &["answer_unit_usefulness", "top_blocker", "name"],
+            "none"
+        )
+    ));
+    out.push_str(&format!(
         "- web_tooling: top_layer={} top_failure={} raw_candidates/case={:.3} usable_evidence_rate={:.3}\n",
         str_at(
             split,
