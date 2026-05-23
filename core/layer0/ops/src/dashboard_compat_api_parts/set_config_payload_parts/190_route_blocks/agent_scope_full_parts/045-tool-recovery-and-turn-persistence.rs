@@ -337,24 +337,26 @@ fn derived_research_brief_for_tools(message: &str, response_tools: &[Value]) -> 
     }
     let Some(tool) = response_tools
         .iter()
-        .find(|tool| tool_query_metadata_value(tool).is_some() || tool_hidden_value(tool, "query").is_some())
+        .find(|tool| {
+            tool_query_metadata_value(tool).is_some() || tool_hidden_value(tool, "query").is_some()
+        })
         .or_else(|| response_tools.first())
     else {
         return Value::Null;
     };
     let metadata = tool_query_metadata_value(tool);
-    let mut open_dimensions = synthesis_metadata_string_array(
-        metadata.as_ref(),
-        "/required_coverage/facets",
-        8,
-        180,
-    );
+    let mut open_dimensions =
+        synthesis_metadata_string_array(metadata.as_ref(), "/required_coverage/facets", 8, 180);
     let mut open_seen = open_dimensions
         .iter()
         .map(|row| row.to_ascii_lowercase())
         .collect::<HashSet<_>>();
     if open_dimensions.is_empty() {
-        for lane in synthesis_query_plan_strings(tool, 4).into_iter().skip(1).take(3) {
+        for lane in synthesis_query_plan_strings(tool, 4)
+            .into_iter()
+            .skip(1)
+            .take(3)
+        {
             synthesis_push_unique_clean_string(&mut open_dimensions, &mut open_seen, &lane, 220);
         }
     }
@@ -392,13 +394,16 @@ fn derived_evidence_needs_for_tools(message: &str, response_tools: &[Value]) -> 
     }
     let Some(tool) = response_tools
         .iter()
-        .find(|tool| tool_query_metadata_value(tool).is_some() || tool_hidden_value(tool, "query").is_some())
+        .find(|tool| {
+            tool_query_metadata_value(tool).is_some() || tool_hidden_value(tool, "query").is_some()
+        })
         .or_else(|| response_tools.first())
     else {
         return Value::Null;
     };
     let metadata = tool_query_metadata_value(tool);
-    let entities = synthesis_metadata_string_array(metadata.as_ref(), "/required_coverage/entities", 8, 120);
+    let entities =
+        synthesis_metadata_string_array(metadata.as_ref(), "/required_coverage/entities", 8, 120);
     let mut coverage_facets =
         synthesis_metadata_string_array(metadata.as_ref(), "/required_coverage/facets", 8, 180);
     let mut seen = coverage_facets
@@ -415,7 +420,12 @@ fn derived_evidence_needs_for_tools(message: &str, response_tools: &[Value]) -> 
         synthesis_push_unique_clean_string(&mut coverage_facets, &mut seen, "cross_comparison", 80);
     }
     if coverage_facets.is_empty() {
-        synthesis_push_unique_clean_string(&mut coverage_facets, &mut seen, "overall_objective", 80);
+        synthesis_push_unique_clean_string(
+            &mut coverage_facets,
+            &mut seen,
+            "overall_objective",
+            80,
+        );
     }
     let minimum_claims = if synthesis_message_is_comparison_intent(message)
         || synthesis_message_is_current_intent(message)
@@ -424,11 +434,12 @@ fn derived_evidence_needs_for_tools(message: &str, response_tools: &[Value]) -> 
     } else {
         2
     };
-    let minimum_distinct_domains = if entities.len() > 1 || synthesis_message_is_comparison_intent(message) {
-        3
-    } else {
-        2
-    };
+    let minimum_distinct_domains =
+        if entities.len() > 1 || synthesis_message_is_comparison_intent(message) {
+            3
+        } else {
+            2
+        };
     json!({
         "schema_version": "evidence_needs_v1",
         "coverage_facets": coverage_facets,
@@ -466,7 +477,8 @@ fn synthesis_coverage_status_rank(status: &str) -> u8 {
 }
 
 fn query_metadata_required_coverage_default_status(tool: &Value) -> &'static str {
-    let Some(coverage) = tool_result_quality_object(tool).and_then(|quality| quality.get("coverage"))
+    let Some(coverage) =
+        tool_result_quality_object(tool).and_then(|quality| quality.get("coverage"))
     else {
         return "missing";
     };
@@ -733,10 +745,17 @@ fn tool_evidence_row_counts_as_synthesis_evidence(row: &Value) -> bool {
         80,
     )
     .to_ascii_lowercase();
-    if matches!(confidence.as_str(), "candidate_only" | "low_confidence_raw" | "rejected") {
+    if matches!(
+        confidence.as_str(),
+        "candidate_only" | "low_confidence_raw" | "rejected"
+    ) {
         return false;
     }
-    let flags = compact_string_array(row.get("quality_flags").or_else(|| row.get("flags")), 12, 80);
+    let flags = compact_string_array(
+        row.get("quality_flags").or_else(|| row.get("flags")),
+        12,
+        80,
+    );
     if flags
         .as_array()
         .map(|rows| {
@@ -887,7 +906,11 @@ fn synthesis_evidence_claims_for_tools(response_tools: &[Value], limit: usize) -
     Value::Array(items)
 }
 
-fn synthesis_answer_units_for_tools(message: &str, response_tools: &[Value], limit: usize) -> Value {
+fn synthesis_answer_units_for_tools(
+    message: &str,
+    response_tools: &[Value],
+    limit: usize,
+) -> Value {
     Value::Array(
         evidence_packet_answer_units_for_goal(message, response_tools, limit)
             .into_iter()
@@ -1141,7 +1164,7 @@ fn workflow_tool_state_prompt_context(response_tools: &[Value]) -> String {
         .unwrap_or_else(|_| "{\"recorded_tool_outcome_count\":0}".to_string());
     clean_text(
         &format!(
-            "Recorded tool/evidence state for this turn:\n{summary_json}\n\nThis block is private synthesis context. Do not quote, summarize, enumerate, or expose its JSON keys, `recorded_*` fields, quality flags, tool boundary signals, or internal outcome posture in the user-facing answer. Only use tool or evidence details that are explicitly present in this recorded state and the recorded tool outcomes below. Treat the recorded quality, retry, claim, and answer-unit fields as private boundary signals: retry recommendations, low-signal flags, missing claim-backed evidence, missing answer units, errors, or no evidence mean the workflow ran but evidence may be insufficient. Prefer reusing recorded claim, extract, and source wording for concrete facts. Do not add unsupported topical labels, exact dates, ages, numbers, or categorical gloss unless those details appear in the recorded evidence or you clearly mark them as inference. Choose exactly one internal outcome posture before answering, then convert it into plain user-facing prose. If evidence counts are zero, do not claim returned snippets, evidence refs, or source-backed findings for this turn. Evidence being insufficient does not prove that the underlying fact, source surface, or entity does not exist."
+            "Recorded tool/evidence state for this turn:\n{summary_json}\n\nThis block is private synthesis context. Do not quote, summarize, enumerate, or expose its JSON keys, `recorded_*` fields, quality flags, tool boundary signals, or internal outcome posture in the user-facing answer. The user-facing answer must still be useful and directly answer the goal if formatting is stripped away; any answer shape is acceptable if the plain text stands on its own. Only use tool or evidence details that are explicitly present in this recorded state and the recorded tool outcomes below. Treat the recorded quality, retry, claim, and answer-unit fields as private boundary signals: retry recommendations, low-signal flags, missing claim-backed evidence, missing answer units, errors, or no evidence mean the workflow ran but evidence may be insufficient. Prefer reusing recorded claim, extract, and source wording for concrete facts. Do not add unsupported topical labels, exact dates, ages, numbers, or categorical gloss unless those details appear in the recorded evidence or you clearly mark them as inference. Choose exactly one internal outcome posture before answering, then convert it into plain user-facing prose without exposing the posture label itself. If evidence counts are zero, do not claim returned snippets, evidence refs, or source-backed findings for this turn. Evidence being insufficient does not prove that the underlying fact, source surface, or entity does not exist."
         ),
         2_000,
     )
@@ -1675,9 +1698,7 @@ mod tool_turn_response_text_tests {
             Some("full_materialized")
         );
         assert_eq!(
-            input
-                .pointer("/answer_units/0")
-                .and_then(Value::as_str),
+            input.pointer("/answer_units/0").and_then(Value::as_str),
             Some("battery chemistry milestone Source: Battery milestone, example.test.")
         );
         assert_eq!(

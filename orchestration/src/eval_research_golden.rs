@@ -49,6 +49,148 @@ use localization::*;
 use measurement_split::*;
 use query_diagnostics::*;
 use reporting::*;
+
+fn case_selection_requested_sample_size(args: &[String], input: &Value, limit: usize) -> Option<usize> {
+    let explicit = parse_u64_flag(args, "sample-size", 0) as usize;
+    if explicit > 0 {
+        return Some(explicit);
+    }
+    let auto_when_truncated = bool_at(
+        input,
+        &["sampling_policy", "auto_sample_when_limit_is_lower_than_pool"],
+        false,
+    );
+    auto_when_truncated
+        .then_some(limit)
+        .filter(|requested| *requested > 0 && *requested != usize::MAX)
+}
+
+fn case_selection_requested_seed(args: &[String]) -> Option<String> {
+    parse_flag(args, "sample-seed")
+        .map(|raw| clean_text(&raw, 120))
+        .filter(|raw| !raw.is_empty())
+}
+
+fn case_selection_hash(seed: &str, case_id: &str, ordinal: usize) -> String {
+    stable_hash_hex(
+        &json!({
+            "seed": seed,
+            "case_id": case_id,
+            "ordinal": ordinal
+        })
+        .to_string(),
+    )
+}
+
+fn case_selection_counts(cases: &[Value], key: &str) -> Vec<Value> {
+    let mut counts = BTreeMap::<String, u64>::new();
+    for case in cases {
+        for value in match key {
+            "category" => vec![str_at(case, &["category"], "unknown")],
+            "tag" => {
+                let tags = string_array_at(case, &["tags"]);
+                if tags.is_empty() {
+                    vec!["untagged".to_string()]
+                } else {
+                    tags
+                }
+            }
+            _ => Vec::new(),
+        } {
+            let cleaned = clean_text(&value, 120);
+            if cleaned.is_empty() {
+                continue;
+            }
+            *counts.entry(cleaned).or_insert(0) += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(name, count)| {
+            json!({
+                key: name,
+                "count": count
+            })
+        })
+        .collect()
+}
+
+fn select_research_golden_cases(
+    cases: &[Value],
+    requested_sample_size: Option<usize>,
+    requested_seed: Option<&str>,
+    limit: usize,
+) -> (Vec<Value>, Value) {
+    let pool_size = cases.len();
+    let requested_sample_size = requested_sample_size
+        .filter(|size| *size > 0)
+        .map(|size| size.min(pool_size));
+    let requested_seed = requested_seed
+        .map(|raw| clean_text(raw, 120))
+        .filter(|raw| !raw.is_empty());
+    let effective_sample_size = requested_sample_size.unwrap_or(pool_size);
+    let selection_applied = effective_sample_size < pool_size || requested_seed.is_some();
+    let effective_seed = selection_applied.then(|| {
+        requested_seed
+            .clone()
+            .unwrap_or_else(|| format!("auto:{}", now_iso_like()))
+    });
+    let selected_cases = if let Some(seed) = effective_seed.as_deref() {
+        let mut ranked = cases
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(ordinal, case)| {
+                let case_id = clean_text(
+                    &str_at(&case, &["id"], &format!("case_{ordinal:03}")),
+                    160,
+                );
+                (case_selection_hash(seed, &case_id, ordinal), ordinal, case)
+            })
+            .collect::<Vec<_>>();
+        ranked.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
+        ranked
+            .into_iter()
+            .take(effective_sample_size)
+            .map(|(_, _, case)| case)
+            .collect::<Vec<_>>()
+    } else {
+        cases.to_vec()
+    };
+    let selected_case_ids = selected_cases
+        .iter()
+        .enumerate()
+        .map(|(ordinal, case)| {
+            clean_text(
+                &str_at(case, &["id"], &format!("case_{ordinal:03}")),
+                160,
+            )
+        })
+        .collect::<Vec<_>>();
+    let planned_execution_count = selected_cases.iter().take(limit).count();
+    (
+        selected_cases.clone(),
+        json!({
+            "selection_applied": selection_applied,
+            "selection_mode": if selection_applied {
+                "deterministic_seeded_sample"
+            } else {
+                "full_dataset_order"
+            },
+            "pool_size": pool_size,
+            "requested_sample_size": requested_sample_size,
+            "effective_sample_size": selected_cases.len(),
+            "requested_sample_seed": requested_seed,
+            "effective_sample_seed": effective_seed,
+            "limit_requested": if limit == usize::MAX { None::<usize> } else { Some(limit) },
+            "planned_execution_count": planned_execution_count,
+            "selected_case_ids": selected_case_ids,
+            "selected_category_counts": case_selection_counts(&selected_cases, "category"),
+            "selected_tag_counts": case_selection_counts(&selected_cases, "tag")
+        }),
+    )
+}
+
 pub fn run_research_golden(args: &[String]) -> i32 {
     let strict = parse_bool_flag(args, "strict", false);
     let live = parse_bool_flag(args, "live", false);
@@ -138,6 +280,14 @@ pub fn run_research_golden(args: &[String]) -> i32 {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let requested_sample_size = case_selection_requested_sample_size(args, &input, limit);
+    let requested_sample_seed = case_selection_requested_seed(args);
+    let (selected_cases, case_selection) = select_research_golden_cases(
+        &cases,
+        requested_sample_size,
+        requested_sample_seed.as_deref(),
+        limit,
+    );
     let thresholds = input
         .get("reliability_thresholds")
         .cloned()
@@ -199,7 +349,7 @@ pub fn run_research_golden(args: &[String]) -> i32 {
     }
 
     let run_state = run_research_golden_cases(ResearchGoldenCaseRunInput {
-        cases: &cases,
+        cases: &selected_cases,
         limit,
         live,
         confirm_pending_tool,
@@ -348,6 +498,9 @@ pub fn run_research_golden(args: &[String]) -> i32 {
         },
         "summary": {
             "cases": total_cases,
+            "pool_cases": u64_at(&case_selection, &["pool_size"], 0),
+            "selected_cases_before_limit": u64_at(&case_selection, &["effective_sample_size"], 0),
+            "planned_execution_count": u64_at(&case_selection, &["planned_execution_count"], 0),
             "min_cases_for_reliability_claim": min_cases,
             "enough_cases_for_reliability_claim": enough_cases,
             "passed_cases": passed_cases,
@@ -380,6 +533,7 @@ pub fn run_research_golden(args: &[String]) -> i32 {
         "dimension_averages": dimension_averages,
         "category_pass_rates": category_pass_rates,
         "tag_pass_rates": tag_pass_rates,
+        "case_selection": case_selection,
         "setup_failures": setup_failures,
         "cases": rows,
         "failure_events": failure_events,

@@ -1,0 +1,2600 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-05-23",
+  "dataset_id": "research_user_prompt_pool_v1",
+  "description": "Broad 100-case research prompt pool spanning business and personal use cases. It is designed for seeded random sampling so workflow tests can exercise varied real-user intents without hardcoding expected facts.",
+  "domain": "research",
+  "domain_taxonomy": [
+    "software_technical",
+    "science_academic",
+    "business_market",
+    "policy_legal_civic",
+    "consumer_product",
+    "local_travel",
+    "history_culture",
+    "health_medical",
+    "news_current_events",
+    "general_other"
+  ],
+  "shape_tag_taxonomy": [
+    "lookup",
+    "comparison",
+    "landscape",
+    "recommendation",
+    "timeline",
+    "evidence_check",
+    "low_signal",
+    "current",
+    "multi_entity",
+    "source_sensitive"
+  ],
+  "answer_key_policy": {
+    "exact_answer_matching": false,
+    "requires_live_or_recorded_evidence": true,
+    "allow_reasoned_uncertainty": true,
+    "generated_examples_allowed": false,
+    "hidden_expected_entities_are_not_hard_answer_keys": true,
+    "notes": "This pool is for broad workflow coverage. Cases define prompt intent, category, shape tags, and visible required entities when the user explicitly named them, but they do not prescribe a final answer text."
+  },
+  "workflow_expectations": {
+    "gate_1": "tool_required_for_current_or_external_research",
+    "gate_2": "select_tool_family",
+    "gate_3": "select_specific_tool_from_declared_artifacts",
+    "gate_4": "fill_tool_request_template",
+    "post_tool_required_stages": [
+      "tool_result_received",
+      "evidence_extracted",
+      "synthesis_performed",
+      "final_response_packaged"
+    ],
+    "allowed_terminal_user_visible_kinds": [
+      "final_response",
+      "clarification_request",
+      "structured_failure"
+    ],
+    "forbidden_terminal_user_visible_kinds": [
+      "tool_choice",
+      "raw_tool_result",
+      "workflow_trace",
+      "empty_response"
+    ]
+  },
+  "sampling_policy": {
+    "selection_mode": "deterministic_seeded_sample",
+    "auto_sample_when_limit_is_lower_than_pool": true,
+    "recommended_sample_size": 20,
+    "note": "When the caller requests fewer cases than the pool contains, the eval runner should draw a deterministic seeded subset and record the seed in the report."
+  },
+  "reliability_thresholds": {
+    "min_cases_for_reliability_claim": 20,
+    "workflow_gate_pass_min": 0.95,
+    "research_success_min": 0.85,
+    "excellent_research_success_min": 0.95,
+    "max_empty_responses": 0,
+    "max_raw_tool_leaks": 0,
+    "max_tool_choice_as_final_response": 0,
+    "max_unsupported_factual_claims": 0
+  },
+  "scoring_contract": {
+    "total_points": 100,
+    "pass_score": 85,
+    "excellent_score": 95,
+    "dimensions": [
+      {
+        "name": "workflow_path",
+        "points": 20
+      },
+      {
+        "name": "evidence_behavior",
+        "points": 25
+      },
+      {
+        "name": "synthesis_quality",
+        "points": 35
+      },
+      {
+        "name": "projection_safety",
+        "points": 20
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "research_pool_001_ai_readable_web_retrieval",
+      "category": "software_technical",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "multi_entity"
+      ],
+      "prompt": "Research Crawl4AI, Firecrawl, Exa, Tavily, and Jina Reader for building an AI-readable web retrieval pipeline in 2026. Which parts are useful for a general research agent?",
+      "required_entities": [
+        "Crawl4AI",
+        "Firecrawl",
+        "Exa",
+        "Tavily",
+        "Jina Reader"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_002_js_heavy_scraping",
+      "category": "software_technical",
+      "tags": [
+        "landscape",
+        "recommendation",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research current options for scraping JavaScript-heavy sites for AI processing. Compare browser automation, hosted crawlers, reader APIs, and plain HTTP extraction.",
+      "required_entities": [
+        "browser automation",
+        "hosted crawlers",
+        "reader APIs",
+        "plain HTTP"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_003_agent_observability_stack",
+      "category": "software_technical",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Research current observability options for agent workflows. Compare Langfuse, OpenTelemetry-based setups, Helicone, and Braintrust for traces, evaluation, and production debugging.",
+      "required_entities": [
+        "Langfuse",
+        "OpenTelemetry",
+        "Helicone",
+        "Braintrust"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_004_browser_qa_automation",
+      "category": "software_technical",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Compare browser-use, Playwright, and Selenium for repeatable QA-style browser automation in 2026. Which is the best fit for stable scripted testing versus LLM-driven workflows?",
+      "required_entities": [
+        "browser-use",
+        "Playwright",
+        "Selenium"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_005_mcp_server_stacks",
+      "category": "software_technical",
+      "tags": [
+        "landscape",
+        "recommendation",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research the current Model Context Protocol server ecosystem for internal tool integrations. What looks mature, what is experimental, and what should a product team avoid overcommitting to?",
+      "required_entities": [
+        "Model Context Protocol"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_006_vector_retrieval_stack",
+      "category": "software_technical",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Research current vector retrieval stack options for a small SaaS team. Compare pgvector, Qdrant, Weaviate, and Pinecone on operational burden, retrieval quality, and lock-in.",
+      "required_entities": [
+        "pgvector",
+        "Qdrant",
+        "Weaviate",
+        "Pinecone"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_007_secret_scanning_tools",
+      "category": "software_technical",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Research current secret-scanning and code security tools for a GitHub-heavy engineering org. Compare GitHub Advanced Security, Snyk, Semgrep, and Gitleaks.",
+      "required_entities": [
+        "GitHub Advanced Security",
+        "Snyk",
+        "Semgrep",
+        "Gitleaks"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_008_local_speech_to_text",
+      "category": "software_technical",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Research current local or offline speech-to-text options for meeting transcription. Compare Whisper, faster-whisper, Vosk, and Apple Speech on accuracy, latency, and setup effort.",
+      "required_entities": [
+        "Whisper",
+        "faster-whisper",
+        "Vosk",
+        "Apple Speech"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_009_docs_portal_stack",
+      "category": "software_technical",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Research developer documentation portal options for a fast-moving API company. Compare Mintlify, Docusaurus with Algolia, Fern, and Redocly.",
+      "required_entities": [
+        "Mintlify",
+        "Docusaurus",
+        "Algolia",
+        "Fern",
+        "Redocly"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_010_feature_flag_platforms",
+      "category": "software_technical",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Compare current feature flag platforms for engineering teams. I care about LaunchDarkly, Statsig, PostHog, and Unleash for experimentation, governance, and pricing posture.",
+      "required_entities": [
+        "LaunchDarkly",
+        "Statsig",
+        "PostHog",
+        "Unleash"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_011_scientific_breakthroughs_april_2026",
+      "category": "science_academic",
+      "tags": [
+        "landscape",
+        "current",
+        "evidence_check",
+        "source_sensitive"
+      ],
+      "prompt": "What are some source-backed scientific breakthroughs or notable research milestones from April 2026? Separate confirmed findings from early or preliminary claims.",
+      "required_entities": [
+        "April 2026",
+        "scientific breakthroughs"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_012_perovskite_tandem_solar",
+      "category": "science_academic",
+      "tags": [
+        "comparison",
+        "timeline",
+        "evidence_check",
+        "current"
+      ],
+      "prompt": "Research current progress on perovskite-silicon tandem solar cells. What has improved, what is still a barrier, and what should a non-specialist believe?",
+      "required_entities": [
+        "perovskite-silicon tandem solar cells"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_013_commercial_fusion_milestones",
+      "category": "science_academic",
+      "tags": [
+        "landscape",
+        "timeline",
+        "current",
+        "evidence_check"
+      ],
+      "prompt": "Research the current state of commercial fusion milestones in 2026. What is real progress, what is still hype, and what dates should be treated skeptically?",
+      "required_entities": [
+        "commercial fusion"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_014_crispr_delivery",
+      "category": "science_academic",
+      "tags": [
+        "landscape",
+        "evidence_check",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research current progress on in vivo CRISPR delivery. What approaches are showing promise, and what technical barriers still look serious?",
+      "required_entities": [
+        "CRISPR"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_015_ai_drug_discovery_progress",
+      "category": "science_academic",
+      "tags": [
+        "landscape",
+        "current",
+        "evidence_check",
+        "source_sensitive"
+      ],
+      "prompt": "Research what is actually happening in AI drug discovery in 2026. Separate platform claims from source-backed clinical or biological progress.",
+      "required_entities": [
+        "AI drug discovery"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_016_superconductor_claims",
+      "category": "science_academic",
+      "tags": [
+        "timeline",
+        "evidence_check",
+        "low_signal",
+        "current"
+      ],
+      "prompt": "Research recent room-temperature or near-room-temperature superconductor claims. Which claims have real support, which were challenged, and what should a skeptical reader conclude?",
+      "required_entities": [
+        "superconductor"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_017_microplastics_health_evidence",
+      "category": "science_academic",
+      "tags": [
+        "evidence_check",
+        "current",
+        "source_sensitive",
+        "lookup"
+      ],
+      "prompt": "Research the current evidence on microplastics and human health. What appears reasonably supported, what is still unsettled, and what gets overstated in headlines?",
+      "required_entities": [
+        "microplastics",
+        "human health"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_018_sodium_ion_batteries",
+      "category": "science_academic",
+      "tags": [
+        "landscape",
+        "comparison",
+        "current",
+        "evidence_check"
+      ],
+      "prompt": "Research the current state of sodium-ion batteries. Where are they genuinely competitive, where are lithium-ion batteries still ahead, and what commercialization limits matter?",
+      "required_entities": [
+        "sodium-ion batteries",
+        "lithium-ion batteries"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_019_jwst_exoplanet_findings",
+      "category": "science_academic",
+      "tags": [
+        "current",
+        "evidence_check",
+        "source_sensitive",
+        "lookup"
+      ],
+      "prompt": "Research notable JWST exoplanet atmosphere findings from 2026. What claims look strong, and which interpretations should still be treated cautiously?",
+      "required_entities": [
+        "JWST",
+        "exoplanet"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_020_carbon_removal_methods",
+      "category": "science_academic",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "evidence_check",
+        "current"
+      ],
+      "prompt": "Compare the current evidence and commercialization status for direct air capture, mineralization, and biochar as carbon removal approaches.",
+      "required_entities": [
+        "direct air capture",
+        "mineralization",
+        "biochar"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_021_enterprise_ai_coding_assistants",
+      "category": "business_market",
+      "tags": [
+        "landscape",
+        "comparison",
+        "recommendation",
+        "current",
+        "multi_entity"
+      ],
+      "prompt": "Research the current enterprise AI coding assistant market. Compare GitHub Copilot, Cursor, Sourcegraph Cody, JetBrains AI, and Amazon Q Developer for a 200-person engineering org.",
+      "required_entities": [
+        "GitHub Copilot",
+        "Cursor",
+        "Sourcegraph Cody",
+        "JetBrains AI",
+        "Amazon Q Developer"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_022_ev_charging_business_models",
+      "category": "business_market",
+      "tags": [
+        "landscape",
+        "recommendation",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research EV charging infrastructure business models in the US in 2026. What models look viable, what risks matter, and what should a small property owner avoid?",
+      "required_entities": [
+        "EV charging infrastructure",
+        "US"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_023_helpdesk_ai_platforms",
+      "category": "business_market",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Compare current AI helpdesk platforms for a 100-person SaaS company. I care about Intercom, Zendesk AI, Freshworks, and Salesforce Service Cloud.",
+      "required_entities": [
+        "Intercom",
+        "Zendesk AI",
+        "Freshworks",
+        "Salesforce Service Cloud"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_024_bookkeeping_automation",
+      "category": "business_market",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Research current bookkeeping and finance automation options for a small services business. Compare QuickBooks, Xero, Pilot, and Puzzle on practicality and workflow fit.",
+      "required_entities": [
+        "QuickBooks",
+        "Xero",
+        "Pilot",
+        "Puzzle"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_025_conversation_intelligence",
+      "category": "business_market",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Research the current conversation-intelligence market for B2B sales teams. Compare Gong, Chorus, Clari Copilot, and Avoma.",
+      "required_entities": [
+        "Gong",
+        "Chorus",
+        "Clari Copilot",
+        "Avoma"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_026_warehouse_robotics",
+      "category": "business_market",
+      "tags": [
+        "landscape",
+        "recommendation",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research the warehouse robotics landscape for mid-size 3PL operators in 2026. What categories and vendors matter, and where do implementation risks usually hide?",
+      "required_entities": [
+        "warehouse robotics",
+        "3PL"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_027_company_knowledge_tools",
+      "category": "business_market",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Compare current internal knowledge tools for companies. I care about Notion AI, Glean, Guru, and Confluence AI for search quality, governance, and adoption friction.",
+      "required_entities": [
+        "Notion AI",
+        "Glean",
+        "Guru",
+        "Confluence AI"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_028_legal_ops_ai",
+      "category": "business_market",
+      "tags": [
+        "landscape",
+        "current",
+        "recommendation",
+        "source_sensitive"
+      ],
+      "prompt": "Research the current legal-ops AI market for contract review and internal legal workflows. What looks operationally real versus mostly demo-driven?",
+      "required_entities": [
+        "legal ops AI"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_029_internal_tools_platforms",
+      "category": "business_market",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Compare Retool, Appsmith, Microsoft Power Apps, and Airtable as internal-tools platforms for an operations-heavy business.",
+      "required_entities": [
+        "Retool",
+        "Appsmith",
+        "Microsoft Power Apps",
+        "Airtable"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_030_email_marketing_platforms",
+      "category": "business_market",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Research current email marketing platforms for ecommerce brands. Compare Klaviyo, Mailchimp, Braze, and Omnisend on automation depth, analytics, and cost posture.",
+      "required_entities": [
+        "Klaviyo",
+        "Mailchimp",
+        "Braze",
+        "Omnisend"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_031_state_ai_regulation",
+      "category": "policy_legal_civic",
+      "tags": [
+        "landscape",
+        "current",
+        "source_sensitive",
+        "timeline"
+      ],
+      "prompt": "Research the current state of US state-level AI regulation in 2026. Which themes are emerging, which states are active, and what should a startup monitor?",
+      "required_entities": [
+        "US state-level AI regulation"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_032_eu_ai_act_small_saas",
+      "category": "policy_legal_civic",
+      "tags": [
+        "lookup",
+        "current",
+        "source_sensitive",
+        "recommendation"
+      ],
+      "prompt": "Research the EU AI Act implementation timeline and practical obligations for a small SaaS company that uses AI features but does not train foundation models.",
+      "required_entities": [
+        "EU AI Act"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_033_us_privacy_laws_2026",
+      "category": "policy_legal_civic",
+      "tags": [
+        "landscape",
+        "current",
+        "source_sensitive",
+        "timeline"
+      ],
+      "prompt": "Research the current US consumer privacy law landscape in 2026. Which state laws matter most for a mid-size internet business?",
+      "required_entities": [
+        "consumer privacy law",
+        "US"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_034_right_to_repair",
+      "category": "policy_legal_civic",
+      "tags": [
+        "timeline",
+        "current",
+        "source_sensitive",
+        "comparison"
+      ],
+      "prompt": "Research the current status of right-to-repair legislation in the US for electronics and farm equipment. Where is momentum strongest, and where are the carve-outs?",
+      "required_entities": [
+        "right-to-repair",
+        "electronics",
+        "farm equipment"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_035_stablecoin_regulation",
+      "category": "policy_legal_civic",
+      "tags": [
+        "current",
+        "timeline",
+        "source_sensitive",
+        "landscape"
+      ],
+      "prompt": "Research the current state of US stablecoin regulation in 2026. What are the main legislative tracks, and what should product teams pay attention to?",
+      "required_entities": [
+        "stablecoin regulation",
+        "US"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_036_gig_worker_classification",
+      "category": "policy_legal_civic",
+      "tags": [
+        "landscape",
+        "current",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research the current gig-worker classification landscape in the US. What legal themes are still unsettled, and what differs by state?",
+      "required_entities": [
+        "gig worker classification",
+        "US"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_037_short_term_rental_rules",
+      "category": "policy_legal_civic",
+      "tags": [
+        "landscape",
+        "current",
+        "source_sensitive",
+        "multi_entity"
+      ],
+      "prompt": "Research short-term rental regulation trends in major US cities in 2026. What patterns keep showing up, and what risks should a new host understand?",
+      "required_entities": [
+        "short-term rentals",
+        "US cities"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_038_youth_social_media_bills",
+      "category": "policy_legal_civic",
+      "tags": [
+        "current",
+        "timeline",
+        "source_sensitive",
+        "landscape"
+      ],
+      "prompt": "Research the current wave of youth social-media restriction bills in the US. What approaches are states trying, and what legal uncertainty remains?",
+      "required_entities": [
+        "youth social-media restriction bills",
+        "US"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_039_nuclear_permitting_reform",
+      "category": "policy_legal_civic",
+      "tags": [
+        "current",
+        "timeline",
+        "source_sensitive",
+        "lookup"
+      ],
+      "prompt": "Research the current status of nuclear permitting reform in the United States. What has actually changed, and what remains a bottleneck?",
+      "required_entities": [
+        "nuclear permitting reform",
+        "United States"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_040_data_residency_saas",
+      "category": "policy_legal_civic",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "source_sensitive",
+        "current"
+      ],
+      "prompt": "Research data-residency and sovereignty requirements that matter for SaaS buyers in 2026. I want the practical picture for selling into Europe and the US public sector.",
+      "required_entities": [
+        "data residency",
+        "Europe",
+        "US public sector"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_041_noise_canceling_headphones",
+      "category": "consumer_product",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Research travel-friendly noise-canceling headphones in 2026 for calls, comfort, battery life, and reliability. Give me a practical shortlist, not marketing copy.",
+      "required_entities": [
+        "noise-canceling headphones"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_042_home_backup_power",
+      "category": "consumer_product",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research home battery backup options versus portable power stations for a homeowner who mainly wants outage resilience. What tradeoffs matter before buying?",
+      "required_entities": [
+        "home battery backup",
+        "portable power stations"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_043_cordless_vacuums",
+      "category": "consumer_product",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Compare current cordless vacuum options for a small apartment with pets. I care about Dyson, Shark, Tineco, and Miele.",
+      "required_entities": [
+        "Dyson",
+        "Shark",
+        "Tineco",
+        "Miele"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_044_ereaders_note_tablets",
+      "category": "consumer_product",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Research current e-reader and note-tablet options. Compare Kindle, Kobo, reMarkable, Boox, and Supernote for reading, annotation, and distraction level.",
+      "required_entities": [
+        "Kindle",
+        "Kobo",
+        "reMarkable",
+        "Boox",
+        "Supernote"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_045_travel_strollers",
+      "category": "consumer_product",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "multi_entity"
+      ],
+      "prompt": "Research current travel stroller options for frequent flyers. I care about fold size, airport practicality, durability, and whether the ride is actually decent.",
+      "required_entities": [
+        "travel stroller"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_046_beginner_espresso_machines",
+      "category": "consumer_product",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Compare beginner-friendly home espresso machines in 2026. I want a practical choice among Breville Bambino, Barista Express, Gaggia Classic Pro, and comparable options.",
+      "required_entities": [
+        "Breville Bambino",
+        "Barista Express",
+        "Gaggia Classic Pro"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_047_air_purifiers_wildfire_smoke",
+      "category": "consumer_product",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research air purifiers for wildfire smoke in a bedroom. What specs actually matter, and which current consumer options look dependable?",
+      "required_entities": [
+        "air purifiers",
+        "wildfire smoke"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_048_running_watches",
+      "category": "consumer_product",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Compare running watches from Garmin, Coros, Apple, and Suunto for someone training seriously but not doing ultramarathons.",
+      "required_entities": [
+        "Garmin",
+        "Coros",
+        "Apple",
+        "Suunto"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_049_robot_vacuums_pet_hair",
+      "category": "consumer_product",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Research robot vacuums for pet hair and mixed flooring in 2026. Compare Roborock, Roomba, Dreame, and Eufy.",
+      "required_entities": [
+        "Roborock",
+        "Roomba",
+        "Dreame",
+        "Eufy"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_050_carry_on_luggage",
+      "category": "consumer_product",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "multi_entity",
+        "current"
+      ],
+      "prompt": "Compare current carry-on luggage brands for durability and airline practicality. I care about Away, Travelpro, Briggs & Riley, and Samsonite.",
+      "required_entities": [
+        "Away",
+        "Travelpro",
+        "Briggs & Riley",
+        "Samsonite"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_051_denver_santa_fe_road_trip",
+      "category": "local_travel",
+      "tags": [
+        "recommendation",
+        "timeline",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research a 3-day Denver to Santa Fe spring road trip for someone who likes art, food, and easy hikes. Include realistic routing and seasonal caveats.",
+      "required_entities": [
+        "Denver",
+        "Santa Fe"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_052_chicago_family_neighborhoods",
+      "category": "local_travel",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "multi_entity"
+      ],
+      "prompt": "Research family-friendly neighborhoods to stay in Chicago for museums, transit access, and walkability. Compare a few options and tradeoffs.",
+      "required_entities": [
+        "Chicago"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_053_tokyo_first_time_bases",
+      "category": "local_travel",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "multi_entity"
+      ],
+      "prompt": "Research the best neighborhoods to stay in Tokyo for a first-time 4-day visit focused on food, transit, and walkability.",
+      "required_entities": [
+        "Tokyo"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_054_lisbon_remote_worker_stay",
+      "category": "local_travel",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "multi_entity"
+      ],
+      "prompt": "Research Lisbon neighborhoods for a remote worker who wants walkability, cafes, safety, and easy airport access.",
+      "required_entities": [
+        "Lisbon"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_055_new_orleans_three_day_trip",
+      "category": "local_travel",
+      "tags": [
+        "recommendation",
+        "timeline",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research a realistic 3-day New Orleans trip focused on live music, food, and neighborhoods with character. Include caveats about crowds and logistics.",
+      "required_entities": [
+        "New Orleans"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_056_yosemite_october_itinerary",
+      "category": "local_travel",
+      "tags": [
+        "recommendation",
+        "timeline",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research an early-October Yosemite itinerary for someone who wants scenery and moderate hikes without overcommitting to driving.",
+      "required_entities": [
+        "Yosemite"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_057_quebec_city_winter_weekend",
+      "category": "local_travel",
+      "tags": [
+        "recommendation",
+        "timeline",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research a winter weekend in Quebec City for food, atmosphere, and manageable walking. What should a traveler realistically plan around weather and crowds?",
+      "required_entities": [
+        "Quebec City"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_058_utah_parks_from_vegas",
+      "category": "local_travel",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "timeline",
+        "current"
+      ],
+      "prompt": "Research which Utah or nearby national parks are most realistic from Las Vegas for a spring long weekend. Compare drive burden, scenery, and crowd tradeoffs.",
+      "required_entities": [
+        "Las Vegas",
+        "Utah"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_059_mexico_city_neighborhoods",
+      "category": "local_travel",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "multi_entity"
+      ],
+      "prompt": "Research the best neighborhoods to stay in Mexico City for museums, cafes, walkability, and first-time comfort.",
+      "required_entities": [
+        "Mexico City"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_060_iceland_five_day_reality_check",
+      "category": "local_travel",
+      "tags": [
+        "recommendation",
+        "timeline",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research whether a 5-day Iceland trip can reasonably capture the feel of the country without pretending to do the full ring road. I want a realistic plan, not fantasy routing.",
+      "required_entities": [
+        "Iceland"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_061_wpa_public_art",
+      "category": "history_culture",
+      "tags": [
+        "lookup",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research how the Works Progress Administration influenced American public art. Which programs mattered most, and what is the mainstream historical interpretation?",
+      "required_entities": [
+        "Works Progress Administration"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_062_harlem_renaissance_impact",
+      "category": "history_culture",
+      "tags": [
+        "comparison",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research interpretations of the Harlem Renaissance's political impact. Compare cultural, civil-rights, and critique-oriented readings without flattening them into one view.",
+      "required_entities": [
+        "Harlem Renaissance"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_063_reconstruction_failure",
+      "category": "history_culture",
+      "tags": [
+        "comparison",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research how historians explain the failure of Reconstruction in the United States. What causes get emphasized, and where do interpretations differ?",
+      "required_entities": [
+        "Reconstruction",
+        "United States"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_064_roman_republic_fall",
+      "category": "history_culture",
+      "tags": [
+        "comparison",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research major interpretations of why the Roman Republic fell. I want the mainstream view and the main areas of disagreement.",
+      "required_entities": [
+        "Roman Republic"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_065_bronze_age_collapse",
+      "category": "history_culture",
+      "tags": [
+        "comparison",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research how historians currently interpret the causes of the Bronze Age collapse. What explanations still have traction, and what has weakened?",
+      "required_entities": [
+        "Bronze Age collapse"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_066_bauhaus_influence",
+      "category": "history_culture",
+      "tags": [
+        "lookup",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research how the Bauhaus influenced modern design and architecture. Which ideas became mainstream, and which were later simplified into clichés?",
+      "required_entities": [
+        "Bauhaus"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_067_japanese_american_incarceration_legacy",
+      "category": "history_culture",
+      "tags": [
+        "comparison",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research mainstream historical interpretations of the long-term legacy of Japanese American incarceration in the United States.",
+      "required_entities": [
+        "Japanese American incarceration",
+        "United States"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_068_witch_trials_context",
+      "category": "history_culture",
+      "tags": [
+        "comparison",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research how historians interpret early modern witch trials. What social, religious, gender, and legal explanations matter most?",
+      "required_entities": [
+        "witch trials"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_069_public_library_history",
+      "category": "history_culture",
+      "tags": [
+        "lookup",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research the cultural history of public libraries in the United States. What missions did they serve at different stages, and how has that changed over time?",
+      "required_entities": [
+        "public libraries",
+        "United States"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_070_early_hip_hop_political_role",
+      "category": "history_culture",
+      "tags": [
+        "comparison",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research interpretations of early hip-hop's political role. I want the mainstream account plus the strongest critiques or counter-readings.",
+      "required_entities": [
+        "hip-hop"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_071_glp1_weight_management",
+      "category": "health_medical",
+      "tags": [
+        "lookup",
+        "current",
+        "evidence_check",
+        "source_sensitive"
+      ],
+      "prompt": "Research current evidence and risks for GLP-1 medications in non-diabetic weight management. Summarize what a patient should discuss with a clinician.",
+      "required_entities": [
+        "GLP-1"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_072_sleep_tracker_accuracy",
+      "category": "health_medical",
+      "tags": [
+        "lookup",
+        "current",
+        "evidence_check",
+        "source_sensitive"
+      ],
+      "prompt": "Research wearable sleep tracker accuracy. What can users trust, what should they treat as directional, and where do devices still struggle?",
+      "required_entities": [
+        "sleep tracker"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_073_long_covid_pacing",
+      "category": "health_medical",
+      "tags": [
+        "lookup",
+        "current",
+        "evidence_check",
+        "source_sensitive"
+      ],
+      "prompt": "Research current evidence on exercise, pacing, and symptom management for long COVID. What looks supported, and where are people overgeneralizing?",
+      "required_entities": [
+        "long COVID"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_074_menopause_hrt",
+      "category": "health_medical",
+      "tags": [
+        "lookup",
+        "current",
+        "evidence_check",
+        "source_sensitive"
+      ],
+      "prompt": "Research current evidence and risks around menopausal hormone therapy. I want a balanced summary of what patients should understand before a clinical conversation.",
+      "required_entities": [
+        "menopausal hormone therapy"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_075_rsv_vaccines_older_adults",
+      "category": "health_medical",
+      "tags": [
+        "lookup",
+        "current",
+        "source_sensitive",
+        "timeline"
+      ],
+      "prompt": "Research current RSV vaccine guidance for older adults in 2026. What changed recently, and what questions should patients bring to a clinician?",
+      "required_entities": [
+        "RSV vaccine",
+        "older adults"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_076_migraine_prevention_options",
+      "category": "health_medical",
+      "tags": [
+        "comparison",
+        "current",
+        "evidence_check",
+        "source_sensitive"
+      ],
+      "prompt": "Research current migraine prevention options, especially CGRP-targeting treatments versus older preventive medications. What tradeoffs matter most?",
+      "required_entities": [
+        "migraine",
+        "CGRP"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_077_creatine_for_women",
+      "category": "health_medical",
+      "tags": [
+        "lookup",
+        "current",
+        "evidence_check",
+        "source_sensitive"
+      ],
+      "prompt": "Research the current evidence on creatine supplementation for women. What outcomes are reasonably supported, and what gets overstated?",
+      "required_entities": [
+        "creatine"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_078_home_bp_monitor_accuracy",
+      "category": "health_medical",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research home blood pressure monitors and what accuracy claims consumers should trust. How should a person choose and validate one?",
+      "required_entities": [
+        "home blood pressure monitors"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_079_adhd_telehealth_changes",
+      "category": "health_medical",
+      "tags": [
+        "current",
+        "timeline",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research the current state of ADHD telehealth prescribing changes in the US. What has changed, what is temporary, and what should patients verify locally?",
+      "required_entities": [
+        "ADHD",
+        "telehealth",
+        "US"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_080_sunscreen_ingredient_evidence",
+      "category": "health_medical",
+      "tags": [
+        "comparison",
+        "current",
+        "evidence_check",
+        "source_sensitive"
+      ],
+      "prompt": "Research the current evidence around mineral versus chemical sunscreen ingredients. What concerns are well supported, and what is mostly internet noise?",
+      "required_entities": [
+        "mineral sunscreen",
+        "chemical sunscreen"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_081_climate_policy_2026",
+      "category": "news_current_events",
+      "tags": [
+        "landscape",
+        "current",
+        "timeline",
+        "source_sensitive"
+      ],
+      "prompt": "Research major climate policy developments in 2026 and their practical implications. Prioritize source-backed developments over broad commentary.",
+      "required_entities": [
+        "climate policy",
+        "2026"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_082_ai_agentic_landscape_may_2026",
+      "category": "news_current_events",
+      "tags": [
+        "landscape",
+        "current",
+        "multi_entity",
+        "source_sensitive"
+      ],
+      "prompt": "Give me an update on the AI agentic landscape in May 2026.",
+      "required_entities": [
+        "AI agentic landscape",
+        "May 2026"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_083_semiconductor_moves_this_month",
+      "category": "news_current_events",
+      "tags": [
+        "landscape",
+        "current",
+        "timeline",
+        "source_sensitive"
+      ],
+      "prompt": "Research the biggest semiconductor industry moves this month. Focus on developments that would matter to builders or investors, not generic stock chatter.",
+      "required_entities": [
+        "semiconductor industry"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_084_cybersecurity_incidents_this_week",
+      "category": "news_current_events",
+      "tags": [
+        "lookup",
+        "current",
+        "timeline",
+        "source_sensitive"
+      ],
+      "prompt": "Give me a source-backed update on major cybersecurity incidents from this week. I want actual incidents and impact, not generic awareness posts.",
+      "required_entities": [
+        "cybersecurity incidents",
+        "this week"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_085_shipping_disruptions",
+      "category": "news_current_events",
+      "tags": [
+        "landscape",
+        "current",
+        "timeline",
+        "source_sensitive"
+      ],
+      "prompt": "Research current shipping and logistics disruptions this month. What is actually happening, and what downstream effects should businesses watch?",
+      "required_entities": [
+        "shipping",
+        "logistics disruptions"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_086_ev_tariff_developments",
+      "category": "news_current_events",
+      "tags": [
+        "current",
+        "timeline",
+        "source_sensitive",
+        "evidence_check"
+      ],
+      "prompt": "Research current EV tariff developments in 2026 and summarize what changed, who is affected, and what still looks uncertain.",
+      "required_entities": [
+        "EV tariffs",
+        "2026"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_087_public_health_headlines",
+      "category": "news_current_events",
+      "tags": [
+        "lookup",
+        "current",
+        "timeline",
+        "source_sensitive"
+      ],
+      "prompt": "Give me a source-backed update on notable public health headlines from this week. Keep it coherent and skip filler stories.",
+      "required_entities": [
+        "public health",
+        "this week"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_088_housing_market_news",
+      "category": "news_current_events",
+      "tags": [
+        "landscape",
+        "current",
+        "timeline",
+        "source_sensitive"
+      ],
+      "prompt": "Research meaningful housing market developments this month. What should an ordinary buyer or renter actually pay attention to?",
+      "required_entities": [
+        "housing market",
+        "this month"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_089_labor_actions_current",
+      "category": "news_current_events",
+      "tags": [
+        "lookup",
+        "current",
+        "timeline",
+        "source_sensitive"
+      ],
+      "prompt": "Research notable labor actions or strike developments this month in major US industries. What is actually moving versus just being threatened?",
+      "required_entities": [
+        "labor actions",
+        "US"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_090_open_source_ai_releases",
+      "category": "news_current_events",
+      "tags": [
+        "landscape",
+        "current",
+        "multi_entity",
+        "source_sensitive"
+      ],
+      "prompt": "Research major open-source AI model or tooling releases from this month. Which ones actually matter for practitioners?",
+      "required_entities": [
+        "open-source AI"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_091_online_mutual_aid",
+      "category": "general_other",
+      "tags": [
+        "landscape",
+        "evidence_check",
+        "source_sensitive"
+      ],
+      "prompt": "Research how online communities organize mutual aid after local disasters. What patterns seem to work, what breaks down, and what should organizers watch for?",
+      "required_entities": [
+        "mutual aid"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_092_family_photo_archives",
+      "category": "general_other",
+      "tags": [
+        "recommendation",
+        "lookup",
+        "source_sensitive"
+      ],
+      "prompt": "Research best practices for preserving family photo archives digitally and physically. Give a practical plan for someone with boxes of prints and phone photos.",
+      "required_entities": [
+        "family photo archives"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_093_tool_library_startup",
+      "category": "general_other",
+      "tags": [
+        "recommendation",
+        "lookup",
+        "source_sensitive"
+      ],
+      "prompt": "Research best practices for starting a neighborhood tool library. What governance, software, and participation patterns seem to work?",
+      "required_entities": [
+        "tool library"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_094_pet_insurance_options",
+      "category": "general_other",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "multi_entity"
+      ],
+      "prompt": "Research current pet insurance options for dog owners. What should a buyer compare beyond monthly premiums?",
+      "required_entities": [
+        "pet insurance"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_095_home_inventory_plan",
+      "category": "general_other",
+      "tags": [
+        "recommendation",
+        "lookup",
+        "source_sensitive"
+      ],
+      "prompt": "Research best practices for building a home inventory for insurance claims. I want a simple plan that ordinary people will actually follow.",
+      "required_entities": [
+        "home inventory",
+        "insurance claims"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_096_self_checkout_sentiment",
+      "category": "general_other",
+      "tags": [
+        "landscape",
+        "current",
+        "low_signal",
+        "source_sensitive"
+      ],
+      "prompt": "Research current public sentiment around self-checkout in grocery stores. What themes are showing up, and what evidence is stronger than anecdote?",
+      "required_entities": [
+        "self-checkout",
+        "grocery stores"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_097_nonprofit_volunteer_software",
+      "category": "general_other",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "multi_entity"
+      ],
+      "prompt": "Research current volunteer-management software for small nonprofits. Compare a few practical options and the tradeoffs that actually matter.",
+      "required_entities": [
+        "volunteer-management software",
+        "small nonprofits"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_098_course_platforms",
+      "category": "general_other",
+      "tags": [
+        "comparison",
+        "recommendation",
+        "current",
+        "multi_entity"
+      ],
+      "prompt": "Compare online course platforms for an independent expert who wants to sell structured courses without building a full custom site.",
+      "required_entities": [
+        "online course platforms"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_099_family_digital_filing",
+      "category": "general_other",
+      "tags": [
+        "recommendation",
+        "lookup",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research practical approaches for moving a family from scattered cloud storage to a simple organized digital filing system.",
+      "required_entities": [
+        "digital filing system"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    },
+    {
+      "id": "research_pool_100_meeting_overload_remote_teams",
+      "category": "general_other",
+      "tags": [
+        "recommendation",
+        "landscape",
+        "current",
+        "source_sensitive"
+      ],
+      "prompt": "Research current approaches to reducing meeting overload on remote teams. What interventions have stronger evidence or operational support than vague productivity advice?",
+      "required_entities": [
+        "meeting overload",
+        "remote teams"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ]
+      }
+    }
+  ]
+}

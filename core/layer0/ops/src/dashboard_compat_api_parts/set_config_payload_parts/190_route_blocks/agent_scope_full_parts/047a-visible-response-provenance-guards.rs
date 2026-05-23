@@ -4,9 +4,24 @@ fn user_message_allows_code_context(user_message: &str) -> bool {
         return false;
     }
     [
-        "show me the code", "source code", "code snippet", "read file", "open file",
-        "inspect file", "file content", "patch", "diff", "implementation", "function",
-        "class", "php", "laravel", "typescript", "javascript", "rust", "python",
+        "show me the code",
+        "source code",
+        "code snippet",
+        "read file",
+        "open file",
+        "inspect file",
+        "file content",
+        "patch",
+        "diff",
+        "implementation",
+        "function",
+        "class",
+        "php",
+        "laravel",
+        "typescript",
+        "javascript",
+        "rust",
+        "python",
     ]
     .iter()
     .any(|needle| lowered.contains(*needle))
@@ -86,7 +101,10 @@ fn user_message_explicitly_requests_memory_context(message: &str) -> bool {
         || lowered.contains("recall")
 }
 
-fn simple_direct_chat_suppresses_passive_context(message: &str, inline_tools_allowed: bool) -> bool {
+fn simple_direct_chat_suppresses_passive_context(
+    message: &str,
+    inline_tools_allowed: bool,
+) -> bool {
     (!inline_tools_allowed || message_explicitly_disallows_tool_calls(message))
         && !user_message_explicitly_requests_memory_context(message)
 }
@@ -136,8 +154,8 @@ fn response_claims_tool_success_without_current_turn_evidence(
         "/diagnostic_markers/unsupported_tool_claim/listing_claim_phrases",
         &lowered,
     );
-    let claims_tool_result = (mentions_tool_surface && (claims_execution || claims_empty_results))
-        || claims_listings;
+    let claims_tool_result =
+        (mentions_tool_surface && (claims_execution || claims_empty_results)) || claims_listings;
     let hypothetical = workflow_message_matches_contract_markers(
         &contract,
         "/diagnostic_markers/unsupported_tool_claim/hypothetical_phrases",
@@ -212,6 +230,7 @@ fn response_contains_workflow_prompt_analysis_leak(response_text: &str) -> bool 
         "synthesis input envelope",
         "tool boundary signals",
         "evidence_outcome_posture",
+        "outcome posture",
         "supported_answer",
         "bounded_partial_answer",
         "evidence_insufficient_answer",
@@ -285,8 +304,11 @@ fn current_turn_dominance_payload(
         .collect::<HashSet<_>>();
     let overlap_count = message_terms.intersection(&response_terms).count();
     let no_tool_evidence = !response_has_current_turn_tool_evidence(response_tools);
-    let contamination_detected =
-        response_contains_unrequested_content_without_tool_evidence(user_message, &response, response_tools);
+    let contamination_detected = response_contains_unrequested_content_without_tool_evidence(
+        user_message,
+        &response,
+        response_tools,
+    );
     let low_overlap = no_tool_evidence
         && response.len() > 180
         && message_terms.len() >= 2
@@ -346,12 +368,11 @@ fn final_response_guard_report(
             response_text,
             response_tools,
         );
-    let unsupported_tool_success_claim =
-        response_claims_tool_success_without_current_turn_evidence(
-            user_message,
-            response_text,
-            response_tools,
-        );
+    let unsupported_tool_success_claim = response_claims_tool_success_without_current_turn_evidence(
+        user_message,
+        response_text,
+        response_tools,
+    );
     let final_contamination_violation = repair_candidate_contamination
         || response_contains_stale_code_context_dump(user_message, response_text)
         || response_is_unrelated_context_dump(user_message, response_text)

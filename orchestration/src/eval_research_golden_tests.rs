@@ -49,6 +49,34 @@ fn dataset() -> Value {
     })
 }
 
+fn sample_dataset(case_count: usize) -> Value {
+    json!({
+        "sampling_policy": {
+            "auto_sample_when_limit_is_lower_than_pool": true,
+            "recommended_sample_size": 3
+        },
+        "cases": (0..case_count).map(|idx| {
+            json!({
+                "id": format!("sample_case_{idx:03}"),
+                "category": if idx % 2 == 0 { "software_technical" } else { "business_market" },
+                "tags": if idx % 2 == 0 {
+                    json!(["comparison", "current"])
+                } else {
+                    json!(["recommendation", "current"])
+                },
+                "prompt": format!("Research sample case {idx}."),
+                "expected_gate_path": {
+                    "gate_1": "tool_required",
+                    "gate_2": "web_research",
+                    "gate_3": "batch_query",
+                    "gate_4_required_fields": ["source", "query", "aperture"]
+                },
+                "required_entities": []
+            })
+        }).collect::<Vec<_>>()
+    })
+}
+
 fn runner_args(root: &Path, cases: &Path, responses: &Path, strict: bool) -> Vec<String> {
     vec![
         format!("--cases={}", cases.display()),
@@ -142,6 +170,69 @@ fn research_cross_domain_fixture_declares_general_other_and_shape_tags() {
 }
 
 #[test]
+fn research_user_prompt_pool_fixture_declares_100_cases_and_taxonomies() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../validation/evals/fixtures/research_user_prompt_pool_v1.json");
+    let dataset = read_json(path.to_str().unwrap());
+    let cases = dataset
+        .get("cases")
+        .and_then(Value::as_array)
+        .expect("cases");
+    assert_eq!(cases.len(), 100);
+    let expected_categories = string_array_at(&dataset, &["domain_taxonomy"])
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(expected_categories.len(), 10);
+    let allowed_tags = string_array_at(&dataset, &["shape_tag_taxonomy"])
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    assert!(bool_at(
+        &dataset,
+        &["sampling_policy", "auto_sample_when_limit_is_lower_than_pool"],
+        false
+    ));
+    assert_eq!(
+        u64_at(&dataset, &["sampling_policy", "recommended_sample_size"], 0),
+        20
+    );
+    let seen_categories = cases
+        .iter()
+        .map(|case| str_at(case, &["category"], ""))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(seen_categories, expected_categories);
+    let mut ids = BTreeSet::new();
+    for case in cases {
+        let case_id = str_at(case, &["id"], "");
+        assert!(!case_id.is_empty());
+        assert!(ids.insert(case_id.clone()), "duplicate case id: {case_id}");
+        let tags = string_array_at(case, &["tags"]);
+        assert!(!tags.is_empty(), "missing tags: {case_id}");
+        for tag in tags {
+            assert!(
+                allowed_tags.contains(&tag),
+                "unknown tag {tag} in {case_id}"
+            );
+        }
+        assert_eq!(
+            str_at(case, &["expected_gate_path", "gate_2"], ""),
+            "web_research"
+        );
+        assert_eq!(
+            str_at(case, &["expected_gate_path", "gate_3"], ""),
+            "batch_query"
+        );
+        let required_fields =
+            string_array_at(case, &["expected_gate_path", "gate_4_required_fields"]);
+        assert!(
+            required_fields.contains(&"source".to_string())
+                && required_fields.contains(&"query".to_string())
+                && required_fields.contains(&"aperture".to_string()),
+            "missing gate 4 fields: {case_id}"
+        );
+    }
+}
+
+#[test]
 fn research_upstream_failure_localization_contract_declares_expected_layers() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
         "../validation/evals/fixtures/research_eval_upstream_failure_localization_contract.json",
@@ -159,6 +250,64 @@ fn research_upstream_failure_localization_contract_declares_expected_layers() {
             "none".to_string()
         ]
     );
+}
+
+#[test]
+fn research_golden_case_sampling_is_seeded_and_reproducible() {
+    let dataset = sample_dataset(8);
+    let cases = dataset
+        .get("cases")
+        .and_then(Value::as_array)
+        .cloned()
+        .expect("cases");
+    let (selected_a, meta_a) =
+        select_research_golden_cases(&cases, Some(3), Some("alpha"), usize::MAX);
+    let (selected_b, meta_b) =
+        select_research_golden_cases(&cases, Some(3), Some("alpha"), usize::MAX);
+    let (selected_c, meta_c) =
+        select_research_golden_cases(&cases, Some(3), Some("beta"), usize::MAX);
+    let ids_a = selected_a
+        .iter()
+        .map(|case| str_at(case, &["id"], ""))
+        .collect::<Vec<_>>();
+    let ids_b = selected_b
+        .iter()
+        .map(|case| str_at(case, &["id"], ""))
+        .collect::<Vec<_>>();
+    let ids_c = selected_c
+        .iter()
+        .map(|case| str_at(case, &["id"], ""))
+        .collect::<Vec<_>>();
+    assert_eq!(ids_a, ids_b);
+    assert_ne!(ids_a, ids_c);
+    assert_eq!(ids_a.len(), 3);
+    assert_eq!(u64_at(&meta_a, &["pool_size"], 0), 8);
+    assert_eq!(u64_at(&meta_a, &["effective_sample_size"], 0), 3);
+    assert_eq!(
+        str_at(&meta_a, &["selection_mode"], ""),
+        "deterministic_seeded_sample"
+    );
+    assert_eq!(
+        str_at(&meta_a, &["effective_sample_seed"], ""),
+        "alpha"
+    );
+    assert_eq!(
+        meta_a.get("selected_case_ids"),
+        meta_b.get("selected_case_ids")
+    );
+    assert_ne!(
+        meta_a.get("selected_case_ids"),
+        meta_c.get("selected_case_ids")
+    );
+}
+
+#[test]
+fn research_golden_auto_sampling_uses_limit_for_pool_datasets() {
+    let dataset = sample_dataset(8);
+    let requested = case_selection_requested_sample_size(&[], &dataset, 3);
+    assert_eq!(requested, Some(3));
+    let requested_unbounded = case_selection_requested_sample_size(&[], &dataset, usize::MAX);
+    assert_eq!(requested_unbounded, None);
 }
 
 #[test]

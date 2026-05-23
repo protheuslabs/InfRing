@@ -27,12 +27,19 @@ pub(super) fn append_failure_events(
 
 pub(super) fn markdown_report(report: &Value) -> String {
     let summary = report.get("summary").unwrap_or(&Value::Null);
+    let case_selection = report.get("case_selection").unwrap_or(&Value::Null);
     let mut out = format!(
-        "# Research Golden Eval (Current)\n\n- generated_at: {}\n- ok: {}\n- mode: {}\n- cases: {}\n- average_score: {:.3}\n- research_success_rate_raw: {:.3}\n- research_success_rate_transport_adjusted: {:.3}\n- gate_path_ok: {}\n- gate_transition_path_ok: {}\n- safety_ok: {}\n- failure_count: {}\n\n",
+        "# Research Golden Eval (Current)\n\n- generated_at: {}\n- ok: {}\n- mode: {}\n- cases: {}\n- pool_cases: {}\n- selected_cases_before_limit: {}\n- average_score: {:.3}\n- research_success_rate_raw: {:.3}\n- research_success_rate_transport_adjusted: {:.3}\n- gate_path_ok: {}\n- gate_transition_path_ok: {}\n- safety_ok: {}\n- failure_count: {}\n\n",
         str_at(report, &["generated_at"], ""),
         bool_at(report, &["ok"], false),
         str_at(report, &["mode"], ""),
         u64_at(summary, &["cases"], 0),
+        u64_at(summary, &["pool_cases"], u64_at(summary, &["cases"], 0)),
+        u64_at(
+            summary,
+            &["selected_cases_before_limit"],
+            u64_at(summary, &["cases"], 0)
+        ),
         f64_at(summary, &["average_score"], 0.0),
         f64_at(summary, &["research_success_rate"], 0.0),
         f64_at(summary, &["transport_adjusted_research_success_rate"], 0.0),
@@ -41,6 +48,41 @@ pub(super) fn markdown_report(report: &Value) -> String {
         bool_at(summary, &["safety_ok"], false),
         u64_at(summary, &["failure_count"], 0),
     );
+    out.push_str("## Case Selection\n\n");
+    out.push_str(&format!(
+        "- selection_mode: {}\n- selection_applied: {}\n- requested_sample_size: {}\n- effective_sample_size: {}\n- sample_seed: {}\n- planned_execution_count: {}\n",
+        str_at(case_selection, &["selection_mode"], "full_dataset_order"),
+        bool_at(case_selection, &["selection_applied"], false),
+        case_selection
+            .get("requested_sample_size")
+            .and_then(Value::as_u64)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        u64_at(
+            case_selection,
+            &["effective_sample_size"],
+            u64_at(summary, &["cases"], 0)
+        ),
+        str_opt(case_selection, &["effective_sample_seed"]).unwrap_or("none"),
+        u64_at(
+            case_selection,
+            &["planned_execution_count"],
+            u64_at(summary, &["cases"], 0)
+        ),
+    ));
+    if let Some(selected_ids) = case_selection
+        .get("selected_case_ids")
+        .and_then(Value::as_array)
+        .map(|rows| rows.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+    {
+        if !selected_ids.is_empty() {
+            out.push_str(&format!(
+                "- selected_case_ids: {}\n",
+                selected_ids.join(", ")
+            ));
+        }
+    }
+    out.push('\n');
     out.push_str("## Gate Pass Rates\n\n");
     if let Some(rows) = report
         .get("workflow_gate_pass_rates")

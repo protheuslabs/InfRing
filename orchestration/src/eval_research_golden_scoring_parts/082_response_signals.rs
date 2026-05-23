@@ -88,6 +88,113 @@ fn normal_prose_signal(response_text: &str) -> bool {
         && trimmed.split_whitespace().count() >= 8
 }
 
+fn visible_response_text_for_grading(payload: &Value) -> String {
+    for pointer in [
+        "/response_finalization/final_response/text",
+        "/response_finalization/finalized_output",
+        "/response_finalization/final_output",
+        "/response_workflow/final_llm_response/text",
+    ] {
+        let candidate = payload
+            .pointer(pointer)
+            .and_then(Value::as_str)
+            .map(sanitize_visible_response_text_for_grading)
+            .unwrap_or_default();
+        if !candidate.is_empty() {
+            return candidate;
+        }
+    }
+    sanitize_visible_response_text_for_grading(&assistant_text(payload))
+}
+
+fn sanitize_visible_response_text_for_grading(response_text: &str) -> String {
+    let cleaned = clean_text(response_text, 12_000);
+    if cleaned.is_empty() {
+        return cleaned;
+    }
+    if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&cleaned) {
+        for key in [
+            "final_answer",
+            "answer",
+            "visible_response",
+            "final_response",
+            "message",
+            "text",
+            "response",
+            "content",
+        ] {
+            let candidate = clean_text(map.get(key).and_then(Value::as_str).unwrap_or(""), 12_000);
+            if !candidate.is_empty() {
+                return sanitize_visible_response_text_for_grading(&candidate);
+            }
+        }
+    }
+    strip_internal_evidence_posture_disclosure_for_grading(
+        &strip_internal_evidence_posture_prefix_for_grading(&cleaned),
+    )
+}
+
+fn strip_internal_evidence_posture_prefix_for_grading(response_text: &str) -> String {
+    let cleaned = clean_text(response_text, 12_000);
+    let trimmed = cleaned
+        .trim_start()
+        .trim_start_matches(|ch: char| ch == '*' || ch == '`' || ch == '_' || ch.is_whitespace());
+    for posture in [
+        "supported_answer",
+        "bounded_partial_answer",
+        "evidence_insufficient_answer",
+    ] {
+        let Some(after_posture) = trimmed.strip_prefix(posture) else {
+            continue;
+        };
+        let after_posture = after_posture.trim_start_matches(|ch: char| {
+            ch.is_whitespace() || matches!(ch, ':' | '-' | '.' | ';' | '*' | '`' | '_')
+        });
+        return clean_text(after_posture.trim_start(), 12_000);
+    }
+    cleaned
+}
+
+fn strip_internal_evidence_posture_disclosure_for_grading(response_text: &str) -> String {
+    let mut cleaned = clean_text(response_text, 12_000);
+    for posture in [
+        "supported_answer",
+        "bounded_partial_answer",
+        "evidence_insufficient_answer",
+    ] {
+        for marker in [
+            format!("**Posture: `{posture}`** — "),
+            format!("**Posture: `{posture}`** - "),
+            format!("**Posture: `{posture}`** "),
+            format!("**Posture:** `{posture}` — "),
+            format!("**Posture:** `{posture}` - "),
+            format!("**Posture:** `{posture}` "),
+            format!("Posture: `{posture}` — "),
+            format!("Posture: `{posture}` - "),
+            format!("Posture: `{posture}` "),
+            format!("Posture: {posture} — "),
+            format!("Posture: {posture} - "),
+            format!("Posture: {posture} "),
+            format!("**Outcome posture: `{posture}`** — "),
+            format!("**Outcome posture: `{posture}`** - "),
+            format!("**Outcome posture: `{posture}`** "),
+            format!("**Outcome posture:** `{posture}` — "),
+            format!("**Outcome posture:** `{posture}` - "),
+            format!("**Outcome posture:** `{posture}` "),
+            format!("Outcome posture: `{posture}` — "),
+            format!("Outcome posture: `{posture}` - "),
+            format!("Outcome posture: `{posture}` "),
+            format!("Outcome posture: {posture} — "),
+            format!("Outcome posture: {posture} - "),
+            format!("Outcome posture: {posture} "),
+            format!("**Outcome posture: {posture}** "),
+        ] {
+            cleaned = cleaned.replace(&marker, "");
+        }
+    }
+    clean_text(&cleaned, 12_000)
+}
+
 fn response_looks_truncated_or_incomplete(response_text: &str) -> bool {
     let trimmed = response_text.trim();
     if trimmed.is_empty() {

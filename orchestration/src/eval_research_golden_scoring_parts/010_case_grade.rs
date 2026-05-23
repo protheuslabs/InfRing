@@ -28,7 +28,7 @@ pub(super) fn grade_case(
     pass_score: u64,
     excellent_score: u64,
 ) -> CaseGrade {
-    let response_text = assistant_text(payload);
+    let response_text = visible_response_text_for_grading(payload);
     let normalized = normalize_for_compare(&response_text);
     let prompt = str_at(case, &["prompt"], "");
     let normalized_prompt = normalize_for_compare(&prompt);

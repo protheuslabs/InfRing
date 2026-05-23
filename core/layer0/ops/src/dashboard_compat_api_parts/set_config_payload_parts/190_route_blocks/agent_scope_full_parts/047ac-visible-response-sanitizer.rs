@@ -111,13 +111,11 @@ fn tool_payload_shape_looks_raw(response_payload: &Value) -> bool {
 }
 
 fn sanitize_workflow_visible_response_text(response_text: &str) -> String {
-    let cleaned = strip_trailing_research_follow_up_offer(
-        &strip_internal_evidence_posture_prefix(&sanitize_workflow_final_response_candidate(
-            &strip_internal_cache_control_markup(&strip_internal_context_metadata_prefix(
-                response_text,
-            )),
+    let cleaned = strip_trailing_research_follow_up_offer(&strip_internal_evidence_posture_prefix(
+        &sanitize_workflow_final_response_candidate(&strip_internal_cache_control_markup(
+            &strip_internal_context_metadata_prefix(response_text),
         )),
-    );
+    ));
     if response_looks_like_raw_tool_payload_dump(&cleaned) {
         String::new()
     } else {
@@ -156,12 +154,29 @@ fn strip_internal_evidence_posture_disclosure(response_text: &str) -> String {
         for marker in [
             format!("**Posture: `{posture}`** — "),
             format!("**Posture: `{posture}`** - "),
+            format!("**Posture: `{posture}`** "),
             format!("**Posture:** `{posture}` — "),
             format!("**Posture:** `{posture}` - "),
+            format!("**Posture:** `{posture}` "),
             format!("Posture: `{posture}` — "),
             format!("Posture: `{posture}` - "),
+            format!("Posture: `{posture}` "),
             format!("Posture: {posture} — "),
             format!("Posture: {posture} - "),
+            format!("Posture: {posture} "),
+            format!("**Outcome posture: `{posture}`** — "),
+            format!("**Outcome posture: `{posture}`** - "),
+            format!("**Outcome posture: `{posture}`** "),
+            format!("**Outcome posture:** `{posture}` — "),
+            format!("**Outcome posture:** `{posture}` - "),
+            format!("**Outcome posture:** `{posture}` "),
+            format!("Outcome posture: `{posture}` — "),
+            format!("Outcome posture: `{posture}` - "),
+            format!("Outcome posture: `{posture}` "),
+            format!("Outcome posture: {posture} — "),
+            format!("Outcome posture: {posture} - "),
+            format!("Outcome posture: {posture} "),
+            format!("**Outcome posture: {posture}** "),
             format!("`{posture}` — "),
             format!("`{posture}` - "),
         ] {
@@ -346,7 +361,9 @@ mod visible_response_sanitizer_tests {
         let response = "The main tradeoff is between benchmark performance and production maintainability for open-source coding agents. The evidence is still partial, but Aider looks strongest for real repositories while OpenHands appears more exploratory for broader agent loops. My recommendation is to start with Aider for real repository work and treat OpenHands as a secondary evaluation track. If you want, I can narrow this to SWE-bench-style evidence next.";
         let cleaned = sanitize_workflow_visible_response_text(response);
         assert!(cleaned.contains("My recommendation is to start with Aider"));
-        assert!(!cleaned.to_ascii_lowercase().contains("if you want, i can narrow"));
+        assert!(!cleaned
+            .to_ascii_lowercase()
+            .contains("if you want, i can narrow"));
     }
 
     #[test]
@@ -375,6 +392,15 @@ mod visible_response_sanitizer_tests {
         assert_eq!(
             sanitize_workflow_visible_response_text(response),
             "Here is the answer. I have some relevant signals, but gaps remain."
+        );
+    }
+
+    #[test]
+    fn sanitizer_strips_outcome_posture_disclosure() {
+        let response = "**Outcome posture: bounded_partial_answer** Here is the answer grounded in the retrieved evidence.";
+        assert_eq!(
+            sanitize_workflow_visible_response_text(response),
+            "Here is the answer grounded in the retrieved evidence."
         );
     }
 
