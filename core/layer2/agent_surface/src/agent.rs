@@ -257,13 +257,20 @@ impl AgentContract {
         &self,
         context: &AgentExecutionContext<'_>,
     ) -> Result<AgentRunResult, ProviderError> {
+        let run_started = Instant::now();
+        let provider_resolve_started = Instant::now();
         let provider = context
             .provider_registry
             .from_provider_id(self.provider.as_str())?;
+        let provider_resolve_ms = native_tool_bounded_patch_elapsed_ms(provider_resolve_started);
+        let tool_resolve_started = Instant::now();
         let tools = self.resolved_tools(context.capability_catalog);
+        let tool_resolve_ms = native_tool_bounded_patch_elapsed_ms(tool_resolve_started);
         let started_ms = Utc::now().timestamp_millis();
+        let model_tool_loop_started = Instant::now();
         let (response, tool_receipts, provider_call_count, terminal_status) =
             self.run_with_optional_native_tools(provider, &tools)?;
+        let model_tool_loop_ms = native_tool_bounded_patch_elapsed_ms(model_tool_loop_started);
         let finished_ms = Utc::now().timestamp_millis();
         let duration_ms = (finished_ms - started_ms).max(0) as u64;
         let mut events = vec![ReceiptEvent {
@@ -311,6 +318,12 @@ impl AgentContract {
             "native_tool_call_count": tool_receipts.len(),
             "lifespan_seconds": self.lifespan_seconds,
             "duration_ms": duration_ms,
+            "agent_runtime_phase_latency_ms": {
+                "provider_resolve_ms": provider_resolve_ms,
+                "tool_resolve_ms": tool_resolve_ms,
+                "model_tool_loop_ms": model_tool_loop_ms,
+                "total_ms": native_tool_bounded_patch_elapsed_ms(run_started)
+            },
             "trace_id": trace.trace_id,
             "workflow": self
                 .metadata

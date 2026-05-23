@@ -12,7 +12,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const INFRING_DETACH_XTASK_CONTRACT_ID: &str = "V6-INFRING-DETACH-001.7";
 
@@ -329,16 +329,25 @@ fn run_infring_new(args: &[String]) -> Result<()> {
 }
 
 fn run_infring_agent_run(args: &[String]) -> Result<()> {
+    let xtask_started = Instant::now();
+    let parse_started = Instant::now();
     let flags = parse_flag_map(args);
+    let parse_flags_ms = elapsed_ms(parse_started);
     let name = flags
         .get("name")
         .cloned()
         .unwrap_or_else(|| "infring-agent".to_string());
+    let prompt_started = Instant::now();
     let prompt = parse_text_flag(flags.get("prompt"), "prompt")?
         .ok_or_else(|| anyhow!("xtask_missing_prompt"))?;
     let preamble = parse_text_flag(flags.get("preamble"), "preamble")?;
+    let prompt_load_ms = elapsed_ms(prompt_started);
+    let workflow_started = Instant::now();
     let workflow_context = load_workflow_context(flags.get("workflow"))?;
+    let workflow_load_ms = elapsed_ms(workflow_started);
+    let preamble_started = Instant::now();
     let preamble = combine_preamble(preamble, workflow_context.as_ref().map(|row| row.0.clone()));
+    let preamble_combine_ms = elapsed_ms(preamble_started);
     let provider = flags.get("provider").cloned();
     let model = flags.get("model").cloned();
     let lifespan_seconds = parse_u64(flags.get("lifespan"), 3600);
@@ -427,6 +436,7 @@ fn run_infring_agent_run(args: &[String]) -> Result<()> {
         }
     }
 
+    let request_build_started = Instant::now();
     let request = RuntimeLaneRequest {
         name,
         preamble,
@@ -445,9 +455,12 @@ fn run_infring_agent_run(args: &[String]) -> Result<()> {
         schedule_interval_seconds,
         schedule_max_runs,
     };
+    let request_build_ms = elapsed_ms(request_build_started);
+    let runtime_lane_started = Instant::now();
     let response = match run_runtime_lane(request) {
         Ok(response) => response,
         Err(error) => {
+            let runtime_lane_ms = elapsed_ms(runtime_lane_started);
             let envelope = json!({
                 "ok": false,
                 "contract": {
@@ -463,6 +476,15 @@ fn run_infring_agent_run(args: &[String]) -> Result<()> {
                 "trace_summary": {
                     "status": "runner_error"
                 },
+                "xtask_outer_timing_ms": {
+                    "parse_flags_ms": parse_flags_ms,
+                    "prompt_load_ms": prompt_load_ms,
+                    "workflow_load_ms": workflow_load_ms,
+                    "preamble_combine_ms": preamble_combine_ms,
+                    "request_build_ms": request_build_ms,
+                    "runtime_lane_ms": runtime_lane_ms,
+                    "xtask_total_ms": elapsed_ms(xtask_started)
+                },
                 "output": "",
                 "error": error.to_string()
             });
@@ -473,12 +495,33 @@ fn run_infring_agent_run(args: &[String]) -> Result<()> {
             return Err(anyhow!("xtask_infring_agent_run_failed:{error}"));
         }
     };
+    let runtime_lane_ms = elapsed_ms(runtime_lane_started);
+    let mut response_value =
+        serde_json::to_value(response).expect("encode runtime lane value");
+    if let Some(object) = response_value.as_object_mut() {
+        object.insert(
+            "xtask_outer_timing_ms".to_string(),
+            json!({
+                "parse_flags_ms": parse_flags_ms,
+                "prompt_load_ms": prompt_load_ms,
+                "workflow_load_ms": workflow_load_ms,
+                "preamble_combine_ms": preamble_combine_ms,
+                "request_build_ms": request_build_ms,
+                "runtime_lane_ms": runtime_lane_ms,
+                "xtask_total_ms": elapsed_ms(xtask_started)
+            }),
+        );
+    }
 
     println!(
         "{}",
-        serde_json::to_string_pretty(&response).expect("encode runtime lane")
+        serde_json::to_string_pretty(&response_value).expect("encode runtime lane")
     );
     Ok(())
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u64::MAX as u128) as u64
 }
 
 fn run_native_file_tool_smoke(args: &[String]) -> Result<()> {
