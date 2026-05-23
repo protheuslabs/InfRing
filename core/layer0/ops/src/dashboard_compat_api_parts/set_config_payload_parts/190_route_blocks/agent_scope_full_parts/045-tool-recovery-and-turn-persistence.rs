@@ -887,6 +887,15 @@ fn synthesis_evidence_claims_for_tools(response_tools: &[Value], limit: usize) -
     Value::Array(items)
 }
 
+fn synthesis_answer_units_for_tools(response_tools: &[Value], limit: usize) -> Value {
+    Value::Array(
+        evidence_packet_answer_units(response_tools, limit)
+            .into_iter()
+            .map(Value::String)
+            .collect(),
+    )
+}
+
 fn synthesis_tool_receipt_refs(response_tools: &[Value]) -> Value {
     Value::Array(
         response_tools
@@ -994,6 +1003,7 @@ fn workflow_synthesis_input_for_final_response(
         "tool_receipt_refs": synthesis_tool_receipt_refs(response_tools),
         "evidence_pack": synthesis_evidence_pack_for_tools(response_tools, 8),
         "evidence_claims": synthesis_evidence_claims_for_tools(response_tools, 12),
+        "answer_units": synthesis_answer_units_for_tools(response_tools, 8),
         "coverage_gaps": synthesis_coverage_gaps(response_tools),
         "final_output_contract": final_output_contract
     })
@@ -1028,6 +1038,7 @@ fn workflow_tool_state_prompt_context(response_tools: &[Value]) -> String {
         .iter()
         .map(|tool| tool_hidden_array_len(tool, "evidence_claims"))
         .sum::<usize>();
+    let answer_unit_count = evidence_packet_answer_units(response_tools, 8).len();
     let tool_statuses = limited
         .iter()
         .filter_map(|tool| tool.get("status").and_then(Value::as_str))
@@ -1122,6 +1133,7 @@ fn workflow_tool_state_prompt_context(response_tools: &[Value]) -> String {
         "recorded_provider_results": provider_result_count,
         "recorded_evidence_refs": evidence_ref_count,
         "recorded_evidence_claims": evidence_claim_count,
+        "recorded_answer_units": answer_unit_count,
         "recorded_tool_result_available": tool_count > 0,
         "recorded_evidence_available": recorded_evidence_available
     });
@@ -1129,7 +1141,7 @@ fn workflow_tool_state_prompt_context(response_tools: &[Value]) -> String {
         .unwrap_or_else(|_| "{\"recorded_tool_outcome_count\":0}".to_string());
     clean_text(
         &format!(
-            "Recorded tool/evidence state for this turn:\n{summary_json}\n\nOnly use tool or evidence details that are explicitly present in this recorded state and the recorded tool outcomes below. Treat `recorded_tool_result_quality`, `recorded_quality_flags`, `recorded_retry_recommended_count`, and `recorded_evidence_claims` as the tool boundary signals: retry recommendations, low-signal flags, missing claim-backed evidence, errors, or no evidence mean the workflow ran but evidence may be insufficient. Choose exactly one internal outcome posture before answering: `supported_answer` when usable evidence is strong enough to answer directly, `bounded_partial_answer` when some usable evidence supports part of the request but meaningful gaps remain, or `evidence_insufficient_answer` when no usable evidence supports a direct source-backed answer. If evidence counts are zero, do not claim returned snippets, evidence refs, or source-backed findings for this turn. Evidence being insufficient does not prove that the underlying fact, source surface, or entity does not exist."
+            "Recorded tool/evidence state for this turn:\n{summary_json}\n\nOnly use tool or evidence details that are explicitly present in this recorded state and the recorded tool outcomes below. Treat `recorded_tool_result_quality`, `recorded_quality_flags`, `recorded_retry_recommended_count`, `recorded_evidence_claims`, and `recorded_answer_units` as the tool boundary signals: retry recommendations, low-signal flags, missing claim-backed evidence, missing answer units, errors, or no evidence mean the workflow ran but evidence may be insufficient. Choose exactly one internal outcome posture before answering: `supported_answer` when usable evidence is strong enough to answer directly, `bounded_partial_answer` when some usable evidence supports part of the request but meaningful gaps remain, or `evidence_insufficient_answer` when no usable evidence supports a direct source-backed answer. If evidence counts are zero, do not claim returned snippets, evidence refs, or source-backed findings for this turn. Evidence being insufficient does not prove that the underlying fact, source surface, or entity does not exist."
         ),
         2_000,
     )
@@ -1661,6 +1673,12 @@ mod tool_turn_response_text_tests {
                 .pointer("/evidence_claims/0/source_ref/materialization_quality")
                 .and_then(Value::as_str),
             Some("full_materialized")
+        );
+        assert_eq!(
+            input
+                .pointer("/answer_units/0")
+                .and_then(Value::as_str),
+            Some("battery chemistry milestone Source: Battery milestone, example.test.")
         );
         assert_eq!(
             input

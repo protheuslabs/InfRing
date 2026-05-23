@@ -190,7 +190,28 @@ fn tool_result_reaches_synthesis_input_and_final_projection_without_fixture_fina
             },
             WorkflowInput::ToolObservation {
                 ok: true,
-                summary: "Source A reports a battery chemistry milestone. Source B reports a protein-design result.",
+                summary: r#"{
+                    "tool_result_quality": "usable",
+                    "evidence_pack": [{
+                        "source_kind": "browser_materialized_page",
+                        "title": "Source A",
+                        "locator": "https://example.test/battery",
+                        "source_domain": "example.test",
+                        "relevant_extract": "Source A reports a battery chemistry milestone.",
+                        "claim_hints": ["Source A reports a battery chemistry milestone."]
+                    }],
+                    "evidence_claims": [{
+                        "claim": "Source A reports a battery chemistry milestone.",
+                        "support_snippet": "Source A reports a battery chemistry milestone.",
+                        "source_ref": {
+                            "title": "Source A",
+                            "locator": "https://example.test/battery"
+                        }
+                    }],
+                    "answer_units": [
+                        "Source A reports a battery chemistry milestone. Source: Source A, example.test."
+                    ]
+                }"#,
             },
             WorkflowInput::SynthesizeFromLatestToolResult,
         ],
@@ -213,6 +234,20 @@ fn tool_result_reaches_synthesis_input_and_final_projection_without_fixture_fina
             .get("schema_version")
             .and_then(|value| value.as_str()),
         Some("synthesis_evidence_pack_v1")
+    );
+    assert_eq!(
+        synthesis_input
+            .evidence_pack
+            .pointer("/source")
+            .and_then(|value| value.as_str()),
+        Some("workflow_runtime_structured_tool_observation")
+    );
+    assert_eq!(
+        synthesis_input
+            .evidence_pack
+            .pointer("/answer_units/0")
+            .and_then(|value| value.as_str()),
+        Some("Source A reports a battery chemistry milestone. Source: Source A, example.test.")
     );
     assert_eq!(
         synthesis_input
@@ -245,6 +280,50 @@ fn tool_result_reaches_synthesis_input_and_final_projection_without_fixture_fina
                 == Some(true)
     }));
     assert!(workflow_runtime_terminal_outcome_ok(&report));
+}
+
+#[test]
+fn usable_summary_only_tool_result_fails_closed_before_deterministic_projection() {
+    let report = run_workflow_replay(&WorkflowReplayFixture {
+        id: "summary_only_projection_blocked",
+        workflow_id: "research_synthesize_verify",
+        user_input: "Research current scientific breakthroughs.",
+        inputs: vec![
+            WorkflowInput::GateText {
+                stage: "gate_1_need_tool_access_menu",
+                text: "Yes",
+            },
+            WorkflowInput::GateText {
+                stage: "gate_2_tool_family_menu",
+                text: "2",
+            },
+            WorkflowInput::GateText {
+                stage: "gate_3_tool_menu",
+                text: "web_search",
+            },
+            WorkflowInput::GateText {
+                stage: "gate_4_request_payload_input",
+                text: "scientific breakthroughs 2026",
+            },
+            WorkflowInput::ToolObservation {
+                ok: true,
+                summary: "Source A reports a battery chemistry milestone.",
+            },
+            WorkflowInput::SynthesizeFromLatestToolResult,
+        ],
+    });
+
+    assert!(!report.ok, "{report:#?}");
+    assert!(report
+        .failures
+        .iter()
+        .any(|reason| { reason == "usable_tool_result_not_extracted_to_evidence" }));
+    assert!(report.events.iter().any(|event| {
+        event.stream == "workflow_state"
+            && event.event_kind == "structured_failure"
+            && event.payload.get("code").and_then(|value| value.as_str())
+                == Some("usable_tool_result_not_extracted_to_evidence")
+    }));
 }
 
 #[test]

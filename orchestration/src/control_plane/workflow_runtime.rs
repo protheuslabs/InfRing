@@ -510,13 +510,23 @@ impl RuntimeState {
 
     fn synthesize_from_latest_tool_result(&mut self) {
         self.model_turns_seen += 1;
-        let Some(synthesis) = self.latest_synthesis_binding() else {
+        let Some(synthesis_input) = self.synthesis_inputs.last().cloned() else {
             self.emit_structured_failure(
                 "missing_synthesis_input_for_final_answer",
                 "workflow attempted final synthesis before preparing a synthesis input envelope",
             );
             return;
         };
+        if synthesis_input.tool_result_quality == "usable"
+            && !synthesis_input_has_extracted_evidence(&synthesis_input)
+        {
+            self.emit_structured_failure(
+                "usable_tool_result_not_extracted_to_evidence",
+                "workflow observed a usable tool result but no extracted evidence claims, answer units, or structured evidence pack items were available for synthesis",
+            );
+            return;
+        }
+        let synthesis = self.synthesis_binding(&synthesis_input);
         let evidence_count = synthesis
             .get("evidence_refs")
             .and_then(Value::as_array)
@@ -535,9 +545,24 @@ impl RuntimeState {
 
     fn latest_synthesis_binding(&self) -> Option<Value> {
         let synthesis_input = self.synthesis_inputs.last()?;
-        Some(json!({
+        Some(self.synthesis_binding(synthesis_input))
+    }
+
+    fn synthesis_binding(&self, synthesis_input: &SynthesisInputEnvelope) -> Value {
+        json!({
             "synthesis_input_run_id": synthesis_input.run_id,
             "evidence_refs": synthesis_input.evidence_refs,
+            "evidence_pack": synthesis_input.evidence_pack,
+            "evidence_claims": synthesis_input
+                .evidence_pack
+                .get("evidence_claims")
+                .cloned()
+                .unwrap_or_else(|| json!([])),
+            "answer_units": synthesis_input
+                .evidence_pack
+                .get("answer_units")
+                .cloned()
+                .unwrap_or_else(|| json!([])),
             "tool_receipt_refs": synthesis_input.tool_receipt_refs,
             "tool_result_quality": synthesis_input.tool_result_quality,
             "final_output_contract_schema_version": synthesis_input
@@ -550,7 +575,7 @@ impl RuntimeState {
                 .get("quality_contract")
                 .map(|value| !value.is_null())
                 .unwrap_or(false)
-        }))
+        })
     }
 
     fn emit_synthesis_input(&mut self, summary: &str) {
@@ -582,35 +607,35 @@ impl RuntimeState {
                 )]
             })
             .unwrap_or_else(|| vec![format!("tool_receipt:{}:unbound", self.fixture_id)]);
-        let evidence_ref = format!(
-            "evidence:{}:{:016x}",
-            self.fixture_id,
-            stable_hash(&format!("{}::{summary}", self.user_goal))
-        );
-        let tool_result_quality = classify_tool_result_quality(summary).to_string();
-        let evidence_pack = json!({
-            "schema_version": "synthesis_evidence_pack_v1",
-            "source": "workflow_runtime_tool_observation",
-            "items": [{
-                "evidence_ref": evidence_ref,
-                "tool_receipt_ref": tool_receipt_refs.first().cloned().unwrap_or_default(),
-                "source_kind": "tool_observation_summary",
-                "summary": summary.trim(),
-                "relevance_basis": "tool_request_selected_for_user_goal",
-                "confidence": if tool_result_quality == "usable" { "requires_synthesis_verification" } else { "low" }
-            }],
-            "gaps": if tool_result_quality == "usable" {
-                Value::Array(Vec::new())
-            } else {
-                json!(["tool observation was not sufficient for ordinary source-backed synthesis"])
-            }
-        });
+        let parsed_summary = serde_json::from_str::<Value>(summary).ok();
+        let tool_result_quality = parsed_summary
+            .as_ref()
+            .and_then(structured_tool_result_quality)
+            .unwrap_or_else(|| classify_tool_result_quality(summary).to_string());
+        let (evidence_refs, evidence_pack) = if let Some(payload) = parsed_summary.as_ref() {
+            structured_synthesis_evidence_pack(
+                payload,
+                &self.fixture_id,
+                &self.user_goal,
+                &tool_receipt_refs,
+                summary,
+                &tool_result_quality,
+            )
+        } else {
+            summary_only_synthesis_evidence_pack(
+                &self.fixture_id,
+                &self.user_goal,
+                &tool_receipt_refs,
+                summary,
+                &tool_result_quality,
+            )
+        };
         SynthesisInputEnvelope {
             run_id,
             workflow_id: self.graph.workflow_id.clone(),
             user_goal: self.user_goal.clone(),
             tool_receipt_refs,
-            evidence_refs: vec![evidence_ref],
+            evidence_refs,
             evidence_pack,
             tool_result_quality,
             final_output_contract: self.final_output_contract(),
@@ -891,6 +916,261 @@ fn stable_hash(value: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
+}
+
+fn structured_tool_result_quality(payload: &Value) -> Option<String> {
+    if let Some(raw) = payload.get("tool_result_quality").and_then(Value::as_str) {
+        let value = raw.trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+    if let Some(raw) = payload
+        .pointer("/tool_result_quality/status")
+        .and_then(Value::as_str)
+    {
+        let value = raw.trim();
+        if !value.is_empty() {
+            return Some(match value {
+                "ok" | "healthy" | "evidence_available" => "usable".to_string(),
+                other => other.to_string(),
+            });
+        }
+    }
+    None
+}
+
+fn summary_only_synthesis_evidence_pack(
+    fixture_id: &str,
+    user_goal: &str,
+    tool_receipt_refs: &[String],
+    summary: &str,
+    tool_result_quality: &str,
+) -> (Vec<String>, Value) {
+    let evidence_ref = format!(
+        "evidence:{}:{:016x}",
+        fixture_id,
+        stable_hash(&format!("{user_goal}::{summary}"))
+    );
+    let evidence_pack = json!({
+        "schema_version": "synthesis_evidence_pack_v1",
+        "source": "workflow_runtime_tool_observation",
+        "summary_only_fallback": true,
+        "items": [{
+            "evidence_ref": evidence_ref,
+            "tool_receipt_ref": tool_receipt_refs.first().cloned().unwrap_or_default(),
+            "source_kind": "tool_observation_summary",
+            "summary": summary.trim(),
+            "relevance_basis": "tool_request_selected_for_user_goal",
+            "confidence": if tool_result_quality == "usable" { "requires_synthesis_verification" } else { "low" }
+        }],
+        "evidence_claims": [],
+        "answer_units": [],
+        "gaps": if tool_result_quality == "usable" {
+            json!(["tool observation summary was not extracted into evidence claims or answer units"])
+        } else {
+            json!(["tool observation was not sufficient for ordinary source-backed synthesis"])
+        }
+    });
+    (vec![evidence_ref], evidence_pack)
+}
+
+fn structured_synthesis_evidence_pack(
+    payload: &Value,
+    fixture_id: &str,
+    user_goal: &str,
+    tool_receipt_refs: &[String],
+    summary: &str,
+    tool_result_quality: &str,
+) -> (Vec<String>, Value) {
+    let mut evidence_refs = structured_evidence_refs(payload);
+    let mut items = structured_evidence_pack_items(payload);
+    for (idx, item) in items.iter_mut().enumerate() {
+        let Some(object) = item.as_object_mut() else {
+            continue;
+        };
+        if object
+            .get("evidence_ref")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            let evidence_ref = format!(
+                "evidence:{}:{:016x}",
+                fixture_id,
+                stable_hash(&format!("{user_goal}::{summary}::{idx}"))
+            );
+            object.insert("evidence_ref".to_string(), json!(evidence_ref.clone()));
+            evidence_refs.push(evidence_ref);
+        }
+        if object
+            .get("tool_receipt_ref")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            object.insert(
+                "tool_receipt_ref".to_string(),
+                json!(tool_receipt_refs.first().cloned().unwrap_or_default()),
+            );
+        }
+    }
+    for item in &items {
+        if let Some(evidence_ref) = item.get("evidence_ref").and_then(Value::as_str) {
+            let evidence_ref = evidence_ref.trim();
+            if !evidence_ref.is_empty() {
+                evidence_refs.push(evidence_ref.to_string());
+            }
+        }
+    }
+    evidence_refs.sort();
+    evidence_refs.dedup();
+    if items.is_empty() && evidence_refs.is_empty() {
+        return summary_only_synthesis_evidence_pack(
+            fixture_id,
+            user_goal,
+            tool_receipt_refs,
+            summary,
+            tool_result_quality,
+        );
+    }
+    let evidence_claims = payload
+        .get("evidence_claims")
+        .filter(|value| value.is_array())
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let answer_units = payload
+        .get("answer_units")
+        .filter(|value| value.is_array())
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let coverage_gaps = payload
+        .get("coverage_gaps")
+        .or_else(|| payload.get("gaps"))
+        .filter(|value| value.is_array())
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let evidence_pack = json!({
+        "schema_version": "synthesis_evidence_pack_v1",
+        "source": "workflow_runtime_structured_tool_observation",
+        "summary_only_fallback": false,
+        "items": items,
+        "evidence_claims": evidence_claims,
+        "answer_units": answer_units,
+        "coverage_gaps": coverage_gaps,
+        "gaps": if tool_result_quality == "usable" {
+            Value::Array(Vec::new())
+        } else {
+            json!(["structured tool observation was not classified as fully usable"])
+        }
+    });
+    (evidence_refs, evidence_pack)
+}
+
+fn structured_evidence_refs(payload: &Value) -> Vec<String> {
+    let mut refs = Vec::<String>::new();
+    for key in ["evidence_refs", "source_refs", "citations"] {
+        if let Some(rows) = payload.get(key).and_then(Value::as_array) {
+            for row in rows {
+                if let Some(raw) = row.as_str() {
+                    let value = raw.trim();
+                    if !value.is_empty() {
+                        refs.push(value.to_string());
+                    }
+                    continue;
+                }
+                for field in ["evidence_ref", "id", "locator", "url", "source_ref"] {
+                    let value = row
+                        .get(field)
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .unwrap_or("");
+                    if !value.is_empty() {
+                        refs.push(value.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    refs
+}
+
+fn structured_evidence_pack_items(payload: &Value) -> Vec<Value> {
+    let mut items = Vec::<Value>::new();
+    if let Some(rows) = payload
+        .pointer("/evidence_pack/items")
+        .and_then(Value::as_array)
+    {
+        items.extend(rows.iter().cloned());
+    } else if let Some(rows) = payload.get("evidence_pack").and_then(Value::as_array) {
+        items.extend(rows.iter().cloned());
+    }
+    if items.is_empty() {
+        if let Some(rows) = payload.get("evidence_refs").and_then(Value::as_array) {
+            items.extend(rows.iter().filter(|row| row.is_object()).cloned());
+        }
+    }
+    items
+}
+
+fn synthesis_input_has_extracted_evidence(synthesis_input: &SynthesisInputEnvelope) -> bool {
+    if synthesis_input
+        .evidence_pack
+        .get("summary_only_fallback")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return false;
+    }
+    if synthesis_input
+        .evidence_pack
+        .get("answer_units")
+        .and_then(Value::as_array)
+        .map(|rows| !rows.is_empty())
+        .unwrap_or(false)
+        || synthesis_input
+            .evidence_pack
+            .get("evidence_claims")
+            .and_then(Value::as_array)
+            .map(|rows| !rows.is_empty())
+            .unwrap_or(false)
+    {
+        return true;
+    }
+    synthesis_input
+        .evidence_pack
+        .get("items")
+        .and_then(Value::as_array)
+        .map(|rows| rows.iter().any(structured_evidence_item_is_extracted))
+        .unwrap_or(false)
+}
+
+fn structured_evidence_item_is_extracted(item: &Value) -> bool {
+    let source_kind = item
+        .get("source_kind")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if source_kind == "tool_observation_summary" {
+        return false;
+    }
+    [
+        "claim",
+        "finding",
+        "relevant_extract",
+        "support_snippet",
+        "summary",
+        "snippet",
+    ]
+    .iter()
+    .any(|key| {
+        item.get(*key)
+            .and_then(Value::as_str)
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+    })
 }
 
 fn classify_tool_result_quality(summary: &str) -> &'static str {

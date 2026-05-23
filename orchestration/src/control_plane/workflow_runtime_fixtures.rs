@@ -27,7 +27,7 @@ pub fn workflow_replay_fixtures() -> Vec<WorkflowReplayFixture> {
     vec![
         WorkflowReplayFixture {
             id: "direct_conversation",
-            workflow_id: "clarify_then_coordinate",
+            workflow_id: "plan_execute_review",
             user_input: "hey",
             inputs: vec![
                 WorkflowInput::GateText {
@@ -127,7 +127,7 @@ pub fn workflow_replay_fixtures() -> Vec<WorkflowReplayFixture> {
         },
         WorkflowReplayFixture {
             id: "user_aborted",
-            workflow_id: "clarify_then_coordinate",
+            workflow_id: "plan_execute_review",
             user_input: "Cancel the tool workflow.",
             inputs: vec![WorkflowInput::Abort],
         },

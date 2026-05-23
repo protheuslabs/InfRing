@@ -1066,6 +1066,10 @@ fn enrich_tool_attempt_receipt_from_row(row: &Value) -> Option<Value> {
         "search_results",
         "provider_results",
         "evidence_refs",
+        "evidence_pack",
+        "evidence_pack_candidates",
+        "evidence_claims",
+        "answer_units",
         "tool_result_quality",
     ] {
         if let Some(value) = row.get(key).cloned() {
@@ -1073,7 +1077,12 @@ fn enrich_tool_attempt_receipt_from_row(row: &Value) -> Option<Value> {
         }
     }
     if obj.get("evidence_refs").is_none() {
-        for key in ["search_results", "provider_results"] {
+        for key in [
+            "evidence_pack",
+            "evidence_pack_candidates",
+            "search_results",
+            "provider_results",
+        ] {
             let Some(rows) = row.get(key).and_then(Value::as_array) else {
                 continue;
             };
@@ -1342,6 +1351,43 @@ mod tool_completion_live_status_tests {
                 .pointer("/citations/0/locator")
                 .and_then(Value::as_str),
             Some("https://docs.crewai.com/changelog")
+        );
+    }
+
+    #[test]
+    fn projects_evidence_pack_rows_as_final_package_citations() {
+        let enriched = enrich_tool_completion_receipt(
+            json!({"completion_state":"reported_findings"}),
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "evidence_pack": [{
+                    "title": "Agent platform release notes",
+                    "locator": "https://docs.example.test/agents/release-notes",
+                    "source_domain": "docs.example.test",
+                    "source_kind": "official_docs",
+                    "relevant_extract": "The release notes describe agent runtime updates."
+                }]
+            })],
+        );
+        assert_eq!(
+            enriched
+                .pointer("/evidence_refs_used/0/locator")
+                .and_then(Value::as_str),
+            Some("https://docs.example.test/agents/release-notes")
+        );
+        assert_eq!(
+            enriched
+                .pointer("/source_refs/0/source_domain")
+                .and_then(Value::as_str),
+            Some("docs.example.test")
+        );
+        assert_eq!(
+            enriched
+                .pointer("/citation_projection_source")
+                .and_then(Value::as_str),
+            Some("tool_completion_evidence_refs")
         );
     }
 
