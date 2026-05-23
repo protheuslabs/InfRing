@@ -273,6 +273,17 @@ Tier:
 It exists to assimilate the useful part of Aider's fast path without importing
 Aider's product-specific behavior or bypassing Infring receipts.
 
+Current default state:
+
+`dormant_until_reliability_gate_passes`
+
+Promotion gate:
+
+- repeated same-model runs beat or match the general bounded artifact lane on
+  pass rate
+- p95 latency does not create timeout cascades into the open native loop
+- success receipts expose phase timing and attempted artifact profiles
+
 Runtime shape:
 
 ```text

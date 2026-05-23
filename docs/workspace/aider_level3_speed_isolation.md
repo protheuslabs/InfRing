@@ -95,6 +95,12 @@ The parent bounded patch lane may activate this profile when file count and
 context bytes are within budget. If not, the broader bounded patch artifact path
 or the open native tool loop remains available.
 
+Default runtime decision:
+
+Keep `small_scoped_edit_artifact` dormant for now. The primitive remains part of
+the model, but live same-model attempts showed high tail latency and timeout
+cascades. The stable default is the general bounded patch artifact lane.
+
 Current optimization boundary:
 
 - Keep model routing omitted for now so Infring, Aider, ForgeCode, and other

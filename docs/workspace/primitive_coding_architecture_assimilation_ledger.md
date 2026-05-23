@@ -294,6 +294,8 @@ Required reset action:
 - Retry the general bounded patch artifact profile with the same selected
   context before falling back from `small_scoped_edit_artifact` to the full
   native tool loop.
+- Keep this profile dormant by default until repeated same-model runs prove that
+  it beats the general bounded artifact lane without causing timeout cascades.
 
 ### 6. Validation and repair loop
 

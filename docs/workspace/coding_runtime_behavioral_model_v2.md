@@ -164,6 +164,17 @@ Reference basis:
 This is a Tier 2 profile, not a replacement for Tier 0 direct mutation or the
 general Tier 2 model tool loop.
 
+Current default state:
+
+`dormant`
+
+Reason:
+
+Live Level 3 attempts showed good best-case behavior but unacceptable tail
+latency under the current same-model path. The stable default is the general
+bounded patch artifact lane until this profile proves lower latency and equal or
+better reliability over repeated runs.
+
 Optimization order:
 
 1. Shrink selected context without hiding required evidence.
