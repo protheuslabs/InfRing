@@ -339,6 +339,27 @@ pub fn run_runtime_lane_with_registry(
         return Ok(response);
     }
 
+    if let Some(response) = runtime_lane_try_public_api_extension_lane(
+        &name,
+        &initial_prompt,
+        provider.as_deref(),
+        model.as_ref(),
+        &metadata,
+        &tools,
+        &capability_packs,
+        &required_pack_permissions,
+        &permissions,
+        wasm_sandbox.as_ref(),
+        voice_session.as_ref(),
+        receipt_merkle.as_ref(),
+        previous_receipt_root.as_ref(),
+        &state_path,
+        &mut durable_state,
+        providers,
+    ) {
+        return Ok(response);
+    }
+
     if let Some(response) = runtime_lane_try_bounded_existing_project_edit_loop(
         &name,
         &initial_prompt,
@@ -1012,6 +1033,82 @@ fn runtime_lane_try_deterministic_local_loop(
     }
 }
 
+fn runtime_lane_try_public_api_extension_lane(
+    name: &str,
+    prompt: &str,
+    provider: Option<&str>,
+    model: Option<&String>,
+    metadata: &Value,
+    tools: &[String],
+    capability_packs: &[String],
+    required_pack_permissions: &[String],
+    permissions: &crate::rbac_memory::PermissionManifest,
+    wasm_sandbox: Option<&Value>,
+    voice_session: Option<&Value>,
+    receipt_merkle: Option<&Value>,
+    previous_receipt_root: Option<&String>,
+    state_path: &Path,
+    durable_state: &mut RuntimeLaneDurableState,
+    providers: &ProviderClientRegistry,
+) -> Option<RuntimeLaneResponse> {
+    let workspace_root = runtime_lane_extract_workspace_root(prompt)?;
+    let context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
+    if context_pack.trim().is_empty() {
+        return None;
+    }
+    let public_api_bindings =
+        runtime_lane_public_api_bindings(prompt, &context_pack, &workspace_root);
+    if public_api_bindings.is_empty() {
+        return None;
+    }
+    if !runtime_lane_public_api_bindings_have_missing_owner_symbols(&public_api_bindings) {
+        return None;
+    }
+    if !runtime_lane_bounded_existing_project_edit_loop_eligible(
+        prompt,
+        &workspace_root,
+        tools,
+        capability_packs,
+        permissions,
+    ) {
+        return None;
+    }
+
+    let public_api_contract =
+        runtime_lane_public_api_bindings_prompt_section(&public_api_bindings, &workspace_root);
+    let narrowed_prompt = format!(
+        "{}\n\nPublic API extension lane selected.\nThis task has an explicit local import contract, so first satisfy the imported symbols in their owner module.\nDo not create a sibling source module as the primary implementation for these imported symbols.\nDo not rely on package-level __init__ re-exports for these imported symbols.\nAdd focused regression tests only when requested by the task.\nExisting behavior must remain compatible unless the task explicitly asks to change it.\n\n{}",
+        prompt.trim(),
+        public_api_contract
+    );
+
+    let mut response = runtime_lane_try_bounded_existing_project_edit_loop(
+        name,
+        &narrowed_prompt,
+        provider,
+        model,
+        metadata,
+        tools,
+        capability_packs,
+        required_pack_permissions,
+        permissions,
+        wasm_sandbox,
+        voice_session,
+        receipt_merkle,
+        previous_receipt_root,
+        state_path,
+        durable_state,
+        providers,
+    )?;
+    runtime_lane_relabel_generated_manifest_response(
+        &mut response,
+        "public_api_extension_lane",
+        "runtime_lane_public_api_extension_lane_failed",
+        "public_api_owner_binding_first_loop",
+    );
+    Some(response)
+}
+
 fn runtime_lane_try_bounded_existing_project_edit_loop(
     name: &str,
     prompt: &str,
@@ -1047,6 +1144,8 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
     if context_pack.trim().is_empty() {
         return None;
     }
+    let public_api_bindings =
+        runtime_lane_public_api_bindings(prompt, &context_pack, &workspace_root);
     let execution_shape_gate_ms =
         gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let provider_id = provider.unwrap_or_else(|| providers.default_provider_id());
@@ -1115,13 +1214,14 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
             "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
         ],
     )
-    .unwrap_or(false);
+    .unwrap_or(true);
     let model_started = Instant::now();
     let mut provider_response = match provider_client.complete(&ProviderRequest {
             prompt: runtime_lane_bounded_existing_project_edit_loop_prompt(
                 prompt,
                 &workspace_root,
                 &context_pack,
+                &public_api_bindings,
             ),
             system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
             tools: Vec::new(),
@@ -1206,7 +1306,7 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                             "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
                         ],
                     )
-                    .unwrap_or(false),
+                    .unwrap_or(true),
                     "lane": "bounded_existing_project_edit_loop",
                     "attempt": "manifest_repair",
                     "previous_failure_code": failure.failure_code,
@@ -1291,6 +1391,200 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
             }
         }
     };
+    let mut public_api_violations =
+        runtime_lane_public_api_manifest_violations(&candidate, &public_api_bindings, &workspace_root);
+    if !public_api_violations.is_empty() {
+        if let Some(retargeted_candidate) = runtime_lane_public_api_owner_retarget_candidate(
+            &candidate,
+            &public_api_bindings,
+            &workspace_root,
+        ) {
+            let retargeted_violations = runtime_lane_public_api_manifest_violations(
+                &retargeted_candidate,
+                &public_api_bindings,
+                &workspace_root,
+            );
+            if retargeted_violations.is_empty() {
+                candidate = retargeted_candidate;
+                public_api_violations = Vec::new();
+            } else {
+                public_api_violations = retargeted_violations;
+            }
+        }
+    }
+    if !public_api_violations.is_empty() {
+        let repair_prompt = runtime_lane_model_manifest_public_api_repair_prompt(
+            prompt,
+            &workspace_root,
+            &context_pack,
+            &public_api_bindings,
+            &public_api_violations,
+        );
+        match provider_client.complete(&ProviderRequest {
+            prompt: repair_prompt,
+            system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
+            tools: Vec::new(),
+            model: fast_lane_repair_model.clone(),
+            metadata: json!({
+                "provider_timeout_seconds": metadata
+                    .pointer("/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
+                    .and_then(Value::as_u64)
+                    .or_else(|| metadata.pointer("/workflow/native_success_criteria/fast_lane_repair_provider_timeout_seconds").and_then(Value::as_u64))
+                    .unwrap_or(45),
+                "omit_ollama_thinking_flags": runtime_lane_metadata_bool(
+                    metadata,
+                    &[
+                        "/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                        "/workflow/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                        "/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                        "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                    ],
+                )
+                .unwrap_or(true),
+                "lane": "bounded_existing_project_edit_loop",
+                "attempt": "public_api_owner_binding_repair",
+                "public_api_bindings": runtime_lane_public_api_bindings_json(&public_api_bindings, &workspace_root),
+                "previous_public_api_violations": public_api_violations.clone(),
+                "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+            }),
+        }) {
+            Ok(repair_response) => {
+                let mut repair_candidate = match runtime_lane_model_manifest_candidate_from_output(
+                    &repair_response.output,
+                    tools,
+                    capability_packs,
+                    permissions,
+                ) {
+                    Ok(candidate) => candidate,
+                    Err(repair_failure) => {
+                        let model_call_ms =
+                            model_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                        return Some(runtime_lane_fail_closed_with_state(
+                            "runtime_lane_bounded_existing_project_public_api_gate_failed",
+                            json!({
+                                "lane": "bounded_existing_project_edit_loop",
+                                "failure_code": repair_failure.failure_code,
+                                "failure_message": repair_failure.failure_message,
+                                "needed_input": repair_failure.needed_input,
+                                "provider_output_preview": repair_failure.provider_output_preview,
+                                "public_api_bindings": runtime_lane_public_api_bindings_json(&public_api_bindings, &workspace_root),
+                                "previous_public_api_violations": public_api_violations,
+                                "planner_model": fast_lane_repair_model.clone(),
+                                "phase_latency_ms": {
+                                    "workflow_load": 0,
+                                    "execution_shape_gate": execution_shape_gate_ms,
+                                    "provider_start": 0,
+                                    "model_call": model_call_ms,
+                                    "tool_dispatch": 0,
+                                    "mutation": 0,
+                                    "validation": 0,
+                                    "repair": 0,
+                                    "final_synthesis": 0,
+                                    "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                                }
+                            }),
+                            permissions,
+                            wasm_sandbox,
+                            voice_session,
+                            state_path,
+                            durable_state,
+                        ));
+                    }
+                };
+                let mut repair_violations = runtime_lane_public_api_manifest_violations(
+                    &repair_candidate,
+                    &public_api_bindings,
+                    &workspace_root,
+                );
+                if !repair_violations.is_empty() {
+                    if let Some(retargeted_candidate) = runtime_lane_public_api_owner_retarget_candidate(
+                        &repair_candidate,
+                        &public_api_bindings,
+                        &workspace_root,
+                    ) {
+                        let retargeted_violations = runtime_lane_public_api_manifest_violations(
+                            &retargeted_candidate,
+                            &public_api_bindings,
+                            &workspace_root,
+                        );
+                        if retargeted_violations.is_empty() {
+                            repair_candidate = retargeted_candidate;
+                            repair_violations = Vec::new();
+                        } else {
+                            repair_violations = retargeted_violations;
+                        }
+                    }
+                }
+                if !repair_violations.is_empty() {
+                    let model_call_ms =
+                        model_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                    return Some(runtime_lane_fail_closed_with_state(
+                        "runtime_lane_bounded_existing_project_public_api_gate_failed",
+                        json!({
+                            "lane": "bounded_existing_project_edit_loop",
+                            "failure_code": "public_api_owner_binding_violation",
+                            "failure_message": "The planner attempted to satisfy imported public symbols outside their owning module after repair.",
+                            "needed_input": "Return a manifest that edits the owner module named by the import surface.",
+                            "public_api_bindings": runtime_lane_public_api_bindings_json(&public_api_bindings, &workspace_root),
+                            "public_api_violations": repair_violations,
+                            "planner_model": fast_lane_repair_model.clone(),
+                            "phase_latency_ms": {
+                                "workflow_load": 0,
+                                "execution_shape_gate": execution_shape_gate_ms,
+                                "provider_start": 0,
+                                "model_call": model_call_ms,
+                                "tool_dispatch": 0,
+                                "mutation": 0,
+                                "validation": 0,
+                                "repair": 0,
+                                "final_synthesis": 0,
+                                "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                            }
+                        }),
+                        permissions,
+                        wasm_sandbox,
+                        voice_session,
+                        state_path,
+                        durable_state,
+                    ));
+                }
+                candidate = repair_candidate;
+                provider_response = repair_response;
+            }
+            Err(error) => {
+                let model_call_ms =
+                    model_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                return Some(runtime_lane_fail_closed_with_state(
+                    "runtime_lane_bounded_existing_project_public_api_gate_failed",
+                    json!({
+                        "lane": "bounded_existing_project_edit_loop",
+                        "failure_code": error.code.as_str(),
+                        "failure_message": error.message,
+                        "public_api_bindings": runtime_lane_public_api_bindings_json(&public_api_bindings, &workspace_root),
+                        "public_api_violations": public_api_violations,
+                        "planner_model": fast_lane_repair_model.clone(),
+                        "phase_latency_ms": {
+                            "workflow_load": 0,
+                            "execution_shape_gate": execution_shape_gate_ms,
+                            "provider_start": 0,
+                            "model_call": model_call_ms,
+                            "tool_dispatch": 0,
+                            "mutation": 0,
+                            "validation": 0,
+                            "repair": 0,
+                            "final_synthesis": 0,
+                            "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                        }
+                    }),
+                    permissions,
+                    wasm_sandbox,
+                    voice_session,
+                    state_path,
+                    durable_state,
+                ));
+            }
+        }
+    }
     let validation_command = runtime_lane_extract_validation_command(prompt, &workspace_root);
     let mut validation_call_id = None;
     runtime_lane_attach_semantic_probe_action(
@@ -1349,7 +1643,7 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                             "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
                         ],
                     )
-                    .unwrap_or(false),
+                    .unwrap_or(true),
                     "lane": "bounded_existing_project_edit_loop",
                     "attempt": "tool_dispatch_repair",
                     "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
@@ -1361,31 +1655,57 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                     capability_packs,
                     permissions,
                 ) {
-                    let mut repair_probe_call_id = None;
-                    let mut repair_validation_call_id = None;
-                    runtime_lane_attach_semantic_probe_action(
-                        &mut repair_candidate,
-                        validation_command.as_ref(),
-                        "bounded_existing_project_edit_loop_tool_repair_validation",
-                        &mut repair_validation_call_id,
-                    );
-                    runtime_lane_attach_semantic_probe_action(
-                        &mut repair_candidate,
-                        semantic_probe.as_ref(),
-                        "bounded_existing_project_edit_loop_tool_repair",
-                        &mut repair_probe_call_id,
-                    );
-                    let repair_receipts = runtime_lane_dispatch_model_manifest_actions(
+                    let mut repair_public_api_violations = runtime_lane_public_api_manifest_violations(
                         &repair_candidate,
-                        "bounded_existing_project_edit_loop_tool_repair",
+                        &public_api_bindings,
+                        &workspace_root,
                     );
-                    if repair_receipts
-                        .iter()
-                        .any(runtime_lane_receipt_is_successful_mutation)
-                    {
-                        candidate = repair_candidate;
-                        receipts = repair_receipts;
-                        provider_response = repair_response;
+                    if !repair_public_api_violations.is_empty() {
+                        if let Some(retargeted_candidate) = runtime_lane_public_api_owner_retarget_candidate(
+                            &repair_candidate,
+                            &public_api_bindings,
+                            &workspace_root,
+                        ) {
+                            let retargeted_violations = runtime_lane_public_api_manifest_violations(
+                                &retargeted_candidate,
+                                &public_api_bindings,
+                                &workspace_root,
+                            );
+                            if retargeted_violations.is_empty() {
+                                repair_candidate = retargeted_candidate;
+                                repair_public_api_violations = Vec::new();
+                            } else {
+                                repair_public_api_violations = retargeted_violations;
+                            }
+                        }
+                    }
+                    if repair_public_api_violations.is_empty() {
+                        let mut repair_probe_call_id = None;
+                        let mut repair_validation_call_id = None;
+                        runtime_lane_attach_semantic_probe_action(
+                            &mut repair_candidate,
+                            validation_command.as_ref(),
+                            "bounded_existing_project_edit_loop_tool_repair_validation",
+                            &mut repair_validation_call_id,
+                        );
+                        runtime_lane_attach_semantic_probe_action(
+                            &mut repair_candidate,
+                            semantic_probe.as_ref(),
+                            "bounded_existing_project_edit_loop_tool_repair",
+                            &mut repair_probe_call_id,
+                        );
+                        let repair_receipts = runtime_lane_dispatch_model_manifest_actions(
+                            &repair_candidate,
+                            "bounded_existing_project_edit_loop_tool_repair",
+                        );
+                        if repair_receipts
+                            .iter()
+                            .any(runtime_lane_receipt_is_successful_mutation)
+                        {
+                            candidate = repair_candidate;
+                            receipts = repair_receipts;
+                            provider_response = repair_response;
+                        }
                     }
                 }
             }
@@ -1427,7 +1747,7 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                                 "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
                             ],
                         )
-                        .unwrap_or(false),
+                        .unwrap_or(true),
                         "lane": "bounded_existing_project_edit_loop",
                         "attempt": "validation_repair",
                         "repair_attempt_index": repair_attempt_index,
@@ -1491,6 +1811,51 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                         continue;
                     }
                 };
+                let mut repair_public_api_violations = runtime_lane_public_api_manifest_violations(
+                    &repair_candidate,
+                    &public_api_bindings,
+                    &workspace_root,
+                );
+                if !repair_public_api_violations.is_empty() {
+                    if let Some(retargeted_candidate) = runtime_lane_public_api_owner_retarget_candidate(
+                        &repair_candidate,
+                        &public_api_bindings,
+                        &workspace_root,
+                    ) {
+                        let retargeted_violations = runtime_lane_public_api_manifest_violations(
+                            &retargeted_candidate,
+                            &public_api_bindings,
+                            &workspace_root,
+                        );
+                        if retargeted_violations.is_empty() {
+                            repair_candidate = retargeted_candidate;
+                            repair_public_api_violations = Vec::new();
+                        } else {
+                            repair_public_api_violations = retargeted_violations;
+                        }
+                    }
+                }
+                if !repair_public_api_violations.is_empty() {
+                    let failure_message = repair_public_api_violations.join("\n");
+                    receipts.push(runtime_lane_validation_repair_failure_receipt(
+                        &format!(
+                            "bounded_existing_project_edit_loop_validation_repair_public_api_{}",
+                            repair_attempt_index + 1
+                        ),
+                        "public_api_owner_binding_violation",
+                        &failure_message,
+                        json!({
+                            "repair_attempt_index": repair_attempt_index,
+                            "public_api_bindings": runtime_lane_public_api_bindings_json(&public_api_bindings, &workspace_root),
+                        }),
+                    ));
+                    repair_failure_summary = format!(
+                        "Validation repair manifest violated public API owner bindings on attempt {}.\n{}",
+                        repair_attempt_index + 1,
+                        failure_message
+                    );
+                    continue;
+                }
                 let mut repair_probe_call_id = None;
                 let mut repair_validation_call_id = None;
                 runtime_lane_attach_semantic_probe_action(
@@ -1568,7 +1933,7 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                         "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
                     ],
                 )
-                .unwrap_or(false),
+                .unwrap_or(true),
                 "lane": "bounded_existing_project_edit_loop",
                 "attempt": "post_validation_semantic_completion_repair",
                 "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
@@ -1580,25 +1945,61 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                 capability_packs,
                 permissions,
             ) {
-                let mut repair_probe_call_id = None;
-                let mut repair_validation_call_id = None;
-                runtime_lane_attach_semantic_probe_action(
-                    &mut repair_candidate,
-                    validation_command.as_ref(),
-                    "bounded_existing_project_edit_loop_semantic_repair_validation",
-                    &mut repair_validation_call_id,
-                );
-                runtime_lane_attach_semantic_probe_action(
-                    &mut repair_candidate,
-                    semantic_probe.as_ref(),
-                    "bounded_existing_project_edit_loop_semantic_repair",
-                    &mut repair_probe_call_id,
-                );
-                let mut repair_receipts = runtime_lane_dispatch_model_manifest_actions(
+                let mut repair_public_api_violations = runtime_lane_public_api_manifest_violations(
                     &repair_candidate,
-                    "bounded_existing_project_edit_loop_semantic_repair",
+                    &public_api_bindings,
+                    &workspace_root,
                 );
-                receipts.append(&mut repair_receipts);
+                if !repair_public_api_violations.is_empty() {
+                    if let Some(retargeted_candidate) = runtime_lane_public_api_owner_retarget_candidate(
+                        &repair_candidate,
+                        &public_api_bindings,
+                        &workspace_root,
+                    ) {
+                        let retargeted_violations = runtime_lane_public_api_manifest_violations(
+                            &retargeted_candidate,
+                            &public_api_bindings,
+                            &workspace_root,
+                        );
+                        if retargeted_violations.is_empty() {
+                            repair_candidate = retargeted_candidate;
+                            repair_public_api_violations = Vec::new();
+                        } else {
+                            repair_public_api_violations = retargeted_violations;
+                        }
+                    }
+                }
+                if repair_public_api_violations.is_empty() {
+                    let mut repair_probe_call_id = None;
+                    let mut repair_validation_call_id = None;
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut repair_candidate,
+                        validation_command.as_ref(),
+                        "bounded_existing_project_edit_loop_semantic_repair_validation",
+                        &mut repair_validation_call_id,
+                    );
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut repair_candidate,
+                        semantic_probe.as_ref(),
+                        "bounded_existing_project_edit_loop_semantic_repair",
+                        &mut repair_probe_call_id,
+                    );
+                    let mut repair_receipts = runtime_lane_dispatch_model_manifest_actions(
+                        &repair_candidate,
+                        "bounded_existing_project_edit_loop_semantic_repair",
+                    );
+                    receipts.append(&mut repair_receipts);
+                } else {
+                    let failure_message = repair_public_api_violations.join("\n");
+                    receipts.push(runtime_lane_validation_repair_failure_receipt(
+                        "bounded_existing_project_edit_loop_semantic_repair_public_api",
+                        "public_api_owner_binding_violation",
+                        &failure_message,
+                        json!({
+                            "public_api_bindings": runtime_lane_public_api_bindings_json(&public_api_bindings, &workspace_root),
+                        }),
+                    ));
+                }
             }
         }
     }
@@ -3104,12 +3505,24 @@ fn runtime_lane_bounded_existing_project_edit_loop_prompt(
     prompt: &str,
     workspace_root: &Path,
     context_pack: &str,
+    public_api_bindings: &[RuntimeLanePublicApiBinding],
 ) -> String {
     let compact_context = runtime_lane_compact_context_pack(context_pack);
+    let public_api_section = runtime_lane_public_api_bindings_prompt_section(
+        public_api_bindings,
+        workspace_root,
+    );
+    let public_api_write_strategy = if public_api_bindings.is_empty() {
+        "No public API owner binding strategy is active.".to_string()
+    } else {
+        "Public API extension write strategy: for owner modules and focused regression tests, prefer write_file with overwrite=true and full corrected file content when files are small. Use file_patch only when the exact old text is copied from the context pack and the patch is very localized.".to_string()
+    };
     format!(
-        "Workspace root: {}\n\nUser task:\n{}\n\nCompact authoritative local context:\n{}\n\nReturn the smallest safe deterministic_local_loop manifest. Prefer patch actions for existing files. Preserve existing public import paths and owner modules. If a validation test or semantic probe imports a symbol from a module, make that module provide the symbol directly. Run validation and the semantic probe command if supplied by the task.",
+        "Workspace root: {}\n\nUser task:\n{}\n\n{}\n{}\n\nCompact authoritative local context:\n{}\n\nReturn the smallest safe deterministic_local_loop manifest. Prefer patch actions for existing files. Preserve existing public import paths and owner modules. If a validation test or semantic probe imports a symbol from a module, make that module provide the symbol directly. Run validation and the semantic probe command if supplied by the task.",
         workspace_root.display(),
         prompt.trim(),
+        public_api_section,
+        public_api_write_strategy,
         compact_context
     )
 }
@@ -3261,6 +3674,608 @@ fn runtime_lane_model_manifest_validation_repair_prompt(
         workspace_root.display(),
         prompt.trim(),
         failure_summary,
+        compact_context,
+        workspace_root.display()
+    )
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeLanePublicApiBinding {
+    module: String,
+    symbols: Vec<String>,
+    owner_path: PathBuf,
+    source: &'static str,
+}
+
+fn runtime_lane_public_api_bindings(
+    prompt: &str,
+    context_pack: &str,
+    workspace_root: &Path,
+) -> Vec<RuntimeLanePublicApiBinding> {
+    let mut bindings = Vec::<RuntimeLanePublicApiBinding>::new();
+    runtime_lane_collect_python_public_api_bindings(
+        prompt,
+        workspace_root,
+        "user_task",
+        &mut bindings,
+    );
+    runtime_lane_collect_python_public_api_bindings(
+        context_pack,
+        workspace_root,
+        "context_pack",
+        &mut bindings,
+    );
+    for probe_text in runtime_lane_public_api_probe_texts(prompt, workspace_root) {
+        runtime_lane_collect_python_public_api_bindings(
+            &probe_text,
+            workspace_root,
+            "local_probe",
+            &mut bindings,
+        );
+    }
+    bindings
+}
+
+fn runtime_lane_public_api_probe_texts(prompt: &str, workspace_root: &Path) -> Vec<String> {
+    let mut texts = Vec::<String>::new();
+    for line in prompt.lines() {
+        let lower = line.to_ascii_lowercase();
+        if !lower.contains("probe command") && !lower.contains("validation command") {
+            continue;
+        }
+        for token in line.split_whitespace() {
+            let token = token
+                .trim_matches(|ch: char| {
+                    ch == '\''
+                        || ch == '"'
+                        || ch == '`'
+                        || ch == ','
+                        || ch == ';'
+                        || ch == ':'
+                        || ch == '('
+                        || ch == ')'
+                });
+            if !token.ends_with(".py") {
+                continue;
+            }
+            let candidate = if Path::new(token).is_absolute() {
+                PathBuf::from(token)
+            } else {
+                workspace_root.join(token)
+            };
+            if !runtime_lane_path_is_under(workspace_root, &candidate) || !candidate.is_file() {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(candidate) {
+                texts.push(text);
+            }
+        }
+    }
+    texts
+}
+
+fn runtime_lane_collect_python_public_api_bindings(
+    text: &str,
+    workspace_root: &Path,
+    source: &'static str,
+    bindings: &mut Vec<RuntimeLanePublicApiBinding>,
+) {
+    for raw_line in text.lines() {
+        let line = raw_line
+            .split('#')
+            .next()
+            .unwrap_or_default()
+            .trim();
+        let import_start = line
+            .strip_prefix("from ")
+            .map(|_| 0)
+            .or_else(|| line.find("from "));
+        let Some(import_start) = import_start else {
+            continue;
+        };
+        let import_clause = &line[import_start..];
+        let Some(after_from) = import_clause.strip_prefix("from ") else {
+            continue;
+        };
+        let Some((module, imports)) = after_from.split_once(" import ") else {
+            continue;
+        };
+        let module = module.trim();
+        if !runtime_lane_python_module_name_is_import_surface(module) {
+            continue;
+        }
+        let Some(owner_path) = runtime_lane_python_module_owner_path(workspace_root, module) else {
+            continue;
+        };
+        let symbols = runtime_lane_python_import_symbols(imports);
+        if symbols.is_empty() {
+            continue;
+        }
+        runtime_lane_add_public_api_binding(
+            bindings,
+            module.to_string(),
+            symbols,
+            owner_path,
+            source,
+        );
+    }
+}
+
+fn runtime_lane_add_public_api_binding(
+    bindings: &mut Vec<RuntimeLanePublicApiBinding>,
+    module: String,
+    symbols: Vec<String>,
+    owner_path: PathBuf,
+    source: &'static str,
+) {
+    if let Some(binding) = bindings.iter_mut().find(|binding| {
+        binding.module == module && runtime_lane_paths_equal(&binding.owner_path, &owner_path)
+    }) {
+        for symbol in symbols {
+            if !binding.symbols.iter().any(|existing| existing == &symbol) {
+                binding.symbols.push(symbol);
+            }
+        }
+        return;
+    }
+    bindings.push(RuntimeLanePublicApiBinding {
+        module,
+        symbols,
+        owner_path,
+        source,
+    });
+}
+
+fn runtime_lane_python_module_name_is_import_surface(module: &str) -> bool {
+    if module.is_empty() || module.starts_with('.') {
+        return false;
+    }
+    module.split('.').all(runtime_lane_python_identifier_like)
+}
+
+fn runtime_lane_python_identifier_like(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return false;
+    }
+    chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn runtime_lane_python_import_symbols(imports: &str) -> Vec<String> {
+    let normalized = imports
+        .replace('(', " ")
+        .replace(')', " ")
+        .replace('\\', " ");
+    let mut symbols = Vec::<String>::new();
+    for item in normalized.split(',') {
+        let symbol = item
+            .trim()
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .trim_matches(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()));
+        if symbol == "*" || !runtime_lane_python_identifier_like(symbol) {
+            continue;
+        }
+        if !symbols.iter().any(|existing| existing == symbol) {
+            symbols.push(symbol.to_string());
+        }
+    }
+    symbols
+}
+
+fn runtime_lane_python_module_owner_path(
+    workspace_root: &Path,
+    module: &str,
+) -> Option<PathBuf> {
+    let relative_module = module.replace('.', "/");
+    let file_candidate = format!("{relative_module}.py");
+    let candidates = [
+        workspace_root.join("src").join(&file_candidate),
+        workspace_root.join(&file_candidate),
+        workspace_root
+            .join("src")
+            .join(&relative_module)
+            .join("__init__.py"),
+        workspace_root.join(&relative_module).join("__init__.py"),
+    ];
+    candidates.iter().find(|path| path.is_file()).cloned()
+}
+
+fn runtime_lane_public_api_bindings_prompt_section(
+    bindings: &[RuntimeLanePublicApiBinding],
+    workspace_root: &Path,
+) -> String {
+    if bindings.is_empty() {
+        return "Public API owner bindings: none detected from local import surfaces.".to_string();
+    }
+    let mut out = String::from(
+        "Public API owner bindings detected from local import surfaces. Treat these as hard placement constraints:\n",
+    );
+    for binding in bindings {
+        out.push_str(&format!(
+            "- module {} owns symbol(s) {} in owner file {}. If you add/change these symbols, mutate this owner file directly; do not satisfy them only through a package __init__ or sibling module.\n",
+            binding.module,
+            binding.symbols.join(", "),
+            runtime_lane_path_relative_display(workspace_root, &binding.owner_path)
+        ));
+    }
+    out
+}
+
+fn runtime_lane_public_api_bindings_json(
+    bindings: &[RuntimeLanePublicApiBinding],
+    workspace_root: &Path,
+) -> Value {
+    Value::Array(
+        bindings
+            .iter()
+            .map(|binding| {
+                json!({
+                    "module": binding.module.clone(),
+                    "symbols": binding.symbols.clone(),
+                    "owner_path": runtime_lane_path_relative_display(workspace_root, &binding.owner_path),
+                    "source": binding.source,
+                })
+            })
+            .collect(),
+    )
+}
+
+fn runtime_lane_public_api_bindings_have_missing_owner_symbols(
+    bindings: &[RuntimeLanePublicApiBinding],
+) -> bool {
+    bindings.iter().any(|binding| {
+        let owner_content = std::fs::read_to_string(&binding.owner_path).unwrap_or_default();
+        binding
+            .symbols
+            .iter()
+            .any(|symbol| !runtime_lane_text_mentions_identifier(&owner_content, symbol))
+    })
+}
+
+fn runtime_lane_public_api_manifest_violations(
+    candidate: &DeterministicLocalLoopCandidate,
+    bindings: &[RuntimeLanePublicApiBinding],
+    workspace_root: &Path,
+) -> Vec<String> {
+    if bindings.is_empty() {
+        return Vec::new();
+    }
+    let mut violations = Vec::<String>::new();
+    for binding in bindings {
+        let mut owner_mutated = false;
+        let existing_owner_content =
+            std::fs::read_to_string(&binding.owner_path).unwrap_or_default();
+        let mut owner_candidate_content = String::new();
+        let symbols_missing_from_existing_owner = binding
+            .symbols
+            .iter()
+            .filter(|symbol| !runtime_lane_text_mentions_identifier(&existing_owner_content, symbol))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut non_owner_symbol_targets = Vec::<String>::new();
+        for action in &candidate.actions {
+            let Some((target_path, content)) = runtime_lane_mutation_action_target_and_content(action) else {
+                continue;
+            };
+            if !runtime_lane_python_source_path(target_path) {
+                continue;
+            }
+            if runtime_lane_paths_equal(target_path, &binding.owner_path) {
+                owner_mutated = true;
+                owner_candidate_content.push('\n');
+                owner_candidate_content.push_str(content);
+                continue;
+            }
+            if symbols_missing_from_existing_owner
+                .iter()
+                .any(|symbol| runtime_lane_text_mentions_identifier(content, symbol))
+            {
+                non_owner_symbol_targets.push(runtime_lane_path_relative_display(
+                    workspace_root,
+                    target_path,
+                ));
+            }
+        }
+        if !owner_mutated && !non_owner_symbol_targets.is_empty() {
+            violations.push(format!(
+                "Symbols imported from {} ({}) were planned in non-owner file(s): {}. Owner file must be mutated: {}",
+                binding.module,
+                binding.symbols.join(", "),
+                non_owner_symbol_targets.join(", "),
+                runtime_lane_path_relative_display(workspace_root, &binding.owner_path)
+            ));
+        }
+        let missing_owner_symbols = binding
+            .symbols
+            .iter()
+            .filter(|symbol| {
+                !runtime_lane_text_mentions_identifier(&existing_owner_content, symbol)
+                    && !runtime_lane_text_mentions_identifier(&owner_candidate_content, symbol)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if owner_mutated && !missing_owner_symbols.is_empty() {
+            violations.push(format!(
+                "Owner file {} was mutated but did not provide imported symbol(s): {}",
+                runtime_lane_path_relative_display(workspace_root, &binding.owner_path),
+                missing_owner_symbols.join(", ")
+            ));
+        } else if !owner_mutated && !missing_owner_symbols.is_empty() {
+            violations.push(format!(
+                "Imported symbol(s) from {} are missing in owner file {} and the owner file was not mutated: {}",
+                binding.module,
+                runtime_lane_path_relative_display(workspace_root, &binding.owner_path),
+                missing_owner_symbols.join(", ")
+            ));
+        }
+    }
+    violations
+}
+
+fn runtime_lane_public_api_owner_retarget_candidate(
+    candidate: &DeterministicLocalLoopCandidate,
+    bindings: &[RuntimeLanePublicApiBinding],
+    workspace_root: &Path,
+) -> Option<DeterministicLocalLoopCandidate> {
+    if bindings.is_empty() {
+        return None;
+    }
+    let mut retargeted = candidate.clone();
+    let mut owner_actions = Vec::<DeterministicLocalAction>::new();
+    for binding in bindings {
+        if retargeted.actions.iter().any(|action| {
+            runtime_lane_mutation_action_target_and_content(action)
+                .map(|(target_path, _)| runtime_lane_paths_equal(target_path, &binding.owner_path))
+                .unwrap_or(false)
+        }) {
+            continue;
+        }
+        let mut extracted_blocks = Vec::<String>::new();
+        for action in &retargeted.actions {
+            let Some((target_path, content)) = runtime_lane_mutation_action_target_and_content(action) else {
+                continue;
+            };
+            if runtime_lane_paths_equal(target_path, &binding.owner_path)
+                || !runtime_lane_python_source_path(target_path)
+                || !runtime_lane_path_is_under(workspace_root, target_path)
+            {
+                continue;
+            }
+            if !binding
+                .symbols
+                .iter()
+                .any(|symbol| runtime_lane_text_mentions_identifier(content, symbol))
+            {
+                continue;
+            }
+            extracted_blocks.extend(runtime_lane_extract_python_public_symbol_blocks(
+                content,
+                &binding.symbols,
+            ));
+        }
+        if extracted_blocks.is_empty() {
+            continue;
+        }
+        let Ok(owner_content) = std::fs::read_to_string(&binding.owner_path) else {
+            continue;
+        };
+        let missing_blocks = extracted_blocks
+            .into_iter()
+            .filter(|block| {
+                runtime_lane_python_block_declared_symbol(block)
+                    .map(|symbol| !runtime_lane_text_mentions_identifier(&owner_content, symbol))
+                    .unwrap_or(false)
+            })
+            .fold(Vec::<String>::new(), |mut blocks, block| {
+                if !blocks.iter().any(|existing| existing == &block) {
+                    blocks.push(block);
+                }
+                blocks
+            });
+        if missing_blocks.is_empty() {
+            continue;
+        }
+        let mut new_owner_content = ensure_trailing_newline(owner_content);
+        if !new_owner_content.ends_with("\n\n") {
+            new_owner_content.push('\n');
+        }
+        new_owner_content.push_str(&missing_blocks.join("\n\n"));
+        if !new_owner_content.ends_with('\n') {
+            new_owner_content.push('\n');
+        }
+        owner_actions.push(DeterministicLocalAction::WriteFile {
+            target_path: binding.owner_path.clone(),
+            content: new_owner_content,
+            overwrite: true,
+        });
+    }
+    if owner_actions.is_empty() {
+        return None;
+    }
+    let insert_index = retargeted
+        .actions
+        .iter()
+        .position(|action| matches!(action, DeterministicLocalAction::CommandRun { .. }))
+        .unwrap_or(retargeted.actions.len());
+    for (offset, action) in owner_actions.into_iter().enumerate() {
+        retargeted.actions.insert(insert_index + offset, action);
+    }
+    Some(retargeted)
+}
+
+fn runtime_lane_extract_python_public_symbol_blocks(
+    content: &str,
+    symbols: &[String],
+) -> Vec<String> {
+    let lines = content.lines().collect::<Vec<_>>();
+    let import_preamble = runtime_lane_python_public_block_import_preamble(&lines);
+    let mut blocks = Vec::<String>::new();
+    for (index, line) in lines.iter().enumerate() {
+        let Some(symbol) = runtime_lane_python_top_level_declared_symbol(line) else {
+            continue;
+        };
+        if !symbols.iter().any(|expected| expected == symbol) {
+            continue;
+        }
+        let mut start = index;
+        while start > 0 && lines[start - 1].trim_start().starts_with('@') {
+            start -= 1;
+        }
+        let mut end = lines.len();
+        for (next_index, next_line) in lines.iter().enumerate().skip(index + 1) {
+            if runtime_lane_python_top_level_declared_symbol(next_line).is_some() {
+                end = next_index;
+                break;
+            }
+        }
+        let body = lines[start..end].join("\n").trim().to_string();
+        if body.is_empty() {
+            continue;
+        }
+        let block = if import_preamble.is_empty() {
+            body
+        } else {
+            format!("{import_preamble}\n\n{body}")
+        };
+        if !blocks.iter().any(|existing| existing == &block) {
+            blocks.push(block);
+        }
+    }
+    blocks
+}
+
+fn runtime_lane_python_public_block_import_preamble(lines: &[&str]) -> String {
+    let mut imports = Vec::<String>::new();
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with("from __future__ ") {
+            continue;
+        }
+        if (trimmed.starts_with("from ") || trimmed.starts_with("import "))
+            && line.chars().next().map(|ch| !ch.is_whitespace()).unwrap_or(false)
+            && !imports.iter().any(|existing| existing == trimmed)
+        {
+            imports.push(trimmed.to_string());
+        }
+    }
+    imports.join("\n")
+}
+
+fn runtime_lane_python_top_level_declared_symbol(line: &str) -> Option<&str> {
+    if line.chars().next().map(|ch| ch.is_whitespace()).unwrap_or(false) {
+        return None;
+    }
+    let trimmed = line.trim_start();
+    let rest = trimmed
+        .strip_prefix("class ")
+        .or_else(|| trimmed.strip_prefix("def "))?;
+    let end = rest
+        .find(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
+        .unwrap_or(rest.len());
+    let symbol = &rest[..end];
+    if runtime_lane_python_identifier_like(symbol) {
+        Some(symbol)
+    } else {
+        None
+    }
+}
+
+fn runtime_lane_python_block_declared_symbol(block: &str) -> Option<&str> {
+    block
+        .lines()
+        .find_map(runtime_lane_python_top_level_declared_symbol)
+}
+
+fn runtime_lane_path_is_under(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root).is_ok()
+}
+
+fn runtime_lane_mutation_action_target_and_content(
+    action: &DeterministicLocalAction,
+) -> Option<(&Path, &str)> {
+    match action {
+        DeterministicLocalAction::WriteFile {
+            target_path,
+            content,
+            ..
+        } => Some((target_path.as_path(), content.as_str())),
+        DeterministicLocalAction::PatchFile {
+            target_path,
+            new,
+            ..
+        } => Some((target_path.as_path(), new.as_str())),
+        DeterministicLocalAction::CommandRun { .. } => None,
+    }
+}
+
+fn runtime_lane_python_source_path(path: &Path) -> bool {
+    path.extension().and_then(|extension| extension.to_str()) == Some("py")
+}
+
+fn runtime_lane_text_mentions_identifier(text: &str, identifier: &str) -> bool {
+    if identifier.is_empty() {
+        return false;
+    }
+    let mut search_from = 0usize;
+    while let Some(offset) = text[search_from..].find(identifier) {
+        let start = search_from + offset;
+        let end = start + identifier.len();
+        let before_ok = text[..start]
+            .chars()
+            .next_back()
+            .map(|ch| !(ch == '_' || ch.is_ascii_alphanumeric()))
+            .unwrap_or(true);
+        let after_ok = text[end..]
+            .chars()
+            .next()
+            .map(|ch| !(ch == '_' || ch.is_ascii_alphanumeric()))
+            .unwrap_or(true);
+        if before_ok && after_ok {
+            return true;
+        }
+        search_from = end;
+    }
+    false
+}
+
+fn runtime_lane_paths_equal(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn runtime_lane_path_relative_display(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .map(|relative| relative.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string())
+}
+
+fn runtime_lane_model_manifest_public_api_repair_prompt(
+    prompt: &str,
+    workspace_root: &Path,
+    context_pack: &str,
+    public_api_bindings: &[RuntimeLanePublicApiBinding],
+    public_api_violations: &[String],
+) -> String {
+    let compact_context = runtime_lane_compact_context_pack(context_pack);
+    let public_api_section =
+        runtime_lane_public_api_bindings_prompt_section(public_api_bindings, workspace_root);
+    format!(
+        "Workspace root: {}\n\nUser task:\n{}\n\nThe previous manifest violated public API owner bindings before any mutation was allowed.\nViolations:\n{}\n\n{}\n\nCompact authoritative local context:\n{}\n\nReturn only corrected deterministic_local_loop JSON. Use this exact outer shape: {{\"deterministic_local_loop\":{{\"workspace_root\":\"{}\",\"actions\":[...]}}}}. Patch the owner file for imported public symbols. Keep the manifest minimal. Include validation and semantic probe commands when supplied by the task.",
+        workspace_root.display(),
+        prompt.trim(),
+        public_api_violations.join("\n"),
+        public_api_section,
         compact_context,
         workspace_root.display()
     )
@@ -4269,10 +5284,24 @@ fn runtime_lane_parse_deterministic_manifest_from_text(text: &str) -> Option<Val
                 return Some(manifest);
             }
         }
+        if let Some(normalized) = runtime_lane_jsonish_triple_quote_to_json(&block) {
+            if let Ok(parsed) = serde_json::from_str::<Value>(&normalized) {
+                if let Some(manifest) = runtime_lane_manifest_from_json_value(&parsed) {
+                    return Some(manifest);
+                }
+            }
+        }
     }
     if let Ok(parsed) = serde_json::from_str::<Value>(text.trim()) {
         if let Some(manifest) = runtime_lane_manifest_from_json_value(&parsed) {
             return Some(manifest);
+        }
+    }
+    if let Some(normalized) = runtime_lane_jsonish_triple_quote_to_json(text.trim()) {
+        if let Ok(parsed) = serde_json::from_str::<Value>(&normalized) {
+            if let Some(manifest) = runtime_lane_manifest_from_json_value(&parsed) {
+                return Some(manifest);
+            }
         }
     }
     let start = text.find('{')?;
@@ -4280,8 +5309,46 @@ fn runtime_lane_parse_deterministic_manifest_from_text(text: &str) -> Option<Val
     if end <= start {
         return None;
     }
-    let parsed = serde_json::from_str::<Value>(&text[start..=end]).ok()?;
+    let slice = &text[start..=end];
+    if let Ok(parsed) = serde_json::from_str::<Value>(slice) {
+        return runtime_lane_manifest_from_json_value(&parsed);
+    }
+    let normalized = runtime_lane_jsonish_triple_quote_to_json(slice)?;
+    let parsed = serde_json::from_str::<Value>(&normalized).ok()?;
     runtime_lane_manifest_from_json_value(&parsed)
+}
+
+fn runtime_lane_jsonish_triple_quote_to_json(text: &str) -> Option<String> {
+    if !text.contains("\"\"\"") {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    let mut changed = false;
+    while let Some(start) = rest.find("\"\"\"") {
+        out.push_str(&rest[..start]);
+        let after_start = &rest[start + 3..];
+        let Some(end) = after_start.find("\"\"\"") else {
+            return None;
+        };
+        let content = &after_start[..end];
+        out.push('"');
+        for ch in content.chars() {
+            match ch {
+                '\\' => out.push_str("\\\\"),
+                '"' => out.push_str("\\\""),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                _ => out.push(ch),
+            }
+        }
+        out.push('"');
+        rest = &after_start[end + 3..];
+        changed = true;
+    }
+    out.push_str(rest);
+    changed.then_some(out)
 }
 
 fn runtime_lane_manifest_from_json_value(value: &Value) -> Option<Value> {

@@ -997,6 +997,14 @@ fn native_tool_python_from_imports(text: &str) -> Vec<(String, Vec<String>)> {
 
 fn native_tool_python_module_path(project_root: &std::path::Path, module: &str) -> Option<PathBuf> {
     let relative = module.replace('.', "/");
+    let root_path = project_root.join(format!("{relative}.py"));
+    if root_path.exists() {
+        return Some(root_path);
+    }
+    let root_package_path = project_root.join(&relative).join("__init__.py");
+    if root_package_path.exists() {
+        return Some(root_package_path);
+    }
     let source_path = project_root.join("src").join(format!("{relative}.py"));
     if source_path.exists() {
         return Some(source_path);

@@ -45,7 +45,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -819,7 +819,6 @@ impl AgentContract {
             && native_tool_synthesize_final_after_successful_validation(&self.metadata)
             && native_tool_has_successful_mutation(&all_receipts)
             && native_tool_has_successful_validation_command(&all_receipts)
-            && native_tool_prompt_evidence_gaps(&self.initial_prompt, &all_receipts).is_empty()
         {
             response = native_tool_synthetic_completion_evidence_response(
                 &response,
@@ -967,7 +966,6 @@ impl AgentContract {
         if native_tool_synthesize_final_after_successful_validation(&self.metadata)
             && native_tool_has_successful_mutation(&all_receipts)
             && native_tool_has_successful_validation_command(&all_receipts)
-            && native_tool_prompt_evidence_gaps(&self.initial_prompt, &all_receipts).is_empty()
         {
             response = native_tool_synthetic_completion_evidence_response(
                 &response,
@@ -3388,6 +3386,7 @@ fn native_tool_bootstrap_context_receipts(
             }
         })
         .collect::<Vec<_>>();
+    paths.extend(native_tool_bootstrap_likely_context_paths(&root, &paths));
     paths.sort();
     paths.dedup();
     if !paths.is_empty() {
@@ -3401,6 +3400,109 @@ fn native_tool_bootstrap_context_receipts(
         .into_iter()
         .filter(|receipt| receipt.status == "ok")
         .collect()
+}
+
+fn native_tool_bootstrap_likely_context_paths(root: &Path, existing_paths: &[String]) -> Vec<String> {
+    let mut candidates = Vec::<PathBuf>::new();
+    native_tool_collect_bootstrap_context_candidates(root, 0, &mut candidates);
+    let max_project_candidates = 24usize;
+    if candidates.is_empty() || candidates.len() > max_project_candidates {
+        return Vec::new();
+    }
+
+    candidates.sort_by_key(|path| {
+        let normalized = path.display().to_string().replace('\\', "/").to_ascii_lowercase();
+        let is_test = native_tool_bootstrap_path_looks_like_test(&normalized);
+        let depth = path
+            .strip_prefix(root)
+            .ok()
+            .map(|relative| relative.components().count())
+            .unwrap_or(usize::MAX);
+        (is_test, depth, normalized)
+    });
+
+    let mut selected = Vec::<String>::new();
+    for path in candidates {
+        let path = path.display().to_string();
+        if existing_paths.iter().any(|existing| existing == &path)
+            || selected.iter().any(|existing| existing == &path)
+        {
+            continue;
+        }
+        selected.push(path);
+        if selected.len() >= 8 {
+            break;
+        }
+    }
+    selected
+}
+
+fn native_tool_collect_bootstrap_context_candidates(
+    dir: &Path,
+    depth: usize,
+    candidates: &mut Vec<PathBuf>,
+) {
+    if depth > 3 || candidates.len() > 24 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.path());
+    for entry in entries {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if native_tool_bootstrap_path_ignored(&name) {
+            continue;
+        }
+        if path.is_dir() {
+            native_tool_collect_bootstrap_context_candidates(&path, depth + 1, candidates);
+            continue;
+        }
+        if native_tool_bootstrap_file_candidate(&path) {
+            candidates.push(path);
+        }
+        if candidates.len() > 24 {
+            return;
+        }
+    }
+}
+
+fn native_tool_bootstrap_file_candidate(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "py" | "rs" | "ts" | "tsx" | "js" | "jsx" | "go" | "java" | "rb" | "php" | "swift" | "kt"
+    )
+}
+
+fn native_tool_bootstrap_path_ignored(name: &str) -> bool {
+    matches!(
+        name,
+        ".git"
+            | ".venv"
+            | "venv"
+            | "node_modules"
+            | "target"
+            | "dist"
+            | "build"
+            | "__pycache__"
+            | ".pytest_cache"
+    )
+}
+
+fn native_tool_bootstrap_path_looks_like_test(path: &str) -> bool {
+    path.contains("/tests/")
+        || path.contains("/test/")
+        || path.contains("test_")
+        || path.ends_with("_test.py")
+        || path.ends_with(".test.js")
+        || path.ends_with(".spec.js")
+        || path.ends_with(".test.ts")
+        || path.ends_with(".spec.ts")
 }
 
 fn native_tool_auto_validation_receipt(

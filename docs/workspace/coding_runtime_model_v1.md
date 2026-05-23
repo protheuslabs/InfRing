@@ -278,15 +278,25 @@ The runtime trace harness records these mechanics from downloaded coding-agent s
 - Cline: tool lifecycle, permission policy, session runtime, edit/diff projection
 - ForgeCode: multi-mode coding runtime, detailed tool contracts, runtime limits, benchmark validation, tool-error reflection, doom-loop interruption, pending-todo finalization gates
 
+Level 3/4 live comparison added these portable mechanics:
+
+- Aider: selected source/test context before edit, surgical patch application, static lint feedback before final success
+- mini-SWE-agent: simple action/observation loop that reads source and test files, mutates the owner source before or with tests, then validates from command evidence
+- Infring target: native runtime should infer likely source/test pairs for small existing projects, verify imported public APIs against the source owner module, and return recoverable partial progress when a provider times out after mutations
+
+These are primitives, not eval cases. They must work for flat Python modules, `src/` Python layouts, and analogous source/test structures without naming benchmark fixtures.
+
 ## Infring rebuild target
 
 ```text
 coding_project_operator
   -> task_contract
   -> context_pack_builder
+  -> source_test_pair_context_selection
   -> executable_manifest_or_patch_artifact
   -> implementation_entry_gate
   -> file_mutation_executor
+  -> owner_module_completion_gate
   -> public_interface_verifier
   -> validation_runner
   -> tool_retry_reflection

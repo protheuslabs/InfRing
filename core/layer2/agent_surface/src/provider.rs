@@ -143,35 +143,23 @@ impl ProviderClient for OllamaCliProvider {
             .get("omit_ollama_thinking_flags")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let mut command = Command::new(&binary);
-        command.arg("run").arg(&model).arg("--nowordwrap");
-        if !omit_thinking_flags {
-            command.arg("--hidethinking").arg("--think").arg("false");
+        let timeout = provider_timeout_from_request(request);
+        let mut output = run_ollama_cli_completion(
+            &binary,
+            &model,
+            &full_prompt,
+            omit_thinking_flags,
+            timeout,
+        )?;
+        let mut stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !omit_thinking_flags
+            && !output.status.success()
+            && stderr.contains("does not support thinking")
+        {
+            output = run_ollama_cli_completion(&binary, &model, &full_prompt, true, timeout)?;
+            stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         }
-        let mut child = command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                let code = if error.kind() == std::io::ErrorKind::NotFound {
-                    ProviderErrorCode::Unavailable
-                } else {
-                    ProviderErrorCode::InvalidRequest
-                };
-                ProviderError::new(code, format!("ollama_spawn_failed:{error}"))
-            })?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(full_prompt.as_bytes()).map_err(|error| {
-                ProviderError::new(
-                    ProviderErrorCode::Unavailable,
-                    format!("ollama_stdin_write_failed:{error}"),
-                )
-            })?;
-        }
-        let output = wait_for_ollama_output(child, provider_timeout_from_request(request))?;
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if !output.status.success() {
             return Err(ProviderError::new(
                 ProviderErrorCode::Unavailable,
@@ -195,6 +183,42 @@ impl ProviderClient for OllamaCliProvider {
             }),
         })
     }
+}
+
+fn run_ollama_cli_completion(
+    binary: &str,
+    model: &str,
+    full_prompt: &str,
+    omit_thinking_flags: bool,
+    timeout: Option<Duration>,
+) -> Result<std::process::Output, ProviderError> {
+    let mut command = Command::new(binary);
+    command.arg("run").arg(model).arg("--nowordwrap");
+    if !omit_thinking_flags {
+        command.arg("--hidethinking").arg("--think").arg("false");
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            let code = if error.kind() == std::io::ErrorKind::NotFound {
+                ProviderErrorCode::Unavailable
+            } else {
+                ProviderErrorCode::InvalidRequest
+            };
+            ProviderError::new(code, format!("ollama_spawn_failed:{error}"))
+        })?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(full_prompt.as_bytes()).map_err(|error| {
+            ProviderError::new(
+                ProviderErrorCode::Unavailable,
+                format!("ollama_stdin_write_failed:{error}"),
+            )
+        })?;
+    }
+    wait_for_ollama_output(child, timeout)
 }
 
 fn provider_timeout_from_request(request: &ProviderRequest) -> Option<Duration> {
