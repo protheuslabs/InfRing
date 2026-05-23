@@ -201,6 +201,26 @@ mod tests {
     }
 
     #[test]
+    fn canonical_batch_query_strips_answer_presentation_instructions() {
+        let news = "Give me a concise briefing on major news from this week. Prioritize broadly important stories, group by theme, and cite sources.";
+        let focused = canonical_batch_web_search_query(news);
+        assert!(focused.contains("major"));
+        assert!(focused.contains("news"));
+        assert!(focused.contains("week"));
+        assert!(!focused.contains("concise"));
+        assert!(!focused.contains("briefing"));
+        assert!(!focused.contains("cite"));
+
+        let science = "What are some scientific breakthroughs reported in 2026? Give examples across different fields and cite sources.";
+        let focused = canonical_batch_web_search_query(science);
+        assert!(focused.contains("scientific"));
+        assert!(focused.contains("breakthroughs"));
+        assert!(focused.contains("2026"));
+        assert!(!focused.contains("give"));
+        assert!(!focused.contains("cite"));
+    }
+
+    #[test]
     fn benchmark_intent_skips_definition_noise_and_synthesizes_metrics() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let query = "Verify web search and fetch capabilities by researching current AI agent framework benchmarks. Report top 3 performance metrics found.";

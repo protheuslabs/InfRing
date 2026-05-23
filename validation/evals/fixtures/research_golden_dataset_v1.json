@@ -103,8 +103,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["Infring", "LangGraph", "CrewAI", "AutoGen", "OpenHands"],
       "required_answer_traits": [
@@ -126,8 +126,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["LangGraph", "CrewAI"],
       "required_answer_traits": [
@@ -149,8 +149,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["OpenAI Agents SDK", "LangChain", "LangGraph"],
       "required_answer_traits": [
@@ -172,8 +172,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["browser-use", "Playwright", "OpenHands"],
       "required_answer_traits": [
@@ -195,8 +195,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["LlamaIndex", "LangChain", "pgvector", "vector database"],
       "required_answer_traits": [
@@ -218,8 +218,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["Model Context Protocol", "MCP"],
       "required_answer_traits": [
@@ -241,8 +241,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["OpenAI", "Anthropic", "Google"],
       "required_answer_traits": [
@@ -264,8 +264,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["OpenHands", "Aider"],
       "required_answer_traits": [
@@ -287,8 +287,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["prompt injection", "browser agent", "credential"],
       "required_answer_traits": [
@@ -310,8 +310,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["LangGraph", "CrewAI", "AutoGen"],
       "required_answer_traits": [
@@ -333,8 +333,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["PydanticAI", "Python"],
       "required_answer_traits": [
@@ -356,8 +356,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["Mastra", "TypeScript", "LangGraph"],
       "required_answer_traits": [
@@ -379,8 +379,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["Semantic Kernel", "Microsoft"],
       "required_answer_traits": [
@@ -402,8 +402,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["LlamaIndex", "LangChain", "LangGraph"],
       "required_answer_traits": [
@@ -425,8 +425,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["Firecrawl", "Tavily", "Exa"],
       "required_answer_traits": [
@@ -448,8 +448,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["Infring"],
       "required_answer_traits": [
@@ -471,8 +471,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["agentic framework"],
       "required_answer_traits": [
@@ -494,8 +494,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"]
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"]
       },
       "required_entities": ["benchmark", "agent framework"],
       "required_answer_traits": [
@@ -520,8 +520,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required_or_pending_tool_result",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"],
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"],
         "post_tool": "must_synthesize_from_low_signal_evidence"
       },
       "required_entities": ["Infring"],
@@ -547,8 +547,8 @@
       "expected_gate_path": {
         "gate_1": "tool_required_or_pending_tool_result",
         "gate_2": "web_research",
-        "gate_3": "web_search",
-        "gate_4_required_fields": ["query", "aperture"],
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"],
         "post_tool": "must_synthesize_from_evidence_refs"
       },
       "required_entities": ["agent frameworks"],

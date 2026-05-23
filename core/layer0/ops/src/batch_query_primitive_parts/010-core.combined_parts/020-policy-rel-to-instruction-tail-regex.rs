@@ -668,18 +668,17 @@ fn instruction_frame_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(
-            r"(?i)\b(?:verify|check|test|research(?:ing)?|find(?:\s+out)?|report|return|provide|show|summarize|compare|assess|evaluate|investigate|answer)\b",
+            r"(?i)\b(?:verify|check|test|research(?:ing)?|find(?:\s+out)?|report|return|provide|show|summarize|compare|assess|evaluate|investigate|answer|brief(?:ing)?|cite|prioritize|group|give)\b",
         )
         .expect("instruction-frame")
     })
 }
 
-#[cfg(test)]
 fn instruction_tail_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(
-            r"(?i)\b(?:verify|check|test|research(?:ing)?|find(?:\s+out)?|report|return|provide|show|summarize|compare|assess|evaluate|investigate|answer)\b.{0,120}?\b(?:by|about|on)\b\s+(.+)$",
+            r"(?i)\b(?:verify|check|test|research(?:ing)?|find(?:\s+out)?|report|return|provide|show|summarize|compare|assess|evaluate|investigate|answer|brief(?:ing)?|cite|prioritize|group|give)\b.{0,120}?\b(?:by|about|on)\b\s+(.+)$",
         )
         .expect("instruction-tail")
     })

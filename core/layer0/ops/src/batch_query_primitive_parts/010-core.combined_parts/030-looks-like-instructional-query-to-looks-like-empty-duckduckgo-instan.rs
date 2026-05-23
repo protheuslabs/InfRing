@@ -11,12 +11,13 @@ fn looks_like_instructional_query(query: &str) -> bool {
     instruction_frame_regex().is_match(&base)
 }
 
-#[cfg(test)]
 fn is_instruction_stop_token(token: &str) -> bool {
     matches!(
         token,
         "please"
             | "kindly"
+            | "give"
+            | "me"
             | "verify"
             | "check"
             | "test"
@@ -30,6 +31,23 @@ fn is_instruction_stop_token(token: &str) -> bool {
             | "show"
             | "summarize"
             | "answer"
+            | "brief"
+            | "briefing"
+            | "concise"
+            | "prioritize"
+            | "group"
+            | "grouped"
+            | "theme"
+            | "themes"
+            | "cite"
+            | "cited"
+            | "citation"
+            | "citations"
+            | "source"
+            | "sources"
+            | "example"
+            | "examples"
+            | "across"
             | "question"
             | "questions"
             | "results"
@@ -49,7 +67,6 @@ fn is_instruction_stop_token(token: &str) -> bool {
     )
 }
 
-#[cfg(test)]
 fn normalize_instructional_query(query: &str) -> Option<String> {
     let base = clean_text(query, 600);
     if base.is_empty() {
@@ -76,6 +93,26 @@ fn normalize_instructional_query(query: &str) -> Option<String> {
         None
     } else {
         Some(candidate)
+    }
+}
+
+fn instruction_focused_search_query(query: &str) -> Option<String> {
+    let base = clean_text(query, 600);
+    if base.is_empty()
+        || base.contains("site:")
+        || base.contains("http://")
+        || base.contains("https://")
+        || base.contains('"')
+        || base.contains('`')
+        || !looks_like_instructional_query(&base)
+    {
+        return None;
+    }
+    let normalized = normalize_instructional_query(&base)?;
+    if normalized.eq_ignore_ascii_case(&base) {
+        None
+    } else {
+        Some(normalized)
     }
 }
 

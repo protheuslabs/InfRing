@@ -2,8 +2,12 @@ use serde_json::{json, Value};
 
 use super::super::eval_research_golden_scoring::grade_case;
 use super::super::eval_research_golden_utils::str_at;
+use super::super::eval_web_retrieval_gate_diagnostics::web_retrieval_gate_diagnostics;
 use super::request_packs::{load_request_pack_index, request_pack_for_case};
-use super::synthetic::synthesize_tooling_eval_payload;
+use super::synthetic::{
+    query_metadata_diagnostics, synthesize_tooling_eval_payload, synthetic_transition_diagnostics,
+};
+use super::tooling_eval_request_input;
 
 #[test]
 fn extracts_request_pack_from_research_report_case() {
@@ -86,6 +90,10 @@ fn synthetic_payload_exposes_direct_tool_artifacts_to_retrieval_grader() {
         "evidence_refs": [
             {"title": "LangGraph vs CrewAI docs", "snippet": "LangGraph and CrewAI are both agent frameworks used for production AI agents, with LangGraph emphasizing stateful orchestration and CrewAI emphasizing role-based coordination.", "claim_hints": ["stateful orchestration", "role-based coordination"], "source_domain": "langchain.com", "materialization_quality": "full_materialized", "counts_as_usable_evidence": true}
         ],
+        "evidence_claims": [
+            {"claim": "LangGraph and CrewAI are both production AI agent frameworks.", "source_domain": "langchain.com", "evidence_ref": "LangGraph vs CrewAI docs"},
+            {"claim": "LangGraph emphasizes stateful orchestration while CrewAI emphasizes role-based coordination.", "source_domain": "langchain.com", "evidence_ref": "LangGraph vs CrewAI docs"}
+        ],
         "tool_result_quality": {
             "claim_hint_count": 2,
             "content_rich_candidate_count": 1,
@@ -101,6 +109,86 @@ fn synthetic_payload_exposes_direct_tool_artifacts_to_retrieval_grader() {
         .get("usable_evidence")
         .and_then(Value::as_bool)
         .unwrap_or(false));
+}
+
+#[test]
+fn direct_transport_timeout_is_measured_as_transport_gate_failure() {
+    let case = json!({
+        "id": "case_timeout",
+        "prompt": "Give me news from this week",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query"
+        }
+    });
+    let request = json!({
+        "query": "Give me news from this week",
+        "queries": ["Give me news from this week"],
+        "keywords": ["news", "this week"],
+        "required_coverage": {
+            "entities": [],
+            "facets": ["news", "this week"]
+        },
+        "source": "web",
+        "aperture": "medium"
+    });
+    let direct_payload = json!({
+        "ok": false,
+        "transport_error": "curl_failed",
+        "stderr": "curl: (28) Operation timed out after 120005 milliseconds with 0 bytes received"
+    });
+    let payload = synthesize_tooling_eval_payload("batch_query", &request, &direct_payload);
+    let grade = grade_case(&case, &payload, 85, 95);
+    let query_metadata = query_metadata_diagnostics(&payload);
+    let transition_diagnostics =
+        synthetic_transition_diagnostics(&payload, &grade.retrieval_quality);
+    let gate_diagnostics = web_retrieval_gate_diagnostics(
+        &payload,
+        &grade.retrieval_quality,
+        &query_metadata,
+        &transition_diagnostics,
+    );
+
+    assert_eq!(
+        gate_diagnostics
+            .pointer("/first_failed_gate")
+            .and_then(Value::as_str),
+        Some("web_3a_tool_transport_completed")
+    );
+    assert_eq!(
+        gate_diagnostics
+            .pointer("/inferred_failure_boundary")
+            .and_then(Value::as_str),
+        Some("tool_transport_failed")
+    );
+}
+
+#[test]
+fn live_batch_query_tooling_eval_bypasses_cache_by_default() {
+    let request = json!({
+        "query": "fresh generic research prompt",
+        "source": "web",
+        "aperture": "medium"
+    });
+    let out = tooling_eval_request_input("batch_query", &request);
+    assert_eq!(
+        out.pointer("/cache_mode").and_then(Value::as_str),
+        Some("disabled")
+    );
+
+    let explicit = json!({
+        "query": "cached prompt",
+        "cache": {"mode": "refresh"}
+    });
+    let preserved = tooling_eval_request_input("batch_query", &explicit);
+    assert_eq!(
+        preserved.pointer("/cache/mode").and_then(Value::as_str),
+        Some("refresh")
+    );
+
+    let fetch = tooling_eval_request_input("web_fetch", &request);
+    assert!(fetch.pointer("/cache_mode").is_none());
 }
 
 #[test]

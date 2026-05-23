@@ -194,6 +194,25 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn social_share_wrapper_locator_decodes_target_url() {
+        let wrapper =
+            "https://www.facebook.com/share.php?u=https%3A%2F%2Faje.news%2Fswm9ax";
+
+        assert!(citation_wrapper_link(wrapper));
+        assert_eq!(
+            canonical_search_result_locator(wrapper, &[]),
+            "https://aje.news/swm9ax"
+        );
+        assert_eq!(
+            candidate_domain_hint(&candidate(
+                wrapper,
+                "Result text shared through a social redirect wrapper."
+            )),
+            "aje.news"
+        );
+    }
+
+    #[test]
     fn anti_bot_failures_emit_structured_quality_retry() {
         let query = "latest technology news today";
         let out = run_query_with_fixture(
@@ -1117,6 +1136,49 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn claim_hints_strip_markdown_action_links_without_losing_claim() {
+        let hints = evidence_pack_claim_hints(
+            "scientific breakthroughs reported 2026 different fields",
+            "On May 20, 2026, OpenAI reported that its model has disproved a central conjecture in discrete geometry [Read the proof](https://example.test/proof.pdf) Listen to article 9:23 Share.",
+            2,
+        );
+        let joined = hints.join(" ").to_ascii_lowercase();
+
+        assert!(
+            joined.contains("disproved a central conjecture"),
+            "{hints:#?}"
+        );
+        assert!(!joined.contains("read the proof"), "{hints:#?}");
+        assert!(!joined.contains("listen to article"), "{hints:#?}");
+        assert!(!joined.contains("http"), "{hints:#?}");
+    }
+
+    #[test]
+    fn claim_hints_reject_publication_workflow_and_javascript_boilerplate() {
+        let workflow_hints = evidence_pack_claim_hints(
+            "medical research breakthroughs 2026",
+            "Before final publication, the manuscript will undergo peer review and copy editing before it appears online.",
+            2,
+        );
+        assert!(workflow_hints.is_empty(), "{workflow_hints:#?}");
+
+        let candidate = materialized_candidate(
+            "https://example.test/research/clinical-trial",
+            "Lilly reported that its triple agonist retatrutide delivered powerful weight loss in a pivotal Phase 3 obesity trial News provided by Example Research May 21, 2026, 06:45 ET Share this article javascript:;",
+        );
+        let hints = evidence_pack_claim_hints_for_candidate(
+            "medical research breakthroughs 2026 clinical trial",
+            &candidate,
+            2,
+        );
+        let joined = hints.join(" ").to_ascii_lowercase();
+
+        assert!(joined.contains("retatrutide"), "{hints:#?}");
+        assert!(!joined.contains("share this article"), "{hints:#?}");
+        assert!(!joined.contains("javascript"), "{hints:#?}");
+    }
+
+    #[test]
     fn claim_hints_require_query_overlap_even_for_first_sentence() {
         let hints = evidence_pack_claim_hints(
             "give me news from this week",
@@ -1200,6 +1262,46 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn comparison_structured_feed_can_count_despite_unproven_freshness_when_content_rich() {
+        let query =
+            "compare Dyson V15 Detect and Shark Stratos cordless stick vacuums for pet hair 2026";
+        let mut candidate = structured_feed_candidate(
+            "https://provedhome.com/reviews/dyson-v15-detect-cordless-vacuum-vs-shark-stratos/",
+            "Dyson V15 Detect vs Shark Stratos comparison says Dyson emphasizes laser dust detection and particle counting, while Shark emphasizes anti-hair-wrap brush design, a folding wand, and larger dustbin capacity for pet owners.",
+        );
+        candidate.title =
+            "Dyson V15 Detect vs Shark Stratos: Which Survives Real Use? | ProvedHome"
+                .to_string();
+
+        let flags = candidate_quality_flags(query, &candidate, 0.92);
+        assert!(
+            flags
+                .iter()
+                .any(|flag| flag.as_str() == "freshness_unproven"),
+            "{flags:#?}"
+        );
+        assert!(
+            candidate_counts_as_query_usable_evidence(query, &candidate, 0.92),
+            "content-rich comparative structured-provider rows should remain usable partial evidence"
+        );
+
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            query,
+            &[],
+            1,
+            &[(candidate, 0.92)],
+            1,
+        );
+        assert_eq!(
+            pack.pointer("/0/counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{pack:#?}"
+        );
+    }
+
+    #[test]
     fn broad_current_claim_hints_accept_event_claims_without_category_overlap() {
         let hints = evidence_pack_claim_hints(
             "Give me the biggest world news from this week.",
@@ -1213,6 +1315,197 @@ mod web_quality_diagnostics_tests {
             joined.contains("joined by its ally belarus") || joined.contains("associated press"),
             "{hints:#?}"
         );
+    }
+
+    #[test]
+    fn broad_current_claim_hints_treat_story_words_as_non_distinctive() {
+        let hints = evidence_pack_claim_hints(
+            "major news from this week broadly important stories",
+            "NATO allies were bewildered by Trump's about-face on US troop moves in Europe. Associated Press published the report on May 22, 2026 with details from officials and allied governments.",
+            3,
+        );
+
+        let joined = hints.join(" ").to_ascii_lowercase();
+        assert!(
+            joined.contains("nato allies") || joined.contains("troop moves in europe"),
+            "{hints:#?}"
+        );
+    }
+
+    #[test]
+    fn broad_current_list_briefing_clauses_become_claim_units() {
+        let mut candidate = structured_feed_candidate(
+            "https://www.example.org/p/briefing-21st-may-2026",
+            "Example Global Briefing - 21st May 2026. Trump pressing for resolution with Iran, Groundbreaking climate law ratified at UN, Greenland back on the agenda and US pushing Cuba | Succinct public briefing.",
+        );
+        candidate.title = "Example Global Briefing - 21st May 2026".to_string();
+
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "major news from this week broadly important stories",
+            &[],
+            1,
+            &[(candidate, 0.58)],
+            1,
+        );
+        let first = pack.pointer("/0").expect("evidence row");
+        let hints = first
+            .pointer("/claim_hints")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let joined = hints
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_lowercase();
+        assert!(
+            joined.contains("resolution with iran") || joined.contains("climate law ratified"),
+            "{first:#?}"
+        );
+        assert_eq!(
+            first
+                .pointer("/counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{first:#?}"
+        );
+        let claims = evidence_claims_from_pack(&BatchQueryKeywordPack::default(), &pack, 4);
+        assert!(
+            claims.as_array().map(|rows| !rows.is_empty()).unwrap_or(false),
+            "{claims:#?}"
+        );
+    }
+
+    #[test]
+    fn evidence_pack_uses_retrieval_query_not_raw_instruction_shell() {
+        let raw_query = "Give me a concise briefing on major news from this week. Prioritize broadly important stories, group by theme, and cite sources.";
+        let retrieval_query = "major news from this week broadly important stories";
+        let candidate = materialized_candidate(
+            "https://www.bbc.co.uk/news/articles/cn0pk2e22jro",
+            "The US Department of Justice has announced that this week's unprecedented settlement of President Donald Trump's lawsuit over the leaking of his tax returns blocks the IRS from reviewing tax filings that Trump, his family and his businesses made in 2026.",
+        );
+
+        let raw_pack =
+            evidence_pack_from_ranked_candidates(&default_policy(), raw_query, &[], 1, &[(candidate.clone(), 0.92)], 1);
+        assert_eq!(
+            raw_pack
+                .pointer("/0/counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(false),
+            "raw instruction wording should not be the evidence relevance contract: {raw_pack:#?}"
+        );
+
+        let retrieval_pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            retrieval_query,
+            &[],
+            1,
+            &[(candidate, 0.92)],
+            1,
+        );
+        assert_eq!(
+            retrieval_pack
+                .pointer("/0/counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{retrieval_pack:#?}"
+        );
+        let claims = evidence_claims_from_pack(
+            &BatchQueryKeywordPack::default(),
+            &retrieval_pack,
+            4,
+        );
+        assert!(
+            claims.as_array().map(|rows| !rows.is_empty()).unwrap_or(false),
+            "{claims:#?}"
+        );
+    }
+
+    #[test]
+    fn broad_current_trusted_source_without_article_path_can_pass_relevance_gate() {
+        let query = "scientific breakthroughs reported 2026 different fields";
+        let mut candidate = structured_feed_candidate(
+            "https://openai.com/index/model-disproves-discrete-geometry-conjecture/",
+            "Today, we share a breakthrough on the unit distance problem. An internal OpenAI model disproved a longstanding conjecture and provided an infinite family of examples that yield a polynomial improvement.",
+        );
+        candidate.title =
+            "An OpenAI model has disproved a central conjecture in discrete geometry | OpenAI"
+                .to_string();
+
+        assert!(
+            !query_has_distinctive_relevance_terms(query),
+            "broad current category wording should not force exact category overlap"
+        );
+        assert!(
+            candidate_passes_relevance_gate(query, &candidate, false),
+            "trusted current source evidence should pass for broad current research prompts"
+        );
+        let hints = evidence_pack_claim_hints_for_candidate(query, &candidate, 2);
+        assert!(
+            hints.iter().any(|hint| hint
+                .to_ascii_lowercase()
+                .contains("disproved a longstanding conjecture")),
+            "{hints:#?}"
+        );
+    }
+
+    #[test]
+    fn broad_current_article_evidence_is_not_downgraded_for_generic_query_terms() {
+        let query = "major news from this week broadly important stories";
+        let candidate = structured_feed_candidate(
+            "https://example.test/p/may-22-2026",
+            "Today, we will look at several current stories spanning the globe. Senate Republicans canceled a planned vote on funding immigration enforcement yesterday amid internal disagreements, and leaders in Cuba reported new economic measures on May 22, 2026.",
+        );
+        let flags = candidate_quality_flags(query, &candidate, rerank_score(query, &candidate));
+
+        assert!(
+            !query_has_distinctive_relevance_terms(query),
+            "generic current-news prompts should not force exact topic overlap"
+        );
+        assert!(
+            !flags.iter().any(|flag| flag == "thin_query_overlap"),
+            "{flags:#?}"
+        );
+        assert!(
+            candidate_counts_as_query_usable_evidence(
+                query,
+                &candidate,
+                rerank_score(query, &candidate)
+            ),
+            "{flags:#?}"
+        );
+    }
+
+    #[test]
+    fn evidence_pack_extract_strips_markdown_action_link_chrome() {
+        let mut candidate = materialized_candidate(
+            "https://example.test/research/milestone",
+            "On May 20, 2026, Example Research reported that its model disproved a central conjecture in discrete geometry [Read the proof](https://example.test/proof.pdf)[Read the companion remarks](https://example.test/remarks.pdf) Listen to article 9:23 Share For nearly 80 years, mathematicians studied the unit distance problem.",
+        );
+        candidate.title = "Model disproves a central conjecture in discrete geometry".to_string();
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "scientific breakthroughs reported 2026 different fields",
+            &[],
+            1,
+            &[(candidate, 0.95)],
+            1,
+        );
+        let extract = pack
+            .as_array()
+            .and_then(|rows| rows.first())
+            .and_then(|row| row.get("relevant_extract"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let lowered = extract.to_ascii_lowercase();
+
+        assert!(lowered.contains("disproved a central conjecture"), "{extract}");
+        assert!(!lowered.contains("read the proof"), "{extract}");
+        assert!(!lowered.contains("companion remarks"), "{extract}");
+        assert!(!lowered.contains("listen to article"), "{extract}");
+        assert!(!lowered.contains("http"), "{extract}");
     }
 
     #[test]
@@ -1408,6 +1701,73 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn short_syndicated_digest_pages_do_not_count_as_usable_evidence() {
+        let mut candidate = candidate(
+            "https://publisher.example/posts/world-news-digest-20260322/",
+            "Home Posts World News Digest 2026-03-22: Reuters, AP, BBC Headlines Daily world news summary from Reuters, AP, and BBC. US-Iran, Middle East, and global headlines.",
+        );
+        candidate.source_kind = "web_conduit_fetch_page_enriched".to_string();
+        candidate.permissions = Some("public_web;page_enriched".to_string());
+
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "give me news from this week",
+            &[],
+            1,
+            &[(candidate, 0.97)],
+            1,
+        );
+        let first = pack.pointer("/0").expect("evidence row");
+        assert!(
+            first
+                .get("quality_flags")
+                .and_then(Value::as_array)
+                .map(|flags| flags
+                    .iter()
+                    .any(|flag| flag.as_str() == Some("link_directory_or_aggregator_shell")))
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+        assert_eq!(
+            first.get("counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
+    fn unavailable_page_chrome_does_not_count_as_usable_evidence() {
+        let candidate = materialized_candidate(
+            "https://www.example.org",
+            "Example News. The Iran War, Today, 23/05/2026 Homepage Accessibility links Accessibility Help Account Notifications More menu Search Close menu Main content Sorry, this episode is not currently available 23/05/2026.",
+        );
+
+        let flags = candidate_quality_flags(
+            "major news from this week broadly important stories",
+            &candidate,
+            0.92,
+        );
+        assert!(
+            flags
+                .iter()
+                .any(|flag| flag == "page_chrome_or_unavailable_shell"),
+            "{flags:#?}"
+        );
+        assert!(!candidate_counts_as_query_usable_evidence(
+            "major news from this week broadly important stories",
+            &candidate,
+            0.92
+        ));
+        let hints = evidence_pack_claim_hints_for_candidate(
+            "major news from this week broadly important stories",
+            &candidate,
+            2,
+        );
+        assert!(hints.is_empty(), "{hints:#?}");
+    }
+
+    #[test]
     fn broad_current_claim_hints_use_neighboring_date_signal() {
         let claims = evidence_pack_claim_hints(
             "Give me the biggest world news from this week.",
@@ -1530,6 +1890,93 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn evidence_pack_rows_emit_answer_ready_packet_contract_fields() {
+        let candidate = materialized_candidate(
+            "https://science.example/reports/battery-breakthrough",
+            "The science report says researchers demonstrated a battery chemistry milestone in 2026, measured cycle-life improvements, and described limitations that still need independent replication.",
+        );
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "scientific breakthroughs reported in 2026",
+            &[],
+            1,
+            &[(candidate, 0.92)],
+            1,
+        );
+        let first = pack.pointer("/0").expect("evidence row");
+        assert_eq!(
+            first
+                .pointer("/evidence_packet_version")
+                .and_then(Value::as_str),
+            Some("evidence_packet_v1")
+        );
+        assert!(
+            first
+                .pointer("/source_type")
+                .and_then(Value::as_str)
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+        assert!(
+            first
+                .pointer("/relevant_extract")
+                .and_then(Value::as_str)
+                .map(|value| value.contains("battery chemistry milestone"))
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+        assert!(
+            first
+                .pointer("/why_relevant_to_query")
+                .and_then(Value::as_str)
+                .map(|value| value.split_whitespace().count() >= 4)
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+        assert!(
+            first
+                .pointer("/claim_hints")
+                .and_then(Value::as_array)
+                .map(|rows| !rows.is_empty())
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
+    fn structured_feed_titles_can_supply_claim_hints_for_relevant_rows() {
+        let mut candidate = structured_feed_candidate(
+            "https://www.nbcnews.com/science/example",
+            "Inside a daily science briefing NBC News Published: Wed, 25 Mar 2026 07:00:00 GMT. Source: NBC News (www.nbcnews.com).",
+        );
+        candidate.title =
+            "Inside the daily science briefing on 2026 climate research - NBC News".to_string();
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "daily science briefing on 2026 climate research",
+            &[],
+            1,
+            &[(candidate, 0.72)],
+            1,
+        );
+        let first = pack.pointer("/0").expect("evidence row");
+        let hints = first
+            .pointer("/claim_hints")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(!hints.is_empty(), "{first:#?}");
+        assert_eq!(
+            first
+                .pointer("/counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
     fn evidence_claims_promote_materialized_rows_into_claim_units() {
         let pack = json!([{
             "title": "Agent SDK docs",
@@ -1635,6 +2082,118 @@ mod web_quality_diagnostics_tests {
             !candidate_quality_flags("biggest world news this week", &candidate, 0.7)
                 .iter()
                 .any(|flag| flag == "freshness_unproven")
+        );
+    }
+
+    #[test]
+    fn current_freshness_accepts_abbreviated_relative_hour_signals() {
+        let candidate = materialized_candidate(
+            "https://www.bbc.com/news/articles/c5y74lwx395o",
+            "Russia's Putin vows retaliation after accusing Ukraine of hitting student dormitory 4 hrs ago. Rubio tries to reassure Nato allies over US troop deployments.",
+        );
+
+        assert_eq!(
+            evidence_pack_freshness_status("give me major news from this week", &candidate),
+            "current_signal_present"
+        );
+        assert!(
+            !candidate_quality_flags("give me major news from this week", &candidate, 0.7)
+                .iter()
+                .any(|flag| flag == "freshness_unproven")
+        );
+    }
+
+    #[test]
+    fn current_freshness_accepts_weekday_structured_feed_without_stale_date() {
+        let mut candidate = structured_feed_candidate(
+            "https://www.pbs.org/newshour/world/nato-allies-bewildered-by-troop-moves",
+            "HELSINGBORG, Sweden (AP) — NATO allies and defense officials expressed bewilderment Friday at U.S. President Donald Trump's announcement that he would send 5,000 U.S. troops to Poland just weeks after ordering the same number of forces pulled out of Europe.",
+        );
+        candidate.source_kind = "exa_api_search_result".to_string();
+        candidate.permissions = Some("public_web;structured_feed".to_string());
+
+        assert_eq!(
+            evidence_pack_freshness_status("give me major news from this week", &candidate),
+            "current_signal_present"
+        );
+        assert!(
+            !candidate_quality_flags("give me major news from this week", &candidate, 0.7)
+                .iter()
+                .any(|flag| flag == "freshness_unproven")
+        );
+    }
+
+    #[test]
+    fn broad_current_weekday_structured_feed_avoids_thin_overlap() {
+        let mut candidate = structured_feed_candidate(
+            "https://www.pbs.org/newshour/world/nato-allies-bewildered-by-troop-moves",
+            "HELSINGBORG, Sweden (AP) — NATO allies and defense officials expressed bewilderment Friday at U.S. President Donald Trump's announcement that he would send 5,000 U.S. troops to Poland just weeks after ordering the same number of forces pulled out of Europe.",
+        );
+        candidate.source_kind = "exa_api_search_result".to_string();
+        candidate.permissions = Some("public_web;structured_feed".to_string());
+
+        let flags = candidate_quality_flags("give me major news from this week", &candidate, 0.7);
+        assert!(
+            !flags.iter().any(|flag| flag == "thin_query_overlap"),
+            "{flags:#?}"
+        );
+        assert!(
+            !flags.iter().any(|flag| flag == "freshness_unproven"),
+            "{flags:#?}"
+        );
+    }
+
+    #[test]
+    fn current_freshness_rejects_weekday_structured_feed_with_stale_date() {
+        let mut candidate = structured_feed_candidate(
+            "https://example.org/news/2026-03-22/world-roundup",
+            "World News Digest 2026-03-22: Officials said Friday that trade talks would continue after a week of diplomatic meetings and market volatility.",
+        );
+        candidate.source_kind = "exa_api_search_result".to_string();
+        candidate.permissions = Some("public_web;structured_feed".to_string());
+
+        assert_eq!(
+            evidence_pack_freshness_status("give me news from this week", &candidate),
+            "freshness_unproven"
+        );
+        assert!(
+            candidate_quality_flags("give me news from this week", &candidate, 0.7)
+                .iter()
+                .any(|flag| flag == "freshness_unproven")
+        );
+    }
+
+    #[test]
+    fn relative_current_queries_do_not_accept_bare_year_as_freshness() {
+        let candidate = materialized_candidate(
+            "https://example.org/analysis/2026-03-22",
+            "The 2026 roundup describes spring policy developments and background context from an earlier archived edition.",
+        );
+
+        assert_eq!(
+            evidence_pack_freshness_status("give me news from this week", &candidate),
+            "freshness_unproven"
+        );
+        assert!(
+            !candidate_counts_as_query_usable_evidence(
+                "give me news from this week",
+                &candidate,
+                0.8,
+            ),
+            "bare current-year text should not satisfy a relative freshness request"
+        );
+    }
+
+    #[test]
+    fn year_scoped_queries_can_use_bare_year_freshness() {
+        let candidate = materialized_candidate(
+            "https://example.org/research/breakthroughs-2026",
+            "The 2026 research review reports that lab teams demonstrated a new instrument for measuring protein interactions in living cells.",
+        );
+
+        assert_eq!(
+            evidence_pack_freshness_status("scientific breakthroughs 2026", &candidate),
+            "current_signal_present"
         );
     }
 
@@ -1817,6 +2376,81 @@ mod web_quality_diagnostics_tests {
         assert!(
             facets.is_empty(),
             "pure breadth/freshness metadata should not force evidence selection: {facets:?}"
+        );
+    }
+
+    #[test]
+    fn source_and_presentation_metadata_do_not_become_retrieval_facets() {
+        let budget = aperture_budget("medium").expect("medium budget");
+        let facets = infer_research_facets(
+            "What are some scientific breakthroughs reported in 2026? Give examples across different fields and cite sources.",
+            &[],
+            &BatchQueryKeywordPack {
+                entities: vec!["2026".to_string()],
+                facets: vec![
+                    "multiple scientific fields".to_string(),
+                    "cited sources".to_string(),
+                    "peer-reviewed publications".to_string(),
+                    "verified reporting".to_string(),
+                ],
+                metadata_authority: "tool_structured_from_user_query_terms".to_string(),
+                ..BatchQueryKeywordPack::default()
+            },
+            &json!({"batch_query":{"coverage_aware_evidence":{"enabled":true,"max_facets":8}}}),
+            budget,
+        );
+        let requested = facets
+            .iter()
+            .map(|facet| facet.requested_text.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(requested, vec!["2026"], "{facets:?}");
+    }
+
+    #[test]
+    fn concrete_product_comparison_facets_still_drive_coverage_selection() {
+        let budget = aperture_budget("medium").expect("medium budget");
+        let facets = infer_research_facets(
+            "Compare two cordless vacuums for pet hair.",
+            &[],
+            &BatchQueryKeywordPack {
+                entities: vec!["Dyson V15 Detect".to_string(), "Shark Stratos".to_string()],
+                facets: vec![
+                    "pet hair removal".to_string(),
+                    "suction power".to_string(),
+                    "battery runtime".to_string(),
+                    "price comparison".to_string(),
+                    "brushroll design".to_string(),
+                    "maintenance".to_string(),
+                    "reliability".to_string(),
+                    "2025-2026 models".to_string(),
+                ],
+                metadata_authority: "tool_structured_from_user_query_terms".to_string(),
+                ..BatchQueryKeywordPack::default()
+            },
+            &json!({"batch_query":{"coverage_aware_evidence":{"enabled":true,"max_facets":8}}}),
+            budget,
+        );
+        let requested = facets
+            .iter()
+            .map(|facet| facet.requested_text.as_str())
+            .collect::<Vec<_>>();
+
+        for expected in [
+            "Dyson V15 Detect",
+            "Shark Stratos",
+            "pet hair removal",
+            "suction power",
+            "battery runtime",
+            "price comparison",
+            "brushroll design",
+            "maintenance",
+        ] {
+            assert!(requested.contains(&expected), "{requested:?}");
+        }
+        assert!(
+            !requested.contains(&"2025-2026 models"),
+            "freshness/model-year constraints should stay out of retrieval topic facets: {requested:?}"
         );
     }
 
@@ -2394,6 +3028,56 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn current_comparison_can_use_full_materialized_page_with_freshness_caveat() {
+        let query =
+            "Compare Dyson V15 Detect and Shark Stratos cordless vacuums for pet hair in 2026";
+        let mut candidate = materialized_candidate(
+            "https://example.com/vacuums/shark-stratos-vs-dyson-v15",
+            "Shark Stratos vs. Dyson V15 - A Side-by-Side Comparison covering pet hair pickup, cordless cleaning, brush maintenance, and practical buying tradeoffs.",
+        );
+        candidate.title = "Shark Stratos vs. Dyson V15 - A Side-by-Side Comparison".to_string();
+        let score = rerank_score(query, &candidate);
+        assert!(
+            candidate_quality_flags(query, &candidate, score)
+                .iter()
+                .any(|flag| flag == "freshness_unproven")
+        );
+        assert!(candidate_counts_as_query_usable_evidence(
+            query, &candidate, score
+        ));
+    }
+
+    #[test]
+    fn current_broad_discovery_query_can_use_doi_article_titles_as_claims() {
+        let query = "scientific breakthroughs reported 2026 different fields";
+        let mut candidate = structured_feed_candidate(
+            "https://www.science.org/doi/10.1126/science.example",
+            "Scalable-manufactured randomized glass-polymer hybrid metamaterial for daytime radiative cooling. Published: 2026-05-13T10:24:00+00:00. Passive radiative cooling requires a material that radiates heat away while allowing solar radiation to pass through, and the paper describes a manufactured hybrid metamaterial.",
+        );
+        candidate.title =
+            "Scalable-manufactured randomized glass-polymer hybrid metamaterial for daytime radiative cooling | Science"
+                .to_string();
+        let score = rerank_score(query, &candidate);
+        let flags = candidate_quality_flags(query, &candidate, score);
+
+        assert!(
+            !flags.iter().any(|flag| flag == "thin_query_overlap"),
+            "{flags:#?}"
+        );
+        assert!(
+            candidate_counts_as_query_usable_evidence(query, &candidate, score),
+            "{flags:#?}"
+        );
+        let hints = evidence_pack_claim_hints_for_candidate(query, &candidate, 2);
+        assert!(
+            hints.iter().any(|hint| hint
+                .to_ascii_lowercase()
+                .contains("hybrid metamaterial")),
+            "{hints:#?}"
+        );
+    }
+
+    #[test]
     fn comparison_query_entities_stop_before_dimension_tail() {
         let query = "Compare LangGraph vs CrewAI on reliability and deployment";
         let request = json!({
@@ -2503,6 +3187,113 @@ mod web_quality_diagnostics_tests {
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
-            .any(|flag| flag == "comparison_evidence_insufficient"));
+                .any(|flag| flag == "comparison_evidence_insufficient"));
+    }
+
+    #[test]
+    fn broad_current_materialized_action_sentence_becomes_claim_hint() {
+        let query = "Give me a concise briefing on major news from this week. Prioritize broadly important stories.";
+        let candidate = materialized_candidate(
+            "https://www.bbc.co.uk/news/articles/c0729d374mx",
+            "Rubio tries to reassure Nato allies over US troop deployments 8 hours ago. Nato Secretary General Mark Rutte and US Secretary of State Marco Rubio spoke to the press ahead of a meeting with foreign ministers.",
+        );
+
+        assert!(
+            candidate_counts_as_query_usable_evidence(query, &candidate, rerank_score(query, &candidate)),
+            "materialized current article text should survive generic query-usable filtering"
+        );
+        let hints = evidence_pack_claim_hints_for_candidate(query, &candidate, 2);
+
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint.contains("Rubio tries to reassure Nato allies")),
+            "hints: {hints:#?}"
+        );
+    }
+
+    #[test]
+    fn metric_rich_structured_specs_become_claim_hints() {
+        let query = "Compare Dyson V15 Detect and Shark Stratos battery runtime.";
+        let mut candidate = candidate(
+            "https://example.com/v15-detect",
+            "V15 Detect cordless vacuum lists 60min run time and a seven-cell battery for fade-free suction. It also lists 240 Air Watts suction.",
+        );
+        candidate.source_kind = "exa_api_search_result".to_string();
+        candidate.permissions = Some("public_web;headline_feed".to_string());
+
+        let hints = evidence_pack_claim_hints_for_candidate(query, &candidate, 1);
+
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint.to_ascii_lowercase().contains("60min run time")),
+            "hints: {hints:#?}"
+        );
+    }
+
+    #[test]
+    fn metric_rich_bullet_specs_become_claim_hints() {
+        let query = "Compare Example Pro and Other Model battery runtime.";
+        let mut candidate = candidate(
+            "https://example.com/example-pro",
+            "Example Pro device page [...] # Example Pro cordless model [...] - 240 Air Watts suction [...] - 60min run time [...] - Seven-cell battery for fade-free power.",
+        );
+        candidate.source_kind = "exa_api_search_result".to_string();
+        candidate.permissions = Some("public_web;headline_feed".to_string());
+
+        let hints = evidence_pack_claim_hints_for_candidate(query, &candidate, 1);
+
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint.to_ascii_lowercase().contains("60min run time")),
+            "hints: {hints:#?}"
+        );
+    }
+
+    #[test]
+    fn freshness_unproven_metric_specs_can_support_comparison_evidence() {
+        let query = "Compare Example Pro and Other Model battery runtime 2026.";
+        let mut candidate = candidate(
+            "https://example.com/example-pro",
+            "Example Pro cordless model lists 60min run time and 240 Air Watts suction for its standard configuration.",
+        );
+        candidate.source_kind = "exa_api_search_result".to_string();
+        candidate.permissions = Some("public_web;headline_feed".to_string());
+
+        let flags = candidate_quality_flags(query, &candidate, 0.9);
+        assert!(
+            flags.iter().any(|flag| flag == "freshness_unproven"),
+            "{flags:#?}"
+        );
+        assert!(
+            candidate_counts_as_query_usable_evidence(query, &candidate, 0.9),
+            "stable metric/spec rows should be usable comparison evidence even without a fresh date; flags: {flags:#?}"
+        );
+    }
+
+    #[test]
+    fn coverage_facets_match_compound_runtime_and_brushroll_variants() {
+        let runtime = research_facet_from_metadata_text("battery runtime", 0, "facet").unwrap();
+        let brushroll =
+            research_facet_from_metadata_text("brushroll design", 1, "facet").unwrap();
+        let runtime_candidate = candidate(
+            "https://example.com/runtime",
+            "The product page lists a seven-cell battery, 60min run time, and fade-free suction for cordless use.",
+        );
+        let brushroll_candidate = candidate(
+            "https://example.com/brushbar",
+            "The review describes an anti-tangle brush bar design for hair pickup and easier cleaning.",
+        );
+
+        assert!(
+            candidate_matches_facet(&runtime, &runtime_candidate, 2),
+            "runtime facet should match run time metric language"
+        );
+        assert!(
+            candidate_matches_facet(&brushroll, &brushroll_candidate, 2),
+            "brushroll facet should match brush bar compound language"
+        );
     }
 }

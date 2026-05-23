@@ -39,6 +39,23 @@
             ],
         ),
         web_gate(
+            "web_3a_tool_transport_completed",
+            tool_attempted,
+            tool_transport_completed,
+            if tool_transport_completed {
+                "web tool transport completed and returned a parseable payload"
+            } else if tool_attempted {
+                "web tool attempt was recorded, but the direct transport failed before a usable payload returned"
+            } else {
+                "tool transport cannot be inspected before a tool attempt"
+            },
+            vec![
+                "transport_error".to_string(),
+                "stderr".to_string(),
+                "response_finalization.structured_failure".to_string(),
+            ],
+        ),
+        web_gate(
             "web_3b1_provider_quota_not_rate_limited",
             tool_attempted,
             !rate_limited_hard,

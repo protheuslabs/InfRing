@@ -686,7 +686,7 @@ mod workflow_reader_tests {
             selected
                 .pointer("/tool_menu_interface_contract/final_synthesis_attempt_limit")
                 .and_then(Value::as_u64),
-            Some(2)
+            Some(3)
         );
         assert_eq!(
             selected
@@ -842,35 +842,21 @@ mod workflow_reader_tests {
     }
 
     #[test]
-    fn workflow_reader_web_search_request_contract_omits_reserved_source_field() {
+    fn workflow_reader_research_cd_does_not_expose_thin_web_search() {
         let selected = selected_turn_workflow("workflow=research_synthesize_verify_v1");
-        let web_search = selected
+        let has_web_search = selected
             .pointer("/tool_menu_interface_contract/tool_menu_by_family/web_research")
             .and_then(Value::as_array)
-            .and_then(|rows| {
-                rows.iter().find(|row| {
+            .map(|rows| {
+                rows.iter().any(|row| {
                     row.get("key").and_then(Value::as_str) == Some("web_search")
                 })
             })
-            .expect("web_search tool");
+            .unwrap_or(false);
 
-        assert_eq!(
-            web_search
-                .pointer("/request_format/source")
-                .and_then(Value::as_str),
-            None
-        );
-        assert_eq!(
-            web_search
-                .pointer("/request_example/source")
-                .and_then(Value::as_str),
-            None
-        );
-        assert_eq!(
-            web_search
-                .pointer("/request_format/query")
-                .and_then(Value::as_str),
-            Some("<search criteria>")
+        assert!(
+            !has_web_search,
+            "research CD should use evidence-packet batch_query or URL-specific web_fetch"
         );
     }
 
@@ -931,6 +917,18 @@ mod workflow_reader_tests {
                 .unwrap_or(false),
             "{batch_query}"
         );
+        assert_eq!(
+            batch_query
+                .pointer("/recovery_default_for_raw_message")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            batch_query
+                .pointer("/raw_message_fallback_contract/bind_user_message_to")
+                .and_then(Value::as_str),
+            Some("query")
+        );
     }
 
     #[test]
@@ -941,7 +939,7 @@ mod workflow_reader_tests {
             .and_then(Value::as_array)
             .expect("web research tools");
 
-        for tool_id in ["batch_query", "web_search", "web_fetch"] {
+        for tool_id in ["batch_query", "web_fetch"] {
             let tool = web_tools
                 .iter()
                 .find(|row| {
@@ -960,42 +958,38 @@ mod workflow_reader_tests {
 
     #[test]
     fn workflow_reader_gate_instruction_keeps_research_routing_general() {
-        let selected = selected_turn_workflow("");
+        let selected = selected_turn_workflow("workflow=research_synthesize_verify_v1");
         let gate_instruction = selected
             .pointer("/tool_menu_interface_contract/llm_gate_instruction")
             .and_then(Value::as_str)
             .expect("gate instruction");
 
         assert!(
-            gate_instruction.contains("A prose answer, markdown answer, or naked final answer without a valid gate JSON object does NOT count as choosing respond_directly"),
+            gate_instruction.contains("Output ONLY JSON"),
             "{gate_instruction}"
         );
         assert!(
-            gate_instruction.contains("freshness-sensitive information"),
+            gate_instruction.contains("research_synthesis_from_recorded_state"),
             "{gate_instruction}"
         );
         assert!(
-            gate_instruction.contains("changing categories even when the user does not name candidates up front"),
+            gate_instruction.contains("web_research"),
             "{gate_instruction}"
         );
         assert!(
-            gate_instruction
-                .to_ascii_lowercase()
-                .contains("no source-backed synthesis is available"),
+            gate_instruction.contains("recorded tool outcomes, evidence refs, snippets"),
             "{gate_instruction}"
         );
         assert!(
-            gate_instruction.contains("avoid inventing evidence, low-signal results, or substitute entities"),
+            gate_instruction.contains("public evidence, current information, source-backed comparison"),
             "{gate_instruction}"
         );
         assert!(
-            gate_instruction.contains("Do NOT choose `respond_directly` for external research just because you can produce a plausible answer from memory"),
+            gate_instruction.contains("Do not answer the user directly at this gate"),
             "{gate_instruction}"
         );
         assert!(!gate_instruction.contains("Infring"), "{gate_instruction}");
         assert!(!gate_instruction.contains("Semantic Kernel"), "{gate_instruction}");
-        assert!(gate_instruction.contains("web_research"), "{gate_instruction}");
-        assert!(gate_instruction.contains("respond_directly"), "{gate_instruction}");
     }
 
     #[test]
@@ -1162,7 +1156,7 @@ mod workflow_reader_tests {
             "{payload_instruction}"
         );
         assert!(
-            payload_instruction.contains("keep the exact entity name in the query pack"),
+            payload_instruction.contains("Keep exact entity names in the query pack"),
             "{payload_instruction}"
         );
         assert!(
@@ -1174,33 +1168,17 @@ mod workflow_reader_tests {
             "{payload_instruction}"
         );
         assert!(
-            payload_instruction.contains("do not ask the user to narrow while the workflow still has internal recovery budget"),
+            payload_instruction.contains("without asking the user to narrow while internal recovery budget remains"),
             "{payload_instruction}"
         );
         assert!(
-            payload_instruction.contains("contains only `queries` and `aperture` is invalid"),
-            "{payload_instruction}"
-        );
-        assert!(
-            payload_instruction.contains("Invalid `batch_query` example"),
-            "{payload_instruction}"
-        );
-        assert!(
-            payload_instruction.contains("Benchmark example"),
-            "{payload_instruction}"
-        );
-        assert!(
-            payload_instruction.contains("a payload that omits `aperture` is invalid"),
-            "{payload_instruction}"
-        );
-        assert!(
-            payload_instruction.contains("RAG stack example"),
+            payload_instruction.contains("payload that contains only `queries` and `aperture` is invalid"),
             "{payload_instruction}"
         );
     }
 
     #[test]
-    fn workflow_reader_tool_selection_prefers_web_search_for_single_library_research() {
+    fn workflow_reader_tool_selection_uses_batch_query_for_evidence_backed_research() {
         let selected = selected_turn_workflow("workflow=research_synthesize_verify_v1");
         let selection_instruction = selected
             .pointer("/tool_menu_interface_contract/llm_tool_selection_instruction")
@@ -1208,15 +1186,19 @@ mod workflow_reader_tests {
             .expect("tool selection instruction");
 
         assert!(
-            selection_instruction.contains("choose `batch_query` when the task may need multiple evidence slices"),
+            selection_instruction.contains("Choose `batch_query` for source-backed web research"),
             "{selection_instruction}"
         );
         assert!(
-            selection_instruction.contains("Choose `web_search` for one narrow lookup"),
+            selection_instruction.contains("any request whose final answer needs cited evidence or an evidence packet"),
             "{selection_instruction}"
         );
         assert!(
             selection_instruction.contains("{\"tool\":\"batch_query\"}"),
+            "{selection_instruction}"
+        );
+        assert!(
+            !selection_instruction.contains("Between `web_search` and `batch_query`"),
             "{selection_instruction}"
         );
         assert!(!selection_instruction.contains("Mastra"), "{selection_instruction}");

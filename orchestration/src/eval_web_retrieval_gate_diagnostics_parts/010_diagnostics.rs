@@ -7,6 +7,8 @@ pub(super) fn web_retrieval_gate_diagnostics(
     let request = web_pending_request(payload);
     let request_input = request.and_then(request_input_object);
     let tool_attempted = has_tool_execution(payload);
+    let tool_transport_failure = payload_is_transport_failure(payload);
+    let tool_transport_completed = tool_attempted && !tool_transport_failure;
     let candidate_count = u64_at(retrieval_quality, &["candidate_count"], 0);
     let evidence_count = u64_at(retrieval_quality, &["evidence_count"], 0);
     let materialized_candidate_count =

@@ -27,7 +27,7 @@ fn evidence_prompt_relevance_from_texts(
             "note": "Prompt relevance was not enforced because the prompt had too few durable topic terms or no evidence text was available."
         });
     }
-    let min_overlap = if strict_claim_overlap && prompt_terms.len() > 2 {
+    let min_overlap = if strict_claim_overlap && prompt_terms.len() >= 2 {
         2
     } else {
         1
@@ -62,9 +62,36 @@ fn direct_evidence_claim_texts(payload: &Value) -> Vec<String> {
         .map(|rows| {
             rows.iter()
                 .filter_map(|row| {
-                    row.get("claim")
-                        .and_then(Value::as_str)
-                        .map(normalize_for_compare)
+                    let mut parts = Vec::<String>::new();
+                    for key in [
+                        "claim",
+                        "support_snippet",
+                        "source_title",
+                        "title",
+                        "source_domain",
+                    ] {
+                        if let Some(raw) = row.get(key).and_then(Value::as_str) {
+                            let cleaned = clean_text(raw, 700);
+                            if !cleaned.is_empty() {
+                                parts.push(cleaned);
+                            }
+                        }
+                    }
+                    if let Some(source_ref) = row.get("source_ref").and_then(Value::as_object) {
+                        for key in ["title", "source_domain"] {
+                            if let Some(raw) = source_ref.get(key).and_then(Value::as_str) {
+                                let cleaned = clean_text(raw, 700);
+                                if !cleaned.is_empty() {
+                                    parts.push(cleaned);
+                                }
+                            }
+                        }
+                    }
+                    if parts.is_empty() {
+                        None
+                    } else {
+                        Some(normalize_for_compare(&parts.join(" ")))
+                    }
                 })
                 .filter(|text| text.split_whitespace().count() >= 3)
                 .collect::<Vec<_>>()
@@ -220,6 +247,9 @@ fn research_prompt_topic_terms(normalized_prompt: &str, limit: usize) -> Vec<Str
         if stem.len() < 3 && stem != "ai" {
             continue;
         }
+        if research_prompt_stop_term(&stem) {
+            continue;
+        }
         if !terms.iter().any(|existing| existing == &stem) {
             terms.push(stem);
         }
@@ -248,15 +278,27 @@ fn research_prompt_stop_term(token: &str) -> bool {
             | "answer"
             | "anything"
             | "around"
+            | "broad"
+            | "broadly"
             | "and"
             | "are"
             | "before"
             | "best"
+            | "biggest"
+            | "brief"
+            | "briefly"
             | "but"
+            | "buying"
             | "between"
             | "blindly"
             | "browse"
+            | "caveat"
+            | "caveats"
+            | "cite"
+            | "cited"
+            | "citable"
             | "compare"
+            | "concise"
             | "citation"
             | "citations"
             | "current"
@@ -266,19 +308,30 @@ fn research_prompt_stop_term(token: &str) -> bool {
             | "docs"
             | "documentation"
             | "does"
+            | "different"
             | "explain"
+            | "example"
+            | "examples"
             | "find"
             | "first"
+            | "field"
+            | "fields"
             | "for"
             | "from"
             | "give"
+            | "group"
+            | "grouped"
             | "how"
+            | "headline"
+            | "headlines"
+            | "important"
             | "into"
             | "landscape"
             | "latest"
             | "look"
             | "looking"
             | "make"
+            | "major"
             | "marketing"
             | "more"
             | "most"
@@ -290,7 +343,16 @@ fn research_prompt_stop_term(token: &str) -> bool {
             | "page"
             | "pages"
             | "primary"
+            | "practical"
+            | "prioritize"
+            | "prioritise"
             | "research"
+            | "recommend"
+            | "recommendation"
+            | "recommendations"
+            | "report"
+            | "reported"
+            | "reporting"
             | "release"
             | "releases"
             | "result"
@@ -301,6 +363,8 @@ fn research_prompt_stop_term(token: &str) -> bool {
             | "far"
             | "source"
             | "sources"
+            | "stories"
+            | "story"
             | "summarize"
             | "tell"
             | "that"
@@ -309,6 +373,8 @@ fn research_prompt_stop_term(token: &str) -> bool {
             | "there"
             | "these"
             | "this"
+            | "theme"
+            | "themes"
             | "trust"
             | "update"
             | "using"

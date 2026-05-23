@@ -8,3 +8,7 @@ Current wired producer:
 - `inversion` stores human-facing rollout and safety research for high-sensitivity inversion governance.
 
 Runtime-generated JSON artifacts under `research/autotest_doctor/` are intentionally git-ignored to avoid tree churn.
+
+## Related Runbooks
+
+- [Research Web Tooling Iteration](../runbooks/research-web-tooling-iteration.md) defines the reusable method for diagnosing weak research output upstream-down: tooling lane first, evidence packet inspection, one failing web gate at a time, then full workflow validation.

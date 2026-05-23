@@ -21,12 +21,31 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
     );
     let quality_pack = retrieval_quality
         .get("evidence_pack_quality")
+        .filter(|row| row.is_object())
+        .or_else(|| payload.get("evidence_pack_quality"))
         .unwrap_or(&Value::Null);
+    let quality_pack_present = quality_pack.is_object();
+    let pack_status = str_at(quality_pack, &["status"], "");
     let pack_usable_count = u64_at(quality_pack, &["usable_count"], 0);
     let pack_content_rich_count = u64_at(quality_pack, &["content_rich_item_count"], 0);
     let pack_claim_hint_count = u64_at(quality_pack, &["claim_hint_count"], 0);
     let pack_low_confidence_count = u64_at(quality_pack, &["low_confidence_count"], 0);
     let pack_candidate_only_count = u64_at(quality_pack, &["candidate_only_count"], 0);
+    let pack_source_domain_count = u64_at(quality_pack, &["source_domain_count"], 0);
+    let pack_missing_facet_count = u64_at(quality_pack, &["missing_facet_count"], 0);
+    let pack_weak_facet_count = u64_at(quality_pack, &["weak_facet_count"], 0);
+    let pack_min_usable_items = u64_at(quality_pack, &["thresholds", "min_usable_items"], 1).max(1);
+    let pack_min_source_domains =
+        u64_at(quality_pack, &["thresholds", "min_source_domains"], 1).max(1);
+    let pack_source_thresholds_met = !quality_pack_present
+        || (pack_usable_count >= pack_min_usable_items
+            && pack_source_domain_count >= pack_min_source_domains
+            && pack_content_rich_count > 0
+            && pack_low_confidence_count < pack_usable_count
+            && pack_candidate_only_count < pack_usable_count);
+    let pack_coverage_thresholds_met =
+        !quality_pack_present || (pack_missing_facet_count == 0 && pack_weak_facet_count == 0);
+    let pack_status_allows_answerability = !quality_pack_present || pack_status == "usable";
 
     let evidence_item_count = scan
         .evidence_item_count
@@ -50,6 +69,13 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
     let concrete_claim_rate = ratio(concrete_claim_count, claim_count);
     let low_quality_claim_rate = ratio(scan.low_quality_claim_count, claim_count);
     let citation_ready_claim_rate = ratio(citation_ready_claim_count, claim_count);
+    let source_quality_threshold_met = clean_evidence_rate >= 0.5;
+    let low_quality_flags_block_source_quality =
+        low_quality_flags_block_source_quality(&scan.low_quality_flags);
+    let clean_diverse_source_quality = clean_evidence_count >= 3
+        && scan.source_domains.len() >= 2
+        && low_quality_evidence_rate <= 0.25
+        && !low_quality_flags_block_source_quality;
 
     let source_quality_ready = evidence_item_count > 0
         && clean_evidence_count > 0
@@ -57,7 +83,8 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
             || !scan.source_domains.is_empty()
             || retrieval_usable)
         && low_quality_evidence_count < evidence_item_count
-        && clean_evidence_rate >= 0.5;
+        && (source_quality_threshold_met || clean_diverse_source_quality)
+        && pack_source_thresholds_met;
     let claim_quality_ready = claim_count > 0
         && concrete_claim_count > 0
         && scan.low_quality_claim_count < claim_count
@@ -67,14 +94,37 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         || (scan.citation_ready_evidence_item_count > 0
             && (claim_hint_count > 0 || direct_claim_count > 0 || pack_claim_hint_count > 0));
     let evidence_packet_item_count = scan
-        .evidence_item_count
+        .evidence_packet_item_count
         .max(scan.evidence_packet_ready_count);
     let evidence_packet_ready_rate =
         ratio(scan.evidence_packet_ready_count, evidence_packet_item_count);
     let evidence_packet_contract_ready =
         scan.evidence_packet_ready_count > 0 && evidence_packet_ready_rate >= 0.5;
-    let answerability_ready =
-        source_quality_ready && claim_quality_ready && citation_renderability_ready;
+    let answerability_ready = source_quality_ready
+        && claim_quality_ready
+        && citation_renderability_ready
+        && pack_coverage_thresholds_met
+        && pack_status_allows_answerability;
+    let pack_thresholds = json!({
+        "min_usable_items": pack_min_usable_items,
+        "min_source_domains": pack_min_source_domains
+    });
+    let evidence_packet_contract = json!({
+        "schema_version": 1,
+        "ready": evidence_packet_contract_ready,
+        "ready_item_count": scan.evidence_packet_ready_count,
+        "item_count": evidence_packet_item_count,
+        "ready_rate": evidence_packet_ready_rate,
+        "missing_fields": scan.evidence_packet_missing_fields,
+        "required_field_groups": [
+            "source_identity",
+            "source_type",
+            "relevant_extract",
+            "claim_hints",
+            "why_relevant_to_query"
+        ],
+        "note": "Generic EvidencePacket contract: each answerable packet should carry source identity, source type, an extract, concrete claim material, and a query-relevance explanation. Dates are optional when unavailable."
+    });
 
     json!({
         "schema_version": 1,
@@ -88,6 +138,20 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         "low_quality_evidence_item_count": low_quality_evidence_count,
         "clean_evidence_rate": clean_evidence_rate,
         "low_quality_evidence_rate": low_quality_evidence_rate,
+        "source_quality_threshold_met": source_quality_threshold_met,
+        "clean_diverse_source_quality": clean_diverse_source_quality,
+        "low_quality_flags_block_source_quality": low_quality_flags_block_source_quality,
+        "evidence_pack_quality_status": pack_status,
+        "evidence_pack_quality_present": quality_pack_present,
+        "pack_source_thresholds_met": pack_source_thresholds_met,
+        "pack_coverage_thresholds_met": pack_coverage_thresholds_met,
+        "pack_status_allows_answerability": pack_status_allows_answerability,
+        "pack_usable_count": pack_usable_count,
+        "pack_content_rich_item_count": pack_content_rich_count,
+        "pack_source_domain_count": pack_source_domain_count,
+        "pack_missing_facet_count": pack_missing_facet_count,
+        "pack_weak_facet_count": pack_weak_facet_count,
+        "pack_thresholds": pack_thresholds,
         "claim_count": claim_count,
         "concrete_claim_count": concrete_claim_count,
         "low_quality_claim_count": scan.low_quality_claim_count,
@@ -99,22 +163,7 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         "source_domain_count": scan.source_domains.len() as u64,
         "source_domains": scan.source_domains,
         "low_quality_flags": scan.low_quality_flags,
-        "evidence_packet_contract": {
-            "schema_version": 1,
-            "ready": evidence_packet_contract_ready,
-            "ready_item_count": scan.evidence_packet_ready_count,
-            "item_count": evidence_packet_item_count,
-            "ready_rate": evidence_packet_ready_rate,
-            "missing_fields": scan.evidence_packet_missing_fields,
-            "required_field_groups": [
-                "source_identity",
-                "source_type",
-                "relevant_extract",
-                "claim_hints",
-                "why_relevant_to_query"
-            ],
-            "note": "Generic EvidencePacket contract: each answerable packet should carry source identity, source type, an extract, concrete claim material, and a query-relevance explanation. Dates are optional when unavailable."
-        },
+        "evidence_packet_contract": evidence_packet_contract,
         "artifact_refs": scan.refs,
         "note": "Generic evidence-quality readout: checks whether packaged evidence has clean source-backed material, concrete claim text, and citation renderability without assuming the query domain."
     })
@@ -142,6 +191,23 @@ fn evidence_quality_refs(evidence_quality: &Value) -> Vec<String> {
         })
 }
 
+fn low_quality_flags_block_source_quality(flags: &[String]) -> bool {
+    flags.iter().any(|flag| {
+        matches!(
+            normalize_for_compare(flag).as_str(),
+            "not usable evidence"
+                | "not usable"
+                | "thin query overlap"
+                | "low trust source"
+                | "low confidence raw"
+                | "candidate only"
+                | "candidate only row"
+                | "provider degraded"
+                | "materialization failed"
+        )
+    })
+}
+
 #[derive(Default)]
 struct EvidenceQualityScan {
     evidence_item_count: u64,
@@ -152,6 +218,7 @@ struct EvidenceQualityScan {
     concrete_claim_count: u64,
     low_quality_claim_count: u64,
     citation_ready_claim_count: u64,
+    evidence_packet_item_count: u64,
     evidence_packet_ready_count: u64,
     evidence_packet_missing_fields: Vec<String>,
     source_domains: Vec<String>,
@@ -242,12 +309,15 @@ fn analyze_evidence_quality_object(
         scan.clean_evidence_item_count = scan.clean_evidence_item_count.saturating_add(1);
     }
 
-    let packet_missing_fields = evidence_packet_missing_fields(map);
-    if packet_missing_fields.is_empty() && !low_quality {
-        scan.evidence_packet_ready_count = scan.evidence_packet_ready_count.saturating_add(1);
-    } else {
-        for field in packet_missing_fields {
-            push_unique_case_insensitive(&mut scan.evidence_packet_missing_fields, field);
+    if evidence_packet_contract_path(path) {
+        scan.evidence_packet_item_count = scan.evidence_packet_item_count.saturating_add(1);
+        let packet_missing_fields = evidence_packet_missing_fields(map);
+        if packet_missing_fields.is_empty() && !low_quality {
+            scan.evidence_packet_ready_count = scan.evidence_packet_ready_count.saturating_add(1);
+        } else {
+            for field in packet_missing_fields {
+                push_unique_case_insensitive(&mut scan.evidence_packet_missing_fields, field);
+            }
         }
     }
 
@@ -264,6 +334,13 @@ fn analyze_evidence_quality_object(
             }
         }
     }
+}
+
+fn evidence_packet_contract_path(path: &str) -> bool {
+    let normalized = normalize_for_compare(&path.replace(['.', '_', '-'], " "));
+    normalized.contains("evidence pack")
+        || normalized.contains("synthesis candidates")
+        || normalized.contains("source candidates")
 }
 
 fn evidence_packet_missing_fields(map: &serde_json::Map<String, Value>) -> Vec<&'static str> {
@@ -403,14 +480,17 @@ fn evidence_object_low_quality(
         low_quality = true;
         push_unique_case_insensitive(&mut scan.low_quality_flags, "not_usable");
     }
-    for raw in evidence_object_content_strings(map) {
-        if content_text_low_quality(&raw) {
-            low_quality = true;
-            push_unique_case_insensitive(
-                &mut scan.low_quality_flags,
-                "boilerplate_or_source_only_text",
-            );
-        }
+    let content_strings = evidence_object_content_strings(map);
+    if !content_strings.is_empty()
+        && content_strings
+            .iter()
+            .all(|raw| content_text_low_quality(raw))
+    {
+        low_quality = true;
+        push_unique_case_insensitive(
+            &mut scan.low_quality_flags,
+            "boilerplate_or_source_only_text",
+        );
     }
     low_quality
 }
@@ -442,6 +522,10 @@ fn evidence_object_content_strings(map: &serde_json::Map<String, Value>) -> Vec<
         "markdown",
         "text",
         "description",
+        "relevant_extract",
+        "support_snippet",
+        "raw_content_excerpt",
+        "snippet_preview",
         "result",
         "body",
     ] {

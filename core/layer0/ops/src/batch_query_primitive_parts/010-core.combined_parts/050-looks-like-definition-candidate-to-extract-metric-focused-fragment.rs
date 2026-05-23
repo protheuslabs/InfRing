@@ -561,7 +561,34 @@ fn is_weak_relevance_token(token: &str) -> bool {
             | "sources"
             | "evidence"
             | "backed"
+            | "verified"
+            | "verification"
+            | "reporting"
+            | "publication"
+            | "publications"
+            | "published"
+            | "peer"
+            | "reviewed"
             | "detailed"
+            | "brief"
+            | "briefing"
+            | "concise"
+            | "prioritize"
+            | "prioritise"
+            | "cite"
+            | "cites"
+            | "cited"
+            | "citation"
+            | "citations"
+            | "group"
+            | "grouped"
+            | "theme"
+            | "themes"
+            | "practical"
+            | "recommendation"
+            | "recommendations"
+            | "caveat"
+            | "caveats"
             | "finding"
             | "findings"
             | "overview"
@@ -578,9 +605,17 @@ fn is_weak_relevance_token(token: &str) -> bool {
             | "weekly"
             | "biggest"
             | "major"
+            | "important"
+            | "broad"
+            | "broadly"
+            | "different"
+            | "multiple"
+            | "various"
             | "breaking"
             | "headline"
             | "headlines"
+            | "story"
+            | "stories"
             | "development"
             | "developments"
             | "update"
@@ -591,9 +626,16 @@ fn is_weak_relevance_token(token: &str) -> bool {
             | "news"
             | "research"
             | "report"
+            | "reported"
             | "reports"
             | "science"
             | "scientific"
+            | "breakthrough"
+            | "breakthroughs"
+            | "advance"
+            | "advances"
+            | "field"
+            | "fields"
     )
 }
 
@@ -676,7 +718,8 @@ fn candidate_passes_relevance_gate(
     let broad_current_article_evidence = current_web_intent(query)
         && !query_has_distinctive_terms
         && segment_has_current_signal(&candidate_relevance)
-        && page_extraction_link_has_article_like_path(&candidate.locator)
+        && (page_extraction_link_has_article_like_path(&candidate.locator)
+            || source_trust_adjustment(candidate) >= 0.1)
         && content_rich_text(&candidate.snippet)
         && !looks_like_link_directory_or_aggregator_shell(&candidate.snippet);
     if is_framework_catalog_intent(query) && overlap == 0 {
@@ -746,17 +789,44 @@ fn candidate_mentions_entity(candidate: &Candidate, entity: &str) -> bool {
 }
 
 fn extract_metric_focused_fragment(text: &str) -> String {
-    let cleaned = clean_text(text, 1_200);
+    let cleaned = clean_text(text, 1_200)
+        .replace("[...]", ". ")
+        .replace("[\u{2026}]", ". ")
+        .replace('\u{2026}', ". ")
+        .replace('\u{2022}', ". ")
+        .replace(" # ", ". ")
+        .replace(" - ", ". ");
     if cleaned.is_empty() {
         return String::new();
     }
-    for segment in cleaned.split(['.', ';', '\n', '|']) {
-        let segment_clean = clean_text(segment, 400);
-        if segment_clean.is_empty() {
-            continue;
-        }
+    let segments = cleaned
+        .split(['.', ';', '\n', '|'])
+        .map(|segment| clean_text(segment, 400))
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    for (index, segment_clean) in segments.iter().enumerate() {
         if looks_like_metric_rich_text(&segment_clean) {
-            return segment_clean;
+            let previous = (0..index)
+                .rev()
+                .filter_map(|previous_index| segments.get(previous_index))
+                .find(|previous_segment| {
+                    let lowered = previous_segment.to_ascii_lowercase();
+                    previous_segment.split_whitespace().count() >= 2
+                        && !looks_like_metric_rich_text(previous_segment)
+                        && !lowered.starts_with("http")
+                        && !lowered.starts_with("www")
+                        && !lowered.contains(" | ")
+                });
+            if segment_clean.split_whitespace().count() >= 5 {
+                return segment_clean.clone();
+            }
+            if let Some(previous) = previous {
+                let combined = clean_text(&format!("{previous} - {segment_clean}"), 420);
+                if combined.split_whitespace().count() >= 5 {
+                    return combined;
+                }
+            }
+            return segment_clean.clone();
         }
     }
     cleaned

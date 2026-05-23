@@ -557,7 +557,27 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         }
     }
 
-    let queries = query_plan.queries.clone();
+    let submitted_queries = query_plan.queries.clone();
+    let queries = execution_limited_initial_queries(&policy, budget, &submitted_queries);
+    let deferred_queries = submitted_queries
+        .iter()
+        .skip(queries.len())
+        .cloned()
+        .collect::<Vec<String>>();
+    let query_execution_limited = !deferred_queries.is_empty();
+    let query_execution_limiter = json!({
+        "applied": query_execution_limited,
+        "submitted_lane_count": submitted_queries.len(),
+        "executed_initial_lane_count": queries.len(),
+        "deferred_lane_count": deferred_queries.len(),
+        "deferred_query_plan": deferred_queries,
+        "max_initial_lanes": initial_query_execution_max_lanes(&policy, budget),
+        "reason": if query_execution_limited {
+            "bounded_initial_wave_to_preserve_provider_rate_budget"
+        } else {
+            "within_budget"
+        }
+    });
     let rewrite_set = query_plan.rewrite_set.clone();
     let parallel_allowed = source == "web" && query_plan.rewrite_applied && queries.len() > 1;
     let mut executed_queries = queries.clone();
@@ -717,7 +737,6 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         }
     }
 
-    let first_pass_lacked_usable = !has_usable_synthesis_candidate(&candidates);
     let mut second_pass_reason = "none";
     let recovery_basis_query = clean_text(&query_plan.rerank_query, 600);
     let recovery_basis_query = if recovery_basis_query.is_empty() {
@@ -725,6 +744,12 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     } else {
         recovery_basis_query
     };
+    let first_pass_lacked_usable = !has_pack_ready_synthesis_candidate(
+        &recovery_basis_query,
+        &candidates,
+    );
+    let first_pass_lacked_source_quality =
+        !has_pack_ready_synthesis_source_quality(&recovery_basis_query, &candidates);
     let first_pass_research_facets = infer_research_facets(
         &recovery_basis_query,
         &executed_queries,
@@ -732,58 +757,108 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         &policy,
         budget,
     );
+    let query_pack_declares_coverage =
+        !query_plan.query_metadata.entities.is_empty() || !query_plan.query_metadata.facets.is_empty();
     let mut planned_second_pass_queries = Vec::<String>::new();
-    if source == "web"
-        && second_pass_recovery_enabled(&policy)
-        && (first_pass_lacked_usable || provider_results.is_empty())
-    {
-        planned_second_pass_queries =
-            second_pass_recovery_queries(&policy, &recovery_basis_query, &executed_queries, budget);
-        if !planned_second_pass_queries.is_empty() {
-            second_pass_reason = if first_pass_lacked_usable {
-                "no_usable_synthesis_candidates"
-            } else {
-                "no_raw_provider_artifacts"
-            };
+    if source == "web" && query_execution_limited {
+        second_pass_reason = "deferred_due_initial_query_execution_budget";
+        if second_pass_recovery_enabled(&policy) && first_pass_lacked_usable {
+            planned_second_pass_queries = deferred_query_recovery_queries(
+                &policy,
+                budget,
+                &submitted_queries,
+                &executed_queries,
+            );
+            if !planned_second_pass_queries.is_empty() {
+                second_pass_reason = "deferred_query_execution_recovery";
+            }
         }
-    }
-    let query_pack_declares_coverage = !query_plan.query_metadata.entities.is_empty()
-        || !query_plan.query_metadata.facets.is_empty();
-    let policy_recovery_already_spent_coverage_budget = matches!(
-        query_plan.query_plan_source,
-        "policy_general_research_recovery" | "policy_broad_current_research_recovery"
-    ) && !query_pack_declares_coverage;
-    if source == "web"
-        && planned_second_pass_queries.is_empty()
-        && coverage_gap_recovery_enabled(&policy)
-        && !policy_recovery_already_spent_coverage_budget
-    {
-        planned_second_pass_queries = coverage_gap_recovery_queries(
-            &policy,
-            &recovery_basis_query,
-            &executed_queries,
-            &first_pass_research_facets,
-            &candidates,
-            budget,
-        );
-        if !planned_second_pass_queries.is_empty() {
-            second_pass_reason = "coverage_gap";
+        if planned_second_pass_queries.is_empty() && coverage_gap_recovery_enabled(&policy) {
+            planned_second_pass_queries = coverage_gap_recovery_queries(
+                &policy,
+                &recovery_basis_query,
+                &executed_queries,
+                &first_pass_research_facets,
+                &candidates,
+                budget,
+            );
+            if !planned_second_pass_queries.is_empty() {
+                second_pass_reason = "coverage_gap";
+            }
         }
-    }
-    if source == "web"
-        && planned_second_pass_queries.is_empty()
-        && claim_gap_recovery_enabled(&policy)
-    {
-        planned_second_pass_queries = claim_gap_recovery_queries(
-            &policy,
-            &recovery_basis_query,
-            &executed_queries,
-            &first_pass_research_facets,
-            &candidates,
-            budget,
-        );
-        if !planned_second_pass_queries.is_empty() {
-            second_pass_reason = "claim_gap";
+        if planned_second_pass_queries.is_empty()
+            && second_pass_recovery_enabled(&policy)
+            && first_pass_lacked_source_quality
+        {
+            planned_second_pass_queries = deferred_query_recovery_queries(
+                &policy,
+                budget,
+                &submitted_queries,
+                &executed_queries,
+            );
+            if !planned_second_pass_queries.is_empty() {
+                second_pass_reason = if query_pack_declares_coverage {
+                    "deferred_query_source_quality_recovery"
+                } else {
+                    "deferred_query_source_diversity_recovery"
+                };
+            }
+        }
+    } else {
+        if source == "web"
+            && second_pass_recovery_enabled(&policy)
+            && (first_pass_lacked_usable || provider_results.is_empty())
+        {
+            planned_second_pass_queries = second_pass_recovery_queries(
+                &policy,
+                &recovery_basis_query,
+                &executed_queries,
+                budget,
+            );
+            if !planned_second_pass_queries.is_empty() {
+                second_pass_reason = if first_pass_lacked_usable {
+                    "no_usable_synthesis_candidates"
+                } else {
+                    "no_raw_provider_artifacts"
+                };
+            }
+        }
+        let policy_recovery_already_spent_coverage_budget = matches!(
+            query_plan.query_plan_source,
+            "policy_general_research_recovery" | "policy_broad_current_research_recovery"
+        ) && !query_pack_declares_coverage;
+        if source == "web"
+            && planned_second_pass_queries.is_empty()
+            && coverage_gap_recovery_enabled(&policy)
+            && !policy_recovery_already_spent_coverage_budget
+        {
+            planned_second_pass_queries = coverage_gap_recovery_queries(
+                &policy,
+                &recovery_basis_query,
+                &executed_queries,
+                &first_pass_research_facets,
+                &candidates,
+                budget,
+            );
+            if !planned_second_pass_queries.is_empty() {
+                second_pass_reason = "coverage_gap";
+            }
+        }
+        if source == "web"
+            && planned_second_pass_queries.is_empty()
+            && claim_gap_recovery_enabled(&policy)
+        {
+            planned_second_pass_queries = claim_gap_recovery_queries(
+                &policy,
+                &recovery_basis_query,
+                &executed_queries,
+                &first_pass_research_facets,
+                &candidates,
+                budget,
+            );
+            if !planned_second_pass_queries.is_empty() {
+                second_pass_reason = "claim_gap";
+            }
         }
     }
     if source == "web" && !planned_second_pass_queries.is_empty() {
@@ -1083,7 +1158,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         .collect::<Vec<_>>();
     let evidence_pack = evidence_pack_from_ranked_candidates(
         &policy,
-        &query,
+        &rerank_query,
         &research_facets,
         facet_min_terms,
         &evidence_ranked,
@@ -1354,7 +1429,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     let provider_results_value = Value::Array(provider_results.clone());
     let retrieval_broker = retrieval_broker_report(
         status,
-        json!(queries.clone()),
+        json!(submitted_queries.clone()),
         json!(executed_queries.clone()),
         query_plan.query_plan_source,
         second_pass_recovery.clone(),
@@ -1391,7 +1466,8 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         "parallel_window": parallel_window,
         "rewrite_set": rewrite_set,
         "query_plan": executed_queries,
-        "submitted_query_plan": queries,
+        "submitted_query_plan": submitted_queries,
+        "query_execution_limiter": query_execution_limiter.clone(),
         "second_pass_recovery": second_pass_recovery.clone(),
         "query_plan_source": query_plan.query_plan_source,
         "query_metadata": query_plan.query_metadata.to_value(),
@@ -1449,7 +1525,8 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         "parallel_window": parallel_window,
         "rewrite_set": rewrite_set.clone(),
         "query_plan": executed_queries.clone(),
-        "submitted_query_plan": queries.clone(),
+        "submitted_query_plan": submitted_queries.clone(),
+        "query_execution_limiter": query_execution_limiter.clone(),
         "second_pass_recovery": second_pass_recovery.clone(),
         "query_plan_source": query_plan.query_plan_source,
         "query_metadata": query_plan.query_metadata.to_value(),
@@ -1518,7 +1595,8 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             "provider_results": provider_results,
             "rewrite_set": rewrite_set,
             "query_plan": executed_queries,
-            "submitted_query_plan": queries,
+            "submitted_query_plan": submitted_queries,
+            "query_execution_limiter": query_execution_limiter,
             "second_pass_recovery": second_pass_recovery,
             "query_plan_source": query_plan.query_plan_source,
             "query_metadata": query_plan.query_metadata.to_value(),

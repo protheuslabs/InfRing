@@ -100,6 +100,21 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
         direct_pack_status.as_str(),
         "thin" | "empty" | "low_signal" | "no_results"
     );
+    let direct_pack_usable_count =
+        payload
+            .pointer("/evidence_pack_quality/usable_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+    let direct_pack_content_rich_count = payload
+        .pointer("/evidence_pack_quality/content_rich_item_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let direct_pack_structured_evidence_available = direct_claim_contract_present
+        && direct_evidence_claim_count > 0
+        && (direct_pack_usable_count > 0 || evidence_count > 0)
+        && (direct_pack_content_rich_count > 0 || content_rich_candidate_count > 0);
+    let direct_pack_thin_blocks_signal =
+        direct_pack_thin && !direct_pack_structured_evidence_available;
     let direct_provider_degraded = direct_quality_flags.iter().any(|flag| {
         matches!(
             flag.as_str(),
@@ -114,16 +129,14 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
     let provider_degraded_observed = explicit_provider_degraded || direct_provider_degraded;
     let provider_degradation_blocks_supply = provider_degraded_observed
         && (candidate_count == 0 || evidence_count == 0 || materialized_candidate_count == 0);
-    let direct_low_signal = direct_pack_thin
-        || direct_quality_flags.iter().any(|flag| {
-            matches!(
-                flag.as_str(),
-                "claim_hints_missing"
-                    | "comparison_evidence_insufficient"
-                    | "content_rich_evidence_missing"
-                    | "low_signal"
-                    | "low_relevance"
-            )
+    let direct_low_signal = direct_pack_thin_blocks_signal
+        || direct_quality_flags.iter().any(|flag| match flag.as_str() {
+            "claim_hints_missing" | "content_rich_evidence_missing" => {
+                !direct_pack_structured_evidence_available
+            }
+            "low_relevance" => !topic_relevant_evidence,
+            "comparison_evidence_insufficient" | "low_signal" => true,
+            _ => false,
         })
         || (direct_claim_contract_present && direct_evidence_claim_count == 0);
     let evidence_artifact_conflict =
@@ -156,7 +169,8 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
     let allows_excellent = usable_evidence
         && content_rich_candidate_count > 0
         && claim_hint_count > 0
-        && relevant_evidence_count >= 2;
+        && relevant_evidence_count >= 2
+        && !direct_pack_thin;
     let mut flags = Vec::new();
     if !tool_executed {
         flags.push("tool_not_executed");
@@ -181,6 +195,9 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
     }
     if direct_low_signal {
         flags.push("direct_tool_low_signal_marker");
+    }
+    if direct_pack_thin && !direct_pack_thin_blocks_signal {
+        flags.push("direct_tool_thin_packet_nonblocking");
     }
     if direct_claim_contract_present && direct_evidence_claim_count == 0 {
         flags.push("direct_evidence_claims_absent");
@@ -232,6 +249,12 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
             "provider_degradation_blocks_supply": provider_degradation_blocks_supply,
             "direct_provider_degraded_marker": direct_provider_degraded,
             "direct_low_signal_marker": direct_low_signal,
+            "direct_pack_status": direct_pack_status,
+            "direct_pack_thin_marker": direct_pack_thin,
+            "direct_pack_thin_blocks_signal": direct_pack_thin_blocks_signal,
+            "direct_pack_structured_evidence_available": direct_pack_structured_evidence_available,
+            "direct_pack_usable_count": direct_pack_usable_count,
+            "direct_pack_content_rich_count": direct_pack_content_rich_count,
             "evidence_artifact_conflict": evidence_artifact_conflict,
             "materialized_candidate_count": materialized_candidate_count,
             "content_rich_candidate_count": content_rich_candidate_count,

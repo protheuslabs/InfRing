@@ -3,6 +3,13 @@ fn candidate_domain_hint(candidate: &Candidate) -> String {
     if let Some(domain) = provider_source_hint_domain(candidate) {
         return domain;
     }
+    if citation_wrapper_link(&candidate.locator) {
+        if let Some(decoded) = decode_citation_wrapper_url(&candidate.locator, 4) {
+            if let Some(domain) = extract_domains_from_text(&decoded, 1).into_iter().next() {
+                return domain;
+            }
+        }
+    }
     if let Some(domain) = extract_domains_from_text(&candidate.locator, 1)
         .into_iter()
         .next()

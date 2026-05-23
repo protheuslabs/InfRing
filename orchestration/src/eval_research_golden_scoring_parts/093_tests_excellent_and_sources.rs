@@ -351,6 +351,71 @@
     }
 
     #[test]
+    fn retrieval_limitation_report_without_answer_is_not_successful_research_output() {
+        let case = json!({
+            "prompt": "Give me news from this week.",
+            "expected_gate_path": {
+                "gate_1": "tool_required",
+                "gate_2": "web_research",
+                "gate_3": "batch_query",
+                "gate_4_required_fields": ["query", "aperture"]
+            }
+        });
+        let response = "I don't have enough usable evidence to deliver the concise weekly briefing you requested. What the search returned: one usable but very low-signal result from a section index page, plus one off-target article. There were no headline-level stories and no source-backed claims to cite. Bottom line: the current retrieval did not surface any directly citable major news stories from this week; narrower topic-specific queries would likely perform better.";
+        let payload = json!({
+            "response": response,
+            "pending_tool_request": {
+                "status": "executed",
+                "selected_tool_family": "web_research",
+                "tool_name": "batch_query",
+                "tool_key": "batch_query",
+                "input": {
+                    "query": "Give me news from this week.",
+                    "queries": ["major news stories this week"],
+                    "keywords": ["news", "this week"],
+                    "aperture": "medium"
+                }
+            },
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "candidate_count": 20,
+                "content_rich_candidate_count": 4,
+                "claim_hint_count": 3,
+                "evidence_refs": [{
+                    "title": "Generic section index",
+                    "locator": "https://example.test/news",
+                    "snippet": "A section landing page that does not provide dated headline-level news stories.",
+                    "claim_hints": ["The page is a news index."]
+                }]
+            }]
+        });
+
+        let normalized = normalize_for_compare(response);
+        assert!(source_summary_without_answer_signal(&normalized));
+        let grade = grade_case(&case, &payload, 85, 95);
+        assert!(!grade.pass);
+        assert!(!grade.excellent);
+        assert!(grade
+            .failures
+            .contains(&"source_summary_without_user_answer".to_string()));
+        assert_eq!(
+            grade
+                .query_satisfaction
+                .get("coverage_gap_prevents_answer")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            grade
+                .soft_quality_smoke
+                .get("pass")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+    }
+
+    #[test]
     fn evidence_layer_allows_qualified_relevance_denial() {
         let retrieval_quality = json!({
             "tool_executed": true,

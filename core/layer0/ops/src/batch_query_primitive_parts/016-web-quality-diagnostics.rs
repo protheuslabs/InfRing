@@ -17,12 +17,222 @@ fn current_web_intent(query: &str) -> bool {
     .any(|marker| lowered.contains(marker))
 }
 
+fn relative_or_update_freshness_intent(query: &str) -> bool {
+    let lowered = clean_text(query, 600).to_ascii_lowercase();
+    [
+        "latest",
+        "today",
+        "this week",
+        "this month",
+        "yesterday",
+        "as of",
+        "recent",
+        "newest",
+        "news",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker))
+}
+
+fn broad_current_query_without_distinctive_terms(query: &str) -> bool {
+    current_web_intent(query)
+        && !query_has_distinctive_relevance_terms(query)
+        && !query_looks_like_instruction_scaffold(query)
+}
+
+fn claim_hint_query_overlap(query: &str, query_terms: &HashSet<String>, text_terms: &HashSet<String>) -> bool {
+    if query_terms.is_empty() {
+        return true;
+    }
+    let has_distinctive_terms = query_has_distinctive_relevance_terms(query);
+    let distinctive_overlap = query_terms
+        .iter()
+        .filter(|term| !is_weak_relevance_token(term))
+        .any(|term| text_terms.contains(term.as_str()));
+    if has_distinctive_terms {
+        return distinctive_overlap;
+    }
+    if query_looks_like_instruction_scaffold(query) {
+        return false;
+    }
+    query_terms.iter().any(|term| text_terms.contains(term.as_str()))
+}
+
+fn claim_hint_trusted_source_can_override_query_overlap(query: &str) -> bool {
+    !query_looks_like_instruction_scaffold(query) || query_has_distinctive_relevance_terms(query)
+}
+
+fn query_looks_like_instruction_scaffold(query: &str) -> bool {
+    let lowered = clean_text(query, 800).to_ascii_lowercase();
+    if lowered.is_empty() {
+        return false;
+    }
+    let soft_marker_count = [
+        " prioritize ",
+        " prioritise ",
+        " concise ",
+        " briefing ",
+        " brief ",
+    ]
+    .iter()
+    .filter(|marker| lowered.contains(**marker))
+    .count();
+    let hard_marker_count = [
+        " cite ",
+        " cited ",
+        " citation",
+        " source",
+        " evidence",
+        " group ",
+        " grouped ",
+        " theme",
+        " format ",
+        " table ",
+        " bullet",
+    ]
+    .iter()
+    .filter(|marker| lowered.contains(**marker))
+    .count();
+    let marker_count = soft_marker_count + hard_marker_count;
+    (hard_marker_count > 0 && (marker_count >= 2 || lowered.contains('.')))
+        || (looks_like_instructional_query(&lowered) && marker_count >= 4 && lowered.contains('.'))
+}
+
 fn web_tool_quality_version() -> &'static str {
     "web_tool_quality_v11"
 }
 
 fn current_year() -> String {
     crate::now_iso().chars().take(4).collect::<String>()
+}
+
+fn current_month_number() -> String {
+    crate::now_iso().chars().skip(5).take(2).collect::<String>()
+}
+
+fn current_month_name() -> &'static str {
+    match current_month_number().as_str() {
+        "01" => "january",
+        "02" => "february",
+        "03" => "march",
+        "04" => "april",
+        "05" => "may",
+        "06" => "june",
+        "07" => "july",
+        "08" => "august",
+        "09" => "september",
+        "10" => "october",
+        "11" => "november",
+        "12" => "december",
+        _ => "",
+    }
+}
+
+fn month_name_for_number(month: usize) -> &'static str {
+    match month {
+        1 => "january",
+        2 => "february",
+        3 => "march",
+        4 => "april",
+        5 => "may",
+        6 => "june",
+        7 => "july",
+        8 => "august",
+        9 => "september",
+        10 => "october",
+        11 => "november",
+        12 => "december",
+        _ => "",
+    }
+}
+
+fn segment_has_weekday_signal(text: &str) -> bool {
+    let lowered = clean_text(text, 1_200).to_ascii_lowercase();
+    lowered
+        .split(|ch: char| !ch.is_ascii_alphabetic())
+        .any(|token| {
+            matches!(
+                token,
+                "monday"
+                    | "mon"
+                    | "tuesday"
+                    | "tue"
+                    | "tues"
+                    | "wednesday"
+                    | "wed"
+                    | "thursday"
+                    | "thu"
+                    | "thur"
+                    | "thurs"
+                    | "friday"
+                    | "fri"
+                    | "saturday"
+                    | "sat"
+                    | "sunday"
+                    | "sun"
+            )
+        })
+}
+
+fn segment_has_stale_date_for_current_window(text: &str) -> bool {
+    let lowered = clean_text(text, 2_400).to_ascii_lowercase();
+    if lowered.is_empty() {
+        return false;
+    }
+    let year = current_year();
+    let current_month = current_month_number();
+    for month in 1..=12usize {
+        let month_number = format!("{month:02}");
+        if month_number == current_month {
+            continue;
+        }
+        let month_name = month_name_for_number(month);
+        if lowered.contains(&format!("{year}-{month_number}"))
+            || lowered.contains(&format!("{year}/{month_number}"))
+            || lowered.contains(&format!("{month_number}/{year}"))
+            || lowered.contains(&format!("{year}{month_number}"))
+            || (!month_name.is_empty() && lowered.contains(month_name) && lowered.contains(&year))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn segment_has_strong_current_signal(text: &str) -> bool {
+    let lowered = clean_text(text, 1_200).to_ascii_lowercase();
+    if lowered.is_empty() {
+        return false;
+    }
+    if [
+        "today",
+        "this week",
+        "this month",
+        "yesterday",
+        "hours ago",
+        "hour ago",
+        "hrs ago",
+        "hr ago",
+        "minutes ago",
+        "minute ago",
+        "mins ago",
+        "min ago",
+        "days ago",
+        "day ago",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker))
+    {
+        return true;
+    }
+    let year = current_year();
+    let month_number = current_month_number();
+    let month_name = current_month_name();
+    (!month_number.is_empty() && lowered.contains(&format!("{year}-{month_number}")))
+        || (!month_number.is_empty() && lowered.contains(&format!("{month_number}/{year}")))
+        || (!month_number.is_empty() && lowered.contains(&format!("{year}/{month_number}/")))
+        || (!month_number.is_empty() && lowered.contains(&format!("/{year}/{month_number}")))
+        || (!month_name.is_empty() && lowered.contains(month_name) && lowered.contains(&year))
 }
 
 fn segment_has_current_signal(text: &str) -> bool {
@@ -32,12 +242,37 @@ fn segment_has_current_signal(text: &str) -> bool {
     }
     let year = current_year();
     lowered.contains(&year)
+        || segment_has_strong_current_signal(&lowered)
         || lowered.contains("today")
         || lowered.contains("this week")
         || lowered.contains("this month")
         || lowered.contains("yesterday")
         || lowered.contains("hours ago")
         || lowered.contains("minutes ago")
+}
+
+fn candidate_has_current_feed_context(candidate: &Candidate, haystack: &str) -> bool {
+    if !segment_has_weekday_signal(haystack) || segment_has_stale_date_for_current_window(haystack) {
+        return false;
+    }
+    let snippet = clean_text(&candidate.snippet, 1_800);
+    if !content_rich_text(&snippet) {
+        return false;
+    }
+    let source_kind = clean_text(&candidate.source_kind, 120).to_ascii_lowercase();
+    let permissions = clean_text(candidate.permissions.as_deref().unwrap_or(""), 240).to_ascii_lowercase();
+    let materialization_quality = candidate_materialization_quality(candidate);
+    let structured_feed = materialization_quality == "trusted_structured_feed"
+        || source_kind.contains("rss")
+        || source_kind.contains("feed")
+        || source_kind.contains("api")
+        || permissions.contains("structured_feed")
+        || permissions.contains("headline_feed");
+    let article_like_materialized = matches!(
+        materialization_quality,
+        "full_materialized" | "partial_materialized"
+    ) && page_extraction_link_has_article_like_path(&candidate.locator);
+    structured_feed || article_like_materialized
 }
 
 fn push_unique_clean_string(
@@ -118,7 +353,6 @@ fn recency_adjustment(query: &str, candidate: &Candidate) -> f64 {
     if !current_web_intent(query) {
         return 0.0;
     }
-    let year = current_year();
     let haystack = clean_text(
         &format!(
             "{} {} {}",
@@ -127,7 +361,13 @@ fn recency_adjustment(query: &str, candidate: &Candidate) -> f64 {
         2_400,
     )
     .to_ascii_lowercase();
-    if haystack.contains(&year) || segment_has_current_signal(&haystack) {
+    let has_current_signal = if relative_or_update_freshness_intent(query) {
+        segment_has_strong_current_signal(&haystack)
+            || candidate_has_current_feed_context(candidate, &haystack)
+    } else {
+        haystack.contains(&current_year()) || segment_has_current_signal(&haystack)
+    };
+    if has_current_signal {
         0.08
     } else {
         -0.08
@@ -138,6 +378,12 @@ fn candidate_quality_flags(query: &str, candidate: &Candidate, score: f64) -> Ve
     let mut flags = Vec::<String>::new();
     let snippet = clean_text(&candidate.snippet, 1_600);
     let trust = source_trust_adjustment(candidate);
+    let broad_current_article_evidence = candidate_has_broad_current_article_evidence_signal(
+        query,
+        candidate,
+        &snippet,
+        trust,
+    );
     if trust >= 0.15 {
         flags.push("trusted_source".to_string());
     } else if trust <= -0.14 {
@@ -149,7 +395,7 @@ fn candidate_quality_flags(query: &str, candidate: &Candidate, score: f64) -> Ve
     if looks_like_metric_rich_text(&snippet) {
         flags.push("metric_rich".to_string());
     }
-    if query_overlap_terms(query, candidate) < 2 {
+    if query_overlap_terms(query, candidate) < 2 && !broad_current_article_evidence {
         flags.push("thin_query_overlap".to_string());
     }
     if has_only_weak_query_overlap(query, candidate) {
@@ -166,6 +412,9 @@ fn candidate_quality_flags(query: &str, candidate: &Candidate, score: f64) -> Ve
     }
     if looks_like_link_directory_or_aggregator_shell(&snippet) {
         flags.push("link_directory_or_aggregator_shell".to_string());
+    }
+    if looks_like_page_chrome_or_unavailable_shell(&snippet) {
+        flags.push("page_chrome_or_unavailable_shell".to_string());
     }
     if score < 0.35 {
         flags.push("low_score".to_string());
@@ -559,12 +808,43 @@ fn relevance_term_stem(term: &str) -> String {
     lower
 }
 
+fn facet_compound_term_present(term: &str, haystack: &HashSet<String>) -> bool {
+    let lower = term.to_ascii_lowercase();
+    match lower.as_str() {
+        "runtime" => {
+            (haystack.contains("run") && haystack.contains("time"))
+                || haystack.iter().any(|token| {
+                    let token = token.trim_matches(|ch: char| !ch.is_ascii_alphanumeric());
+                    token.ends_with("min") && token.chars().any(|ch| ch.is_ascii_digit())
+                })
+        }
+        "brushroll" | "brushrolls" => {
+            haystack.contains("brushroll")
+                || haystack.contains("brushrolls")
+                || (haystack.contains("brush")
+                    && (haystack.contains("roll")
+                        || haystack.contains("roller")
+                        || haystack.contains("bar")))
+        }
+        _ => {
+            let pieces = haystack.iter().collect::<Vec<_>>();
+            pieces.iter().any(|left| {
+                pieces
+                    .iter()
+                    .any(|right| format!("{left}{right}") == lower)
+            })
+        }
+    }
+}
+
 fn facet_term_present(
     term: &str,
     haystack: &HashSet<String>,
     haystack_stems: &HashSet<String>,
 ) -> bool {
-    haystack.contains(term) || haystack_stems.contains(&relevance_term_stem(term))
+    haystack.contains(term)
+        || haystack_stems.contains(&relevance_term_stem(term))
+        || facet_compound_term_present(term, haystack)
 }
 
 fn candidate_matches_facet(facet: &ResearchFacet, candidate: &Candidate, min_terms: usize) -> bool {
@@ -1521,6 +1801,27 @@ fn evidence_pack_freshness_status(query: &str, candidate: &Candidate) -> String 
     }
 }
 
+fn candidate_has_broad_current_article_evidence_signal(
+    query: &str,
+    candidate: &Candidate,
+    snippet: &str,
+    trust: f64,
+) -> bool {
+    if !current_web_intent(query) || query_has_distinctive_relevance_terms(query) {
+        return false;
+    }
+    let candidate_relevance = candidate_relevance_text(candidate);
+    let has_current_context = segment_has_current_signal(&candidate_relevance)
+        || candidate_has_current_feed_context(candidate, &candidate_relevance);
+    let materialization_quality = candidate_materialization_quality(candidate);
+    has_current_context
+        && (page_extraction_link_has_article_like_path(&candidate.locator)
+            || trust >= 0.1
+            || materialization_quality == "trusted_structured_feed")
+        && content_rich_text(snippet)
+        && !looks_like_link_directory_or_aggregator_shell(snippet)
+}
+
 fn materialization_quality_from_fields(
     source_kind: &str,
     permissions: &str,
@@ -1647,6 +1948,7 @@ fn candidate_has_non_evidence_payload(candidate: &Candidate) -> bool {
         || looks_like_style_or_script_dump(&candidate.snippet)
         || looks_like_social_video_shell(candidate)
         || looks_like_link_directory_or_aggregator_shell(&candidate.snippet)
+        || looks_like_page_chrome_or_unavailable_shell(&candidate.snippet)
 }
 
 fn candidate_counts_as_usable_evidence(candidate: &Candidate) -> bool {
@@ -1669,6 +1971,7 @@ fn quality_flags_block_query_usable_evidence(
                     | "style_or_script_dump"
                     | "social_video_shell"
                     | "link_directory_or_aggregator_shell"
+                    | "page_chrome_or_unavailable_shell"
                     | "weak_query_overlap_only"
                     | "low_score"
         )
@@ -1683,9 +1986,12 @@ fn quality_flags_block_query_usable_evidence(
             .iter()
             .any(|flag| flag == "freshness_unproven")
     {
-        return true;
+        return !freshness_unproven_candidate_is_still_comparison_evidence(query, candidate);
     }
     if !thin_overlap {
+        return false;
+    }
+    if freshness_unproven_candidate_is_still_comparison_evidence(query, candidate) {
         return false;
     }
     let materialization_quality = candidate_materialization_quality(candidate);
@@ -1694,6 +2000,54 @@ fn quality_flags_block_query_usable_evidence(
             materialization_quality,
             "candidate_only" | "trusted_structured_feed"
         )
+}
+
+fn freshness_unproven_candidate_is_still_comparison_evidence(
+    query: &str,
+    candidate: &Candidate,
+) -> bool {
+    if !is_benchmark_or_comparison_intent(query) {
+        return false;
+    }
+    let materialization_quality = candidate_materialization_quality(candidate);
+    if !matches!(
+        materialization_quality,
+        "full_materialized" | "browser_materialized" | "trusted_structured_feed"
+    ) {
+        return false;
+    }
+    let title = clean_text(&candidate.title, 600).to_ascii_lowercase();
+    let snippet = clean_text(&candidate.snippet, 1_600).to_ascii_lowercase();
+    if materialization_quality == "trusted_structured_feed"
+        && !content_rich_text(&candidate.snippet)
+        && !looks_like_metric_rich_text(&snippet)
+    {
+        return false;
+    }
+    let comparative_signal = title.contains(" vs ")
+        || title.contains(" versus ")
+        || title.contains("compare")
+        || title.contains("comparison")
+        || snippet.contains(" vs ")
+        || snippet.contains(" versus ")
+        || snippet.contains("compared")
+        || snippet.contains("comparison");
+    if comparative_signal && query_overlap_terms(query, candidate) >= 4 {
+        return true;
+    }
+
+    let stable_reference_signal = looks_like_metric_rich_text(&snippet)
+        || title.contains("spec")
+        || title.contains("manual")
+        || title.contains("support")
+        || title.contains("documentation")
+        || snippet.contains("spec")
+        || snippet.contains("manual")
+        || snippet.contains("support")
+        || snippet.contains("documentation")
+        || snippet.contains("technical details");
+    let (overlap, _, _) = query_overlap_profile(query, candidate);
+    stable_reference_signal && overlap >= 1 && !candidate_has_non_evidence_payload(candidate)
 }
 
 fn candidate_counts_as_query_usable_evidence(
@@ -1706,6 +2060,30 @@ fn candidate_counts_as_query_usable_evidence(
     }
     let quality_flags = candidate_quality_flags(query, candidate, score);
     !quality_flags_block_query_usable_evidence(query, candidate, &quality_flags)
+}
+
+fn has_pack_ready_synthesis_candidate(query: &str, candidates: &[Candidate]) -> bool {
+    candidates.iter().any(|candidate| {
+        let score = rerank_score(query, candidate);
+        candidate_is_pack_ready_evidence(query, candidate, score)
+    })
+}
+
+fn has_pack_ready_synthesis_source_quality(query: &str, candidates: &[Candidate]) -> bool {
+    let mut usable_count = 0usize;
+    let mut domains = HashSet::<String>::new();
+    for candidate in candidates {
+        let score = rerank_score(query, candidate);
+        if !candidate_is_pack_ready_evidence(query, candidate, score) {
+            continue;
+        }
+        usable_count += 1;
+        let domain = candidate_domain_hint(candidate).to_ascii_lowercase();
+        if !domain.is_empty() && domain != "source" {
+            domains.insert(domain);
+        }
+    }
+    usable_count >= 2 && domains.len() >= 2
 }
 
 fn evidence_row_materialization_quality(row: &Value) -> String {
@@ -1755,6 +2133,7 @@ fn evidence_row_counts_as_usable_evidence(row: &Value) -> bool {
                 "junk_marker"
                     | "style_or_script_dump"
                     | "social_video_shell"
+                    | "page_chrome_or_unavailable_shell"
                     | "weak_query_overlap_only"
                     | "thin_query_overlap"
                     | "low_score"
@@ -1765,8 +2144,51 @@ fn evidence_row_counts_as_usable_evidence(row: &Value) -> bool {
         ))
 }
 
+fn strip_inline_markdown_links(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut rest = raw;
+    while let Some(start) = rest.find('[') {
+        out.push_str(&rest[..start]);
+        let after_start = &rest[start + 1..];
+        let Some(label_end) = after_start.find("](") else {
+            out.push('[');
+            rest = after_start;
+            continue;
+        };
+        let label = clean_text(&after_start[..label_end], 160);
+        let after_link = &after_start[label_end + 2..];
+        let Some(url_end) = after_link.find(')') else {
+            out.push('[');
+            rest = after_start;
+            continue;
+        };
+        let label_lowered = label.to_ascii_lowercase();
+        let label_word_count = label.split_whitespace().count();
+        let label_is_action_chrome = label_word_count <= 6
+            && [
+                "read ",
+                "listen ",
+                "download ",
+                "share",
+                "cite ",
+                "view ",
+                "open ",
+                "subscribe",
+            ]
+            .iter()
+            .any(|marker| label_lowered.starts_with(marker));
+        if !label_is_action_chrome && !label.is_empty() {
+            out.push_str(&label);
+        }
+        out.push_str(". ");
+        rest = &after_link[url_end + 1..];
+    }
+    out.push_str(rest);
+    clean_text(&out, raw.len().max(1))
+}
+
 fn claim_hint_normalized_snippet(snippet: &str) -> String {
-    let mut normalized = clean_text(snippet, 2_400)
+    let mut normalized = strip_inline_markdown_links(&clean_text(snippet, 2_400))
         .replace("&#x27;", "'")
         .replace("&#39;", "'")
         .replace("&#039;", "'")
@@ -1823,34 +2245,110 @@ fn claim_text_has_urlish_fragment(text: &str) -> bool {
 
 fn claim_text_looks_like_page_or_subscription_boilerplate(text: &str) -> bool {
     let lowered = clean_text(text, 520).to_ascii_lowercase();
+    if looks_like_page_chrome_or_unavailable_shell(&lowered) {
+        return true;
+    }
     [
         "affiliate link",
         "affiliate links",
         "all rights reserved",
         "account today",
         "amazon associate",
+        "before final publication",
         "by clicking",
+        "cite this article",
         "cookie policy",
+        "download pdf article",
         "earn from qualifying purchases",
         "enter email",
         "explore ways to use",
+        "explore all metrics",
         "for your next news release",
+        "javascript:",
         "load more",
         "latest news, sport and opinion",
+        "listen to article",
         "live updates",
+        "news provided by",
         "privacy policy",
         "published:",
+        "read the companion remarks",
+        "read the proof",
         "share save",
+        "share this article",
         "see the latest features",
+        "show authors",
         "sign up",
         "skip to main content",
         "source:",
         "subscribe",
         "terms of service",
         "tos and privacy",
+        "you have full access to this open access",
     ]
     .iter()
     .any(|marker| lowered.contains(marker))
+}
+
+fn looks_like_page_chrome_or_unavailable_shell(text: &str) -> bool {
+    let lowered = clean_text(text, 1_200).to_ascii_lowercase();
+    if lowered.is_empty() {
+        return false;
+    }
+    let navigation_hits = [
+        "accessibility links",
+        "accessibility help",
+        "account notifications",
+        "close menu",
+        "more menu",
+        "skip to main content",
+    ]
+    .iter()
+    .filter(|marker| lowered.contains(**marker))
+    .count();
+    navigation_hits >= 2
+        || (lowered.contains("not currently available")
+            && (lowered.contains("sorry")
+                || lowered.contains("episode")
+                || lowered.contains("video")
+                || lowered.contains("programme")
+                || lowered.contains("program")))
+}
+
+fn claim_text_without_page_chrome_tail(text: &str) -> String {
+    let cleaned = clean_text(text, 520);
+    let lowered = cleaned.to_ascii_lowercase();
+    let mut cut_at = cleaned.len();
+    for marker in [
+        " before final publication",
+        " cite this article",
+        " download pdf",
+        " explore all metrics",
+        " javascript:",
+        " listen to article",
+        " news provided by",
+        " read the companion remarks",
+        " read the proof",
+        " share save",
+        " share this article",
+        " show authors",
+        " you have full access to this open access",
+    ] {
+        if let Some(index) = lowered.find(marker) {
+            cut_at = cut_at.min(index);
+        }
+    }
+    if cut_at == cleaned.len() {
+        return cleaned;
+    }
+    let trimmed = clean_text(&cleaned[..cut_at], 520);
+    let word_count = trimmed.split_whitespace().count();
+    let alpha_count = trimmed.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
+    if word_count >= 6 && alpha_count >= 24 && !claim_text_has_dangling_tail(&trimmed) {
+        trimmed
+    } else {
+        cleaned
+    }
 }
 
 fn claim_text_has_dangling_tail(text: &str) -> bool {
@@ -1902,7 +2400,7 @@ fn claim_text_looks_like_title_bar_or_source_separator(text: &str) -> bool {
 }
 
 fn claim_hint_segment_is_substantive(segment: &str) -> bool {
-    let cleaned = clean_text(segment, 420);
+    let cleaned = claim_text_without_page_chrome_tail(&clean_text(segment, 420));
     if cleaned.split_whitespace().count() < 6 {
         return false;
     }
@@ -1969,10 +2467,46 @@ fn claim_hint_segment_is_substantive(segment: &str) -> bool {
         " published ",
         " reports ",
         " reported ",
+        " announces ",
+        " announced ",
+        " discover ",
+        " discovers ",
+        " discovered ",
+        " demonstrate ",
+        " demonstrates ",
+        " demonstrated ",
+        " prove ",
+        " proves ",
+        " proved ",
+        " disprove ",
+        " disproves ",
+        " disproved ",
+        " reveal ",
+        " reveals ",
+        " revealed ",
+        " introduce ",
+        " introduces ",
+        " introduced ",
         " found ",
         " shows ",
         " says ",
         " said ",
+        " tries ",
+        " tried ",
+        " seeks ",
+        " sought ",
+        " faces ",
+        " faced ",
+        " calls ",
+        " called ",
+        " plans ",
+        " planned ",
+        " moves ",
+        " moved ",
+        " spoke ",
+        " speaks ",
+        " tells ",
+        " told ",
         " warns ",
         " warned ",
         " according to ",
@@ -1992,6 +2526,8 @@ fn claim_hint_segment_is_substantive(segment: &str) -> bool {
         " held ",
         " joins ",
         " joined ",
+        " backs ",
+        " backed ",
         " launches ",
         " launched ",
         " approves ",
@@ -2000,12 +2536,20 @@ fn claim_hint_segment_is_substantive(segment: &str) -> bool {
         " confirmed ",
         " blocks ",
         " blocked ",
+        " presses ",
+        " pressing ",
+        " pushes ",
+        " pushing ",
+        " ratifies ",
+        " ratified ",
+        " signals ",
+        " signaled ",
+        " signalled ",
         " shifts ",
         " shifted ",
         " excel ",
         " excels ",
         " cleaned ",
-        " announced ",
         " released ",
     ]
     .iter()
@@ -2014,25 +2558,20 @@ fn claim_hint_segment_is_substantive(segment: &str) -> bool {
 
 fn evidence_pack_claim_hints(query: &str, snippet: &str, limit: usize) -> Vec<String> {
     let query_terms = tokenize_relevance(query, 40);
-    let broad_current_query_without_distinctive_terms =
-        current_web_intent(query) && !query_has_distinctive_relevance_terms(query);
+    let broad_current_no_distinctive = broad_current_query_without_distinctive_terms(query);
     let mut out = Vec::<String>::new();
     let normalized = claim_hint_normalized_snippet(snippet);
     let snippet_has_current_signal = segment_has_current_signal(&normalized);
     for segment in normalized.split(|ch| matches!(ch, '.' | '\n' | '\r')) {
-        let cleaned = clean_text(segment, 420);
+        let cleaned = claim_text_without_page_chrome_tail(&clean_text(segment, 420));
         if !claim_hint_segment_is_substantive(&cleaned) {
             continue;
         }
         let segment_terms = tokenize_relevance(&cleaned, 80);
-        let has_query_overlap = query_terms.is_empty()
-            || query_terms
-                .iter()
-                .any(|term| segment_terms.contains(term.as_str()))
-            || (broad_current_query_without_distinctive_terms
+        let has_query_overlap = claim_hint_query_overlap(query, &query_terms, &segment_terms)
+            || (broad_current_no_distinctive
                 && segment_has_current_signal(&cleaned));
-        let has_query_overlap = has_query_overlap
-            || (broad_current_query_without_distinctive_terms && snippet_has_current_signal);
+        let has_query_overlap = has_query_overlap || (broad_current_no_distinctive && snippet_has_current_signal);
         if !has_query_overlap {
             continue;
         }
@@ -2044,6 +2583,57 @@ fn evidence_pack_claim_hints(query: &str, snippet: &str, limit: usize) -> Vec<St
             continue;
         }
         out.push(claim);
+        if out.len() >= limit.max(1) {
+            break;
+        }
+    }
+    if out.is_empty() {
+        out.extend(evidence_pack_list_claim_hints(
+            query,
+            &normalized,
+            snippet_has_current_signal,
+            limit,
+        ));
+    }
+    out
+}
+
+fn evidence_pack_list_claim_hints(
+    query: &str,
+    normalized: &str,
+    snippet_has_current_signal: bool,
+    limit: usize,
+) -> Vec<String> {
+    let query_terms = tokenize_relevance(query, 40);
+    let broad_current_no_distinctive = broad_current_query_without_distinctive_terms(query);
+    let allow_broad_current = broad_current_no_distinctive
+        && snippet_has_current_signal
+        && !looks_like_link_directory_or_aggregator_shell(normalized);
+    let mut out = Vec::<String>::new();
+    let mut seen = HashSet::<String>::new();
+    for segment in normalized.split(|ch| matches!(ch, '|' | ';' | ',' | '\n' | '\r')) {
+        let cleaned = claim_text_without_page_chrome_tail(&clean_text(segment, 420));
+        if !claim_hint_segment_is_substantive(&cleaned)
+            || looks_like_low_signal_search_summary(&cleaned)
+            || looks_like_source_only_snippet(&cleaned)
+            || claim_text_looks_like_page_or_subscription_boilerplate(&cleaned)
+        {
+            continue;
+        }
+        let segment_terms = tokenize_relevance(&cleaned, 80);
+        let has_query_overlap = claim_hint_query_overlap(query, &query_terms, &segment_terms)
+            || allow_broad_current;
+        if !has_query_overlap {
+            continue;
+        }
+        let claim = trim_words(&cleaned, 48);
+        if !claim_text_is_synthesis_safe(&claim) {
+            continue;
+        }
+        let key = claim.to_ascii_lowercase();
+        if seen.insert(key) {
+            out.push(claim);
+        }
         if out.len() >= limit.max(1) {
             break;
         }
@@ -2076,8 +2666,32 @@ fn evidence_pack_fallback_claim_hints_for_candidate(
 
     let query_terms = tokenize_relevance(query, 40);
     let mut out = Vec::<String>::new();
+    if looks_like_metric_rich_text(&snippet) {
+        let metric_fragment = clean_text(&query_aligned_metric_fragment(query, &snippet), 420);
+        let metric_terms = tokenize_relevance(&metric_fragment, 80);
+        let trusted_source = trusted_source
+            || matches!(
+                candidate_materialization_quality(candidate),
+                "trusted_structured_feed" | "full_materialized" | "partial_materialized"
+            );
+        let has_query_overlap = claim_hint_query_overlap(query, &query_terms, &metric_terms)
+            || (trusted_source && claim_hint_trusted_source_can_override_query_overlap(query));
+        if has_query_overlap
+            && metric_fragment.split_whitespace().count() >= 4
+            && claim_text_is_synthesis_safe(&metric_fragment)
+            && !claim_text_looks_like_page_or_subscription_boilerplate(&metric_fragment)
+            && !looks_like_low_signal_search_summary(&metric_fragment)
+            && !looks_like_source_only_snippet(&metric_fragment)
+            && !looks_like_link_directory_or_aggregator_shell(&metric_fragment)
+        {
+            out.push(trim_words(&metric_fragment, 48));
+        }
+    }
+    if out.len() >= limit.max(1) {
+        return out;
+    }
     for segment in snippet.split(|ch| matches!(ch, '.' | ';' | '\n' | '\r')) {
-        let cleaned = clean_text(segment, 420);
+        let cleaned = claim_text_without_page_chrome_tail(&clean_text(segment, 420));
         let word_count = cleaned.split_whitespace().count();
         let alpha_count = cleaned.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
         let visible_count = cleaned.chars().filter(|ch| !ch.is_whitespace()).count().max(1);
@@ -2093,11 +2707,10 @@ fn evidence_pack_fallback_claim_hints_for_candidate(
             continue;
         }
         let segment_terms = tokenize_relevance(&cleaned, 80);
-        let has_query_overlap = query_terms.is_empty()
-            || query_terms
-                .iter()
-                .any(|term| segment_terms.contains(term.as_str()));
-        if !has_query_overlap && !trusted_source {
+        let has_query_overlap = claim_hint_query_overlap(query, &query_terms, &segment_terms);
+        if !has_query_overlap
+            && !(trusted_source && claim_hint_trusted_source_can_override_query_overlap(query))
+        {
             continue;
         }
         let claim = trim_words(&cleaned, 48);
@@ -2108,7 +2721,124 @@ fn evidence_pack_fallback_claim_hints_for_candidate(
             break;
         }
     }
+    if out.is_empty() {
+        if let Some(title_claim) = evidence_pack_title_claim_hint_for_candidate(query, candidate) {
+            out.push(title_claim);
+        }
+    }
     out
+}
+
+fn query_aligned_metric_fragment(query: &str, snippet: &str) -> String {
+    let cleaned = clean_text(snippet, 1_200)
+        .replace("[...]", ". ")
+        .replace("[\u{2026}]", ". ")
+        .replace('\u{2026}', ". ")
+        .replace('\u{2022}', ". ")
+        .replace(" # ", ". ")
+        .replace(" - ", ". ");
+    let segments = cleaned
+        .split(['.', ';', '\n', '|'])
+        .map(|segment| clean_text(segment, 400))
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let query_terms = tokenize_relevance(query, 40);
+    let mut best: Option<(usize, usize, String)> = None;
+    for (index, segment) in segments.iter().enumerate() {
+        if !looks_like_metric_rich_text(segment) {
+            continue;
+        }
+        let previous = (0..index)
+            .rev()
+            .filter_map(|previous_index| segments.get(previous_index))
+            .find(|previous_segment| {
+                let lowered = previous_segment.to_ascii_lowercase();
+                previous_segment.split_whitespace().count() >= 2
+                    && !looks_like_metric_rich_text(previous_segment)
+                    && !lowered.starts_with("http")
+                    && !lowered.starts_with("www")
+                    && !lowered.contains(" | ")
+            });
+        let candidate = if segment.split_whitespace().count() >= 5 {
+            segment.clone()
+        } else if let Some(previous) = previous {
+            clean_text(&format!("{previous} - {segment}"), 420)
+        } else {
+            segment.clone()
+        };
+        let candidate_terms = tokenize_relevance(&candidate, 80);
+        let candidate_stems = candidate_terms
+            .iter()
+            .map(|term| relevance_term_stem(term))
+            .collect::<HashSet<_>>();
+        let overlap = query_terms
+            .iter()
+            .filter(|term| facet_term_present(term, &candidate_terms, &candidate_stems))
+            .count();
+        let word_count = candidate.split_whitespace().count();
+        let rank = (overlap, word_count, candidate.clone());
+        if best
+            .as_ref()
+            .map(|current| (rank.0, rank.1) > (current.0, current.1))
+            .unwrap_or(true)
+        {
+            best = Some(rank);
+        }
+    }
+    best.map(|(_, _, fragment)| fragment)
+        .unwrap_or_else(|| extract_metric_focused_fragment(snippet))
+}
+
+fn evidence_pack_title_claim_hint_for_candidate(query: &str, candidate: &Candidate) -> Option<String> {
+    if !candidate_counts_as_query_usable_evidence(query, candidate, rerank_score(query, candidate))
+    {
+        return None;
+    }
+    let mut title = clean_text(&candidate.title, 360)
+        .replace(" — ", " - ")
+        .replace(" – ", " - ");
+    for separator in [" | ", " - "] {
+        if let Some((left, right)) = title.rsplit_once(separator) {
+            let right_word_count = right.split_whitespace().count();
+            let left = clean_text(left, 300);
+            if !left.is_empty() && (1..=5).contains(&right_word_count) {
+                title = left;
+            }
+        }
+    }
+    if title.split_whitespace().count() < 5
+        || looks_like_low_signal_search_summary(&title)
+        || looks_like_source_only_snippet(&title)
+        || contains_web_junk_marker(&title)
+        || looks_like_style_or_script_dump(&title)
+        || looks_like_hashtag_keyword_shell(&title)
+        || looks_like_media_embed_shell(&title)
+        || looks_like_link_directory_or_aggregator_shell(&title)
+        || claim_text_looks_like_page_or_subscription_boilerplate(&title)
+    {
+        return None;
+    }
+    let alpha_count = title.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
+    let visible_count = title.chars().filter(|ch| !ch.is_whitespace()).count().max(1);
+    if alpha_count < 18 || alpha_count * 2 < visible_count {
+        return None;
+    }
+    let trusted_source = source_trust_adjustment(candidate) >= 0.15
+        || matches!(
+            candidate_materialization_quality(candidate),
+            "trusted_structured_feed" | "full_materialized"
+        );
+    let query_terms = tokenize_relevance(query, 40);
+    let title_terms = tokenize_relevance(&title, 80);
+    let broad_current_no_distinctive = broad_current_query_without_distinctive_terms(query);
+    let has_query_overlap = claim_hint_query_overlap(query, &query_terms, &title_terms)
+        || (broad_current_no_distinctive && segment_has_current_signal(&title))
+        || (trusted_source && claim_hint_trusted_source_can_override_query_overlap(query));
+    if !has_query_overlap {
+        return None;
+    }
+    let claim = trim_words(&title, 48);
+    claim_text_is_synthesis_safe(&claim).then_some(claim)
 }
 
 fn evidence_pack_claim_hints_for_candidate(
@@ -2137,6 +2867,38 @@ fn evidence_pack_claim_hints_for_candidate(
     }
 }
 
+fn evidence_pack_relevant_extract_for_candidate(candidate: &Candidate, max_words: usize) -> String {
+    let normalized = claim_hint_normalized_snippet(&candidate.snippet);
+    let raw_extract = if normalized.is_empty() {
+        clean_text(&candidate.snippet, 1_800)
+    } else {
+        clean_text(&normalized, 1_800)
+    };
+    let extract = clean_evidence_extract_text(&raw_extract);
+    trim_words(&extract, max_words)
+}
+
+fn clean_evidence_extract_text(raw: &str) -> String {
+    let mut cleaned = clean_text(raw, 1_800);
+    for marker in [
+        "Listen to article",
+        "Share this article",
+        "Share Save",
+        "Cite this article",
+        "Explore all metrics",
+        "Show authors",
+        "You have full access to this open access article",
+    ] {
+        cleaned = cleaned.replace(marker, ". ");
+    }
+    cleaned = cleaned
+        .replace("javascript:;", ". ")
+        .replace("javascript:", ". ")
+        .replace(" Share For ", ". For ")
+        .replace(" Share Good ", ". Good ");
+    clean_text(&cleaned, 1_800)
+}
+
 fn content_rich_text(text: &str) -> bool {
     let cleaned = clean_text(text, 1_800);
     if cleaned.split_whitespace().count() < 18 {
@@ -2158,6 +2920,23 @@ fn looks_like_link_directory_or_aggregator_shell(text: &str) -> bool {
         return false;
     }
     let word_count = cleaned.split_whitespace().count();
+    let lowered = cleaned.to_ascii_lowercase();
+    let syndicated_digest_hits = [
+        "news digest",
+        "daily news summary",
+        "weekly news summary",
+        "headlines summary",
+        "headlines digest",
+        "from reuters",
+        "from ap",
+        "from bbc",
+    ]
+    .iter()
+    .filter(|marker| lowered.contains(**marker))
+    .count();
+    if word_count < 90 && syndicated_digest_hits >= 2 {
+        return true;
+    }
     if word_count < 28 {
         return false;
     }
@@ -2169,7 +2948,6 @@ fn looks_like_link_directory_or_aggregator_shell(text: &str) -> bool {
     if domain_count >= 2 && link_separator_count >= 1 {
         return true;
     }
-    let lowered = cleaned.to_ascii_lowercase();
     let navigation_marker_hits = [
         "menu",
         "sections",
@@ -2626,6 +3404,7 @@ fn evidence_pack_from_ranked_candidates(
             .take(max_items)
             .map(|(candidate, score)| {
                 let domain = candidate_domain_hint(candidate);
+                let source_class = evidence_pack_source_class(policy, candidate);
                 let quality_flags = if candidate_is_low_confidence_retained(candidate) {
                     vec!["low_confidence_raw".to_string()]
                 } else {
@@ -2633,6 +3412,9 @@ fn evidence_pack_from_ranked_candidates(
                 };
                 let coverage_facets = candidate_coverage_facets(facets, candidate, min_terms);
                 let claim_hints = evidence_pack_claim_hints_for_candidate(query, candidate, 2);
+                let term_hints = evidence_pack_term_hints(query, candidate, 8);
+                let relevant_extract =
+                    evidence_pack_relevant_extract_for_candidate(candidate, max_snippet_words);
                 let counts_as_usable =
                     candidate_counts_as_query_usable_evidence(query, candidate, *score)
                         && !claim_hints.is_empty();
@@ -2643,7 +3425,6 @@ fn evidence_pack_from_ranked_candidates(
                 } else {
                     "candidate_only"
                 };
-                let term_hints = evidence_pack_term_hints(query, candidate, 8);
                 let promotion = evidence_promotion_assessment(
                     query,
                     candidate,
@@ -2653,17 +3434,28 @@ fn evidence_pack_from_ranked_candidates(
                     &coverage_facets,
                 );
                 let materialization_quality = candidate_materialization_quality(candidate);
+                let why_relevant = evidence_pack_relevance_reason(
+                    query,
+                    &coverage_facets,
+                    &term_hints,
+                    counts_as_usable,
+                );
                 json!({
                     "pack_version": "evidence_pack_v1",
+                    "evidence_packet_version": "evidence_packet_v1",
                     "source_kind": candidate.source_kind.clone(),
-                    "source_class": evidence_pack_source_class(policy, candidate),
+                    "source_class": source_class.clone(),
+                    "source_type": source_class,
                     "title": clean_text(&candidate.title, 240),
                     "locator": clean_text(&candidate.locator, 2_200),
                     "source_scope": domain,
                     "source_domain": domain,
-                    "snippet": trim_words(&clean_text(&candidate.snippet, 1_800), max_snippet_words),
+                    "snippet": relevant_extract.clone(),
+                    "support_snippet": relevant_extract.clone(),
+                    "relevant_extract": relevant_extract,
                     "claim_hints": claim_hints,
                     "term_hints": term_hints,
+                    "why_relevant_to_query": why_relevant,
                     "excerpt_hash": candidate.excerpt_hash.clone(),
                     "score": (*score * 100.0).round() / 100.0,
                     "score_components": {
@@ -2689,6 +3481,51 @@ fn evidence_pack_from_ranked_candidates(
             })
             .collect::<Vec<_>>(),
     )
+}
+
+fn evidence_pack_relevance_reason(
+    query: &str,
+    coverage_facets: &[String],
+    term_hints: &[String],
+    counts_as_usable: bool,
+) -> String {
+    let facets = coverage_facets
+        .iter()
+        .map(|facet| clean_text(facet, 80))
+        .filter(|facet| !facet.is_empty())
+        .take(3)
+        .collect::<Vec<_>>();
+    if !facets.is_empty() {
+        return clean_text(
+            &format!("Selected because it covers requested facets: {}.", facets.join(", ")),
+            320,
+        );
+    }
+    let terms = term_hints
+        .iter()
+        .map(|term| clean_text(term, 80))
+        .filter(|term| !term.is_empty())
+        .take(4)
+        .collect::<Vec<_>>();
+    if !terms.is_empty() {
+        return clean_text(
+            &format!("Selected because it overlaps query terms: {}.", terms.join(", ")),
+            320,
+        );
+    }
+    if counts_as_usable {
+        return "Selected by retrieval ranking as usable source-backed evidence for the query."
+            .to_string();
+    }
+    let query = clean_text(query, 160);
+    if query.is_empty() {
+        "Retained as a diagnostic candidate, but not promoted as usable evidence.".to_string()
+    } else {
+        clean_text(
+            &format!("Retained as a diagnostic candidate for `{query}`, but not promoted as usable evidence."),
+            320,
+        )
+    }
 }
 
 fn evidence_claim_entities(query_metadata: &BatchQueryKeywordPack, row: &Value) -> Vec<String> {
@@ -3885,13 +4722,24 @@ fn page_extraction_link_has_article_like_path(link: &str) -> bool {
         || path_lower.contains("/story")
         || path_lower.contains("/stories/")
         || path_lower.contains("/news/");
+    let has_doi_marker = path_lower.contains("/doi/") && segments.len() >= 3;
     let has_long_slug = segments.iter().any(|segment| {
         segment.len() >= 16
             && segment.contains('-')
             && segment.chars().any(|ch| ch.is_ascii_alphabetic())
     });
+    let has_post_marker = path_lower.contains("/p/")
+        && segments.len() >= 2
+        && segments.iter().any(|segment| {
+            (segment.len() >= 8 && segment.contains('-'))
+                || (segment.len() >= 4
+                    && segment.starts_with("20")
+                    && segment.chars().all(|ch| ch.is_ascii_digit()))
+        });
     (has_year_segment && segments.len() >= 2)
         || has_date_slug
+        || has_post_marker
+        || has_doi_marker
         || (has_article_marker && (segments.len() >= 3 || has_long_slug))
         || (segments.len() >= 3 && has_long_slug)
 }

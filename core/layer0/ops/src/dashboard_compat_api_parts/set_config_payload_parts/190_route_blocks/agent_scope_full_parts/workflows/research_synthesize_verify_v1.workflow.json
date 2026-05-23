@@ -931,6 +931,12 @@
           "tool_id": "batch_query",
           "tool_cd_ref": "core/layer2/tooling/tool_cds/web_retrieval_v0.tool.json#batch_query",
           "label": "Research query pack",
+          "recovery_default_for_raw_message": true,
+          "raw_message_fallback_contract": {
+            "enabled": true,
+            "bind_user_message_to": "query",
+            "purpose": "When the workflow already selected web research but the model omitted a payload, bind the raw user message into the declared query field without Rust inferring a query type."
+          },
           "request_format": {
             "source": "web",
             "query": "<overall research question>",
@@ -995,66 +1001,6 @@
         },
         {
           "option": 2,
-          "key": "web_search",
-          "tool_id": "web_search",
-          "tool_cd_ref": "core/layer2/tooling/tool_cds/web_retrieval_v0.tool.json#web_search",
-          "label": "Search web",
-          "recovery_default_for_raw_message": true,
-          "raw_message_fallback_contract": {
-            "enabled": true,
-            "bind_user_message_to": "query",
-            "purpose": "When the workflow already selected web research but the model omitted a payload, bind the raw user message into the declared query field without Rust inferring a query type."
-          },
-          "request_format": {
-            "query": "<search criteria>",
-            "keywords": [
-              "<important exact entity, phrase, source-class, date, or aspect term>"
-            ],
-            "required_coverage": {
-              "entities": [
-                "<named entity or subject for this narrow lookup>"
-              ],
-              "facets": [
-                "<specific fact, source class, time window, or aspect this lookup should cover>"
-              ]
-            },
-            "aliases": [
-              "<optional alternate name or exact phrase>"
-            ],
-            "negative_terms": [
-              "<optional ambiguity filter>"
-            ],
-            "query_metadata_policy": {
-              "classification": "narrow_lookup_or_initial_discovery"
-            },
-            "aperture": "medium"
-          },
-          "request_example": {
-            "query": "latest rust 2026 release notes",
-            "keywords": [
-              "Rust",
-              "2026",
-              "release notes"
-            ],
-            "required_coverage": {
-              "entities": [
-                "Rust"
-              ],
-              "facets": [
-                "release notes",
-                "current version"
-              ]
-            },
-            "aliases": [],
-            "negative_terms": [],
-            "query_metadata_policy": {
-              "classification": "narrow_lookup_or_initial_discovery"
-            },
-            "aperture": "medium"
-          }
-        },
-        {
-          "option": 3,
           "key": "web_fetch",
           "tool_id": "web_fetch",
           "tool_cd_ref": "core/layer2/tooling/tool_cds/web_retrieval_v0.tool.json#web_fetch",
@@ -1070,8 +1016,8 @@
       "none": []
     },
     "llm_tool_family_instruction": "INTERNAL GATE — output is never shown to the user. Gate 2 selects the tool family only. You MUST output ONLY a JSON object and nothing else. Format: {\"tool_family\": \"<family_key>\"}. Choose exactly one `tool_family` from the menu below. The previous tool-bearing work category was `{previous_category_key}` (`{previous_category_label}`); use that as context, but the only accepted artifact for this gate is the selected family key. Do NOT include a tool key, request payload, explanation, or sentence. Do NOT answer the user directly and do NOT describe what you plan to do. Family decision rules: choose `workspace_files` when the user asks to search, find, inspect, read, patch, or locate information in repository/workspace files, including finding where a symbol/string/config value is set. Choose `code_execution_terminal` only when the user asks to run a shell command, compile, test, start/stop a process, inspect the environment/system, or perform terminal/process control. If the request is to get information from files and a terminal command could also do it, prefer `workspace_files`. Near-miss examples: `Search the workspace for selected_tool_family and show me where it is set.` -> {\"tool_family\": \"workspace_files\"}. `Find where gate_2_tool_family_menu is declared in the repo.` -> {\"tool_family\": \"workspace_files\"}. `Run rg selected_tool_family and show the output.` -> {\"tool_family\": \"code_execution_terminal\"}. `Build the crate and show failing tests.` -> {\"tool_family\": \"code_execution_terminal\"}. Example: {\"tool_family\": \"web_research\"}.\n\nTool families (JSON):\n{tool_family_menu_json}",
-    "llm_tool_selection_instruction": "INTERNAL GATE - output is never shown to the user. Gate 3 selects one tool within the already-selected family `{selected_family_key}` (`{selected_family_label}`). This is a machine-control turn, not a chat turn. Output MUST be parseable as a single JSON object with exactly one key named `tool`: {\"tool\":\"<tool_key>\"}. The value MUST exactly match one entry in this allowed tool-key array: {selected_tool_keys_json}. Anything else is invalid: prose, markdown, code fences, XML/tool markup such as `<tool>`, `<query>`, or `<function=...>`, family keys, request payloads, placeholder values, or text before/after the JSON object. Choose the tool whose declared request contract most directly matches the retrieval action needed for the user's actual request. Use `web_fetch` only when the request already identifies a specific absolute URL or one page to read. Between `web_search` and `batch_query`, prefer the smallest valid tool that can carry the needed request object without inventing unsupported fields, canned query categories, or hidden assumptions about the prompt. If uncertain, prefer the tool whose declared request_format preserves the user's request most directly. Valid artifact example: {\"tool\":\"batch_query\"}.\n\nAvailable tools for the selected family (JSON):\n{selected_tool_menu_json}",
-    "llm_tool_payload_instruction": "INTERNAL GATE — output is never shown to the user. Gate 4 fills the request payload for the already-selected tool `{selected_tool_key}` (`{selected_tool_label}`) inside family `{selected_family_key}`. You MUST output ONLY a JSON object and nothing else. Format: {\"request_payload\": <payload_object>}. The payload object MUST match this request_format JSON: {selected_tool_request_format_json}. Use this example only as shape guidance: {selected_tool_request_example_json}. Do NOT include the tool family, do NOT include the tool key, and do NOT write any explanation or sentence. IMPORTANT: do NOT repeat any earlier gate/category artifact such as {\"gate\": \"...\"}; Gate 4 accepts only the request payload object. Do NOT emit placeholder JSON such as {\"key\":\"value\"} or a payload that omits declared required fields. Any prose is invalid, including phrases like `I'll search`, `I will read`, `To analyze`, or `I need to`. If the selected request_format declares `aperture`, copy `aperture` into `request_payload` exactly as declared. If the selected request_format declares `query`, make `query` a direct rendering of the original user request or the current narrowed retrieval goal. Use additional fields such as `queries`, `keywords`, `required_coverage`, `aliases`, or `negative_terms` only when they are declared by the selected request_format and are directly useful for carrying explicit terms, names, constraints, URLs, dates, or retry diagnostics already present in the current turn state. Do not invent a canned query type, answer format, or domain-specific strategy from the user's phrasing. Do not infer rankings, comparisons, landscapes, time windows, or entity sets from prompt-pattern rules in Rust or hidden policy. Preserve exact named entities, phrases, and user-stated constraints when they matter. If a prior tool result quality diagnostic is available and recommends retry, you may use that recorded diagnostic to refine the payload without asking the user to narrow while internal recovery budget remains. For `web_search`, do NOT invent provider or source fields unless the selected tool request_format explicitly declares them; use the declared keys only. For `workspace_search`, use `path` as the requested path or `.` when the user says workspace/repo without a narrower path; use `pattern` as the exact symbol, phrase, filename, or search target from the user request, not a paraphrase. Always follow the selected request_format and selected example above for the already-selected tool, not examples for other tools.",
+    "llm_tool_selection_instruction": "INTERNAL GATE - output is never shown to the user. Gate 3 selects one tool within the already-selected family `{selected_family_key}` (`{selected_family_label}`). This is a machine-control turn, not a chat turn. Output MUST be parseable as a single JSON object with exactly one key named `tool`: {\"tool\":\"<tool_key>\"}. The value MUST exactly match one entry in this allowed tool-key array: {selected_tool_keys_json}. Anything else is invalid: prose, markdown, code fences, XML/tool markup such as `<tool>`, `<query>`, or `<function=...>`, family keys, request payloads, placeholder values, or text before/after the JSON object. Choose the tool whose declared request contract most directly matches the retrieval action needed for the user's actual request. Use `web_fetch` only when the request already identifies a specific absolute URL or one page to read. Choose `batch_query` for source-backed web research, including broad lookup, current-state questions, comparisons, rankings, examples across fields, sentiment, news, product research, or any request whose final answer needs cited evidence or an evidence packet. Do not infer a canned query category or domain-specific answer shape from the prompt; preserve the user's request in the declared payload. Valid artifact example: {\"tool\":\"batch_query\"}.\n\nAvailable tools for the selected family (JSON):\n{selected_tool_menu_json}",
+    "llm_tool_payload_instruction": "INTERNAL GATE — output is never shown to the user. Gate 4 fills the request payload for the already-selected tool `{selected_tool_key}` (`{selected_tool_label}`) inside family `{selected_family_key}`. You MUST output ONLY a JSON object and nothing else. Format: {\"request_payload\": <payload_object>}. The payload object MUST match this request_format JSON: {selected_tool_request_format_json}. Use this example only as shape guidance: {selected_tool_request_example_json}. Do NOT include the tool family, do NOT include the tool key, and do NOT write any explanation or sentence. IMPORTANT: do NOT repeat any earlier gate/category artifact such as {\"gate\": \"...\"}; Gate 4 accepts only the request payload object. Do NOT emit placeholder JSON such as {\"key\":\"value\"} or a payload that omits declared required fields. Any prose is invalid, including phrases like `I'll search`, `I will read`, `To analyze`, or `I need to`. If the selected request_format declares `aperture`, copy `aperture` into `request_payload` exactly as declared. If the selected request_format declares `query`, make `query` a direct rendering of the original user request or the current narrowed retrieval goal. For `batch_query`, the top-level `query` field is mandatory; a payload that contains only `queries` and `aperture` is invalid. A single broad query may be used as an initial discovery pass, but the workflow must not finish from that pass unless the returned evidence already covers the request. When the request needs breadth, include 4-8 concrete follow-up searches in `queries`; omitting `queries` is also invalid unless this is explicitly a narrow lookup or an initial discovery pass. If quality diagnostics recommend recovery, submit targeted follow-up queries rather than finalizing. Keep exact entity names in the query pack and allocate query coverage fairly across requested entities and facets. Use additional fields such as `queries`, `keywords`, `required_coverage`, `aliases`, or `negative_terms` only when they are declared by the selected request_format and are directly useful for carrying explicit terms, names, constraints, URLs, dates, or retry diagnostics already present in the current turn state. Do not invent a canned query type, answer format, or domain-specific strategy from the user's phrasing. Do not infer rankings, comparisons, landscapes, time windows, or entity sets from prompt-pattern rules in Rust or hidden policy. Preserve exact named entities, phrases, and user-stated constraints when they matter. If a prior tool result quality diagnostic is available and recommends retry, you may use that recorded diagnostic to refine the payload without asking the user to narrow while internal recovery budget remains. For `workspace_search`, use `path` as the requested path or `.` when the user says workspace/repo without a narrower path; use `pattern` as the exact symbol, phrase, filename, or search target from the user request, not a paraphrase. Always follow the selected request_format and selected example above for the already-selected tool, not examples for other tools.",
     "llm_tool_request_instruction": "LEGACY INTERNAL GATE — output is never shown to the user. Deprecated combined submission contract retained only for compatibility. Runtime should prefer the split Gate 2/3/4 instructions above. If used, output ONLY a JSON object in the format {\"tool_family\": \"{selected_category_key}\", \"tool\": \"<tool_key>\", \"request_payload\": <payload_object>} and nothing else.\n\nAvailable tools (JSON):\n{selected_tool_menu_json}",
     "tool_request_submission_contract": {
       "version": "tool_request_submission_contract_v1",

@@ -293,6 +293,7 @@ coding_project_operator
   -> task_contract
   -> context_pack_builder
   -> source_test_pair_context_selection
+  -> bounded_patch_artifact_lane
   -> executable_manifest_or_patch_artifact
   -> implementation_entry_gate
   -> file_mutation_executor
@@ -306,6 +307,20 @@ coding_project_operator
 ```
 
 The high-level workflow composes primitives. It should not inline broad behavior rules.
+
+### `bounded_patch_artifact_lane`
+
+This is the fast path extracted from the Aider Level 3 speed isolation.
+
+Contract:
+
+- Input: original local coding task, selected source/test file context, validation/probe instructions when present.
+- Output: deterministic patch artifact plus native mutation and validation receipts.
+- Runtime behavior: select a small confident file set, send those files in one model request, require JSON patch artifact output, apply exact `old` -> `new` replacements through native patch tooling, run validation, then synthesize final success from receipts.
+- Fallback: if file selection is uncertain, no patch artifact is produced, or deterministic patch application fails before mutation, return to the general native tool loop.
+- Non-goal: this lane is not a replacement for broad discovery, architecture planning, multi-checkpoint operation, or ambiguous refactors.
+
+This lane exists because the open native tool loop is more general but slower for small existing-project edits.
 
 ## Promotion rule
 

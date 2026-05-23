@@ -681,6 +681,14 @@ fn citation_wrapper_link(link: &str) -> bool {
         || (host == "duckduckgo.com" && (path.contains("/l/") || query.contains("uddg=")))
         || ((host == "google.com" || host == "www.google.com")
             && (path.contains("/url") || query.contains("url=") || query.contains("q=http")))
+        || (social_share_wrapper_host(&host)
+            && (path.contains("/l.php")
+                || path.contains("/share")
+                || path.contains("/sharer")
+                || query.contains("url=")
+                || query.contains("u=")
+                || query.contains("href=")
+                || query.contains("target=")))
 }
 
 fn citation_wrapper_context_has_signal(query: &str, context: &str) -> bool {

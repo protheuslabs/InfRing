@@ -395,8 +395,13 @@ fn canonical_batch_web_search_query(raw: &str) -> String {
         return cleaned;
     }
     let stripped = strip_batch_query_leading_search_control(&cleaned, 600);
-    if stripped.is_empty() {
+    let stripped = if stripped.is_empty() {
         cleaned
+    } else {
+        stripped
+    };
+    if let Some(focused) = instruction_focused_search_query(&stripped) {
+        focused
     } else {
         stripped
     }
@@ -2165,6 +2170,7 @@ fn push_subject_keyword_lanes(
 fn push_multi_subject_combined_lanes(
     subjects: &[String],
     facets: &[String],
+    comparison_intent: bool,
     pack: &BatchQueryKeywordPack,
     dedup: &mut HashSet<String>,
     queries: &mut Vec<String>,
@@ -2180,7 +2186,16 @@ fn push_multi_subject_combined_lanes(
     if base_pieces.is_empty() {
         return;
     }
-    for suffix in ["comparison", "independent comparison", "reviews"] {
+    let suffixes: &[&str] = if comparison_intent {
+        &["comparison", "independent comparison", "reviews"]
+    } else {
+        &[
+            "source-backed evidence",
+            "primary source evidence",
+            "recent developments",
+        ]
+    };
+    for suffix in suffixes {
         let mut pieces = base_pieces.clone();
         pieces.push(suffix.to_string());
         push_compiled_metadata_query(
@@ -2205,6 +2220,24 @@ fn push_multi_subject_combined_lanes(
             max_queries,
         );
     }
+}
+
+fn keyword_pack_requests_comparison(primary_query: &str, pack: &BatchQueryKeywordPack) -> bool {
+    if is_benchmark_or_comparison_intent(primary_query) {
+        return true;
+    }
+    let mut metadata_text = String::new();
+    for value in pack
+        .keywords
+        .iter()
+        .chain(pack.facets.iter())
+        .chain(pack.aliases.iter())
+        .chain(pack.entities.iter())
+    {
+        metadata_text.push(' ');
+        metadata_text.push_str(value);
+    }
+    is_benchmark_or_comparison_intent(&metadata_text)
 }
 
 fn broad_facet_topic(primary_query: &str, facets: &[String], keywords: &[String]) -> String {
@@ -2376,11 +2409,13 @@ fn compile_keyword_pack_queries(
         .iter()
         .filter_map(|term| plain_query_term(term))
         .collect::<Vec<_>>();
+    let comparison_intent = keyword_pack_requests_comparison(primary_query, pack);
 
     if !exact_subjects.is_empty() {
         push_multi_subject_combined_lanes(
             &exact_subjects,
             &facets,
+            comparison_intent,
             pack,
             &mut dedup,
             &mut queries,
@@ -2506,7 +2541,7 @@ fn compile_keyword_pack_queries(
         }
     }
 
-    if exact_subjects.len() >= 2 && queries.len() < max_queries {
+    if comparison_intent && exact_subjects.len() >= 2 && queries.len() < max_queries {
         let subject_terms = exact_subjects.iter().take(3).cloned().collect::<Vec<_>>();
         let mut pieces = subject_terms;
         pieces.push("comparison".to_string());
@@ -2562,6 +2597,76 @@ fn max_explicit_queries_for_budget(primary_query: &str, budget: ApertureBudget) 
     budget.max_candidates.clamp(2, 12)
 }
 
+fn initial_query_execution_max_lanes(policy: &Value, budget: ApertureBudget) -> usize {
+    policy
+        .pointer("/batch_query/query_execution_budget/max_initial_lanes")
+        .or_else(|| {
+            policy.pointer("/batch_query/coverage_aware_query_planning/budget/initial_execution_lanes")
+        })
+        .and_then(Value::as_u64)
+        .unwrap_or(3)
+        .clamp(1, budget.max_candidates.clamp(1, 12) as u64) as usize
+}
+
+fn execution_limited_initial_queries(
+    policy: &Value,
+    budget: ApertureBudget,
+    submitted_queries: &[String],
+) -> Vec<String> {
+    let max_lanes = initial_query_execution_max_lanes(policy, budget);
+    if submitted_queries.len() <= max_lanes {
+        return submitted_queries.to_vec();
+    }
+    submitted_queries.iter().take(max_lanes).cloned().collect()
+}
+
+fn deferred_query_recovery_enabled(policy: &Value) -> bool {
+    policy
+        .pointer("/batch_query/query_execution_budget/deferred_recovery/enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn deferred_query_recovery_max_lanes(policy: &Value, budget: ApertureBudget) -> usize {
+    policy
+        .pointer("/batch_query/query_execution_budget/deferred_recovery/max_lanes")
+        .and_then(Value::as_u64)
+        .unwrap_or(2)
+        .clamp(1, second_pass_recovery_max_queries(policy, budget).max(1) as u64) as usize
+}
+
+fn deferred_query_recovery_queries(
+    policy: &Value,
+    budget: ApertureBudget,
+    submitted_queries: &[String],
+    executed_queries: &[String],
+) -> Vec<String> {
+    if !deferred_query_recovery_enabled(policy) {
+        return Vec::new();
+    }
+    let executed = executed_queries
+        .iter()
+        .map(|row| clean_text(row, 600).to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    let max_lanes = deferred_query_recovery_max_lanes(policy, budget);
+    let mut seen = executed.clone();
+    submitted_queries
+        .iter()
+        .filter_map(|query| {
+            let cleaned = clean_text(query, 600);
+            if cleaned.is_empty() {
+                return None;
+            }
+            let key = cleaned.to_ascii_lowercase();
+            if executed.contains(&key) || !seen.insert(key) {
+                return None;
+            }
+            Some(cleaned)
+        })
+        .take(max_lanes)
+        .collect()
+}
+
 fn metadata_expansion_budget(explicit_query_count: usize, max_queries: usize) -> usize {
     let remaining = max_queries.saturating_sub(explicit_query_count);
     if explicit_query_count >= 4 {
@@ -2587,12 +2692,33 @@ fn normalize_requested_queries(
     }
     let max_queries = max_explicit_queries_for_budget(primary_query, budget);
     let compiled_metadata = compile_keyword_pack_queries(primary_query, keyword_pack, budget);
-    let has_explicit_queries = request
+    let explicit_queries = request
         .get("queries")
         .and_then(Value::as_array)
-        .map(|rows| !rows.is_empty())
-        .unwrap_or(false);
-    let pre_explicit_metadata_budget = if has_explicit_queries
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| extract_request_query_row(row, 600))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let has_explicit_queries = !explicit_queries.is_empty();
+    let comparison_intent = keyword_pack_requests_comparison(primary_query, keyword_pack);
+    let explicit_head_count = if has_explicit_queries {
+        if comparison_intent && query_pack_has_coverage_terms(keyword_pack) {
+            1.min(explicit_queries.len())
+        } else {
+            2.min(explicit_queries.len())
+        }
+    } else {
+        0
+    };
+    for value in explicit_queries.iter().take(explicit_head_count).cloned() {
+        if queries.len() >= max_queries {
+            break;
+        }
+        push_query_dedup(value, &mut dedup, &mut queries);
+    }
+    let top_metadata_budget = if has_explicit_queries
         && query_pack_has_coverage_terms(keyword_pack)
     {
         let subject_count = keyword_pack.entities.len() + keyword_pack.aliases.len();
@@ -2608,7 +2734,7 @@ fn normalize_requested_queries(
     };
     for value in compiled_metadata
         .iter()
-        .take(pre_explicit_metadata_budget)
+        .take(top_metadata_budget)
         .cloned()
     {
         if queries.len() >= max_queries {
@@ -2616,24 +2742,20 @@ fn normalize_requested_queries(
         }
         push_query_dedup(value, &mut dedup, &mut queries);
     }
-    if let Some(rows) = request.get("queries").and_then(Value::as_array) {
-        for row in rows {
-            if queries.len() >= max_queries {
-                break;
-            }
-            if let Some(value) = extract_request_query_row(row, 600) {
-                push_query_dedup(value, &mut dedup, &mut queries);
-            }
+    for value in explicit_queries.into_iter().skip(explicit_head_count) {
+        if queries.len() >= max_queries {
+            break;
         }
+        push_query_dedup(value, &mut dedup, &mut queries);
     }
-    let metadata_budget = if pre_explicit_metadata_budget >= 6 {
+    let metadata_budget = if top_metadata_budget >= 6 {
         0
     } else {
         metadata_expansion_budget(queries.len(), max_queries)
     };
     for value in compiled_metadata
         .into_iter()
-        .skip(pre_explicit_metadata_budget)
+        .skip(top_metadata_budget)
         .take(metadata_budget)
     {
         if queries.len() >= max_queries {

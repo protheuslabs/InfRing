@@ -900,8 +900,42 @@ fn workflow_tool_menu_contract_from_response_workflow(response_workflow: &Value)
     contract
 }
 
+fn workflow_contract_has_family(contract: &Value, family_key: &str) -> bool {
+    let family_key = clean_text(family_key, 120);
+    !family_key.is_empty()
+        && contract
+            .get("tool_menu_by_family")
+            .and_then(Value::as_object)
+            .and_then(|families| families.get(&family_key))
+            .is_some()
+}
+
+fn workflow_selected_work_category_as_family(response_workflow: &Value) -> String {
+    let category_key = clean_text(
+        response_workflow
+            .pointer("/tool_gate/selected_work_category")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        120,
+    );
+    if category_key.is_empty() || category_key == "none" || category_key == "unselected" {
+        return String::new();
+    }
+    let selected_contract = response_workflow
+        .pointer("/selected_workflow/tool_menu_interface_contract")
+        .cloned()
+        .unwrap_or_else(default_workflow_tool_menu_contract);
+    if workflow_contract_has_family(&selected_contract, &category_key)
+        || workflow_contract_has_family(&workflow_tool_menu_contract_for_family(&category_key), &category_key)
+    {
+        category_key
+    } else {
+        String::new()
+    }
+}
+
 fn workflow_selected_tool_family_key_from_workflow(response_workflow: &Value) -> String {
-    clean_text(
+    let family_key = clean_text(
         response_workflow
             .pointer("/tool_gate/selected_tool_family")
             .or_else(|| {
@@ -910,7 +944,12 @@ fn workflow_selected_tool_family_key_from_workflow(response_workflow: &Value) ->
             .and_then(Value::as_str)
             .unwrap_or(""),
         120,
-    )
+    );
+    if family_key.is_empty() || family_key == "none" || family_key == "unselected" {
+        workflow_selected_work_category_as_family(response_workflow)
+    } else {
+        family_key
+    }
 }
 
 fn workflow_selected_tool_key_from_workflow(response_workflow: &Value) -> String {
@@ -1105,6 +1144,7 @@ fn manual_toolbox_pending_request_from_parts(
         return None;
     }
     let input = workflow_repair_recovered_request_payload(family_key, tool_key, input, message);
+    let input = workflow_apply_declared_request_literal_defaults(family_key, tool_key, input);
     let receipt_binding = crate::deterministic_receipt_hash(&json!({
         "type": "manual_toolbox_pending_tool_request",
         "tool_name": tool_name,
@@ -1140,6 +1180,55 @@ fn manual_toolbox_active_gate_id(
     } else {
         "gate_4_request_payload_input"
     }
+}
+
+fn workflow_declared_request_format_for_tool(family_key: &str, tool_key: &str) -> Option<Value> {
+    workflow_tool_menu_contract_for_family(family_key)
+        .get("tool_menu_by_family")
+        .and_then(Value::as_object)
+        .and_then(|families| families.get(family_key))
+        .and_then(Value::as_array)
+        .and_then(|tools| {
+            tools
+                .iter()
+                .find(|tool| workflow_option_key(tool) == tool_key)
+                .and_then(|tool| tool.get("request_format").cloned())
+        })
+}
+
+fn workflow_request_format_literal_default(value: &Value) -> Option<String> {
+    let raw = value.as_str()?;
+    if raw.starts_with('<') && raw.ends_with('>') {
+        None
+    } else {
+        Some(clean_text(raw, 240))
+    }
+    .filter(|value| !value.is_empty())
+}
+
+fn workflow_apply_declared_request_literal_defaults(
+    family_key: &str,
+    tool_key: &str,
+    mut input: Value,
+) -> Value {
+    let Some(format) = workflow_declared_request_format_for_tool(family_key, tool_key) else {
+        return input;
+    };
+    let Some(format_object) = format.as_object() else {
+        return input;
+    };
+    let Some(input_object) = input.as_object_mut() else {
+        return input;
+    };
+    for (key, format_value) in format_object {
+        if input_object.contains_key(key) {
+            continue;
+        }
+        if let Some(default_value) = workflow_request_format_literal_default(format_value) {
+            input_object.insert(key.clone(), Value::String(default_value));
+        }
+    }
+    input
 }
 
 fn manual_toolbox_pending_direct_response_path(
@@ -1254,7 +1343,7 @@ mod manual_toolbox_pending_request_tests {
     }
 
     #[test]
-    fn selected_web_research_family_uses_contract_default_tool_for_raw_message_recovery() {
+    fn selected_web_research_family_uses_batch_query_as_contract_default_tool() {
         let workflow = json!({
             "selected_workflow": {
                 "tool_menu_interface_contract": default_workflow_tool_menu_contract()
@@ -1270,11 +1359,76 @@ mod manual_toolbox_pending_request_tests {
         .expect("pending request");
         assert_eq!(
             pending.get("tool_name").and_then(Value::as_str),
-            Some("web_search")
+            Some("batch_query")
         );
         assert_eq!(
             pending.pointer("/input/query").and_then(Value::as_str),
             Some("what is the news today")
+        );
+        assert_eq!(
+            pending.pointer("/input/source").and_then(Value::as_str),
+            Some("web")
+        );
+        assert!(pending.pointer("/input/queries").is_none(), "{pending:?}");
+        assert!(pending.pointer("/input/keywords").is_none(), "{pending:?}");
+        assert!(pending.pointer("/input/required_coverage").is_none(), "{pending:?}");
+    }
+
+    #[test]
+    fn selected_batch_query_payload_gets_declared_source_default() {
+        let pending = manual_toolbox_pending_request_from_parts(
+            "web_research",
+            "batch_query",
+            "Research query pack",
+            json!({
+                "query": "compare current public sentiment for xvacume and yvacume",
+                "aperture": "medium"
+            }),
+            "compare current public sentiment for xvacume and yvacume",
+        )
+        .expect("pending request");
+
+        assert_eq!(
+            pending.pointer("/input/query").and_then(Value::as_str),
+            Some("compare current public sentiment for xvacume and yvacume")
+        );
+        assert_eq!(
+            pending.pointer("/input/source").and_then(Value::as_str),
+            Some("web")
+        );
+        assert!(pending.pointer("/input/queries").is_none(), "{pending:?}");
+    }
+
+    #[test]
+    fn selected_work_category_can_recover_delegated_web_family_default_tool() {
+        let workflow = json!({
+            "selected_workflow": {
+                "tool_menu_interface_contract": default_workflow_tool_menu_contract()
+            },
+            "tool_gate": {
+                "selected_work_category": "web_research"
+            }
+        });
+        let pending = workflow_pending_request_from_selected_tool_contract(
+            &workflow,
+            "compare current public sentiment for xvacume and yvacume",
+        )
+        .expect("pending request");
+        assert_eq!(
+            pending.get("tool_name").and_then(Value::as_str),
+            Some("batch_query")
+        );
+        assert_eq!(
+            pending.get("selected_tool_family").and_then(Value::as_str),
+            Some("web_research")
+        );
+        assert_eq!(
+            pending.pointer("/input/query").and_then(Value::as_str),
+            Some("compare current public sentiment for xvacume and yvacume")
+        );
+        assert_eq!(
+            pending.pointer("/input/source").and_then(Value::as_str),
+            Some("web")
         );
     }
 }

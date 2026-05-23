@@ -69,7 +69,7 @@ fn decode_wrapper_query_param(url: &str, include_continue: bool) -> Option<Strin
         let mut chunks = part.splitn(2, '=');
         let key = chunks.next().unwrap_or_default();
         let value = chunks.next().unwrap_or_default();
-        let key_allowed = matches!(key, "url" | "u" | "q")
+        let key_allowed = matches!(key, "url" | "u" | "q" | "href" | "target")
             || (include_continue && key == "continue")
             || key == "uddg";
         if key_allowed {
@@ -119,7 +119,26 @@ fn decode_citation_wrapper_once(url: &str) -> Option<String> {
         return decode_wrapper_query_param(&cleaned, false);
     }
 
+    if social_share_wrapper_host(&host)
+        && (path.contains("/l.php")
+            || path.contains("/share")
+            || path.contains("/sharer")
+            || query_lower.contains("url=")
+            || query_lower.contains("u=")
+            || query_lower.contains("href=")
+            || query_lower.contains("target="))
+    {
+        return decode_wrapper_query_param(&cleaned, false);
+    }
+
     None
+}
+
+fn social_share_wrapper_host(host: &str) -> bool {
+    matches!(
+        host.trim_start_matches("www."),
+        "facebook.com" | "m.facebook.com" | "l.facebook.com" | "lm.facebook.com"
+    )
 }
 
 fn decode_citation_wrapper_url(url: &str, max_depth: usize) -> Option<String> {

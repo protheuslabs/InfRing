@@ -186,11 +186,7 @@ fn top_count_row(counts: &BTreeMap<String, u64>) -> Value {
     json!({
         "name": best_name,
         "count": best_count,
-        "boundary": web_failure_boundary(counts
-            .iter()
-            .max_by_key(|(_, count)| *count)
-            .map(|(name, _)| name.as_str())
-            .unwrap_or("none"))
+        "boundary": web_failure_boundary(&best_name)
     })
 }
 
@@ -200,6 +196,7 @@ pub(super) fn web_failure_boundary(gate: &str) -> &'static str {
         "web_1_request_shape_present" => "web_request_shape_missing",
         "web_2_query_metadata_present" => "query_planning_metadata_missing",
         "web_3_tool_attempt_recorded" => "web_tool_attempt_missing",
+        "web_3a_tool_transport_completed" => "tool_transport_failed",
         "web_3b1_provider_quota_not_rate_limited" => "provider_rate_limited_or_quota_exhausted",
         "web_3b2_no_bot_challenge_or_waf" => "anti_bot_challenge_or_waf",
         "web_3b3_no_permission_or_auth_block" => "permission_or_auth_block",

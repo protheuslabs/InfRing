@@ -363,6 +363,22 @@ impl AgentContract {
         let coding_task_lane = native_tool_coding_task_lane(&self.metadata, &self.initial_prompt);
         let micro_direct_write_task = coding_task_lane == "new_file_fast_path";
         if !micro_direct_write_task
+            && native_tool_bounded_patch_artifact_lane_enabled(&self.metadata)
+            && native_tool_requires_successful_mutation(&self.metadata)
+        {
+            if let Some(result) = native_tool_bounded_patch_artifact_lane(
+                &provider,
+                &dispatcher,
+                tools,
+                self.model.clone(),
+                &self.metadata,
+                &self.initial_prompt,
+                &system,
+            )? {
+                return Ok(result);
+            }
+        }
+        if !micro_direct_write_task
             && native_tool_bootstrap_context_before_first_provider(&self.metadata)
             && native_tool_requires_successful_mutation(&self.metadata)
             && native_tool_prompt_has_multiple_requirements(&self.initial_prompt)
@@ -384,7 +400,7 @@ impl AgentContract {
                 let bootstrap_rule = native_tool_orchestration_prompt_text(
                     &self.metadata,
                     "bootstrap_context_continuation_rule",
-                    "Runtime bootstrap context was collected before the first model call. Continue from this already-read context and return only JSON tool calls next.",
+                    "Runtime bootstrap context was collected before the first model call. Continue from this already-read context and return only JSON tool calls next. If the source/test files needed for this bounded edit are already present in the observations, do not repeat file_list/file_read; make the smallest file_write/file_patch mutation, then validate when requested.",
                 );
                 prompt = format!(
                     "{}\n\n{}\n\nNative tool observations:\n{}",
@@ -450,6 +466,79 @@ impl AgentContract {
                         provider_call_count,
                         all_receipts,
                     );
+                }
+                Err(error)
+                    if native_tool_provider_error_is_timeout(&error)
+                        && !micro_direct_write_task
+                        && !native_tool_has_successful_mutation(&all_receipts)
+                        && provider_call_count <= 1
+                        && native_tool_first_turn_timeout_recovery_enabled(&self.metadata) =>
+                {
+                    if all_receipts.is_empty() {
+                        let bootstrap_receipts =
+                            native_tool_bootstrap_context_receipts(&dispatcher, &self.initial_prompt);
+                        if !bootstrap_receipts.is_empty() {
+                            all_receipts.extend(bootstrap_receipts);
+                            native_tool_persist_run_journal(
+                                &self.metadata,
+                                &self.initial_prompt,
+                                "first_turn_timeout_bootstrap_context",
+                                provider_call_count,
+                                &all_receipts,
+                                None,
+                                None,
+                            );
+                        }
+                    }
+                    if native_tool_has_successful_read_context_receipt(&all_receipts)
+                        || native_tool_has_successful_context_receipt(&all_receipts)
+                    {
+                        let observation = native_tool_observation_prompt(&all_receipts);
+                        prompt = native_tool_first_turn_timeout_recovery_prompt(
+                            &self.metadata,
+                            &self.initial_prompt,
+                            error.message.as_str(),
+                            &observation,
+                        );
+                        native_tool_persist_run_journal(
+                            &self.metadata,
+                            &self.initial_prompt,
+                            "first_turn_timeout_recovery",
+                            provider_call_count,
+                            &all_receipts,
+                            None,
+                            Some(error.message.as_str()),
+                        );
+                        continue;
+                    }
+                    if let Some(bootstrap_receipt) =
+                        native_tool_bootstrap_discovery_receipt(&dispatcher, &self.initial_prompt)
+                    {
+                        let observation = native_tool_observation_prompt(&[bootstrap_receipt.clone()]);
+                        all_receipts.push(bootstrap_receipt);
+                        native_tool_persist_run_journal(
+                            &self.metadata,
+                            &self.initial_prompt,
+                            "first_turn_timeout_discovery",
+                            provider_call_count,
+                            &all_receipts,
+                            None,
+                            Some(error.message.as_str()),
+                        );
+                        let bootstrap_rule = native_tool_orchestration_prompt_text(
+                            &self.metadata,
+                            "first_turn_timeout_discovery_rule",
+                            "The first model call timed out before mutation. Runtime discovery is now available. Return only JSON tool calls for the smallest safe source/test mutation next; do not summarize or ask for more input unless local completion is genuinely blocked.",
+                        );
+                        prompt = format!(
+                            "{}\n\n{}\n\nNative tool observations:\n{}",
+                            self.initial_prompt,
+                            bootstrap_rule,
+                            observation
+                        );
+                        continue;
+                    }
+                    return Err(error);
                 }
                 Err(error)
                     if native_tool_provider_error_is_timeout(&error)
@@ -643,6 +732,34 @@ impl AgentContract {
                         "tool_receipts": all_receipts.clone(),
                         "terminal_status": "ok",
                         "synthetic_micro_final": true,
+                    }
+                });
+                return Ok((response, all_receipts, provider_call_count, "ok".to_string()));
+            }
+            if native_tool_synthesize_final_after_successful_validation(&self.metadata)
+                && native_tool_has_successful_mutation(&all_receipts)
+                && native_tool_has_successful_validation_command(&all_receipts)
+                && native_tool_prompt_evidence_gaps(&self.initial_prompt, &all_receipts).is_empty()
+            {
+                let mut response = native_tool_synthetic_completion_evidence_response(
+                    &response,
+                    &self.metadata,
+                    &self.initial_prompt,
+                    &all_receipts,
+                    "successful_validation_receipt_runtime_early_success",
+                );
+                response.raw = json!({
+                    "provider_raw": response.raw,
+                    "native_tool_loop": {
+                        "enabled": true,
+                        "provider_call_count": provider_call_count,
+                        "tool_call_count": all_receipts.len(),
+                        "empty_tool_retry_count": empty_tool_retry_count,
+                        "coding_task_lane": coding_task_lane,
+                        "tool_receipts": all_receipts.clone(),
+                        "terminal_status": "ok",
+                        "synthetic_completion_evidence_final": true,
+                        "early_success_after_validation": true,
                     }
                 });
                 return Ok((response, all_receipts, provider_call_count, "ok".to_string()));
@@ -1391,6 +1508,371 @@ fn native_tool_partial_progress_on_timeout(metadata: &Value) -> bool {
                 .and_then(Value::as_bool)
         })
         .unwrap_or(false)
+}
+
+fn native_tool_first_turn_timeout_recovery_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("first_turn_timeout_recovery"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_first_turn_timeout_recovery_prompt(
+    metadata: &Value,
+    original_prompt: &str,
+    reason: &str,
+    observation: &str,
+) -> String {
+    let rule = native_tool_orchestration_prompt_text(
+        metadata,
+        "first_turn_timeout_recovery_rule",
+        "The first model call timed out before mutation. Continue with a smaller patch-only native tool turn. Use the already gathered runtime observations; do not call file_list/file_read again unless the validation output names a new missing file. Return only JSON tool_calls. Make the smallest file_write/file_patch source/test mutation that satisfies the requested local code change, then run requested validation. If the task is genuinely blocked, return a structured blocker instead of more exploration.",
+    );
+    format!(
+        "{}\n\n{}\n\nTimeout reason:\n{}\n\nRuntime bootstrap observations:\n{}",
+        original_prompt.chars().take(2400).collect::<String>(),
+        rule,
+        reason.chars().take(700).collect::<String>(),
+        observation
+    )
+}
+
+fn native_tool_bounded_patch_artifact_lane_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("bounded_patch_artifact_lane"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_bounded_patch_artifact_max_files(metadata: &Value) -> usize {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("bounded_patch_artifact_max_files"))
+        .and_then(Value::as_u64)
+        .unwrap_or(6)
+        .clamp(1, 12) as usize
+}
+
+fn native_tool_bounded_patch_artifact_provider_timeout_seconds(metadata: &Value) -> u64 {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("bounded_patch_artifact_provider_timeout_seconds"))
+        .and_then(Value::as_u64)
+        .unwrap_or(60)
+        .clamp(10, 180)
+}
+
+fn native_tool_bounded_patch_artifact_lane(
+    provider: &Arc<dyn crate::provider::ProviderClient>,
+    dispatcher: &NativeToolDispatcher,
+    tools: &[String],
+    model: Option<String>,
+    metadata: &Value,
+    original_prompt: &str,
+    system: &str,
+) -> Result<Option<(ProviderResponse, Vec<NativeToolReceipt>, u64, String)>, ProviderError> {
+    let Some(project_root) = native_tool_prompt_project_root(original_prompt).map(PathBuf::from)
+    else {
+        return Ok(None);
+    };
+    let context_paths =
+        native_tool_bounded_patch_context_paths(metadata, original_prompt, &project_root);
+    if context_paths.is_empty() {
+        return Ok(None);
+    }
+
+    let mut receipts = Vec::<NativeToolReceipt>::new();
+    let read_receipt = dispatcher.dispatch(crate::native_tools::NativeToolCall {
+        id: "bounded_patch_artifact_file_read_many".to_string(),
+        name: "file_read_many".to_string(),
+        args: json!({
+            "paths": context_paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+        }),
+    });
+    if read_receipt.status != "ok" {
+        return Ok(None);
+    }
+    receipts.push(read_receipt);
+
+    let Some(file_context) = native_tool_bounded_patch_file_context(&context_paths) else {
+        return Ok(None);
+    };
+    let mut patch_metadata = metadata.clone();
+    if let Some(object) = patch_metadata.as_object_mut() {
+        object.insert(
+            "provider_timeout_seconds".to_string(),
+            json!(native_tool_bounded_patch_artifact_provider_timeout_seconds(metadata)),
+        );
+        object.insert("native_bounded_patch_artifact_lane".to_string(), json!(true));
+    }
+    let patch_prompt =
+        native_tool_bounded_patch_artifact_prompt(metadata, original_prompt, &file_context);
+    let request = ProviderRequest {
+        prompt: patch_prompt,
+        system: Some(native_tool_bounded_patch_artifact_system_prompt()),
+        tools: Vec::new(),
+        model: model.clone(),
+        metadata: patch_metadata,
+    };
+    let mut provider_call_count = 1u64;
+    let response = match provider.complete(&request) {
+        Ok(response) => response,
+        Err(error) if native_tool_provider_error_is_timeout(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+
+    let patches =
+        native_tool_bounded_patch_artifact_patches(&response.output, &project_root, &context_paths);
+    if patches.is_empty() {
+        return Ok(None);
+    }
+    for (idx, patch) in patches.into_iter().enumerate() {
+        let receipt = dispatcher.dispatch(crate::native_tools::NativeToolCall {
+            id: format!("bounded_patch_artifact_patch_{}", idx + 1),
+            name: "file_patch".to_string(),
+            args: json!({
+                "path": patch.path,
+                "old": patch.old,
+                "new": patch.new,
+                "allow_multiple": false
+            }),
+        });
+        receipts.push(receipt);
+    }
+    if !native_tool_has_successful_mutation(&receipts) {
+        return Ok(None);
+    }
+
+    if let Some(validation_receipt) =
+        native_tool_auto_validation_receipt(dispatcher, original_prompt, &receipts)
+    {
+        receipts.push(validation_receipt);
+    }
+
+    let mut response = response;
+    let repair_reasons =
+        native_tool_runtime_repair_reasons(metadata, original_prompt, &response.output, &receipts);
+    if !repair_reasons.is_empty() && native_tool_completion_evidence_repair_enabled(metadata) {
+        let repaired = native_tool_completion_evidence_repair_loop(
+            provider,
+            dispatcher,
+            tools,
+            model,
+            metadata,
+            original_prompt,
+            system,
+            response,
+            receipts,
+            provider_call_count,
+            repair_reasons,
+        )?;
+        response = repaired.0;
+        receipts = repaired.1;
+        provider_call_count = repaired.2;
+    }
+
+    if native_tool_prompt_evidence_gaps(original_prompt, &receipts).is_empty()
+        && (!native_tool_prompt_requires_validation_command(&original_prompt.to_ascii_lowercase())
+            || native_tool_has_successful_validation_command(&receipts))
+    {
+        let mut final_response = native_tool_synthetic_completion_evidence_response(
+            &response,
+            metadata,
+            original_prompt,
+            &receipts,
+            "bounded_patch_artifact_lane_success",
+        );
+        final_response.raw = json!({
+            "provider_raw": final_response.raw,
+            "native_bounded_patch_artifact_lane": {
+                "enabled": true,
+                "provider_call_count": provider_call_count,
+                "tool_call_count": receipts.len(),
+                "context_paths": context_paths
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>(),
+                "tool_receipts": receipts.clone(),
+                "terminal_status": "ok"
+            }
+        });
+        return Ok(Some((final_response, receipts, provider_call_count, "ok".to_string())));
+    }
+
+    Ok(None)
+}
+
+#[derive(Clone, Debug)]
+struct NativeToolBoundedPatch {
+    path: String,
+    old: String,
+    new: String,
+}
+
+fn native_tool_bounded_patch_context_paths(
+    metadata: &Value,
+    original_prompt: &str,
+    project_root: &Path,
+) -> Vec<PathBuf> {
+    let max_files = native_tool_bounded_patch_artifact_max_files(metadata);
+    let mut paths = native_tool_prompt_required_changed_paths(original_prompt)
+        .into_iter()
+        .filter_map(|path| native_tool_resolve_bounded_patch_context_path(project_root, &path))
+        .collect::<Vec<_>>();
+    if paths.len() < 2 {
+        for path in native_tool_bootstrap_likely_context_paths(project_root, &[]) {
+            if let Some(path) =
+                native_tool_resolve_bounded_patch_context_path(project_root, &path)
+            {
+                paths.push(path);
+            }
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    if paths.is_empty() || paths.len() > max_files {
+        return Vec::new();
+    }
+    paths
+}
+
+fn native_tool_resolve_bounded_patch_context_path(
+    project_root: &Path,
+    raw_path: &str,
+) -> Option<PathBuf> {
+    let candidate = if raw_path.starts_with('/') {
+        PathBuf::from(raw_path)
+    } else {
+        project_root.join(raw_path.trim_start_matches("./"))
+    };
+    if !candidate.is_file() || !native_tool_bounded_patch_context_file_candidate(&candidate) {
+        return None;
+    }
+    let normalized = candidate.display().to_string().replace('\\', "/");
+    if normalized.contains("/.infring/")
+        || normalized.contains("/.git/")
+        || normalized.contains("/node_modules/")
+        || normalized.contains("/target/")
+    {
+        return None;
+    }
+    Some(candidate)
+}
+
+fn native_tool_bounded_patch_context_file_candidate(path: &Path) -> bool {
+    if !native_tool_bootstrap_file_candidate(path) {
+        return false;
+    }
+    fs::metadata(path)
+        .map(|metadata| metadata.len() <= 80_000)
+        .unwrap_or(false)
+}
+
+fn native_tool_bounded_patch_file_context(paths: &[PathBuf]) -> Option<String> {
+    let mut sections = Vec::<String>::new();
+    for path in paths {
+        let Ok(content) = fs::read_to_string(path) else {
+            return None;
+        };
+        sections.push(format!(
+            "FILE: {}\n```text\n{}\n```",
+            path.display(),
+            content
+        ));
+    }
+    Some(sections.join("\n\n"))
+}
+
+fn native_tool_bounded_patch_artifact_system_prompt() -> String {
+    "You are Infring's bounded patch artifact generator. Return only valid JSON. Do not use markdown, prose, or tool calls. Your JSON must have this shape: {\"patches\":[{\"path\":\"/absolute/path\",\"old\":\"exact existing text\",\"new\":\"replacement text\"}]}. Each old field must be an exact contiguous substring from the supplied file context. Prefer the smallest complete source/test patch set. Do not include validation output, explanations, or final answers.".to_string()
+}
+
+fn native_tool_bounded_patch_artifact_prompt(
+    metadata: &Value,
+    original_prompt: &str,
+    file_context: &str,
+) -> String {
+    let rule = native_tool_orchestration_prompt_text(
+        metadata,
+        "bounded_patch_artifact_lane_rule",
+        "Generate the smallest deterministic patch artifact for this bounded local code edit. The runtime will apply the patch and run validation from receipts. Do not ask for files; the relevant file context is already supplied.",
+    );
+    format!(
+        "{}\n\nOriginal task:\n{}\n\nSelected local file context:\n{}\n\nReturn only the JSON patch artifact now.",
+        rule,
+        original_prompt.chars().take(2600).collect::<String>(),
+        file_context
+    )
+}
+
+fn native_tool_bounded_patch_artifact_patches(
+    output: &str,
+    project_root: &Path,
+    allowed_paths: &[PathBuf],
+) -> Vec<NativeToolBoundedPatch> {
+    let Some(value) = native_tool_parse_bounded_patch_artifact_json(output) else {
+        return Vec::new();
+    };
+    let Some(patches) = value.get("patches").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let allowed = allowed_paths
+        .iter()
+        .filter_map(|path| path.canonicalize().ok())
+        .collect::<Vec<_>>();
+    let mut out = Vec::<NativeToolBoundedPatch>::new();
+    for patch in patches {
+        let Some(path) = patch.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(old) = patch.get("old").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(new) = patch.get("new").and_then(Value::as_str) else {
+            continue;
+        };
+        if old.is_empty() || old == new {
+            continue;
+        }
+        let resolved = if path.starts_with('/') {
+            PathBuf::from(path)
+        } else {
+            project_root.join(path.trim_start_matches("./"))
+        };
+        let Ok(canonical) = resolved.canonicalize() else {
+            continue;
+        };
+        if !allowed.iter().any(|allowed| allowed == &canonical) {
+            continue;
+        }
+        out.push(NativeToolBoundedPatch {
+            path: resolved.display().to_string(),
+            old: old.to_string(),
+            new: new.to_string(),
+        });
+    }
+    out
+}
+
+fn native_tool_parse_bounded_patch_artifact_json(output: &str) -> Option<Value> {
+    if let Ok(value) = serde_json::from_str::<Value>(output.trim()) {
+        return Some(value);
+    }
+    let start = output.find('{')?;
+    let end = output.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    serde_json::from_str::<Value>(&output[start..=end]).ok()
 }
 
 fn native_tool_partial_progress_response(

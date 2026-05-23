@@ -685,6 +685,7 @@ Required reset action:
 | `context_provider_registry` | Continue, Aider, Cline | Orchestration/Tooling/Shell projection | Should make context sources pluggable and receipt-bearing. |
 | `mode_manifest_registry` | Roo Code, OpenFang, ForgeCode | Orchestration/Governance | Should define roles/modes without runtime hardcoding. |
 | `patch_artifact_synthesis` | SWE-agent, Aider | Orchestration/Validation | Should produce issue-fix patches/diffs as terminal artifacts when task shape requires. |
+| `bounded_patch_artifact_lane` | Aider Level 3 speed isolation | Orchestration/native runtime | Fast path for small confident existing-project edits: selected files in context, one patch artifact model call, deterministic patch apply, validation receipt, synthetic final. |
 | `public_interface_verification` | Aider, SWE-agent, OpenHands, Continue | Orchestration/Validation | Seed primitive for requested public surface verification before final success. |
 | `owner_module_completion_gate` | Aider lint/test repair loop, mini-SWE-agent source-before-tests loop | Orchestration/Validation/native runtime | Treat test-only public API additions as incomplete until the source owner module defines or exports the imported symbol; failures should produce repair hints, not final success. |
 | `provider_timeout_recovery_artifact` | mini-SWE-agent trajectory status, SWE-ReX runtime failure receipts | Orchestration/native runtime | Convert timeout after successful mutation into receipt-backed partial progress or bounded recovery instead of losing the run. |

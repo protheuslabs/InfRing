@@ -8,7 +8,7 @@ use super::eval_research_golden_utils::{
 use super::eval_web_retrieval_gate_diagnostics::{
     record_web_retrieval_gate_counts, web_retrieval_gate_diagnostics,
     web_retrieval_gate_metric_rows, web_retrieval_gate_rate_rows, web_retrieval_measurement_report,
-    web_tooling_measurement_eligible_case, web_tooling_measurement_exclusion_reason_case,
+    web_tooling_measurement_exclusion_reason_case,
 };
 
 mod direct_tool;
@@ -20,8 +20,8 @@ mod synthetic;
 mod tests;
 
 use direct_tool::{
-    direct_tool_payload_diagnostics, invoke_direct_tool, is_local_dashboard_url,
-    payload_is_transport_failure,
+    direct_tool_payload_diagnostics, direct_tool_payload_sample, invoke_direct_tool,
+    is_local_dashboard_url, payload_is_transport_failure,
 };
 use report::tooling_markdown_report;
 use request_packs::{load_request_pack_index, request_pack_for_case};
@@ -37,6 +37,23 @@ const DEFAULT_MARKDOWN_PATH: &str = "local/workspace/reports/WEB_TOOLING_GOLDEN_
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:4173";
 const DEFAULT_TOOLING_SUCCESS_MIN: f64 = 0.95;
 const DEFAULT_WEB_GATE_PASS_MIN: f64 = 0.95;
+
+fn tooling_eval_request_input(tool_name: &str, request_input: &Value) -> Value {
+    if tool_name != "batch_query" && tool_name != "batch-query" {
+        return request_input.clone();
+    }
+    let mut request = request_input.clone();
+    let Some(map) = request.as_object_mut() else {
+        return request;
+    };
+    if !map.contains_key("cache_mode")
+        && !map.contains_key("cache")
+        && !map.contains_key("cache_policy")
+    {
+        map.insert("cache_mode".to_string(), json!("disabled"));
+    }
+    request
+}
 
 pub fn run_web_tooling_golden(args: &[String]) -> i32 {
     let strict = super::parse_bool_flag(args, "strict", false);
@@ -110,10 +127,11 @@ pub fn run_web_tooling_golden(args: &[String]) -> i32 {
             .get("input")
             .cloned()
             .unwrap_or_else(|| json!({}));
+        let eval_request_input = tooling_eval_request_input(&tool_name, &request_input);
         let request_source = str_at(&request_pack, &["request_pack_source"], "unknown");
 
         let direct_payload = if live && setup_failures.is_empty() {
-            invoke_direct_tool(&base_url, &tool_name, &request_input, timeout_seconds)
+            invoke_direct_tool(&base_url, &tool_name, &eval_request_input, timeout_seconds)
         } else {
             json!({
                 "ok": false,
@@ -127,7 +145,7 @@ pub fn run_web_tooling_golden(args: &[String]) -> i32 {
         }
 
         let synthetic_payload =
-            synthesize_tooling_eval_payload(&tool_name, &request_input, &direct_payload);
+            synthesize_tooling_eval_payload(&tool_name, &eval_request_input, &direct_payload);
         let grade = grade_case(case, &synthetic_payload, 85, 95);
         let query_metadata_diagnostics = query_metadata_diagnostics(&synthetic_payload);
         let transition_diagnostics =
@@ -138,43 +156,35 @@ pub fn run_web_tooling_golden(args: &[String]) -> i32 {
             &query_metadata_diagnostics,
             &transition_diagnostics,
         );
-        if !transport_failure
-            && web_tooling_measurement_eligible_case(
-                case,
-                &synthetic_payload,
-                &grade.retrieval_quality,
-            )
-        {
+        let mut measurement_exclusion = web_tooling_measurement_exclusion_reason_case(
+            case,
+            &synthetic_payload,
+            &grade.retrieval_quality,
+        )
+        .unwrap_or("none");
+        if transport_failure && measurement_exclusion == "transport_failure" {
+            measurement_exclusion = "none";
+        }
+        let measurement_eligible = measurement_exclusion == "none";
+        if measurement_eligible {
             record_web_retrieval_gate_counts(
                 &web_tool_gate_diagnostics,
                 &mut web_gate_total_counts,
                 &mut web_gate_pass_counts,
             );
         }
-        let measurement_exclusion = web_tooling_measurement_exclusion_reason_case(
-            case,
-            &synthetic_payload,
-            &grade.retrieval_quality,
-        )
-        .unwrap_or("none");
         let first_failed_gate = web_tool_gate_diagnostics
             .get("first_failed_gate")
             .and_then(Value::as_str)
             .unwrap_or("");
-        let tooling_pass = !transport_failure
-            && web_tooling_measurement_eligible_case(
-                case,
-                &synthetic_payload,
-                &grade.retrieval_quality,
-            )
-            && first_failed_gate.is_empty();
+        let tooling_pass = measurement_eligible && first_failed_gate.is_empty();
         rows.push(json!({
             "case_id": case_id,
             "category": str_at(case, &["category"], "unknown"),
             "prompt_preview": clean_text(&prompt, 320),
             "tool_name": tool_name,
             "request_pack_source": request_source,
-            "tooling_request": request_input,
+            "tooling_request": eval_request_input,
             "tooling_pass": tooling_pass,
             "transport_failure": transport_failure,
             "response_preview": clean_text(&assistant_text(&synthetic_payload), 240),
@@ -184,7 +194,8 @@ pub fn run_web_tooling_golden(args: &[String]) -> i32 {
             "web_tool_gate_diagnostics": web_tool_gate_diagnostics,
             "web_tooling_measurement_exclusion": measurement_exclusion,
             "gate_transition_diagnostics": transition_diagnostics,
-            "direct_tool_payload_diagnostics": direct_tool_payload_diagnostics(&direct_payload)
+            "direct_tool_payload_diagnostics": direct_tool_payload_diagnostics(&direct_payload),
+            "direct_tool_payload_sample": direct_tool_payload_sample(&direct_payload)
         }));
     }
 

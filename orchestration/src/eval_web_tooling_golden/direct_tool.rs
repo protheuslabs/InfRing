@@ -150,6 +150,149 @@ pub(super) fn direct_tool_payload_diagnostics(payload: &Value) -> Value {
     })
 }
 
+pub(super) fn direct_tool_payload_sample(payload: &Value) -> Value {
+    json!({
+        "status": payload.get("status").and_then(Value::as_str),
+        "ok": payload.get("ok").and_then(Value::as_bool),
+        "error": payload.get("error").and_then(Value::as_str).map(|raw| clean_text(raw, 240)),
+        "transport_error": payload.get("transport_error").and_then(Value::as_str),
+        "stderr": payload.get("stderr").and_then(Value::as_str).map(|raw| clean_text(raw, 500)),
+        "query": payload.get("query").and_then(Value::as_str).map(|raw| clean_text(raw, 500)),
+        "effective_query": payload.get("effective_query").and_then(Value::as_str).map(|raw| clean_text(raw, 500)),
+        "provider": payload.get("provider").and_then(Value::as_str).map(|raw| clean_text(raw, 120)),
+        "provider_raw_count": payload.get("provider_raw_count").and_then(Value::as_u64),
+        "provider_filtered_count": payload.get("provider_filtered_count").and_then(Value::as_u64),
+        "query_plan_source": payload.get("query_plan_source").and_then(Value::as_str),
+        "query_plan": compact_array(payload.get("query_plan"), 12),
+        "submitted_query_plan": compact_array(payload.get("submitted_query_plan"), 12),
+        "query_execution_limiter": compact_value(payload.get("query_execution_limiter"), 2_000),
+        "second_pass_recovery": compact_value(payload.get("second_pass_recovery"), 2_000),
+        "evidence_selection_diagnostics": compact_value(payload.get("evidence_selection_diagnostics"), 4_000),
+        "providers_attempted": compact_array(payload.get("providers_attempted"), 8),
+        "providers_skipped": compact_array(payload.get("providers_skipped"), 8),
+        "provider_chain": compact_array(payload.get("provider_chain"), 8),
+        "provider_errors": compact_array(payload.get("provider_errors"), 8),
+        "links": compact_array(payload.get("links"), 8),
+        "content_domains": compact_array(payload.get("content_domains"), 8),
+        "evidence_refs": compact_rows(payload.get("evidence_refs"), 5),
+        "evidence_claims": compact_rows(payload.get("evidence_claims"), 8),
+        "evidence_coverage": compact_rows(payload.get("evidence_coverage"), 8),
+        "provider_results": compact_rows(payload.get("provider_results"), 5),
+        "search_results": compact_rows(payload.get("search_results"), 5),
+        "evidence_pack": compact_rows(payload.get("evidence_pack"), 5),
+        "evidence_pack_candidates": compact_rows(payload.get("evidence_pack_candidates"), 5),
+        "evidence_pack_quality": compact_value(payload.get("evidence_pack_quality"), 2_000),
+        "tool_result_quality": compact_value(payload.get("tool_result_quality"), 3_000),
+        "summary": payload.get("summary").and_then(Value::as_str).map(|raw| clean_text(raw, 1_200)),
+        "content_preview": payload.get("content").and_then(Value::as_str).map(|raw| clean_text(raw, 1_200)),
+        "result_preview": payload.get("result").and_then(Value::as_str).map(|raw| clean_text(raw, 1_200)),
+    })
+}
+
+fn compact_array(value: Option<&Value>, limit: usize) -> Value {
+    let rows = value
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .take(limit)
+                .map(|row| compact_value(Some(row), 800))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Value::Array(rows)
+}
+
+fn compact_rows(value: Option<&Value>, limit: usize) -> Value {
+    let rows = value
+        .and_then(Value::as_array)
+        .map(|rows| rows.iter().take(limit).map(compact_row).collect::<Vec<_>>())
+        .unwrap_or_default();
+    Value::Array(rows)
+}
+
+fn compact_row(row: &Value) -> Value {
+    match row {
+        Value::String(raw) => Value::String(clean_text(raw, 1_200)),
+        Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for key in [
+                "title",
+                "url",
+                "locator",
+                "source_url",
+                "domain",
+                "source_domain",
+                "provider",
+                "source_kind",
+                "source_class",
+                "source_type",
+                "status",
+                "error",
+                "facet_id",
+                "facet_kind",
+                "requested_text",
+                "evidence_count",
+                "usable_evidence_count",
+                "candidate_only_count",
+                "low_confidence_raw_count",
+                "score",
+                "confidence",
+                "counts_as_usable_evidence",
+                "materialization_quality",
+                "query_relevance",
+                "snippet",
+                "support_snippet",
+                "snippet_preview",
+                "summary",
+                "content_preview",
+                "extract",
+                "relevant_extract",
+                "why_relevant_to_query",
+                "coverage_facets",
+                "claim",
+                "claim_text",
+                "claim_hints",
+                "links",
+            ] {
+                let Some(value) = map.get(key) else { continue };
+                let compacted =
+                    compact_value(Some(value), if key == "links" { 2_000 } else { 1_200 });
+                if !compacted.is_null()
+                    && compacted
+                        .as_str()
+                        .map(|raw| !raw.trim().is_empty())
+                        .unwrap_or(true)
+                {
+                    out.insert(key.to_string(), compacted);
+                }
+            }
+            Value::Object(out)
+        }
+        _ => compact_value(Some(row), 1_200),
+    }
+}
+
+fn compact_value(value: Option<&Value>, max_chars: usize) -> Value {
+    match value {
+        Some(Value::String(raw)) => Value::String(clean_text(raw, max_chars)),
+        Some(Value::Array(rows)) => Value::Array(
+            rows.iter()
+                .take(8)
+                .map(|row| compact_value(Some(row), max_chars / 2))
+                .collect(),
+        ),
+        Some(Value::Object(map)) => {
+            let mut out = serde_json::Map::new();
+            for (key, value) in map.iter().take(24) {
+                out.insert(key.clone(), compact_value(Some(value), max_chars / 2));
+            }
+            Value::Object(out)
+        }
+        Some(value @ Value::Bool(_)) | Some(value @ Value::Number(_)) => value.clone(),
+        _ => Value::Null,
+    }
+}
+
 pub(super) fn is_local_dashboard_url(base_url: &str) -> bool {
     let lowered = base_url.trim().to_ascii_lowercase();
     lowered.starts_with("http://127.0.0.1")

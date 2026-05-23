@@ -254,6 +254,19 @@ pub(super) fn run_research_golden_cases(
             &query_metadata_diagnostics,
             &transition_diagnostics,
         );
+        let web_tooling_measurement_eligible = web_tooling_measurement_eligible_case(
+            case,
+            web_tooling_payload,
+            &web_tooling_retrieval_quality,
+        );
+        let mut excellent_blockers = grade.excellent_blockers.clone();
+        let mut excellent_diagnostics = grade.excellent_diagnostics.clone();
+        append_web_tooling_excellent_readiness(
+            &mut excellent_diagnostics,
+            &mut excellent_blockers,
+            &web_tool_gate_diagnostics,
+            web_tooling_measurement_eligible,
+        );
         let mut case_failures = grade.failures.clone();
         if transport_timeout_failure {
             case_failures.push("transport_failure".to_string());
@@ -265,8 +278,10 @@ pub(super) fn run_research_golden_cases(
         case_failures.dedup();
         let case_pass =
             grade.pass && lifecycle_gate_path_complete && case_setup_failures.is_empty();
-        let case_excellent =
-            grade.excellent && lifecycle_gate_path_complete && case_setup_failures.is_empty();
+        let case_excellent = grade.excellent
+            && excellent_blockers.is_empty()
+            && lifecycle_gate_path_complete
+            && case_setup_failures.is_empty();
         let failure_classification = case_failure_classification(
             case_pass,
             &case_failures,
@@ -286,11 +301,7 @@ pub(super) fn run_research_golden_cases(
                 &mut transition_total_counts,
                 &mut transition_pass_counts,
             );
-            if web_tooling_measurement_eligible_case(
-                case,
-                web_tooling_payload,
-                &web_tooling_retrieval_quality,
-            ) {
+            if web_tooling_measurement_eligible {
                 record_web_retrieval_gate_counts(
                     &web_tool_gate_diagnostics,
                     &mut web_gate_total_counts,
@@ -355,8 +366,8 @@ pub(super) fn run_research_golden_cases(
             "citation_behavior": grade.citation_behavior,
             "query_satisfaction": grade.query_satisfaction,
             "user_stated_coverage_entities": grade.coverage_entities,
-            "excellent_blockers": grade.excellent_blockers,
-            "excellent_diagnostics": grade.excellent_diagnostics,
+            "excellent_blockers": excellent_blockers,
+            "excellent_diagnostics": excellent_diagnostics,
             "transport_failure": transport_timeout_failure,
             "setup_failures": case_setup_failures,
             "response_preview": clean_text(&grade.response_text, 500),
@@ -491,5 +502,93 @@ pub(super) fn run_research_golden_cases(
         tool_choice_final_responses,
         unsupported_claims,
         transport_failures,
+    }
+}
+
+fn append_web_tooling_excellent_readiness(
+    excellent_diagnostics: &mut Value,
+    excellent_blockers: &mut Vec<String>,
+    web_tool_gate_diagnostics: &Value,
+    measured_web_tooling_case: bool,
+) {
+    if !measured_web_tooling_case {
+        return;
+    }
+
+    let source_quality_ready = bool_at(
+        web_tool_gate_diagnostics,
+        &["evidence_quality", "source_quality_ready"],
+        false,
+    );
+    let answerability_ready = bool_at(
+        web_tool_gate_diagnostics,
+        &["evidence_quality", "answerability_ready"],
+        false,
+    );
+    let evidence_packet_ready = bool_at(
+        web_tool_gate_diagnostics,
+        &["evidence_quality", "evidence_packet_contract_ready"],
+        false,
+    );
+
+    if let Some(subgates) = excellent_diagnostics
+        .get_mut("subgates")
+        .and_then(Value::as_object_mut)
+    {
+        subgates.insert(
+            "excellent_12_web_tooling_source_quality_ready".to_string(),
+            json!(source_quality_ready),
+        );
+        subgates.insert(
+            "excellent_13_web_tooling_answerability_ready".to_string(),
+            json!(answerability_ready),
+        );
+        subgates.insert(
+            "excellent_14_web_tooling_evidence_packet_ready".to_string(),
+            json!(evidence_packet_ready),
+        );
+    }
+
+    for blocker in [
+        (!source_quality_ready).then_some("web_tooling_source_quality_not_ready"),
+        (!answerability_ready).then_some("web_tooling_answerability_not_ready"),
+        (!evidence_packet_ready).then_some("web_tooling_evidence_packet_not_ready"),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !excellent_blockers
+            .iter()
+            .any(|existing| existing == blocker)
+        {
+            excellent_blockers.push(blocker.to_string());
+        }
+    }
+
+    if let Some(object) = excellent_diagnostics.as_object_mut() {
+        object.insert("blockers".to_string(), json!(excellent_blockers.clone()));
+        object.insert(
+            "top_blocker".to_string(),
+            Value::String(
+                excellent_blockers
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "none".to_string()),
+            ),
+        );
+        object.insert(
+            "web_tooling_readiness".to_string(),
+            json!({
+                "measured": true,
+                "source_quality_ready": source_quality_ready,
+                "answerability_ready": answerability_ready,
+                "evidence_packet_contract_ready": evidence_packet_ready,
+                "first_failed_web_gate": web_tool_gate_diagnostics
+                    .get("first_failed_gate")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                "note": "Excellent research answers require answer-ready web evidence when the web tooling lane was measured."
+            }),
+        );
     }
 }

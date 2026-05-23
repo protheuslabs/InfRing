@@ -133,6 +133,9 @@ fn web_operator_case_readout(primary_bottleneck: &str, retrieval_status: &str) -
         "web_tool_attempt_missing" => {
             "request was shaped, but no web tool attempt was recorded".to_string()
         }
+        "tool_transport_failed" => {
+            "web tool attempt was made, but the dashboard/tool transport timed out or failed before returning a usable payload".to_string()
+        }
         "provider_rate_limited_or_quota_exhausted" => {
             "candidate supply is constrained by provider quota, rate-limit, Retry-After, throttling, or HTTP 429 signals".to_string()
         }
@@ -212,6 +215,7 @@ fn web_failure_layer(gate: &str) -> &'static str {
         "web_1_request_shape_present"
         | "web_2_query_metadata_present"
         | "web_3_tool_attempt_recorded" => "query_planning",
+        "web_3a_tool_transport_completed" => "tool_transport",
         "web_3b1_provider_quota_not_rate_limited"
         | "web_3b2_no_bot_challenge_or_waf"
         | "web_3b3_no_permission_or_auth_block"
@@ -247,6 +251,9 @@ fn web_operator_next_action(primary_bottleneck: &str) -> &'static str {
             "improve visible query metadata and coverage declaration"
         }
         "web_tool_attempt_missing" => "inspect workflow-to-tool invocation wiring",
+        "tool_transport_failed" => {
+            "make direct web tooling calls return structured timeout/partial payloads before tuning provider ranking or synthesis"
+        }
         "provider_rate_limited_or_quota_exhausted" => {
             "reduce request pressure, use admitted quota-backed providers, or add provider backoff before tuning synthesis"
         }

@@ -40,6 +40,14 @@ mod quality_tests {
     }
 
     fn write_test_batch_policy(root: &Path, second_pass_enabled: bool) {
+        write_test_batch_policy_with_coverage_gap(root, second_pass_enabled, second_pass_enabled);
+    }
+
+    fn write_test_batch_policy_with_coverage_gap(
+        root: &Path,
+        second_pass_enabled: bool,
+        coverage_gap_enabled: bool,
+    ) {
         write_json_atomic(
             &root.join(POLICY_REL),
             &json!({
@@ -71,7 +79,7 @@ mod quality_tests {
                         "templates": ["{query} source-backed evidence"]
                     },
                     "coverage_gap_recovery": {
-                        "enabled": second_pass_enabled,
+                        "enabled": coverage_gap_enabled,
                         "max_queries": 2,
                         "min_usable_evidence": 2,
                         "min_covered_facets": 3,
@@ -114,6 +122,309 @@ mod quality_tests {
     fn run_request_with_fixture(fixture: Value, request: &Value) -> Value {
         let tmp = tempfile::tempdir().expect("tempdir");
         with_fixture(fixture, || run_request(tmp.path(), request))
+    }
+
+    #[test]
+    fn query_execution_budget_preserves_submitted_pack_but_limits_initial_wave() {
+        let query = "Compare AlphaVac and BetaBot for apartment pet hair";
+        let request = json!({
+            "source": "web",
+            "query": query,
+            "aperture": "medium",
+            "queries": [
+                "AlphaVac pet hair apartment review",
+                "BetaBot pet hair apartment review",
+                "AlphaVac BetaBot maintenance comparison",
+                "AlphaVac BetaBot noise comparison"
+            ],
+            "required_coverage": {
+                "entities": ["AlphaVac", "BetaBot"],
+                "facets": ["pet hair", "maintenance", "noise"]
+            }
+        });
+        let out = run_request_with_fixture(
+            json!({
+                query: {
+                    "ok": true,
+                    "provider": "exa",
+                    "summary": "AlphaVac BetaBot apartment pet-hair overview — https://reviews.example.com/alphavac-betabot-overview — The overview compares AlphaVac and BetaBot for apartment pet hair, maintenance, noise, and everyday cleanup.",
+                    "content": "AlphaVac BetaBot apartment pet-hair overview — https://reviews.example.com/alphavac-betabot-overview — The overview compares AlphaVac and BetaBot for apartment pet hair, maintenance, noise, and everyday cleanup.",
+                    "requested_url": "https://api.exa.ai/search",
+                    "status_code": 200
+                },
+                "AlphaVac pet hair apartment review": {
+                    "ok": true,
+                    "provider": "exa",
+                    "summary": "AlphaVac apartment pet hair review — https://reviews.example.com/alphavac-pet-hair — AlphaVac emphasizes sealed filtration, handheld cleanup, and pet-hair pickup on rugs.",
+                    "content": "AlphaVac apartment pet hair review — https://reviews.example.com/alphavac-pet-hair — AlphaVac emphasizes sealed filtration, handheld cleanup, and pet-hair pickup on rugs.",
+                    "requested_url": "https://api.exa.ai/search",
+                    "status_code": 200
+                },
+                "BetaBot pet hair apartment review": {
+                    "ok": true,
+                    "provider": "tavily",
+                    "summary": "BetaBot apartment pet hair review — https://reviews.example.com/betabot-pet-hair — BetaBot emphasizes anti-tangle brush design, dock maintenance, and quieter scheduled cleanup.",
+                    "content": "BetaBot apartment pet hair review — https://reviews.example.com/betabot-pet-hair — BetaBot emphasizes anti-tangle brush design, dock maintenance, and quieter scheduled cleanup.",
+                    "requested_url": "https://api.tavily.com/search",
+                    "status_code": 200
+                }
+            }),
+            &request,
+        );
+        let submitted = out
+            .get("submitted_query_plan")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let executed = out
+            .get("query_plan")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(submitted.len() > executed.len(), "{out:#?}");
+        assert_eq!(executed.len(), 3, "{out:#?}");
+        assert_eq!(
+            out.pointer("/query_execution_limiter/applied")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert!(
+            submitted
+                .iter()
+                .any(|row| row.as_str() == Some("AlphaVac BetaBot noise comparison")),
+            "{submitted:#?}"
+        );
+        assert!(
+            executed
+                .iter()
+                .all(|row| row.as_str() != Some("AlphaVac BetaBot noise comparison")),
+            "{executed:#?}"
+        );
+    }
+
+    #[test]
+    fn initial_execution_prioritizes_agent_submitted_lanes_before_metadata_expansion() {
+        let query = "Give me a concise briefing on a broad current topic.";
+        let request = json!({
+            "source": "web",
+            "query": query,
+            "aperture": "medium",
+            "queries": [
+                "broad current topic official reports",
+                "broad current topic independent analysis",
+                "broad current topic recent data"
+            ],
+            "keywords": ["current topic", "recent developments", "source-backed evidence"],
+            "required_coverage": {
+                "facets": ["current coverage", "important developments", "source citations"]
+            }
+        });
+        let budget = aperture_budget("medium").expect("budget");
+        let plan = resolve_query_plan(&json!({}), &request, query, budget);
+        let executed = execution_limited_initial_queries(&json!({}), budget, &plan.queries);
+
+        assert_eq!(executed.len(), 3, "{executed:#?}");
+        assert_eq!(executed.first(), plan.queries.first(), "{plan:#?}");
+        assert!(
+            executed
+                .iter()
+                .any(|row| row == "broad current topic official reports"),
+            "{executed:#?}\nsubmitted={:#?}",
+            plan.queries
+        );
+        assert!(
+            executed
+                .iter()
+                .any(|row| row == "broad current topic independent analysis"),
+            "{executed:#?}\nsubmitted={:#?}",
+            plan.queries
+        );
+    }
+
+    #[test]
+    fn deferred_query_recovery_spends_submitted_lanes_when_initial_wave_has_no_pack_ready_evidence()
+    {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        write_test_batch_policy(tmp.path(), true);
+        let query = "current alpha beta evidence 2026";
+        let weak_one = "alpha beta background overview";
+        let weak_two = "alpha beta general article";
+        let deferred_good = "alpha beta evidence 2026 source-backed report";
+        let out = with_fixture(
+            json!({
+                query: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "summary": "Garden irrigation guide with seasonal watering tips and soil moisture reminders.",
+                    "requested_url": "https://example.org/garden-irrigation",
+                    "status_code": 200
+                },
+                weak_one: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "summary": "A general directory mentions Alpha and Beta but does not provide source-backed current evidence.",
+                    "requested_url": "https://example.org/alpha-beta-directory",
+                    "status_code": 200
+                },
+                weak_two: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "summary": "Alpha and Beta appear in a short index page with no substantive current source claim.",
+                    "requested_url": "https://example.org/alpha-beta-index",
+                    "status_code": 200
+                },
+                deferred_good: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "source_kind": "document_page_artifact",
+                    "summary": "Alpha Beta evidence 2026 report says Alpha improved recovery timing while Beta reduced operator review latency in May 2026 production evaluations.",
+                    "requested_url": "https://example.org/alpha-beta-2026-report",
+                    "status_code": 200
+                }
+            }),
+            || {
+                run_request(
+                    tmp.path(),
+                    &json!({
+                        "source": "web",
+                        "query": query,
+                        "aperture": "medium",
+                        "queries": [weak_one, weak_two, deferred_good]
+                    }),
+                )
+            },
+        );
+
+        assert_eq!(
+            out.pointer("/query_execution_limiter/applied")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/used")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/reason")
+                .and_then(Value::as_str),
+            Some("deferred_query_execution_recovery"),
+            "{out:#?}"
+        );
+        assert!(
+            out.pointer("/second_pass_recovery/queries")
+                .and_then(Value::as_array)
+                .map(|rows| rows
+                    .iter()
+                    .any(|row| row.as_str() == Some(deferred_good)))
+                .unwrap_or(false),
+            "{out:#?}"
+        );
+        assert!(
+            out.pointer("/evidence_pack")
+                .and_then(Value::as_array)
+                .map(|rows| rows.iter().any(|row| {
+                    row.get("locator")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .contains("alpha-beta-2026-report")
+                }))
+                .unwrap_or(false),
+            "{out:#?}"
+        );
+    }
+
+    #[test]
+    fn deferred_query_recovery_spends_submitted_lanes_when_initial_wave_lacks_source_quality() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        write_test_batch_policy_with_coverage_gap(tmp.path(), true, false);
+        let query = "current alpha beta evidence 2026";
+        let weak_one = "alpha beta general background";
+        let weak_two = "alpha beta short index";
+        let deferred_good = "alpha beta evidence 2026 second source report";
+        let out = with_fixture(
+            json!({
+                query: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "source_kind": "document_page_artifact",
+                    "summary": "Alpha Beta evidence 2026 report says Alpha improved recovery timing in May 2026 production evaluations, with operators documenting fewer rollbacks and clearer incident receipts for source-backed comparison.",
+                    "content": "Alpha Beta evidence 2026 report says Alpha improved recovery timing in May 2026 production evaluations, with operators documenting fewer rollbacks and clearer incident receipts for source-backed comparison.",
+                    "requested_url": "https://source-one.example.org/alpha-beta-2026-report",
+                    "status_code": 200
+                },
+                weak_one: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "summary": "A short background directory mentions Alpha and Beta without source-backed current findings.",
+                    "requested_url": "https://example.org/alpha-beta-directory",
+                    "status_code": 200
+                },
+                weak_two: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "summary": "An index page lists Alpha Beta links but does not provide a substantive evidence claim.",
+                    "requested_url": "https://example.org/alpha-beta-index",
+                    "status_code": 200
+                },
+                deferred_good: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "source_kind": "document_page_artifact",
+                    "summary": "A second Alpha Beta evidence 2026 report from May 2026 says Beta reduced operator review latency while preserving rollback controls across repeated production evaluations.",
+                    "content": "A second Alpha Beta evidence 2026 report from May 2026 says Beta reduced operator review latency while preserving rollback controls across repeated production evaluations.",
+                    "requested_url": "https://source-two.example.org/alpha-beta-2026-report",
+                    "status_code": 200
+                }
+            }),
+            || {
+                run_request(
+                    tmp.path(),
+                    &json!({
+                        "source": "web",
+                        "query": query,
+                        "aperture": "medium",
+                        "queries": [weak_one, weak_two, deferred_good]
+                    }),
+                )
+            },
+        );
+
+        assert_eq!(
+            out.pointer("/query_execution_limiter/applied")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/used")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/reason")
+                .and_then(Value::as_str),
+            Some("deferred_query_source_diversity_recovery"),
+            "{out:#?}"
+        );
+        assert!(
+            out.pointer("/evidence_pack")
+                .and_then(Value::as_array)
+                .map(|rows| {
+                    rows.iter().any(|row| {
+                        row.get("locator")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .contains("source-two.example.org")
+                    })
+                })
+                .unwrap_or(false),
+            "{out:#?}"
+        );
     }
 
     #[test]
@@ -1188,6 +1499,58 @@ mod quality_tests {
             plan.queries
                 .iter()
                 .any(|row| row == "Figma AI public sentiment 2026 public sentiment user reports"),
+            "{:#?}",
+            plan.queries
+        );
+    }
+
+    #[test]
+    fn non_comparison_alias_pack_does_not_compile_comparison_lanes() {
+        let query = "Give me a concise briefing on major news from this week.";
+        let request = json!({
+            "source": "web",
+            "query": query,
+            "aliases": [
+                "weekly news briefing",
+                "this week news",
+                "recent major stories"
+            ],
+            "keywords": [
+                "major news",
+                "this week",
+                "global headlines",
+                "breaking news"
+            ],
+            "required_coverage": {
+                "facets": [
+                    "this week",
+                    "broadly important",
+                    "grouped by theme",
+                    "cited sources"
+                ]
+            },
+            "negative_terms": ["opinion", "analysis"],
+            "aperture": "medium"
+        });
+        let budget = aperture_budget("medium").expect("budget");
+        let plan = resolve_query_plan(&json!({}), &request, query, budget);
+
+        assert!(
+            plan.queries
+                .iter()
+                .any(|row| row.contains("source-backed evidence")),
+            "{:#?}",
+            plan.queries
+        );
+        assert!(
+            plan.queries.iter().all(|row| {
+                let lowered = row.to_ascii_lowercase();
+                !lowered.contains("independent comparison")
+                    && !lowered.contains(" comparison")
+                    && !lowered.ends_with("comparison")
+                    && !lowered.contains(" reviews")
+                    && !lowered.ends_with("reviews")
+            }),
             "{:#?}",
             plan.queries
         );
@@ -4842,6 +5205,111 @@ mod quality_tests {
                 .map(|rows| rows
                     .iter()
                     .any(|row| row.as_str() == Some(safety_recovery_query)))
+                .unwrap_or(false),
+            "{out:#?}"
+        );
+        assert!(
+            out.get("evidence_refs")
+                .and_then(Value::as_array)
+                .map(|rows| {
+                    rows.iter().any(|row| {
+                        row.get("locator")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .contains("policy-safety")
+                    })
+                })
+                .unwrap_or(false),
+            "{out:#?}"
+        );
+    }
+
+    #[test]
+    fn coverage_gap_recovery_runs_when_initial_query_wave_is_limited_but_evidence_is_pack_ready() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        write_test_batch_policy(tmp.path(), true);
+        let query = "Research deployment fit";
+        let cost_query = "Research deployment fit cost profile";
+        let cost_detail_query = "Research deployment fit implementation cost";
+        let security_recovery_query = "security posture source-backed evidence";
+        let out = with_fixture(
+            json!({
+                query: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "source_kind": "document_page_artifact",
+                    "summary": "Deployment fit cost profile evidence describes pricing, operating expense, and budget tradeoffs for adoption decisions.",
+                    "content": "Deployment fit cost profile evidence describes pricing, operating expense, and budget tradeoffs for adoption decisions.",
+                    "requested_url": "https://example.org/policy-cost",
+                    "status_code": 200
+                },
+                cost_query: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "source_kind": "document_page_artifact",
+                    "summary": "Deployment fit cost profile reports implementation cost, maintenance budget, and vendor pricing details.",
+                    "content": "Deployment fit cost profile reports implementation cost, maintenance budget, and vendor pricing details for adoption planning.",
+                    "requested_url": "https://example.org/policy-cost-detail",
+                    "status_code": 200
+                },
+                cost_detail_query: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "source_kind": "document_page_artifact",
+                    "summary": "Deployment fit implementation cost analysis documents staffing cost, support cost, and rollout budget impact.",
+                    "content": "Deployment fit implementation cost analysis documents staffing cost, support cost, and rollout budget impact with enough detail for source-backed evaluation.",
+                    "requested_url": "https://example.org/policy-cost-analysis",
+                    "status_code": 200
+                },
+                security_recovery_query: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "source_kind": "document_page_artifact",
+                    "summary": "Deployment fit security posture source-backed evidence identifies access controls, threat model limits, and operational safeguards.",
+                    "content": "Deployment fit security posture source-backed evidence identifies access controls, threat model limits, and operational safeguards.",
+                    "requested_url": "https://example.org/policy-safety",
+                    "status_code": 200
+                }
+            }),
+            || {
+                run_request(
+                    tmp.path(),
+                    &json!({
+                        "source": "web",
+                        "query": query,
+                        "required_coverage": {
+                            "facets": ["cost profile", "security posture"]
+                        },
+                        "aperture": "medium",
+                        "queries": [cost_query, cost_detail_query]
+                    }),
+                )
+            },
+        );
+        assert_eq!(
+            out.pointer("/query_execution_limiter/applied")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/used")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/reason")
+                .and_then(Value::as_str),
+            Some("coverage_gap"),
+            "{out:#?}"
+        );
+        assert!(
+            out.pointer("/second_pass_recovery/queries")
+                .and_then(Value::as_array)
+                .map(|rows| rows
+                    .iter()
+                    .any(|row| row.as_str() == Some(security_recovery_query)))
                 .unwrap_or(false),
             "{out:#?}"
         );

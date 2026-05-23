@@ -138,6 +138,150 @@
     }
 
     #[test]
+    fn direct_evidence_claim_relevance_uses_citable_support_fields() {
+        let payload = json!({
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok"
+            }],
+            "tool_result_quality": {
+                "status": "partial",
+                "candidate_count": 12,
+                "evidence_count": 2,
+                "materialized_candidate_count": 2,
+                "content_rich_candidate_count": 2,
+                "flags": ["partial_results"]
+            },
+            "evidence_pack_quality": {
+                "status": "thin",
+                "usable_count": 1,
+                "claim_hint_count": 2,
+                "content_rich_item_count": 1
+            },
+            "evidence_claims": [{
+                "claim": "Anti-hair wrap technology is specifically useful for pet owners.",
+                "support_snippet": "The comparison says Shark counters with anti-hair-wrap technology while Dyson emphasizes particle detection.",
+                "source_title": "Dyson V15 Detect vs Shark Stratos cordless vacuum comparison",
+                "source_domain": "example.test"
+            }],
+            "evidence_refs": [{
+                "title": "Dyson V15 Detect vs Shark Stratos cordless vacuum comparison",
+                "snippet": "The comparison says Shark counters with anti-hair-wrap technology while Dyson emphasizes particle detection."
+            }]
+        });
+
+        let quality = retrieval_provider_quality(
+            &payload,
+            &normalize_for_compare("Compare Dyson V15 Detect and Shark Stratos cordless vacuums for pet hair."),
+        );
+        assert_eq!(
+            quality.get("status").and_then(Value::as_str),
+            Some("usable"),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality
+                .pointer("/classification_inputs/direct_pack_thin_blocks_signal")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality
+                .pointer("/prompt_relevance/relevant_evidence_count")
+                .and_then(Value::as_u64),
+            Some(1),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality.get("allows_excellent").and_then(Value::as_bool),
+            Some(false),
+            "{quality:#?}"
+        );
+    }
+
+    #[test]
+    fn direct_structured_evidence_overrides_stale_missing_quality_flags() {
+        let payload = json!({
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok"
+            }],
+            "tool_result_quality": {
+                "status": "partial",
+                "candidate_count": 18,
+                "evidence_count": 1,
+                "materialized_candidate_count": 7,
+                "content_rich_candidate_count": 7,
+                "flags": [
+                    "claim_hints_missing",
+                    "content_rich_evidence_missing",
+                    "provider_starved"
+                ]
+            },
+            "evidence_pack_quality": {
+                "status": "thin",
+                "usable_count": 1,
+                "claim_hint_count": 2,
+                "content_rich_item_count": 1
+            },
+            "evidence_claims": [{
+                "claim": "The attack on a nuclear power plant in the United Arab Emirates raised fears about Iran's retaliation.",
+                "support_snippet": "The attack on a nuclear power plant in the United Arab Emirates raised fears about Iran's retaliation and the role of militias.",
+                "source_title": "Iran War: Attack on Barakah Nuclear Plant From Iraq Is Warning Shot",
+                "source_domain": "bloomberg.com"
+            }],
+            "evidence_refs": [{
+                "title": "Iran War: Attack on Barakah Nuclear Plant From Iraq Is Warning Shot",
+                "snippet": "The attack on a nuclear power plant in the United Arab Emirates raised fears about Iran's retaliation and the role of militias."
+            }]
+        });
+
+        let quality = retrieval_provider_quality(
+            &payload,
+            &normalize_for_compare("Give me concise major news from this week, group by theme and cite sources."),
+        );
+        assert_eq!(
+            quality.get("status").and_then(Value::as_str),
+            Some("usable"),
+            "{quality:#?}"
+        );
+        assert_eq!(
+            quality
+                .pointer("/classification_inputs/direct_low_signal_marker")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{quality:#?}"
+        );
+    }
+
+    #[test]
+    fn generic_prompt_shape_terms_do_not_force_false_relevance_failures() {
+        let relevance = evidence_prompt_relevance_from_texts(
+            &normalize_for_compare("Give me concise major news from this week, group by theme and cite sources."),
+            vec![normalize_for_compare(
+                "Senate Republicans canceled a planned vote on immigration enforcement funding.",
+            )],
+            "test",
+            true,
+        );
+        assert_eq!(
+            relevance
+                .get("topic_relevant_evidence")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{relevance:#?}"
+        );
+        assert_eq!(
+            relevance
+                .get("min_overlap_terms")
+                .and_then(Value::as_u64),
+            Some(0),
+            "{relevance:#?}"
+        );
+    }
+
+    #[test]
     fn direct_evidence_claim_contract_zero_claims_is_low_signal() {
         let payload = json!({
             "tools": [{

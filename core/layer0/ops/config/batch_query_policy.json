@@ -8,6 +8,15 @@
     "allow_large": false,
     "max_parallel_subqueries": 4,
     "query_timeout_ms": 30000,
+    "query_execution_budget": {
+      "max_initial_lanes": 3,
+      "deferred_recovery": {
+        "enabled": true,
+        "max_lanes": 2,
+        "trigger": "when the bounded initial wave has no pack-ready evidence, spend a small budget on already-submitted deferred lanes before generated recovery"
+      },
+      "reason": "preserve strong-provider rate budget by executing bounded initial waves while keeping the submitted query plan visible"
+    },
     "cache": {
       "mode": "enabled",
       "ttl_success_seconds": 1800,
