@@ -5967,6 +5967,12 @@ mod workflow_fallback_tests {
         assert!(response_contains_workflow_prompt_analysis_leak(
             "We are in the runtime context of 2026-05-02T06:14:40Z. The user asks for a reply in exactly five words. We must reply in one short sentence."
         ));
+        assert!(response_contains_workflow_prompt_analysis_leak(
+            "I need to analyze the recorded evidence state: - `recorded_evidence_available`: true - `recorded_tool_result_quality`: \"partial_or_low_signal_evidence\"."
+        ));
+        assert!(response_contains_workflow_prompt_analysis_leak(
+            "The synthesis input envelope shows evidence_claims is empty, so choose bounded_partial_answer."
+        ));
         assert_eq!(
             direct_llm_response_from_initial_draft(
                 "According to the instructions, the gate is What kind of work is this? The user asks to respond directly, so we answer normally."

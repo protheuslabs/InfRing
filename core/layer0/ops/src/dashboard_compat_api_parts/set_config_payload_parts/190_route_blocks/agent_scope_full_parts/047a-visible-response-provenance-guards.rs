@@ -193,11 +193,31 @@ fn response_contains_workflow_prompt_analysis_leak(response_text: &str) -> bool 
     if lowered.is_empty() {
         return false;
     }
-    workflow_message_matches_contract_markers(
+    if workflow_message_matches_contract_markers(
         &default_workflow_tool_menu_contract(),
         "/diagnostic_markers/prompt_analysis_leak_phrases",
         &lowered,
-    )
+    ) {
+        return true;
+    }
+    [
+        "i need to analyze the recorded evidence state",
+        "recorded tool/evidence state",
+        "recorded evidence state",
+        "recorded_tool_",
+        "recorded_evidence_",
+        "recorded_quality_flags",
+        "recorded_retry_",
+        "recorded_answer_units",
+        "synthesis input envelope",
+        "tool boundary signals",
+        "evidence_outcome_posture",
+        "supported_answer",
+        "bounded_partial_answer",
+        "evidence_insufficient_answer",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker))
 }
 
 fn response_contains_unrequested_content_without_tool_evidence(
