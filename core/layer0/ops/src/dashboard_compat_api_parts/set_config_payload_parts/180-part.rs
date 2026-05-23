@@ -183,9 +183,161 @@ fn message_requests_local_file_mutation(message: &str) -> bool {
     false
 }
 
+fn message_has_explicit_year_scope(message: &str) -> bool {
+    clean_text(message, 400)
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|token| token.len() == 4)
+        .filter_map(|token| token.parse::<u32>().ok())
+        .any(|year| (1900..=2100).contains(&year))
+}
+
+fn message_has_external_information_request_frame(lowered: &str) -> bool {
+    lowered.ends_with('?')
+        || [
+            "what ",
+            "what's ",
+            "what is ",
+            "what are ",
+            "who ",
+            "when ",
+            "where ",
+            "which ",
+            "how ",
+            "give me ",
+            "tell me ",
+            "show me ",
+            "find ",
+            "look up ",
+            "search ",
+            "summarize ",
+            "summarise ",
+            "list ",
+            "compare ",
+            "explain ",
+            "update me ",
+        ]
+        .iter()
+        .any(|prefix| lowered.starts_with(prefix))
+}
+
+fn message_has_external_information_time_cues(message: &str, lowered: &str) -> bool {
+    [
+        "today",
+        "yesterday",
+        "tomorrow",
+        "this week",
+        "this month",
+        "this year",
+        "right now",
+        "as of ",
+        "current ",
+        "currently ",
+        "latest ",
+        "recent ",
+        "news",
+        "update",
+        "updates",
+    ]
+    .iter()
+    .any(|needle| lowered.contains(needle))
+        || message_has_explicit_year_scope(message)
+}
+
+fn message_has_external_information_relation_cues(lowered: &str) -> bool {
+    [
+        "compare",
+        "comparison",
+        " versus ",
+        " vs ",
+        "difference between",
+        "public sentiment",
+        "sentiment",
+        "reviews",
+        "pricing",
+        "benchmark",
+        "benchmarks",
+        "rank",
+        "ranking",
+        "landscape",
+        "state of",
+        "release",
+        "releases",
+    ]
+    .iter()
+    .any(|needle| lowered.contains(needle))
+}
+
+fn message_refers_to_local_workspace_or_code(trimmed: &str, lowered: &str) -> bool {
+    if workspace_analyze_intent_from_message(trimmed, lowered).is_some() {
+        return true;
+    }
+    if [
+        "this system",
+        "our system",
+        "this workspace",
+        "this repo",
+        "this repository",
+        "this code",
+        "read this file",
+        "open this file",
+        "shell command",
+    ]
+    .iter()
+    .any(|needle| lowered.contains(needle))
+    {
+        return true;
+    }
+    let tokens = lowered
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    [
+        "workspace",
+        "repo",
+        "repository",
+        "project",
+        "codebase",
+        "patch",
+        "refactor",
+        "compile",
+        "build",
+        "cargo",
+        "rust",
+        "python",
+        "typescript",
+        "javascript",
+        "function",
+        "module",
+        "class",
+        "crate",
+        "test",
+        "api",
+        "terminal",
+    ]
+    .iter()
+    .any(|needle| tokens.contains(*needle))
+}
+
 fn message_requires_information_search(message: &str) -> bool {
-    let _ = message;
-    false
+    let trimmed = clean_text(message, 2_200);
+    if trimmed.is_empty()
+        || message_is_tooling_status_check(&trimmed)
+        || message_is_meta_control_turn(&trimmed)
+        || message_explicitly_disallows_tool_calls(&trimmed)
+    {
+        return false;
+    }
+    if natural_web_search_query_from_message(&trimmed).is_some() {
+        return true;
+    }
+    let lowered = trimmed.to_ascii_lowercase();
+    if message_refers_to_local_workspace_or_code(&trimmed, &lowered) {
+        return false;
+    }
+    let request_frame = message_has_external_information_request_frame(&lowered);
+    let time_cues = message_has_external_information_time_cues(&trimmed, &lowered);
+    let relation_cues = message_has_external_information_relation_cues(&lowered);
+    time_cues || (request_frame && relation_cues)
 }
 
 fn inline_tool_calls_allowed_for_user_message(message: &str) -> bool {

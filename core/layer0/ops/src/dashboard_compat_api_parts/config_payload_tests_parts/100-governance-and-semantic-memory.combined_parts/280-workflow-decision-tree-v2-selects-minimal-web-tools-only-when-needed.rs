@@ -10,11 +10,17 @@ fn workflow_decision_tree_v2_selects_minimal_web_tools_only_when_needed() {
         decision
             .get("requires_live_web")
             .and_then(Value::as_bool),
-        Some(false)
+        Some(true)
     );
     assert_eq!(
         decision.get("should_call_tools").and_then(Value::as_bool),
         Some(false)
+    );
+    assert_eq!(
+        decision
+            .get("selected_work_category")
+            .and_then(Value::as_str),
+        Some("web_research")
     );
 }
 

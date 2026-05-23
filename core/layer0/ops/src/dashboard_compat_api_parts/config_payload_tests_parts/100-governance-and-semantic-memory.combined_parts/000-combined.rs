@@ -752,7 +752,7 @@ fn workflow_decision_tree_file_read_request_still_enters_gate_1() {
 }
 
 #[test]
-fn workflow_decision_tree_latest_keyword_does_not_auto_enable_web() {
+fn workflow_decision_tree_latest_keyword_sets_web_research_advisory_without_auto_tools() {
     let decision =
         workflow_turn_tool_decision_tree("what are the latest agent framework changes this week?");
     assert_eq!(
@@ -767,9 +767,18 @@ fn workflow_decision_tree_latest_keyword_does_not_auto_enable_web() {
         decision
             .get("requires_live_web")
             .and_then(Value::as_bool),
-        Some(false)
+        Some(true)
     );
-    assert!(decision.get("needs_tool_access").is_some_and(Value::is_null));
+    assert_eq!(
+        decision
+            .get("selected_work_category")
+            .and_then(Value::as_str),
+        Some("web_research")
+    );
+    assert_eq!(
+        decision.get("needs_tool_access").and_then(Value::as_bool),
+        Some(true)
+    );
     assert_eq!(
         decision
             .pointer("/gate_submission/gate_id")
@@ -779,7 +788,7 @@ fn workflow_decision_tree_latest_keyword_does_not_auto_enable_web() {
 }
 
 #[test]
-fn workflow_decision_tree_search_keyword_does_not_auto_enable_web() {
+fn workflow_decision_tree_search_keyword_sets_web_research_advisory_without_auto_tools() {
     let decision =
         workflow_turn_tool_decision_tree("search current framework docs and tell me what changed");
     assert_eq!(
@@ -794,9 +803,18 @@ fn workflow_decision_tree_search_keyword_does_not_auto_enable_web() {
         decision
             .get("requires_live_web")
             .and_then(Value::as_bool),
-        Some(false)
+        Some(true)
     );
-    assert!(decision.get("needs_tool_access").is_some_and(Value::is_null));
+    assert_eq!(
+        decision
+            .get("selected_work_category")
+            .and_then(Value::as_str),
+        Some("web_research")
+    );
+    assert_eq!(
+        decision.get("needs_tool_access").and_then(Value::as_bool),
+        Some(true)
+    );
     assert_eq!(
         decision
             .get("gate_1_submission_status")
@@ -806,7 +824,7 @@ fn workflow_decision_tree_search_keyword_does_not_auto_enable_web() {
 }
 
 #[test]
-fn workflow_decision_tree_update_keyword_does_not_auto_enable_web() {
+fn workflow_decision_tree_update_keyword_sets_web_research_advisory_without_auto_tools() {
     let decision = workflow_turn_tool_decision_tree(
         "give me an update on the top framework releases and ecosystem shifts",
     );
@@ -822,9 +840,18 @@ fn workflow_decision_tree_update_keyword_does_not_auto_enable_web() {
         decision
             .get("requires_live_web")
             .and_then(Value::as_bool),
-        Some(false)
+        Some(true)
     );
-    assert!(decision.get("needs_tool_access").is_some_and(Value::is_null));
+    assert_eq!(
+        decision
+            .get("selected_work_category")
+            .and_then(Value::as_str),
+        Some("web_research")
+    );
+    assert_eq!(
+        decision.get("needs_tool_access").and_then(Value::as_bool),
+        Some(true)
+    );
     assert_eq!(
         decision
             .pointer("/gate_submission/resume_token")

@@ -824,17 +824,40 @@ fn workflow_turn_tool_decision_tree(message: &str) -> Value {
     let contract = default_workflow_tool_menu_contract();
     let first_gate_id = workflow_first_gate_id(&contract);
     let first_gate = workflow_contract_gate(&contract, &first_gate_id);
+    let cleaned_message = clean_text(message, 2_200);
+    let lowered_message = cleaned_message.to_ascii_lowercase();
+    let strong_live_web_freshness_cue = !cleaned_message.is_empty()
+        && !message_refers_to_local_workspace_or_code(&cleaned_message, &lowered_message)
+        && (lowered_message.contains("latest")
+            || lowered_message.contains("current")
+            || lowered_message.contains("today")
+            || lowered_message.contains("this week")
+            || lowered_message.contains("this month")
+            || lowered_message.contains("this year")
+            || lowered_message.contains("news")
+            || lowered_message.contains("update")
+            || message_has_explicit_year_scope(&cleaned_message));
     let requires_file_mutation = false;
     let requires_local_lookup = false;
-    let requires_live_web = false;
-    let explicit_web_intent = false;
+    let requires_live_web =
+        message_requires_information_search(message) || strong_live_web_freshness_cue;
+    let explicit_web_intent = natural_web_search_query_from_message(message).is_some();
     let has_sufficient_information = false;
     let should_call_tools = false;
     let gate_decision_mode = "manual_work_category_v1";
-    let reason_code = "manual_menu_presented";
-    let info_source = "menu_only";
+    let reason_code = if requires_live_web {
+        "advisory_external_information_required"
+    } else {
+        "manual_menu_presented"
+    };
+    let info_source = if explicit_web_intent {
+        "explicit_web_query_detector"
+    } else if requires_live_web {
+        "external_information_detector"
+    } else {
+        "menu_only"
+    };
     let selected_tool_family = "unselected";
-    let _ = message;
     let meta_control = false;
     let status_check = false;
     let meta_diagnostic_request = false;
@@ -845,11 +868,20 @@ fn workflow_turn_tool_decision_tree(message: &str) -> Value {
     let gate_enforcement_mode = "disabled";
     let gate_is_advisory = false;
     let workflow_retry_limit = 1;
-    let needs_tool_access: Option<bool> = None;
-    let selected_work_category = Value::Null;
+    let needs_tool_access: Option<bool> = if requires_live_web { Some(true) } else { None };
+    let selected_work_category = if requires_live_web {
+        Value::String("web_research".to_string())
+    } else {
+        Value::Null
+    };
+    let gate_1_llm_submission = Value::Null;
     let gate_1_allowed_outputs = workflow_gate_1_allowed_outputs(&contract);
     let gate_1_submission_status = "awaiting_llm_submission";
-    let gate_1_decision_source = "pending_llm_submission";
+    let gate_1_decision_source = if requires_live_web {
+        "advisory_information_search_detector"
+    } else {
+        "pending_llm_submission"
+    };
     let gate_prompt = clean_text(
         first_gate
             .get("question")
@@ -865,7 +897,7 @@ fn workflow_turn_tool_decision_tree(message: &str) -> Value {
             "type": first_gate.get("input_kind").and_then(Value::as_str).unwrap_or(""),
             "allowed_outputs": gate_1_allowed_outputs.clone()
         },
-        "llm_submission": selected_work_category,
+        "llm_submission": gate_1_llm_submission,
         "accepted": false,
         "resume_token": first_gate_resume_token
     });
@@ -1806,6 +1838,97 @@ mod workflow_control_tests {
             canonical_manual_toolbox_tool_name("Web research", "I would choose a menu item"),
             ""
         );
+    }
+
+    #[test]
+    fn workflow_decision_tree_marks_broad_current_info_queries_as_web_research_advisory() {
+        let decision =
+            workflow_turn_tool_decision_tree("give me an update on the AI agentic landscape in may 2026");
+        assert_eq!(
+            decision.get("gate_decision_mode").and_then(Value::as_str),
+            Some("manual_work_category_v1")
+        );
+        assert_eq!(
+            decision.get("should_call_tools").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            decision.get("requires_live_web").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            decision
+                .get("selected_work_category")
+                .and_then(Value::as_str),
+            Some("web_research")
+        );
+        assert_eq!(
+            decision
+                .get("gate_1_submission_status")
+                .and_then(Value::as_str),
+            Some("awaiting_llm_submission")
+        );
+        assert!(
+            decision
+                .pointer("/gate_submission/llm_submission")
+                .is_some_and(Value::is_null)
+        );
+    }
+
+    #[test]
+    fn workflow_decision_tree_marks_year_scoped_external_questions_as_web_research_advisory() {
+        let decision =
+            workflow_turn_tool_decision_tree("what are some scientific breakthroughs 2026?");
+        assert_eq!(
+            decision.get("requires_live_web").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            decision
+                .get("selected_work_category")
+                .and_then(Value::as_str),
+            Some("web_research")
+        );
+        assert_eq!(
+            decision
+                .get("selected_tool_family")
+                .and_then(Value::as_str),
+            Some("unselected")
+        );
+    }
+
+    #[test]
+    fn workflow_decision_tree_marks_latest_this_week_queries_as_web_research_advisory() {
+        let prompt = "what are the latest agent framework changes this week?";
+        let lowered = clean_text(prompt, 2_200).to_ascii_lowercase();
+        assert_eq!(
+            message_refers_to_local_workspace_or_code(prompt, &lowered),
+            false
+        );
+        assert_eq!(message_requires_information_search(prompt), true);
+
+        let decision = workflow_turn_tool_decision_tree(prompt);
+        assert_eq!(
+            decision.get("requires_live_web").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            decision
+                .get("selected_work_category")
+                .and_then(Value::as_str),
+            Some("web_research")
+        );
+    }
+
+    #[test]
+    fn workflow_decision_tree_keeps_general_coding_questions_off_web_advisory() {
+        let decision =
+            workflow_turn_tool_decision_tree("what is the best way to structure this Rust module?");
+        assert_eq!(
+            decision.get("requires_live_web").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert!(decision.get("selected_work_category").is_some_and(Value::is_null));
     }
 
     #[test]
