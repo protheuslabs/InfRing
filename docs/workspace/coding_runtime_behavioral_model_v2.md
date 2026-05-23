@@ -173,6 +173,13 @@ Optimization order:
    overhead dominates.
 5. Consider model routing only after same-model comparisons are stable.
 
+Fallback ladder:
+
+1. Try the small scoped SEARCH/REPLACE artifact profile.
+2. If that profile times out or returns an invalid artifact, retry the general
+   bounded patch artifact profile with the same already-selected context.
+3. Enter the full native tool loop only after both artifact profiles fail.
+
 ### Tier 3: validation and repair loop
 
 Use when validation is requested, expected, or necessary for confidence.

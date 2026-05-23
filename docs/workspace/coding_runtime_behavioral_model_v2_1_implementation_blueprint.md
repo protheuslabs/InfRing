@@ -320,6 +320,13 @@ Improve this primitive in this order:
 3. Keep SEARCH/REPLACE as the single fast-profile grammar.
 4. Reduce runtime startup or workflow-loading overhead when traces prove it.
 5. Revisit model routing only after same-model parity data is clean.
+
+Fallback rule:
+
+The small scoped profile must not drop directly into the full native tool loop
+after a malformed artifact or first-profile timeout. It should retry the general
+bounded patch artifact prompt against the same selected file context first, then
+fall back to the heavier open native loop only if artifact synthesis still fails.
 - no architecture decision is needed
 - no validation was requested
 - permission policy grants the mutation

@@ -291,6 +291,9 @@ Required reset action:
   driven.
 - Omit model routing for now; model substitution belongs in a later profile or
   policy once same-model behavior is stable.
+- Retry the general bounded patch artifact profile with the same selected
+  context before falling back from `small_scoped_edit_artifact` to the full
+  native tool loop.
 
 ### 6. Validation and repair loop
 

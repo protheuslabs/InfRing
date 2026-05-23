@@ -102,6 +102,9 @@ Current optimization boundary:
 - Emit phase timing from the Infring lane before deciding whether the next speed
   gap is prompt/model latency, runtime startup, workflow loading, patch
   application, validation, or final synthesis.
+- If the SEARCH/REPLACE profile times out or emits an invalid artifact, retry
+  the general bounded patch artifact prompt with the same selected context before
+  falling back to the full native tool loop.
 
 ## Infring gap
 

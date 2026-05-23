@@ -1781,7 +1781,8 @@ fn native_tool_bounded_patch_artifact_lane(
         ));
     };
     let file_context_ms = native_tool_bounded_patch_elapsed_ms(file_context_started);
-    let artifact_profile = native_tool_bounded_patch_artifact_profile(metadata, &context_paths);
+    let mut artifact_profile = native_tool_bounded_patch_artifact_profile(metadata, &context_paths);
+    let mut attempted_artifact_profiles = vec![artifact_profile.as_str().to_string()];
     let mut patch_metadata = metadata.clone();
     if let Some(object) = patch_metadata.as_object_mut() {
         object.insert(
@@ -1816,8 +1817,79 @@ fn native_tool_bounded_patch_artifact_lane(
     };
     let mut provider_call_count = 1u64;
     let model_call_started = Instant::now();
-    let response = match provider.complete(&request) {
+    let mut response = match provider.complete(&request) {
         Ok(response) => response,
+        Err(error)
+            if native_tool_provider_error_is_timeout(&error)
+                && artifact_profile
+                    == NativeToolBoundedPatchArtifactProfile::SmallScopedEditArtifact =>
+        {
+            artifact_profile = NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact;
+            attempted_artifact_profiles.push(artifact_profile.as_str().to_string());
+            provider_call_count += 1;
+            let mut retry_metadata = metadata.clone();
+            if let Some(object) = retry_metadata.as_object_mut() {
+                object.insert(
+                    "provider_timeout_seconds".to_string(),
+                    json!(native_tool_bounded_patch_artifact_provider_timeout_seconds(metadata)),
+                );
+                object.insert("native_bounded_patch_artifact_lane".to_string(), json!(true));
+                object.insert(
+                    "native_patch_artifact_profile".to_string(),
+                    json!(artifact_profile.as_str()),
+                );
+            }
+            let retry_request = ProviderRequest {
+                prompt: native_tool_bounded_patch_artifact_prompt(
+                    metadata,
+                    original_prompt,
+                    &file_context,
+                    artifact_profile,
+                ),
+                system: Some(native_tool_bounded_patch_artifact_system_prompt(
+                    artifact_profile,
+                )),
+                tools: Vec::new(),
+                model: model.clone(),
+                metadata: retry_metadata,
+            };
+            match provider.complete(&retry_request) {
+                Ok(response) => response,
+                Err(retry_error) if native_tool_provider_error_is_timeout(&retry_error) => {
+                    native_tool_persist_run_journal(
+                        metadata,
+                        original_prompt,
+                        "bounded_patch_artifact_fallback",
+                        provider_call_count,
+                        &receipts,
+                        None,
+                        Some("provider_timeout_before_patch_artifact"),
+                    );
+                    return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+                        "provider_timeout_before_patch_artifact",
+                        json!({
+                            "provider_error": retry_error.message,
+                            "first_profile_timeout": error.message,
+                            "context_paths": context_paths
+                                .iter()
+                                .map(|path| path.display().to_string())
+                                .collect::<Vec<_>>(),
+                            "artifact_profile": artifact_profile.as_str(),
+                            "attempted_artifact_profiles": attempted_artifact_profiles,
+                            "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                                lane_started,
+                                context_read_ms,
+                                file_context_ms,
+                                native_tool_bounded_patch_elapsed_ms(model_call_started),
+                                0,
+                                0
+                            ),
+                        }),
+                    ));
+                }
+                Err(retry_error) => return Err(retry_error),
+            }
+        }
         Err(error) if native_tool_provider_error_is_timeout(&error) => {
             native_tool_persist_run_journal(
                 metadata,
@@ -1833,10 +1905,11 @@ fn native_tool_bounded_patch_artifact_lane(
                 json!({
                     "provider_error": error.message,
                     "context_paths": context_paths
-                    .iter()
-                    .map(|path| path.display().to_string())
-                    .collect::<Vec<_>>(),
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>(),
                     "artifact_profile": artifact_profile.as_str(),
+                    "attempted_artifact_profiles": attempted_artifact_profiles,
                     "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
                         lane_started,
                         context_read_ms,
@@ -1850,10 +1923,84 @@ fn native_tool_bounded_patch_artifact_lane(
         }
         Err(error) => return Err(error),
     };
-    let model_call_ms = native_tool_bounded_patch_elapsed_ms(model_call_started);
 
-    let patches =
+    let mut patches =
         native_tool_bounded_patch_artifact_patches(&response.output, &project_root, &context_paths);
+    if patches.is_empty()
+        && artifact_profile == NativeToolBoundedPatchArtifactProfile::SmallScopedEditArtifact
+    {
+        artifact_profile = NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact;
+        attempted_artifact_profiles.push(artifact_profile.as_str().to_string());
+        provider_call_count += 1;
+        let mut retry_metadata = metadata.clone();
+        if let Some(object) = retry_metadata.as_object_mut() {
+            object.insert(
+                "provider_timeout_seconds".to_string(),
+                json!(native_tool_bounded_patch_artifact_provider_timeout_seconds(metadata)),
+            );
+            object.insert("native_bounded_patch_artifact_lane".to_string(), json!(true));
+            object.insert(
+                "native_patch_artifact_profile".to_string(),
+                json!(artifact_profile.as_str()),
+            );
+        }
+        let retry_request = ProviderRequest {
+            prompt: native_tool_bounded_patch_artifact_prompt(
+                metadata,
+                original_prompt,
+                &file_context,
+                artifact_profile,
+            ),
+            system: Some(native_tool_bounded_patch_artifact_system_prompt(
+                artifact_profile,
+            )),
+            tools: Vec::new(),
+            model: model.clone(),
+            metadata: retry_metadata,
+        };
+        response = match provider.complete(&retry_request) {
+            Ok(response) => response,
+            Err(error) if native_tool_provider_error_is_timeout(&error) => {
+                native_tool_persist_run_journal(
+                    metadata,
+                    original_prompt,
+                    "bounded_patch_artifact_fallback",
+                    provider_call_count,
+                    &receipts,
+                    Some(&response.output),
+                    Some("provider_timeout_before_patch_artifact"),
+                );
+                return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+                    "provider_timeout_before_patch_artifact",
+                    json!({
+                        "provider_error": error.message,
+                        "first_profile_output_preview": response.output.chars().take(1600).collect::<String>(),
+                        "context_paths": context_paths
+                            .iter()
+                            .map(|path| path.display().to_string())
+                            .collect::<Vec<_>>(),
+                        "artifact_profile": artifact_profile.as_str(),
+                        "attempted_artifact_profiles": attempted_artifact_profiles,
+                        "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                            lane_started,
+                            context_read_ms,
+                            file_context_ms,
+                            native_tool_bounded_patch_elapsed_ms(model_call_started),
+                            0,
+                            0
+                        ),
+                    }),
+                ));
+            }
+            Err(error) => return Err(error),
+        };
+        patches = native_tool_bounded_patch_artifact_patches(
+            &response.output,
+            &project_root,
+            &context_paths,
+        );
+    }
+    let model_call_ms = native_tool_bounded_patch_elapsed_ms(model_call_started);
     if patches.is_empty() {
         native_tool_persist_run_journal(
             metadata,
@@ -1873,6 +2020,7 @@ fn native_tool_bounded_patch_artifact_lane(
                     .map(|path| path.display().to_string())
                     .collect::<Vec<_>>(),
                 "artifact_profile": artifact_profile.as_str(),
+                "attempted_artifact_profiles": attempted_artifact_profiles,
                 "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
                     lane_started,
                     context_read_ms,
@@ -1914,6 +2062,7 @@ fn native_tool_bounded_patch_artifact_lane(
             json!({
                 "patch_receipts": native_tool_bounded_patch_lane_receipt_summary(&receipts),
                 "artifact_profile": artifact_profile.as_str(),
+                "attempted_artifact_profiles": attempted_artifact_profiles,
                 "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
                     lane_started,
                     context_read_ms,
@@ -1980,6 +2129,7 @@ fn native_tool_bounded_patch_artifact_lane(
                     .map(|path| path.display().to_string())
                     .collect::<Vec<_>>(),
                 "artifact_profile": artifact_profile.as_str(),
+                "attempted_artifact_profiles": attempted_artifact_profiles,
                 "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
                     lane_started,
                     context_read_ms,
@@ -2007,6 +2157,7 @@ fn native_tool_bounded_patch_artifact_lane(
             "has_successful_validation": native_tool_has_successful_validation_command(&receipts),
             "lane_receipts": native_tool_bounded_patch_lane_receipt_summary(&receipts),
             "artifact_profile": artifact_profile.as_str(),
+            "attempted_artifact_profiles": attempted_artifact_profiles,
             "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
                 lane_started,
                 context_read_ms,

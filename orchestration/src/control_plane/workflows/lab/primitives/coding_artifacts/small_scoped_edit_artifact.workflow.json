@@ -57,7 +57,12 @@
       "latency_class": "normal_path_fast_profile",
       "phase_timing_required": true,
       "model_routing_policy": "use_caller_selected_model_for_now",
-      "optimization_rule": "Optimize prompt size, context size, artifact grammar, runtime caching, and deterministic application before introducing model routing."
+      "optimization_rule": "Optimize prompt size, context size, artifact grammar, runtime caching, and deterministic application before introducing model routing.",
+      "fallback_ladder": [
+        "try_small_scoped_search_replace_artifact",
+        "retry_general_bounded_patch_artifact_with_same_selected_context",
+        "fallback_to_open_native_tool_loop_only_after_artifact_profiles_fail"
+      ]
     },
     "required_behaviors": [
       "generate_patch_artifact_only",
@@ -65,7 +70,8 @@
       "use_absolute_paths_from_selected_context",
       "do_not_ask_for_files_when_context_is_already_supplied",
       "do_not_apply_or_claim_edits_inside_the_model_response",
-      "handoff_application_to_safe_file_patch_receipts"
+      "handoff_application_to_safe_file_patch_receipts",
+      "retry_general_artifact_profile_before_open_native_loop"
     ],
     "failure_modes": [
       "context_too_large",
