@@ -216,6 +216,32 @@ Runtime shape:
 
 `mutation receipts -> validation command -> failure diagnosis -> bounded repair -> final receipt synthesis`
 
+### Tier 3a: pre-mutation validation bootstrap
+
+Use when the user explicitly asks the agent to run a concrete validation command
+before editing.
+
+Reference trace basis:
+
+- Codex and Aider avoid spending a model turn on obvious local setup when the
+  command/action is already specified by the task.
+- Infring Level 4 traces showed the model repeatedly spent a provider turn on
+  the required first validation command, then sometimes emitted repair and
+  validation in the wrong order.
+
+Required properties:
+
+- only fire when the prompt explicitly asks for validation before mutation
+- only fire when a concrete validation shell command is extractable from the
+  task
+- attach the validation receipt before the first repair-oriented provider turn
+- preserve the failed validation output as evidence for the repair
+- never invent or infer broad test commands from vague language
+
+Runtime shape:
+
+`bounded context bootstrap -> explicit pre-mutation validation receipt -> repair-oriented model turn -> mutation receipts -> rerun validation -> final receipt synthesis`
+
 ForgeCode is the primary reference for this tier because its benchmark artifacts
 emphasize command execution, validation callbacks, retry reflection, and loop
 guards.

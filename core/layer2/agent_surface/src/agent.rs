@@ -386,11 +386,20 @@ impl AgentContract {
                 native_tool_bootstrap_context_receipts(&dispatcher, &self.initial_prompt);
             if !bootstrap_receipts.is_empty() {
                 all_receipts.extend(bootstrap_receipts);
+                if let Some(validation_receipt) =
+                    native_tool_pre_mutation_validation_bootstrap_receipt(
+                        &dispatcher,
+                        &self.initial_prompt,
+                        &all_receipts,
+                    )
+                {
+                    all_receipts.push(validation_receipt);
+                }
                 let observation = native_tool_observation_prompt(&all_receipts);
                 let default_bootstrap_rule = if native_tool_prompt_requires_pre_mutation_validation(
                     &self.initial_prompt,
                 ) {
-                    "Runtime has already loaded the bounded local context for this direct edit. The user requested validation before mutation, so run the requested validation command first. After observing the failure, return only JSON tool calls for the smallest source/test file_write or file_patch repair, then rerun validation."
+                    "Runtime has already loaded the bounded local context for this direct edit. If a pre-mutation validation receipt is present, do not rerun the same failing command before repair; use its output to return only JSON tool calls for the smallest source/test file_write or file_patch repair, then rerun validation."
                 } else {
                     "Runtime has already loaded the bounded local context for this direct edit. Do not repeat file_list/file_read unless validation names a new missing file. Return only JSON tool calls for the smallest source/test file_write or file_patch mutation next, then run requested validation."
                 };
@@ -5348,6 +5357,30 @@ fn native_tool_auto_validation_receipt(
         args: json!({
             "cwd": project_root,
             "cmd": cmd,
+            "timeout_seconds": 120,
+            "max_output_bytes": 12000
+        }),
+    }))
+}
+
+fn native_tool_pre_mutation_validation_bootstrap_receipt(
+    dispatcher: &NativeToolDispatcher,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> Option<NativeToolReceipt> {
+    if !native_tool_prompt_requires_pre_mutation_validation(original_prompt)
+        || native_tool_has_any_validation_command(receipts)
+    {
+        return None;
+    }
+    let project_root = native_tool_prompt_project_root(original_prompt)?;
+    let command = native_tool_prompt_validation_shell_command(original_prompt)?;
+    Some(dispatcher.dispatch(crate::native_tools::NativeToolCall {
+        id: "runtime_bootstrap_pre_mutation_validation_command".to_string(),
+        name: "command_run".to_string(),
+        args: json!({
+            "cwd": project_root,
+            "cmd": ["sh", "-c", command],
             "timeout_seconds": 120,
             "max_output_bytes": 12000
         }),

@@ -911,3 +911,44 @@ Implementation notes:
 Anti-hardcoding note:
 
 This primitive must not mention Level 3, Level 4, `math_tools.py`, `slug_tools.py`, or any eval fixture content in runtime logic. Fixture-specific expectations belong only in eval harnesses.
+
+## Primitive candidate: `pre_mutation_validation_bootstrap`
+
+Status: `v1_wired_inside_bounded_direct_edit_lane`
+
+Evidence source:
+
+- Infring Level 4 validation-guided repair traces from May 23, 2026.
+- Codex/Aider comparison traces showing that explicit setup/validation actions
+  should not consume avoidable repair-oriented model turns.
+
+Observed failure mode:
+
+- The task explicitly requested a validation command before editing.
+- Runtime had enough information to run that command directly.
+- The model sometimes emitted repair and validation calls in one batch but in
+  the wrong order, causing the staged controller to block the useful mutation.
+
+Primitive definition:
+
+`pre_mutation_validation_bootstrap` runs a user-specified validation command as
+native evidence before the first repair-oriented provider turn.
+
+Why this belongs in the primitive library:
+
+- It generalizes "observe the failure first" repair behavior.
+- It avoids burning a provider turn on an explicitly specified local command.
+- It gives the repair model real failing output before mutation.
+- It keeps final truthfulness receipt-backed without loosening mutation gates.
+
+Required inputs:
+
+- explicit project root
+- explicit validation-before-edit intent
+- concrete validation command extracted from the task
+
+Non-goals:
+
+- infer broad test commands from vague requests
+- run validation without user/workflow permission
+- hardcode eval level names or fixture files

@@ -218,6 +218,44 @@ Pass criteria:
 - `model_call_ms = 0`
 - no level-specific strings in runtime code
 
+### Phase 5a: explicit pre-mutation validation bootstrap
+
+Trace trigger:
+
+Level 4 validation-guided repair traces showed that the runtime already knew the
+exact validation command the user wanted before mutation, but still spent a
+provider turn getting the model to run it. In one run, the model emitted both
+the repair mutation and validation command in the same batch, but in the wrong
+order, causing the controller to block the useful repair.
+
+Primitive:
+
+`pre_mutation_validation_bootstrap`
+
+Inputs:
+
+```json
+{
+  "workspace_root": "string",
+  "explicit_validation_command": "string",
+  "reason": "user_requested_validation_before_mutation"
+}
+```
+
+Rules:
+
+- fire only when the task explicitly asks to validate before editing
+- require a concrete validation command extracted from the task
+- dispatch the command as a native `command_run` receipt before the first repair
+  provider turn
+- include failed output in native observations so the model repairs from real
+  evidence
+- do not use fixture names, eval levels, or inferred broad commands
+
+Expected topology:
+
+`context_bootstrap -> pre_mutation_validation_bootstrap -> repair model turn -> mutation -> rerun validation -> early success`
+
 Required refusal evals:
 
 - missing target path
