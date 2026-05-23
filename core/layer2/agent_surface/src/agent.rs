@@ -2111,6 +2111,22 @@ fn native_tool_bounded_patch_artifact_lane(
         && (!native_tool_prompt_requires_validation_command(&original_prompt.to_ascii_lowercase())
             || native_tool_has_successful_validation_command(&receipts))
     {
+        receipts.push(native_tool_bounded_patch_artifact_success_receipt(json!({
+            "artifact_profile": artifact_profile.as_str(),
+            "attempted_artifact_profiles": attempted_artifact_profiles,
+            "context_paths": context_paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
+            "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                lane_started,
+                context_read_ms,
+                file_context_ms,
+                model_call_ms,
+                patch_apply_ms,
+                validation_ms
+            ),
+        })));
         let mut final_response = native_tool_synthetic_completion_evidence_response(
             &response,
             metadata,
@@ -2256,6 +2272,21 @@ fn native_tool_bounded_patch_artifact_marker_receipt(
         result: json!({
             "terminal_status": "fallback",
             "reason": reason,
+            "details": details,
+        }),
+        error: None,
+    }
+}
+
+fn native_tool_bounded_patch_artifact_success_receipt(details: Value) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: "bounded_patch_artifact_lane_success".to_string(),
+        tool_name: "bounded_patch_artifact_lane".to_string(),
+        status: "ok".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "terminal_status": "ok",
+            "reason": "success",
             "details": details,
         }),
         error: None,
