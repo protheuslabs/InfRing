@@ -2086,6 +2086,48 @@ fn has_pack_ready_synthesis_source_quality(query: &str, candidates: &[Candidate]
     usable_count >= 2 && domains.len() >= 2
 }
 
+fn has_pack_ready_synthesis_breadth(
+    query: &str,
+    candidates: &[Candidate],
+    min_usable: usize,
+    min_domains: usize,
+) -> bool {
+    let mut usable_count = 0usize;
+    let mut domains = HashSet::<String>::new();
+    for candidate in candidates {
+        let score = rerank_score(query, candidate);
+        if !candidate_is_pack_ready_evidence(query, candidate, score) {
+            continue;
+        }
+        usable_count += 1;
+        let domain = candidate_domain_hint(candidate).to_ascii_lowercase();
+        if !domain.is_empty() && domain != "source" {
+            domains.insert(domain);
+        }
+    }
+    usable_count >= min_usable && domains.len() >= min_domains
+}
+
+fn broad_current_research_lacks_synthesis_breadth(
+    policy: &Value,
+    query: &str,
+    query_metadata: &BatchQueryKeywordPack,
+    candidates: &[Candidate],
+    budget: ApertureBudget,
+) -> bool {
+    if !broad_current_research_recovery_enabled(policy)
+        || !query_looks_like_broad_current_research(policy, query)
+        || !query_metadata.entities.is_empty()
+    {
+        return false;
+    }
+    let min_usable = coverage_gap_recovery_min_usable_evidence(policy, budget)
+        .max(3)
+        .min(budget.max_evidence.max(1));
+    let min_domains = min_usable.min(3).min(budget.max_evidence.max(1));
+    !has_pack_ready_synthesis_breadth(query, candidates, min_usable, min_domains)
+}
+
 fn evidence_row_materialization_quality(row: &Value) -> String {
     if let Some(explicit) = row.get("materialization_quality").and_then(Value::as_str) {
         let cleaned = clean_text(explicit, 80);

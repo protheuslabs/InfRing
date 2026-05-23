@@ -788,6 +788,26 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         }
         if planned_second_pass_queries.is_empty()
             && second_pass_recovery_enabled(&policy)
+            && broad_current_research_lacks_synthesis_breadth(
+                &policy,
+                &query,
+                &query_plan.query_metadata,
+                &candidates,
+                budget,
+            )
+        {
+            planned_second_pass_queries = deferred_query_recovery_queries(
+                &policy,
+                budget,
+                &submitted_queries,
+                &executed_queries,
+            );
+            if !planned_second_pass_queries.is_empty() {
+                second_pass_reason = "deferred_query_breadth_recovery";
+            }
+        }
+        if planned_second_pass_queries.is_empty()
+            && second_pass_recovery_enabled(&policy)
             && first_pass_lacked_source_quality
         {
             planned_second_pass_queries = deferred_query_recovery_queries(

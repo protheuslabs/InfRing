@@ -213,6 +213,24 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn social_share_wrapper_locator_trims_concatenated_share_targets() {
+        let wrapper = "https://twitter.com/intent/tweet?text=Firecrawl%20vs%20Exa%20vs%20Tavily&url=https%3A%2F%2Fapiscout.dev%2Fguides%2Ffirecrawl-vs-exa-vs-tavily-web-data-apis-2026https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fapiscout.dev%2Fguides%2Ffirecrawl-vs-exa-vs-tavily-web-data-apis-2026";
+
+        assert!(citation_wrapper_link(wrapper));
+        assert_eq!(
+            canonical_search_result_locator(wrapper, &[]),
+            "https://apiscout.dev/guides/firecrawl-vs-exa-vs-tavily-web-data-apis-2026"
+        );
+        assert_eq!(
+            candidate_domain_hint(&candidate(
+                wrapper,
+                "Result text shared through a social redirect wrapper."
+            )),
+            "apiscout.dev"
+        );
+    }
+
+    #[test]
     fn anti_bot_failures_emit_structured_quality_retry() {
         let query = "latest technology news today";
         let out = run_query_with_fixture(

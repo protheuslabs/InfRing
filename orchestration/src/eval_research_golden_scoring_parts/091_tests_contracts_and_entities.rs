@@ -315,6 +315,36 @@
     }
 
     #[test]
+    fn prompt_relevance_does_not_require_broad_current_scaffold_terms() {
+        let relevance = evidence_prompt_relevance_from_texts(
+            &normalize_for_compare("Give me the biggest world news from this week."),
+            vec![
+                normalize_for_compare("NATO allies responded to a U.S. troop deployment shift in Europe after officials described surprise across the alliance."),
+                normalize_for_compare("Ukraine recaptured territory after officials disabled illegal Starlink terminals used by Russian forces."),
+            ],
+            "broad current prompts should be graded by evidence availability, freshness, and source quality rather than literal scaffold overlap",
+            true,
+        );
+        let prompt_terms = relevance
+            .get("prompt_terms")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|value| value.as_str().map(ToString::to_string))
+            .collect::<Vec<_>>();
+        assert!(!prompt_terms.iter().any(|term| term == "world"));
+        assert!(!prompt_terms.iter().any(|term| term == "week"));
+        assert_eq!(
+            relevance
+                .get("topic_relevant_evidence")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{relevance:#?}"
+        );
+    }
+
+    #[test]
     fn prompt_relevance_ignores_comparison_and_glue_words() {
         let relevance = evidence_prompt_relevance(
             &json!({

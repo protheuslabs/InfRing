@@ -38,6 +38,38 @@ fn extract_http_candidate_from_wrapper_text(text: &str) -> Option<String> {
     }
 }
 
+fn first_decoded_wrapper_url(raw: &str) -> Option<String> {
+    let decoded = percent_decode_wrapper_component(raw);
+    let mut candidate =
+        extract_http_candidate_from_wrapper_text(&decoded).unwrap_or_else(|| clean_text(&decoded, 2_200));
+    if !(candidate.starts_with("http://") || candidate.starts_with("https://")) {
+        return None;
+    }
+    let lowered = candidate.to_ascii_lowercase();
+    let mut split_at = None;
+    for marker in ["https://", "http://"] {
+        let start = marker.len();
+        if let Some(pos) = lowered
+            .get(start..)
+            .and_then(|tail| tail.find(marker).map(|offset| start + offset))
+        {
+            split_at = Some(split_at.map_or(pos, |current: usize| current.min(pos)));
+        }
+    }
+    if let Some(pos) = split_at {
+        candidate.truncate(pos);
+    }
+    let candidate = clean_text(
+        candidate.trim_matches(|ch: char| matches!(ch, ')' | ']' | '}' | ',' | ';')),
+        2_200,
+    );
+    if candidate.starts_with("http://") || candidate.starts_with("https://") {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
 fn decode_wrapper_base64_candidate(token: &str) -> Option<String> {
     use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
     use base64::Engine;
@@ -73,8 +105,7 @@ fn decode_wrapper_query_param(url: &str, include_continue: bool) -> Option<Strin
             || (include_continue && key == "continue")
             || key == "uddg";
         if key_allowed {
-            let candidate = percent_decode_wrapper_component(value);
-            if candidate.starts_with("http://") || candidate.starts_with("https://") {
+            if let Some(candidate) = first_decoded_wrapper_url(value) {
                 return Some(candidate);
             }
         }
@@ -138,6 +169,7 @@ fn social_share_wrapper_host(host: &str) -> bool {
     matches!(
         host.trim_start_matches("www."),
         "facebook.com" | "m.facebook.com" | "l.facebook.com" | "lm.facebook.com"
+            | "twitter.com" | "x.com" | "linkedin.com"
     )
 }
 

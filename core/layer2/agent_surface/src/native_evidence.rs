@@ -655,6 +655,14 @@ fn native_tool_is_implementation_source_path(path: &str) -> bool {
 
 fn native_tool_prompt_requested_public_api_names(original_prompt: &str) -> Vec<String> {
     let mut names = Vec::<String>::new();
+    for name in native_tool_prompt_explicit_public_api_names(original_prompt) {
+        if !names.iter().any(|existing| existing == &name) {
+            names.push(name);
+        }
+    }
+    if !names.is_empty() {
+        return names;
+    }
     let task_surface = native_tool_public_api_request_surface(original_prompt);
     for token in task_surface.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_')) {
         let token = token.trim();
@@ -665,6 +673,7 @@ fn native_tool_prompt_requested_public_api_names(original_prompt: &str) -> Vec<S
         if matches!(
             lower.as_str(),
             "pythonpath"
+                | "inspect"
                 | "native"
                 | "coding"
                 | "useful"
@@ -687,7 +696,20 @@ fn native_tool_prompt_requested_public_api_names(original_prompt: &str) -> Vec<S
                 | "final"
                 | "codex"
                 | "python3"
+                | "project"
+                | "preserve"
+                | "this"
+                | "python"
+                | "root"
+                | "command"
+                | "semantic"
+                | "probe"
+                | "unittest"
+                | "discover"
         ) {
+            continue;
+        }
+        if native_tool_token_looks_like_path_or_harness_artifact(token) {
             continue;
         }
         if !names.iter().any(|existing| existing == token) {
@@ -695,6 +717,84 @@ fn native_tool_prompt_requested_public_api_names(original_prompt: &str) -> Vec<S
         }
     }
     names
+}
+
+fn native_tool_prompt_explicit_public_api_names(original_prompt: &str) -> Vec<String> {
+    let mut names = Vec::<String>::new();
+    for line in original_prompt.lines() {
+        let line = line.trim();
+        for name in native_tool_public_api_names_from_call_patterns(line) {
+            if !names.iter().any(|existing| existing == &name) {
+                names.push(name);
+            }
+        }
+        for name in native_tool_public_api_names_from_python_imports(line) {
+            if !names.iter().any(|existing| existing == &name) {
+                names.push(name);
+            }
+        }
+    }
+    names
+}
+
+fn native_tool_public_api_names_from_call_patterns(line: &str) -> Vec<String> {
+    let mut names = Vec::<String>::new();
+    let bytes = line.as_bytes();
+    let mut idx = 0usize;
+    while idx < bytes.len() {
+        let ch = bytes[idx] as char;
+        if !(ch.is_ascii_alphabetic() || ch == '_') {
+            idx += 1;
+            continue;
+        }
+        let start = idx;
+        idx += 1;
+        while idx < bytes.len() {
+            let ch = bytes[idx] as char;
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                idx += 1;
+            } else {
+                break;
+            }
+        }
+        let token = &line[start..idx];
+        let rest = line[idx..].trim_start();
+        if rest.starts_with('(')
+            && native_tool_token_looks_like_public_api(token)
+            && !native_tool_token_looks_like_path_or_harness_artifact(token)
+        {
+            names.push(token.to_string());
+        }
+    }
+    names
+}
+
+fn native_tool_public_api_names_from_python_imports(line: &str) -> Vec<String> {
+    native_tool_python_from_imports(line)
+        .into_iter()
+        .flat_map(|(_module, symbols)| symbols)
+        .filter(|symbol| {
+            native_tool_token_looks_like_public_api(symbol)
+                && !native_tool_token_looks_like_path_or_harness_artifact(symbol)
+                && !native_tool_python_import_symbol_is_noise(symbol)
+        })
+        .collect()
+}
+
+fn native_tool_token_looks_like_path_or_harness_artifact(token: &str) -> bool {
+    let lower = token.to_ascii_lowercase();
+    lower.ends_with("_tools")
+        || lower.ends_with("_test")
+        || lower.starts_with("test_")
+        || lower.contains("test_")
+        || lower.contains("semantic_probe")
+        || lower == "semantic"
+        || lower == "probe"
+        || lower == "infring"
+        || lower == "py"
+        || lower == "pytest"
+        || lower == "unittest"
+        || lower == "pythonpath"
 }
 
 fn native_tool_token_looks_like_public_api(token: &str) -> bool {
@@ -714,7 +814,7 @@ fn native_tool_token_looks_like_public_api(token: &str) -> bool {
     if token.chars().any(|ch| ch.is_ascii_digit()) {
         return false;
     }
-    (has_underscore || (starts_upper && has_lower))
+    (has_underscore || (starts_upper && has_lower && token.len() <= 24))
         && token
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
@@ -829,6 +929,14 @@ pub(crate) fn native_tool_prompt_required_changed_paths(original_prompt: &str) -
             !lower.contains("python")
                 && !lower.contains("public_reasoning")
                 && !lower.contains(["reasoning_", "rollup"].concat().as_str())
+                && !lower.contains(".infring/")
+                && !lower.contains("\\.infring\\")
+                && !lower.contains("semantic_probe")
+                && !lower.contains('*')
+                && !lower.contains('?')
+                && !lower.contains("[")
+                && !lower.contains("]")
+                && !lower.ends_with(".py.")
         })
         .collect::<Vec<_>>();
     paths.sort();

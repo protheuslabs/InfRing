@@ -428,6 +428,107 @@ mod quality_tests {
     }
 
     #[test]
+    fn deferred_query_recovery_spends_submitted_lanes_for_broad_current_breadth() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        write_test_batch_policy_with_coverage_gap(tmp.path(), true, false);
+        let query = "Give me the biggest world news from this week.";
+        let primary = "the biggest world news from this week";
+        let source_backed = "world news source-backed evidence";
+        let recent = "world news recent developments";
+        let deferred = "world news this week independent analysis";
+        let out = with_fixture(
+            json!({
+                primary: {
+                    "ok": true,
+                    "provider": "exa",
+                    "source_kind": "document_page_artifact",
+                    "summary": "May 23 2026 report says NATO allies responded to a U.S. troop deployment shift in Europe, with defense officials describing surprise across the alliance.",
+                    "content": "May 23 2026 report says NATO allies responded to a U.S. troop deployment shift in Europe, with defense officials describing surprise across the alliance.",
+                    "requested_url": "https://source-one.example.org/world-nato-troops",
+                    "status_code": 200
+                },
+                source_backed: {
+                    "ok": true,
+                    "provider": "exa",
+                    "source_kind": "document_page_artifact",
+                    "summary": "May 23 2026 report says Russian officials described a deadly attack on a student dormitory and announced retaliation after casualties were reported.",
+                    "content": "May 23 2026 report says Russian officials described a deadly attack on a student dormitory and announced retaliation after casualties were reported.",
+                    "requested_url": "https://source-two.example.org/world-russia-dormitory",
+                    "status_code": 200
+                },
+                recent: {
+                    "ok": true,
+                    "provider": "exa",
+                    "summary": "A world news index lists headlines, sections, and newsletter links without a specific source-backed story body.",
+                    "requested_url": "https://example.com/world-news-index",
+                    "status_code": 200
+                },
+                deferred: {
+                    "ok": true,
+                    "provider": "exa",
+                    "source_kind": "document_page_artifact",
+                    "summary": "May 23 2026 independent analysis says mediated talks advanced in a major international conflict while governments exchanged draft proposals.",
+                    "content": "May 23 2026 independent analysis says mediated talks advanced in a major international conflict while governments exchanged draft proposals.",
+                    "requested_url": "https://source-three.example.org/world-conflict-talks",
+                    "status_code": 200
+                }
+            }),
+            || {
+                run_request(
+                    tmp.path(),
+                    &json!({
+                        "source": "web",
+                        "query": query,
+                        "aperture": "medium",
+                        "queries": [source_backed, recent, deferred],
+                        "keywords": ["world news", "this week"]
+                    }),
+                )
+            },
+        );
+
+        assert_eq!(
+            out.pointer("/query_execution_limiter/applied")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/used")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/reason")
+                .and_then(Value::as_str),
+            Some("deferred_query_breadth_recovery"),
+            "{out:#?}"
+        );
+        assert!(
+            out.pointer("/second_pass_recovery/queries")
+                .and_then(Value::as_array)
+                .map(|rows| rows.iter().any(|row| row.as_str() == Some(deferred)))
+                .unwrap_or(false),
+            "{out:#?}"
+        );
+        assert!(
+            out.get("evidence_refs")
+                .and_then(Value::as_array)
+                .map(|rows| {
+                    rows.iter().any(|row| {
+                        row.get("locator")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .contains("world-conflict-talks")
+                    })
+                })
+                .unwrap_or(false),
+            "{out:#?}"
+        );
+    }
+
+    #[test]
     fn keyword_metadata_compiles_into_visible_query_plan_lanes() {
         let query = "Assess Alpha Runtime and Beta Search deployment fit.";
         let request = json!({

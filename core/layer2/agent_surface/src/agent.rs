@@ -362,20 +362,31 @@ impl AgentContract {
         let wall_timeout = native_tool_wall_timeout(&self.metadata);
         let coding_task_lane = native_tool_coding_task_lane(&self.metadata, &self.initial_prompt);
         let micro_direct_write_task = coding_task_lane == "new_file_fast_path";
-        if !micro_direct_write_task
-            && native_tool_bounded_patch_artifact_lane_enabled(&self.metadata)
-            && native_tool_requires_successful_mutation(&self.metadata)
-        {
-            if let Some(result) = native_tool_bounded_patch_artifact_lane(
-                &provider,
-                &dispatcher,
-                tools,
-                self.model.clone(),
-                &self.metadata,
-                &self.initial_prompt,
-                &system,
-            )? {
-                return Ok(result);
+        if !micro_direct_write_task && native_tool_requires_successful_mutation(&self.metadata) {
+            if native_tool_bounded_patch_artifact_lane_enabled(&self.metadata) {
+                let outcome = native_tool_bounded_patch_artifact_lane(
+                    &provider,
+                    &dispatcher,
+                    tools,
+                    self.model.clone(),
+                    &self.metadata,
+                    &self.initial_prompt,
+                    &system,
+                )?;
+                if !outcome.observability_receipts.is_empty() {
+                    all_receipts.extend(outcome.observability_receipts);
+                }
+                if let Some(result) = outcome.terminal {
+                    return Ok(result);
+                }
+            } else {
+                all_receipts.push(native_tool_bounded_patch_artifact_marker_receipt(
+                    "flag_not_loaded",
+                    json!({
+                        "enabled": false,
+                        "reason": "bounded_patch_artifact_lane_flag_missing_or_false",
+                    }),
+                ));
             }
         }
         if !micro_direct_write_task
@@ -1576,15 +1587,24 @@ fn native_tool_bounded_patch_artifact_lane(
     metadata: &Value,
     original_prompt: &str,
     system: &str,
-) -> Result<Option<(ProviderResponse, Vec<NativeToolReceipt>, u64, String)>, ProviderError> {
+) -> Result<NativeToolBoundedPatchLaneOutcome, ProviderError> {
     let Some(project_root) = native_tool_prompt_project_root(original_prompt).map(PathBuf::from)
     else {
-        return Ok(None);
+        return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+            "no_project_root",
+            json!({ "reason": "prompt_did_not_contain_existing_local_project_root" }),
+        ));
     };
     let context_paths =
         native_tool_bounded_patch_context_paths(metadata, original_prompt, &project_root);
     if context_paths.is_empty() {
-        return Ok(None);
+        return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+            "no_context_paths",
+            json!({
+                "project_root": project_root.display().to_string(),
+                "reason": "no_confident_bounded_patch_context_paths",
+            }),
+        ));
     }
 
     let mut receipts = Vec::<NativeToolReceipt>::new();
@@ -1599,12 +1619,30 @@ fn native_tool_bounded_patch_artifact_lane(
         }),
     });
     if read_receipt.status != "ok" {
-        return Ok(None);
+        return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+            "file_read_many_failed",
+            json!({
+                "context_paths": context_paths
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>(),
+                "read_error": read_receipt.error,
+                "read_result": read_receipt.result,
+            }),
+        ));
     }
     receipts.push(read_receipt);
 
     let Some(file_context) = native_tool_bounded_patch_file_context(&context_paths) else {
-        return Ok(None);
+        return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+            "file_context_unavailable",
+            json!({
+                "context_paths": context_paths
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>(),
+            }),
+        ));
     };
     let mut patch_metadata = metadata.clone();
     if let Some(object) = patch_metadata.as_object_mut() {
@@ -1636,7 +1674,16 @@ fn native_tool_bounded_patch_artifact_lane(
                 None,
                 Some("provider_timeout_before_patch_artifact"),
             );
-            return Ok(None);
+            return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+                "provider_timeout_before_patch_artifact",
+                json!({
+                    "provider_error": error.message,
+                    "context_paths": context_paths
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>(),
+                }),
+            ));
         }
         Err(error) => return Err(error),
     };
@@ -1653,7 +1700,16 @@ fn native_tool_bounded_patch_artifact_lane(
             Some(&response.output),
             Some("missing_or_invalid_patch_artifact"),
         );
-        return Ok(None);
+        return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+            "missing_or_invalid_patch_artifact",
+            json!({
+                "output_preview": response.output.chars().take(1600).collect::<String>(),
+                "context_paths": context_paths
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>(),
+            }),
+        ));
     }
     for (idx, patch) in patches.into_iter().enumerate() {
         let receipt = dispatcher.dispatch(crate::native_tools::NativeToolCall {
@@ -1678,7 +1734,23 @@ fn native_tool_bounded_patch_artifact_lane(
             Some(&response.output),
             Some("patch_artifact_apply_failed_before_mutation"),
         );
-        return Ok(None);
+        return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+            "patch_artifact_apply_failed_before_mutation",
+            json!({
+                "patch_receipts": receipts
+                    .iter()
+                    .map(|receipt| {
+                        json!({
+                            "call_id": receipt.call_id.clone(),
+                            "tool_name": receipt.tool_name.clone(),
+                            "status": receipt.status.clone(),
+                            "error": receipt.error.clone(),
+                            "path": receipt.result.get("path").cloned().unwrap_or(Value::Null),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            }),
+        ));
     }
 
     if let Some(validation_receipt) =
@@ -1734,10 +1806,69 @@ fn native_tool_bounded_patch_artifact_lane(
                 "terminal_status": "ok"
             }
         });
-        return Ok(Some((final_response, receipts, provider_call_count, "ok".to_string())));
+        return Ok(NativeToolBoundedPatchLaneOutcome::terminal((
+            final_response,
+            receipts,
+            provider_call_count,
+            "ok".to_string(),
+        )));
     }
 
-    Ok(None)
+    Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+        "unresolved_evidence_after_patch_lane",
+        json!({
+            "evidence_gaps": native_tool_prompt_evidence_gaps(original_prompt, &receipts),
+            "has_successful_validation": native_tool_has_successful_validation_command(&receipts),
+        }),
+    ))
+}
+
+#[derive(Clone, Debug)]
+struct NativeToolBoundedPatchLaneOutcome {
+    terminal: Option<(ProviderResponse, Vec<NativeToolReceipt>, u64, String)>,
+    observability_receipts: Vec<NativeToolReceipt>,
+}
+
+impl NativeToolBoundedPatchLaneOutcome {
+    fn terminal(terminal: (ProviderResponse, Vec<NativeToolReceipt>, u64, String)) -> Self {
+        Self {
+            terminal: Some(terminal),
+            observability_receipts: Vec::new(),
+        }
+    }
+
+    fn fallback(reason: &str, details: Value) -> Self {
+        Self {
+            terminal: None,
+            observability_receipts: vec![native_tool_bounded_patch_artifact_marker_receipt(
+                reason, details,
+            )],
+        }
+    }
+}
+
+fn native_tool_bounded_patch_artifact_marker_receipt(
+    reason: &str,
+    details: Value,
+) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: format!(
+            "bounded_patch_artifact_lane_{}",
+            reason
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+                .collect::<String>()
+        ),
+        tool_name: "bounded_patch_artifact_lane".to_string(),
+        status: "ok".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "terminal_status": "fallback",
+            "reason": reason,
+            "details": details,
+        }),
+        error: None,
+    }
 }
 
 #[derive(Clone, Debug)]
