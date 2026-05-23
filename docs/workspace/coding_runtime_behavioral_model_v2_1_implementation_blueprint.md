@@ -240,6 +240,7 @@ Pass criteria:
 | New file path is explicit, content is explicit, write is safe, no validation requested | `direct_mutation` | Cheapest safe lane. |
 | New file path is explicit, content is small and mechanically derivable, no discovery needed | `direct_mutation` or `deterministic_local_loop` | Direct if deterministic generator exists; otherwise local loop. |
 | Known file path plus exact patch is explicit | `direct_mutation` | Patch can be applied without model inference. |
+| Existing project with already-selected compact file context and natural-language edit intent | `small_scoped_edit_artifact` | Cheapest safe model-mediated path: file context in, edit artifact out, deterministic patch receipts. |
 | Known file path but edit intent is natural language | `model_tool_loop` | Model must infer concrete patch. |
 | Existing project but target file unknown | `model_tool_loop` | Discovery required. |
 | Validation requested after mutation | `validation_repair_loop` | Mutation must be followed by command/validation receipts. |
@@ -258,6 +259,67 @@ A task is eligible for `direct_mutation` only when all are true:
 - mutation kind is known
 - required content or exact patch is available
 - no project discovery is needed
+
+## Small scoped edit artifact profile
+
+Primitive:
+
+`small_scoped_edit_artifact`
+
+Tier:
+
+`Tier 2a`, a model-mediated artifact profile inside the bounded edit family.
+
+It exists to assimilate the useful part of Aider's fast path without importing
+Aider's product-specific behavior or bypassing Infring receipts.
+
+Runtime shape:
+
+```text
+selected local file context
+-> one compact model call for SEARCH/REPLACE artifact
+-> safe_file_patch application
+-> mutation receipts
+-> parent validation/final synthesis
+```
+
+Eligibility:
+
+- selected files are known before provider invocation
+- selected file count is within the profile budget
+- selected context bytes are within the profile budget
+- the task is a bounded local edit
+- broad discovery, architecture, checkpoint planning, and repair are not needed
+- phase timing is required for context read, file-context assembly, model call,
+  patch application, validation, and total lane time
+- the profile uses the caller-selected model for now; model routing is explicitly
+  omitted until same-model behavior is stable
+
+Non-goals:
+
+- no project discovery
+- no validation execution
+- no repair loop
+- no architecture choice
+- no level-specific or fixture-specific logic
+- no hidden model substitution
+
+Implementation rule:
+
+The model may only generate an edit artifact. It does not apply edits and it
+does not claim completion. Mutation authority remains with `safe_file_patch`
+receipts, and parent workflows remain responsible for validation, evidence
+coverage, repair, and final response synthesis.
+
+Optimization rule:
+
+Improve this primitive in this order:
+
+1. Measure phase latency.
+2. Reduce prompt and context payload.
+3. Keep SEARCH/REPLACE as the single fast-profile grammar.
+4. Reduce runtime startup or workflow-loading overhead when traces prove it.
+5. Revisit model routing only after same-model parity data is clean.
 - no architecture decision is needed
 - no validation was requested
 - permission policy grants the mutation
@@ -342,4 +404,3 @@ final answer: receipt-backed
 
 That is the minimum proof that the reference runtime behavior was integrated,
 not merely documented.
-

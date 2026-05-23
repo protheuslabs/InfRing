@@ -54,7 +54,7 @@ With explicit file preselection, Aider sends the relevant source/test content in
 Build a primitive lane:
 
 ```text
-bounded_patch_artifact_lane
+small_scoped_edit_artifact as a profile inside bounded_patch_artifact_lane
 ```
 
 Proposed shape:
@@ -75,6 +75,33 @@ The lane should not replace the general native tool loop. It should be selected 
 - the target files are text files with deterministic patchable content,
 - validation/probe commands are known or derivable,
 - no broad architecture planning is needed.
+
+## Integrated mapping
+
+The portable Aider mechanic is represented as:
+
+```text
+small_scoped_edit_artifact
+```
+
+This is not an Aider clone. It maps into Infring's unified model as a Tier 2a
+primitive profile:
+
+```text
+selected file context -> compact edit artifact -> safe_file_patch receipts
+```
+
+The parent bounded patch lane may activate this profile when file count and
+context bytes are within budget. If not, the broader bounded patch artifact path
+or the open native tool loop remains available.
+
+Current optimization boundary:
+
+- Keep model routing omitted for now so Infring, Aider, ForgeCode, and other
+  comparisons remain same-model comparisons.
+- Emit phase timing from the Infring lane before deciding whether the next speed
+  gap is prompt/model latency, runtime startup, workflow loading, patch
+  application, validation, or final synthesis.
 
 ## Infring gap
 

@@ -1997,6 +1997,22 @@
       ]
     },
     {
+      "workflow_id": "small_scoped_edit_artifact",
+      "tier": "lab",
+      "source_framework": "aider_assimilated_small_scoped_edit_artifact_layer",
+      "source_path": "orchestration/src/control_plane/workflows/lab/primitives/coding_artifacts/small_scoped_edit_artifact.workflow.json",
+      "runtime_selectable": false,
+      "promotion_status": "lab",
+      "test_scenarios": [
+        "selected_file_context_to_search_replace_artifact"
+      ],
+      "promotion_requirements": [
+        "schema_valid",
+        "primitive_contract_reviewed",
+        "operator_promotion_approval"
+      ]
+    },
+    {
       "workflow_id": "patch_artifact_synthesis",
       "tier": "lab",
       "source_framework": "swe_agent_aider_cline_assimilated_artifact_layer",

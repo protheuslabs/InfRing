@@ -125,6 +125,54 @@ Runtime shape:
 
 `task contract -> context assessment -> model tool loop -> file tools -> receipts -> synthesis`
 
+### Tier 2a: small scoped edit artifact
+
+Use when the model must infer the concrete edit, but the runtime already has a
+small, confident file context.
+
+Examples:
+
+- patch one or a few known existing source/test files
+- update a small public API plus its directly related test
+- apply a bounded local behavior change where broad discovery is unnecessary
+
+Required properties:
+
+- selected file context is already known
+- selected file count is within the profile budget
+- selected context bytes are within the profile budget
+- allowed edit paths are explicitly bounded
+- no broad architecture decision is needed
+- no model-side claim of mutation is trusted
+- phase timing is emitted so speed regressions can be assigned to context
+  selection, model artifact generation, deterministic patching, validation, or
+  runtime wrapper overhead
+- model routing is intentionally omitted for now; this profile uses the caller's
+  selected model so eval comparisons remain honest
+
+Runtime shape:
+
+`task contract -> selected file context -> edit artifact -> deterministic safe patch -> receipts -> validation/synthesis`
+
+Reference basis:
+
+- Aider's fast existing-project path succeeds when target files are already in
+  chat, then emits compact SEARCH/REPLACE edits for deterministic application.
+- Infring keeps the portable mechanic, but safe file patch tooling remains the
+  authority for mutation receipts.
+
+This is a Tier 2 profile, not a replacement for Tier 0 direct mutation or the
+general Tier 2 model tool loop.
+
+Optimization order:
+
+1. Shrink selected context without hiding required evidence.
+2. Keep the artifact grammar singular and deterministic.
+3. Measure phase latency before changing behavior.
+4. Cache/compile runtime and workflow startup paths when timing proves wrapper
+   overhead dominates.
+5. Consider model routing only after same-model comparisons are stable.
+
 ### Tier 3: validation and repair loop
 
 Use when validation is requested, expected, or necessary for confidence.
@@ -168,8 +216,8 @@ Every coding task should first produce an execution-shape verdict.
 Required verdict fields:
 
 - `lane`: one of `direct_mutation`, `deterministic_local_loop`,
-  `model_tool_loop`, `validation_repair_loop`, `project_operator_loop`,
-  `structured_blocker`
+  `small_scoped_edit_artifact`, `model_tool_loop`, `validation_repair_loop`,
+  `project_operator_loop`, `structured_blocker`
 - `confidence`: numeric confidence that the selected lane is appropriate
 - `requires_model`: boolean
 - `requires_discovery`: boolean
@@ -366,4 +414,3 @@ The primitive foundation should not be considered restored until:
   scaffolding?
 - Which reference system should be the primary parity target for Tier 3 repair:
   ForgeCode benchmark runtime, SWE-agent edit loop, or a hybrid?
-

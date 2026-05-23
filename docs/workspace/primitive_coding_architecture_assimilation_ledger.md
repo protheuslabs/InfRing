@@ -255,6 +255,43 @@ Required reset action:
 
 - Replace `existing_project_evidence_contract` with a general existing-project evidence contract.
 
+### 5a. Small scoped edit artifact
+
+Source evidence:
+
+- Aider `editblock_prompts.py` and `editblock_fenced_prompts.py`
+- Aider Level 3 speed isolation trace in `docs/workspace/aider_level3_speed_isolation.md`
+- Infring bounded patch artifact lane receipts
+
+Portable pattern:
+
+- When relevant files are already selected and compact, do not enter a broad
+  agent tool loop.
+- Send selected file contents in one provider request and ask only for an edit
+  artifact.
+- Keep the edit artifact small, exact, and deterministic: SEARCH/REPLACE old
+  text must match supplied context.
+- Apply the artifact through the runtime's safe patch tool and trust only
+  mutation receipts.
+
+Infring target:
+
+- `small_scoped_edit_artifact`
+- bounded patch artifact profile selection
+- `safe_file_patch`
+- `validation_command_runner`
+- `final_receipt_synthesis`
+
+Required reset action:
+
+- Keep this as a Tier 2 artifact profile, not a global controller shortcut.
+- The primitive may know compact edit-artifact mechanics, but it may not know
+  eval levels, fixture files, symbols, or project-specific layouts.
+- Emit phase timing before further optimization so speed work remains evidence
+  driven.
+- Omit model routing for now; model substitution belongs in a later profile or
+  policy once same-model behavior is stable.
+
 ### 6. Validation and repair loop
 
 Source evidence:

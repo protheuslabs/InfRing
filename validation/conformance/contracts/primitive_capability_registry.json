@@ -181,6 +181,17 @@
       "promotion_status": "seed"
     },
     {
+      "id": "workflow.small_scoped_edit_artifact",
+      "name": "Small Scoped Edit Artifact",
+      "kind": "primitive",
+      "owner_domain": "orchestration",
+      "layer": "2",
+      "path": "orchestration/src/control_plane/workflows/lab/primitives/coding_artifacts/small_scoped_edit_artifact.workflow.json",
+      "contract_surface": "workflow_cd",
+      "extension_surface": "edit_artifact_profile_contract",
+      "promotion_status": "seed"
+    },
+    {
       "id": "workflow.patch_artifact_synthesis",
       "name": "Patch Artifact Synthesis",
       "kind": "primitive",

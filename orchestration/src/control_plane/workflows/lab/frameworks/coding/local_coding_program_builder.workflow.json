@@ -234,6 +234,14 @@
         "internal_trace_visibility": "refs_only"
       },
       {
+        "capability": "small_scoped_edit_artifact",
+        "workflow_id": "small_scoped_edit_artifact",
+        "input_contract": "small_scoped_edit_artifact_input_envelope_v1",
+        "output_artifact": "small_scoped_edit_artifact_result_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      },
+      {
         "capability": "patch_artifact_synthesis",
         "workflow_id": "patch_artifact_synthesis",
         "input_contract": "patch_artifact_synthesis_input_envelope_v1",
@@ -379,6 +387,7 @@
       "incremental_receipt_journal",
       "context_provider_registry",
       "mode_manifest_registry",
+      "small_scoped_edit_artifact",
       "patch_artifact_synthesis",
       "public_interface_verification",
       "final_receipt_synthesis",
@@ -1917,6 +1926,7 @@
       "safe_file_read",
       "safe_file_write",
       "safe_file_patch",
+      "small_scoped_edit_artifact",
       "patch_artifact_synthesis",
       "validation_command_runner",
       "public_interface_verification",

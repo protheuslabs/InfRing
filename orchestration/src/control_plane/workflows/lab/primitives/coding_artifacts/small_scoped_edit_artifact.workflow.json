@@ -1,0 +1,209 @@
+{
+  "name": "small_scoped_edit_artifact",
+  "workflow_type": "control_plane_orchestration_workflow",
+  "workflow_role": "assistant_response_workflow",
+  "default": false,
+  "description": "Primitive contract for turning a compact, already-selected local file context into a deterministic SEARCH/REPLACE edit artifact.",
+  "primitive_first_contract": {
+    "case_specific_hardcoding_allowed": false,
+    "specificity_owner": "primitive",
+    "extension_surface": "workflow_cd",
+    "registered_capability_id": "workflow.small_scoped_edit_artifact",
+    "special_case_policy": "This primitive may define compact edit-artifact mechanics, but task-specific filenames, symbols, eval levels, and fixture expectations must stay outside the primitive.",
+    "monotonic_lower_level_regression_policy": "This primitive is an optional Tier 2 profile and must not slow or change Tier 0 direct mutation behavior."
+  },
+  "provenance_contract": {
+    "source_systems": [
+      "Aider",
+      "mini-SWE-agent",
+      "ForgeCode"
+    ],
+    "import_rule": "assimilate_compact_file_scope_to_edit_artifact_to_deterministic_apply_not_surface_prompt_hacks",
+    "artifact_corpus_ref": "references/coding-agent-systems",
+    "reference_notes": [
+      "Aider's fast Level 3 behavior depends on explicit file-scope injection and a compact SEARCH/REPLACE edit artifact.",
+      "The primitive preserves Infring receipts by delegating application to safe file patch tooling instead of trusting model claims."
+    ]
+  },
+  "stages": [
+    "selected_file_context_intake",
+    "compact_edit_artifact_generation",
+    "deterministic_patch_application_handoff",
+    "edit_artifact_result_packaging"
+  ],
+  "workflow_composition": {
+    "primitive_level": 0,
+    "composed_of_workflow_ids": []
+  },
+  "small_scoped_edit_artifact_contract": {
+    "version": "small_scoped_edit_artifact_v1",
+    "tier": "tier_2_model_mediated_artifact_profile",
+    "purpose": "Provide the cheapest safe model-mediated path for bounded existing-project edits when relevant files are already selected.",
+    "required_inputs": [
+      "user_task",
+      "workspace_root",
+      "selected_file_context",
+      "allowed_edit_paths",
+      "mutation_permission_receipt"
+    ],
+    "eligibility_rules": [
+      "selected_files_must_be_known_before_provider_call",
+      "selected_file_count_must_be_within_profile_budget",
+      "selected_context_bytes_must_be_within_profile_budget",
+      "task_must_be_a_bounded_local_code_edit",
+      "no_broad_architecture_or_project_discovery_may_be_required"
+    ],
+    "speed_budget": {
+      "latency_class": "normal_path_fast_profile",
+      "phase_timing_required": true,
+      "model_routing_policy": "use_caller_selected_model_for_now",
+      "optimization_rule": "Optimize prompt size, context size, artifact grammar, runtime caching, and deterministic application before introducing model routing."
+    },
+    "required_behaviors": [
+      "generate_patch_artifact_only",
+      "prefer_search_replace_blocks_with_exact_search_text",
+      "use_absolute_paths_from_selected_context",
+      "do_not_ask_for_files_when_context_is_already_supplied",
+      "do_not_apply_or_claim_edits_inside_the_model_response",
+      "handoff_application_to_safe_file_patch_receipts"
+    ],
+    "failure_modes": [
+      "context_too_large",
+      "too_many_selected_files",
+      "missing_selected_context",
+      "malformed_edit_artifact",
+      "patch_target_not_exact",
+      "unsafe_or_unallowed_path"
+    ],
+    "output_artifacts": [
+      "edit_artifact_ref",
+      "allowed_edit_path_manifest",
+      "phase_latency_ms",
+      "patch_application_handoff_receipt",
+      "structured_blocker"
+    ],
+    "non_goals": [
+      "do_not_discover_project_files",
+      "do_not_run_validation",
+      "do_not_perform_repair_looping",
+      "do_not_decide_architecture",
+      "do_not_replace_general_model_tool_loop"
+    ]
+  },
+  "final_response_policy": "control_plane_packaged_response",
+  "final_output_contract": {
+    "schema_version": "small_scoped_edit_artifact_final_output_contract_v1",
+    "source": "workflow_cd",
+    "visible_chat_source": "llm_final_answer_only",
+    "required_summary_fields": [
+      "status",
+      "selected_files",
+      "edit_artifact_ref",
+      "phase_latency_ms",
+      "patch_application_handoff",
+      "blockers",
+      "receipt_refs"
+    ],
+    "internal_streams": [
+      "workflow_state",
+      "agent_internal_notes",
+      "tool_trace",
+      "eval_trace"
+    ],
+    "quality_contract": {
+      "answer_user_goal": "produce or block a compact edit artifact for a bounded local coding task",
+      "scope_boundary": "selected context in, edit artifact out; application, validation, and repair are composed by parent workflows",
+      "validation_calibration": "validation is not part of this primitive",
+      "visibility": "report compact refs and blockers without hidden chain-of-thought"
+    }
+  },
+  "typed_execution_contract": {
+    "gate_kind": "structured_control_plane_gate",
+    "input_kind": "small_scoped_edit_artifact_input_envelope_v1",
+    "allowed_transitions": [
+      "selected_file_context_intake->compact_edit_artifact_generation",
+      "compact_edit_artifact_generation->deterministic_patch_application_handoff",
+      "deterministic_patch_application_handoff->edit_artifact_result_packaging",
+      "edit_artifact_result_packaging->completed",
+      "selected_file_context_intake->blocked",
+      "compact_edit_artifact_generation->failed"
+    ],
+    "timeout_ms": 45000,
+    "retry_policy": {
+      "max_retries": 0,
+      "on_failure": "return_structured_failure"
+    },
+    "terminal_states": [
+      "completed",
+      "blocked",
+      "needs_input",
+      "failed",
+      "aborted"
+    ],
+    "telemetry_streams": [
+      "workflow_state",
+      "agent_internal_notes",
+      "tool_trace",
+      "eval_trace",
+      "final_answer"
+    ],
+    "tool_family_contracts": [
+      "workspace"
+    ],
+    "visible_chat_policy": "llm_final_only_no_system_injection",
+    "run_budgets": {
+      "max_stages": 4,
+      "max_model_turns": 1,
+      "max_tool_calls": 0,
+      "token_budget": 5000,
+      "loop_signature_detector": "small_scoped_edit_artifact_v1"
+    }
+  },
+  "workflow_source_of_truth_contract": {
+    "interaction_source": "json_workflow_spec",
+    "rust_reader_role": "validate_execute_trace_only",
+    "hardcoded_interaction_behavior_allowed": false,
+    "json_owns": [
+      "interaction_gates",
+      "gate_transitions",
+      "tool_family_menus",
+      "tool_input_schemas",
+      "confirmation_states",
+      "loopbacks",
+      "final_output_contract"
+    ],
+    "rust_owns": [
+      "json_loading",
+      "schema_validation",
+      "state_transition_execution",
+      "tool_execution_handoff",
+      "receipt_binding",
+      "trace_export",
+      "kernel_policy_enforcement"
+    ]
+  },
+  "workflow_composition_contract": {
+    "version": "workflow_composition_contract_v1",
+    "cd_kind": "primitive",
+    "returns_exactly_one_terminal_artifact": true,
+    "terminal_artifact_contract": {
+      "artifact_schema": "workflow_terminal_artifact_v1",
+      "allowed_kinds": [
+        "completed_final_answer",
+        "clarification_request",
+        "structured_failure",
+        "delegated_workflow_result"
+      ],
+      "parent_receives": "terminal_artifact_only_refs_for_internals"
+    },
+    "child_workflow_calls": [],
+    "non_goals": [
+      "do_not_call_child_workflows",
+      "do_not_return_raw_tool_payloads",
+      "do_not_expose_internal_trace",
+      "do_not_mutate_files",
+      "do_not_run_validation",
+      "do_not_commit_or_push"
+    ]
+  }
+}

@@ -1592,6 +1592,109 @@ fn native_tool_bounded_patch_artifact_provider_timeout_seconds(metadata: &Value)
         .clamp(10, 180)
 }
 
+fn native_tool_small_scoped_edit_artifact_lane_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("small_scoped_edit_artifact_lane"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_small_scoped_edit_max_files(metadata: &Value) -> usize {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("small_scoped_edit_max_files"))
+        .and_then(Value::as_u64)
+        .unwrap_or(4)
+        .clamp(1, 8) as usize
+}
+
+fn native_tool_small_scoped_edit_max_context_bytes(metadata: &Value) -> u64 {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("small_scoped_edit_max_context_bytes"))
+        .and_then(Value::as_u64)
+        .unwrap_or(40_000)
+        .clamp(4_000, 120_000)
+}
+
+fn native_tool_small_scoped_edit_provider_timeout_seconds(metadata: &Value) -> u64 {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("small_scoped_edit_provider_timeout_seconds"))
+        .and_then(Value::as_u64)
+        .unwrap_or(45)
+        .clamp(10, 120)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NativeToolBoundedPatchArtifactProfile {
+    GeneralPatchArtifact,
+    SmallScopedEditArtifact,
+}
+
+impl NativeToolBoundedPatchArtifactProfile {
+    fn as_str(self) -> &'static str {
+        match self {
+            NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact => {
+                "bounded_patch_artifact"
+            }
+            NativeToolBoundedPatchArtifactProfile::SmallScopedEditArtifact => {
+                "small_scoped_edit_artifact"
+            }
+        }
+    }
+}
+
+fn native_tool_bounded_patch_artifact_profile(
+    metadata: &Value,
+    context_paths: &[PathBuf],
+) -> NativeToolBoundedPatchArtifactProfile {
+    if !native_tool_small_scoped_edit_artifact_lane_enabled(metadata) {
+        return NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact;
+    }
+    if context_paths.is_empty()
+        || context_paths.len() > native_tool_small_scoped_edit_max_files(metadata)
+    {
+        return NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact;
+    }
+    let context_bytes = context_paths
+        .iter()
+        .filter_map(|path| fs::metadata(path).ok())
+        .map(|metadata| metadata.len())
+        .sum::<u64>();
+    if context_bytes > native_tool_small_scoped_edit_max_context_bytes(metadata) {
+        return NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact;
+    }
+    NativeToolBoundedPatchArtifactProfile::SmallScopedEditArtifact
+}
+
+fn native_tool_bounded_patch_elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u64::MAX as u128) as u64
+}
+
+fn native_tool_bounded_patch_phase_latency_json(
+    lane_started: Instant,
+    context_read_ms: u64,
+    file_context_ms: u64,
+    model_call_ms: u64,
+    patch_apply_ms: u64,
+    validation_ms: u64,
+) -> Value {
+    json!({
+        "context_read_ms": context_read_ms,
+        "file_context_ms": file_context_ms,
+        "model_call_ms": model_call_ms,
+        "patch_apply_ms": patch_apply_ms,
+        "validation_ms": validation_ms,
+        "total_ms": native_tool_bounded_patch_elapsed_ms(lane_started),
+    })
+}
+
 fn native_tool_bounded_patch_artifact_lane(
     provider: &Arc<dyn crate::provider::ProviderClient>,
     dispatcher: &NativeToolDispatcher,
@@ -1601,6 +1704,7 @@ fn native_tool_bounded_patch_artifact_lane(
     original_prompt: &str,
     system: &str,
 ) -> Result<NativeToolBoundedPatchLaneOutcome, ProviderError> {
+    let lane_started = Instant::now();
     let Some(project_root) = native_tool_prompt_project_root(original_prompt).map(PathBuf::from)
     else {
         return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
@@ -1621,6 +1725,7 @@ fn native_tool_bounded_patch_artifact_lane(
     }
 
     let mut receipts = Vec::<NativeToolReceipt>::new();
+    let read_started = Instant::now();
     let read_receipt = dispatcher.dispatch(crate::native_tools::NativeToolCall {
         id: "bounded_patch_artifact_file_read_many".to_string(),
         name: "file_read_many".to_string(),
@@ -1631,6 +1736,7 @@ fn native_tool_bounded_patch_artifact_lane(
                 .collect::<Vec<_>>()
         }),
     });
+    let context_read_ms = native_tool_bounded_patch_elapsed_ms(read_started);
     if read_receipt.status != "ok" {
         return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
             "file_read_many_failed",
@@ -1641,11 +1747,20 @@ fn native_tool_bounded_patch_artifact_lane(
                     .collect::<Vec<_>>(),
                 "read_error": read_receipt.error,
                 "read_result": read_receipt.result,
+                "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                    lane_started,
+                    context_read_ms,
+                    0,
+                    0,
+                    0,
+                    0
+                ),
             }),
         ));
     }
     receipts.push(read_receipt);
 
+    let file_context_started = Instant::now();
     let Some(file_context) = native_tool_bounded_patch_file_context(&context_paths) else {
         return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
             "file_context_unavailable",
@@ -1654,27 +1769,53 @@ fn native_tool_bounded_patch_artifact_lane(
                     .iter()
                     .map(|path| path.display().to_string())
                     .collect::<Vec<_>>(),
+                "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                    lane_started,
+                    context_read_ms,
+                    native_tool_bounded_patch_elapsed_ms(file_context_started),
+                    0,
+                    0,
+                    0
+                ),
             }),
         ));
     };
+    let file_context_ms = native_tool_bounded_patch_elapsed_ms(file_context_started);
+    let artifact_profile = native_tool_bounded_patch_artifact_profile(metadata, &context_paths);
     let mut patch_metadata = metadata.clone();
     if let Some(object) = patch_metadata.as_object_mut() {
         object.insert(
             "provider_timeout_seconds".to_string(),
-            json!(native_tool_bounded_patch_artifact_provider_timeout_seconds(metadata)),
+            json!(match artifact_profile {
+                NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact =>
+                    native_tool_bounded_patch_artifact_provider_timeout_seconds(metadata),
+                NativeToolBoundedPatchArtifactProfile::SmallScopedEditArtifact =>
+                    native_tool_small_scoped_edit_provider_timeout_seconds(metadata),
+            }),
         );
         object.insert("native_bounded_patch_artifact_lane".to_string(), json!(true));
+        object.insert(
+            "native_patch_artifact_profile".to_string(),
+            json!(artifact_profile.as_str()),
+        );
     }
-    let patch_prompt =
-        native_tool_bounded_patch_artifact_prompt(metadata, original_prompt, &file_context);
+    let patch_prompt = native_tool_bounded_patch_artifact_prompt(
+        metadata,
+        original_prompt,
+        &file_context,
+        artifact_profile,
+    );
     let request = ProviderRequest {
         prompt: patch_prompt,
-        system: Some(native_tool_bounded_patch_artifact_system_prompt()),
+        system: Some(native_tool_bounded_patch_artifact_system_prompt(
+            artifact_profile,
+        )),
         tools: Vec::new(),
         model: model.clone(),
         metadata: patch_metadata,
     };
     let mut provider_call_count = 1u64;
+    let model_call_started = Instant::now();
     let response = match provider.complete(&request) {
         Ok(response) => response,
         Err(error) if native_tool_provider_error_is_timeout(&error) => {
@@ -1692,14 +1833,24 @@ fn native_tool_bounded_patch_artifact_lane(
                 json!({
                     "provider_error": error.message,
                     "context_paths": context_paths
-                        .iter()
-                        .map(|path| path.display().to_string())
-                        .collect::<Vec<_>>(),
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>(),
+                    "artifact_profile": artifact_profile.as_str(),
+                    "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                        lane_started,
+                        context_read_ms,
+                        file_context_ms,
+                        native_tool_bounded_patch_elapsed_ms(model_call_started),
+                        0,
+                        0
+                    ),
                 }),
             ));
         }
         Err(error) => return Err(error),
     };
+    let model_call_ms = native_tool_bounded_patch_elapsed_ms(model_call_started);
 
     let patches =
         native_tool_bounded_patch_artifact_patches(&response.output, &project_root, &context_paths);
@@ -1721,9 +1872,19 @@ fn native_tool_bounded_patch_artifact_lane(
                     .iter()
                     .map(|path| path.display().to_string())
                     .collect::<Vec<_>>(),
+                "artifact_profile": artifact_profile.as_str(),
+                "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                    lane_started,
+                    context_read_ms,
+                    file_context_ms,
+                    model_call_ms,
+                    0,
+                    0
+                ),
             }),
         ));
     }
+    let patch_apply_started = Instant::now();
     for (idx, patch) in patches.into_iter().enumerate() {
         let receipt = dispatcher.dispatch(crate::native_tools::NativeToolCall {
             id: format!("bounded_patch_artifact_patch_{}", idx + 1),
@@ -1737,6 +1898,7 @@ fn native_tool_bounded_patch_artifact_lane(
         });
         receipts.push(receipt);
     }
+    let patch_apply_ms = native_tool_bounded_patch_elapsed_ms(patch_apply_started);
     if !native_tool_has_successful_mutation(&receipts) {
         native_tool_persist_run_journal(
             metadata,
@@ -1751,15 +1913,27 @@ fn native_tool_bounded_patch_artifact_lane(
             "patch_artifact_apply_failed_before_mutation",
             json!({
                 "patch_receipts": native_tool_bounded_patch_lane_receipt_summary(&receipts),
+                "artifact_profile": artifact_profile.as_str(),
+                "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                    lane_started,
+                    context_read_ms,
+                    file_context_ms,
+                    model_call_ms,
+                    patch_apply_ms,
+                    0
+                ),
             }),
             receipts,
         ));
     }
 
+    let validation_started = Instant::now();
+    let mut validation_ms = 0u64;
     if let Some(validation_receipt) =
         native_tool_auto_validation_receipt(dispatcher, original_prompt, &receipts)
     {
         receipts.push(validation_receipt);
+        validation_ms = native_tool_bounded_patch_elapsed_ms(validation_started);
     }
 
     let mut response = response;
@@ -1805,6 +1979,15 @@ fn native_tool_bounded_patch_artifact_lane(
                     .iter()
                     .map(|path| path.display().to_string())
                     .collect::<Vec<_>>(),
+                "artifact_profile": artifact_profile.as_str(),
+                "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                    lane_started,
+                    context_read_ms,
+                    file_context_ms,
+                    model_call_ms,
+                    patch_apply_ms,
+                    validation_ms
+                ),
                 "tool_receipts": receipts.clone(),
                 "terminal_status": "ok"
             }
@@ -1823,6 +2006,15 @@ fn native_tool_bounded_patch_artifact_lane(
             "evidence_gaps": native_tool_prompt_evidence_gaps(original_prompt, &receipts),
             "has_successful_validation": native_tool_has_successful_validation_command(&receipts),
             "lane_receipts": native_tool_bounded_patch_lane_receipt_summary(&receipts),
+            "artifact_profile": artifact_profile.as_str(),
+            "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                lane_started,
+                context_read_ms,
+                file_context_ms,
+                model_call_ms,
+                patch_apply_ms,
+                validation_ms
+            ),
         }),
         receipts,
     ))
@@ -2000,26 +2192,52 @@ fn native_tool_bounded_patch_file_context(paths: &[PathBuf]) -> Option<String> {
     Some(sections.join("\n\n"))
 }
 
-fn native_tool_bounded_patch_artifact_system_prompt() -> String {
-    "You are Infring's bounded patch artifact generator. Return only a machine-applicable patch artifact, with no prose, no tool calls, and no final answer. Preferred format is valid JSON: {\"patches\":[{\"path\":\"/absolute/path\",\"old\":\"exact existing text\",\"new\":\"replacement text\"}]}. You may also return Aider-style SEARCH/REPLACE blocks with a file path heading immediately before each block. Each old/SEARCH field must be an exact contiguous substring from the supplied file context. Prefer the smallest complete source/test patch set. Do not include validation output or explanations.".to_string()
+fn native_tool_bounded_patch_artifact_system_prompt(
+    artifact_profile: NativeToolBoundedPatchArtifactProfile,
+) -> String {
+    match artifact_profile {
+        NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact => {
+            "You are Infring's bounded patch artifact generator. Return only a machine-applicable patch artifact, with no prose, no tool calls, and no final answer. Preferred format is valid JSON: {\"patches\":[{\"path\":\"/absolute/path\",\"old\":\"exact existing text\",\"new\":\"replacement text\"}]}. You may also return Aider-style SEARCH/REPLACE blocks with a file path heading immediately before each block. Each old/SEARCH field must be an exact contiguous substring from the supplied file context. Prefer the smallest complete source/test patch set. Do not include validation output or explanations.".to_string()
+        }
+        NativeToolBoundedPatchArtifactProfile::SmallScopedEditArtifact => {
+            "Return only SEARCH/REPLACE edit blocks. Put the absolute file path immediately before each <<<<<<< SEARCH. SEARCH must exactly match supplied file context. Use the fewest small blocks that complete the edit. No prose, no tool calls, no final answer.".to_string()
+        }
+    }
 }
 
 fn native_tool_bounded_patch_artifact_prompt(
     metadata: &Value,
     original_prompt: &str,
     file_context: &str,
+    artifact_profile: NativeToolBoundedPatchArtifactProfile,
 ) -> String {
-    let rule = native_tool_orchestration_prompt_text(
-        metadata,
-        "bounded_patch_artifact_lane_rule",
-        "Generate the smallest deterministic patch artifact for this bounded local code edit. The runtime will apply the patch and run validation from receipts. Do not ask for files; the relevant file context is already supplied.",
-    );
-    format!(
-        "{}\n\nOriginal task:\n{}\n\nSelected local file context:\n{}\n\nReturn only the JSON patch artifact now.",
-        rule,
-        original_prompt.chars().take(2600).collect::<String>(),
-        file_context
-    )
+    match artifact_profile {
+        NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact => {
+            let rule = native_tool_orchestration_prompt_text(
+                metadata,
+                "bounded_patch_artifact_lane_rule",
+                "Generate the smallest deterministic patch artifact for this bounded local code edit. The runtime will apply the patch and run validation from receipts. Do not ask for files; the relevant file context is already supplied.",
+            );
+            format!(
+                "{}\n\nOriginal task:\n{}\n\nSelected local file context:\n{}\n\nReturn only the JSON patch artifact now.",
+                rule,
+                original_prompt.chars().take(2600).collect::<String>(),
+                file_context
+            )
+        }
+        NativeToolBoundedPatchArtifactProfile::SmallScopedEditArtifact => {
+            let rule = native_tool_orchestration_prompt_text(
+                metadata,
+                "small_scoped_edit_artifact_lane_rule",
+                "Generate the smallest deterministic SEARCH/REPLACE edit artifact for this small scoped local code edit. The runtime has already supplied every file you may edit, will apply the blocks, then will run validation from receipts when requested. Do not ask for files.",
+            );
+            format!(
+                "{rule}\n\nOriginal task:\n{}\n\nEditable file context:\n{}\n\nRequired output format for each edit:\n/absolute/path/to/file\n<<<<<<< SEARCH\nexact old text\n=======\nreplacement text\n>>>>>>> REPLACE\n\nReturn only SEARCH/REPLACE blocks now.",
+                original_prompt.chars().take(1400).collect::<String>(),
+                file_context
+            )
+        }
+    }
 }
 
 fn native_tool_bounded_patch_artifact_patches(
