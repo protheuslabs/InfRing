@@ -2758,6 +2758,30 @@ mod quality_tests {
     }
 
     #[test]
+    fn rendered_search_candidates_read_provider_summary_when_content_is_empty() {
+        let query = "current research breakthroughs 2026";
+        let candidates = candidates_from_rendered_search_payload(
+            query,
+            &json!({
+                "ok": true,
+                "provider": "exa",
+                "summary": "Materials research milestone — https://www.nature.com/articles/example-2026-materials — A 2026 Nature article reports a source-backed materials research advance with replication details.",
+                "content": "",
+                "requested_url": "https://api.exa.ai/search",
+                "status_code": 200
+            }),
+            4,
+        );
+        assert!(
+            candidates.iter().any(|candidate| {
+                candidate.locator.contains("nature.com/articles/example-2026-materials")
+                    && candidate.source_kind == "exa_api_search_result"
+            }),
+            "{candidates:#?}"
+        );
+    }
+
+    #[test]
     fn page_extraction_skips_non_document_links_before_fetch_budget() {
         let query = "scientific breakthroughs april 2026";
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -3049,6 +3073,48 @@ mod quality_tests {
                 link == "https://abcnews.com" || link == "https://apnews.com/world-news"
             }),
             "broad discovery should spend fetch budget on article evidence before home/section shells: {links:?}"
+        );
+    }
+
+    #[test]
+    fn page_extraction_keeps_authoritative_article_links_for_distinctive_current_research_queries()
+    {
+        let query = "scientific breakthroughs 2026 major discoveries physics chemistry biology";
+        assert!(
+            query_has_distinctive_relevance_terms(query),
+            "discipline terms make this a distinctive query even though it is broad research discovery"
+        );
+        let policy = default_policy();
+        let links = payload_links_for_page_extraction(
+            query,
+            &policy,
+            &json!({
+                "summary": "Search returned current source-backed research articles from public institutions and scholarly publishers.",
+                "links": [
+                    "https://news.mit.edu/2026/researchers-reprogram-materials-quickly-rearranging-their-atoms-0513",
+                    "https://science.nasa.gov/missions/fermi/fermi-glimpses-power-source-supercharged-supernovae/",
+                    "https://www.nature.com/articles/s41557-026-02124-7"
+                ]
+            }),
+            3,
+        );
+        assert!(
+            links
+                .iter()
+                .any(|link| link.contains("news.mit.edu/2026/researchers")),
+            "{links:?}"
+        );
+        assert!(
+            links
+                .iter()
+                .any(|link| link.contains("science.nasa.gov/missions/fermi")),
+            "{links:?}"
+        );
+        assert!(
+            links
+                .iter()
+                .any(|link| link.contains("nature.com/articles")),
+            "{links:?}"
         );
     }
 

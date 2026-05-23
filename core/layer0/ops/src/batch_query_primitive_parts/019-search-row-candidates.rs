@@ -440,7 +440,7 @@ fn candidates_from_rendered_search_payload(
     if max_rows == 0 {
         return Vec::new();
     }
-    let raw_content = payload.get("content").and_then(Value::as_str).unwrap_or("");
+    let raw_content = rendered_search_payload_text(payload);
     if raw_content.trim().is_empty() {
         return Vec::new();
     }
@@ -471,6 +471,23 @@ fn candidates_from_rendered_search_payload(
         }
     }
     out
+}
+
+fn rendered_search_payload_text(payload: &Value) -> String {
+    let mut rows = Vec::<String>::new();
+    for key in ["content", "summary", "content_preview", "markdown", "text"] {
+        if let Some(value) = payload
+            .get(key)
+            .and_then(Value::as_str)
+            .map(|raw| clean_text(raw, 8_000))
+            .filter(|raw| !raw.is_empty())
+        {
+            if !rows.iter().any(|row| row.eq_ignore_ascii_case(&value)) {
+                rows.push(value);
+            }
+        }
+    }
+    rows.join("\n")
 }
 
 fn retained_search_results_preview(rows: &[(Candidate, f64)], limit: usize) -> Value {

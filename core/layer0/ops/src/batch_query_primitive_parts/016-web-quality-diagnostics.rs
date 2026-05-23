@@ -308,6 +308,11 @@ fn source_trust_adjustment(candidate: &Candidate) -> f64 {
     if contains_web_junk_marker(&combined) || looks_like_competitive_programming_dump(&combined) {
         return -0.5;
     }
+    if domain_matches_source_suffix(&domain, ".gov")
+        || domain_matches_source_suffix(&domain, ".edu")
+    {
+        return 0.16;
+    }
     if domain.contains("reddit.com")
         || domain.contains("quora.com")
         || domain.contains("zhihu.com")
@@ -336,6 +341,27 @@ fn source_trust_adjustment(candidate: &Candidate) -> f64 {
     {
         return 0.16;
     }
+    if [
+        "nature.com",
+        "science.org",
+        "cell.com",
+        "pnas.org",
+        "arxiv.org",
+        "doi.org",
+        "springer.com",
+        "sciencedirect.com",
+        "frontiersin.org",
+        "plos.org",
+        "nejm.org",
+        "thelancet.com",
+        "ieee.org",
+        "acm.org",
+    ]
+    .iter()
+    .any(|suffix| domain_matches_source_suffix(&domain, suffix))
+    {
+        return 0.14;
+    }
     if domain.contains("reuters.com")
         || domain.contains("apnews.com")
         || domain.contains("bloomberg.com")
@@ -347,6 +373,12 @@ fn source_trust_adjustment(candidate: &Candidate) -> f64 {
         return 0.1;
     }
     0.0
+}
+
+fn domain_matches_source_suffix(domain: &str, suffix: &str) -> bool {
+    let domain = domain.trim().trim_start_matches("www.");
+    let suffix = suffix.trim().trim_start_matches('.');
+    !domain.is_empty() && !suffix.is_empty() && (domain == suffix || domain.ends_with(&format!(".{suffix}")))
 }
 
 fn recency_adjustment(query: &str, candidate: &Candidate) -> f64 {
