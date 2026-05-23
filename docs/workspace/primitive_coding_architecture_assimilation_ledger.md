@@ -296,6 +296,10 @@ Required reset action:
   native tool loop.
 - Keep this profile dormant by default until repeated same-model runs prove that
   it beats the general bounded artifact lane without causing timeout cascades.
+- The general bounded artifact lane gets one compact retry for invalid artifact
+  output or artifact-call timeout; after that, quick-edit workflows should
+  return structured artifact failure instead of wandering into the open native
+  loop unless explicitly configured otherwise.
 
 ### 6. Validation and repair loop
 
@@ -857,3 +861,53 @@ ForgeCode file/edit/repair/checkpoint primitives
 ```
 
 This gives us a scalable coding workflow foundation without copying product-specific behavior or rebuilding known-good mechanics from vibes.
+## Primitive candidate: `bounded_direct_edit_lane`
+
+Status: `v1_wired_behind_workflow_flags`
+
+Evidence source:
+
+- Codex live runtime batch: `references/coding-agent-systems/runtime_trace_harness/reports/codex_level3_level4_batch_20260523_130434/report.json`
+- Pattern extraction: `references/coding-agent-systems/runtime_trace_harness/reports/codex_level3_level4_batch_20260523_130434/codex_runtime_pattern_extraction.md`
+
+Observed reference performance:
+
+- Codex Level 3: `5/5` pass, average wall `23.9s`, average first mutation `13.7s`.
+- Codex Level 4: `5/5` pass, average wall `39.3s`, average first mutation `26.1s`.
+
+Primitive definition:
+
+`bounded_direct_edit_lane` performs bounded local reads, direct native file mutation, validation/probe command execution, and terminal receipt synthesis for small or bounded existing-project coding tasks.
+
+Why this belongs in the primitive library:
+
+- It generalizes a successful runtime behavior observed in Codex.
+- It solves a primitive failure mode in Infring: artifact-generation timeout before mutation.
+- It composes upward into larger coding workflows without relying on level-specific cases.
+
+Required sub-primitives:
+
+- `bounded_context_selection`
+- `safe_file_read`
+- `safe_file_patch`
+- `safe_file_write`
+- `validation_command_runner`
+- `bounded_repair_loop`
+- `final_receipt_synthesis`
+
+Promotion gate:
+
+- Must pass lower-level monotonic coding evals before being used for higher-level workflow improvements.
+- Must expose receipts for context read, mutation, validation/probe, repair attempts, and terminal result.
+- Must fail closed with a structured blocker when file context, permissions, mutation, or validation evidence is missing.
+
+Implementation notes:
+
+- Runtime v1 is wired in `core/layer2/agent_surface/src/agent.rs`.
+- Lab workflow flag is wired in `orchestration/src/control_plane/workflows/lab/composites/coding/local_coding_phase1_mutation_spine.workflow.json`.
+- Official coding workflow flag is wired in `orchestration/src/control_plane/workflows/official/coding_project_operator.workflow.json`.
+- The lane currently reuses the native direct tool loop rather than introducing a second tool dispatcher.
+
+Anti-hardcoding note:
+
+This primitive must not mention Level 3, Level 4, `math_tools.py`, `slug_tools.py`, or any eval fixture content in runtime logic. Fixture-specific expectations belong only in eval harnesses.

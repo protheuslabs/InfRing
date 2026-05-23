@@ -733,6 +733,11 @@ fn native_tool_prompt_explicit_public_api_names(original_prompt: &str) -> Vec<St
                 names.push(name);
             }
         }
+        for name in native_tool_public_api_names_from_action_phrases(line) {
+            if !names.iter().any(|existing| existing == &name) {
+                names.push(name);
+            }
+        }
     }
     names
 }
@@ -760,7 +765,7 @@ fn native_tool_public_api_names_from_call_patterns(line: &str) -> Vec<String> {
         let token = &line[start..idx];
         let rest = line[idx..].trim_start();
         if rest.starts_with('(')
-            && native_tool_token_looks_like_public_api(token)
+            && native_tool_token_looks_like_called_public_api(token)
             && !native_tool_token_looks_like_path_or_harness_artifact(token)
         {
             names.push(token.to_string());
@@ -781,9 +786,71 @@ fn native_tool_public_api_names_from_python_imports(line: &str) -> Vec<String> {
         .collect()
 }
 
+fn native_tool_public_api_names_from_action_phrases(line: &str) -> Vec<String> {
+    let mut names = Vec::<String>::new();
+    let tokens = line
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    for (idx, token) in tokens.iter().enumerate() {
+        let lower = token.to_ascii_lowercase();
+        if !matches!(
+            lower.as_str(),
+            "add" | "repair" | "fix" | "implement" | "create" | "define" | "update"
+        ) {
+            continue;
+        }
+        for candidate in tokens.iter().skip(idx + 1).take(6) {
+            let candidate_lower = candidate.to_ascii_lowercase();
+            if matches!(
+                candidate_lower.as_str(),
+                "a" | "an"
+                    | "the"
+                    | "this"
+                    | "that"
+                    | "public"
+                    | "api"
+                    | "function"
+                    | "method"
+                    | "class"
+                    | "tests"
+                    | "test"
+                    | "unittest"
+                    | "failing"
+                    | "relevant"
+                    | "files"
+                    | "file"
+                    | "behavior"
+                    | "command"
+                    | "validation"
+                    | "for"
+                    | "it"
+                    | "to"
+                    | "from"
+                    | "with"
+                    | "without"
+                    | "in"
+                    | "on"
+                    | "until"
+            ) {
+                continue;
+            }
+            if native_tool_token_looks_like_called_public_api(candidate)
+                && !native_tool_token_looks_like_path_or_harness_artifact(candidate)
+                && !names.iter().any(|existing| existing == candidate)
+            {
+                names.push((*candidate).to_string());
+            }
+            break;
+        }
+    }
+    names
+}
+
 fn native_tool_token_looks_like_path_or_harness_artifact(token: &str) -> bool {
     let lower = token.to_ascii_lowercase();
-    lower.ends_with("_tools")
+    token.starts_with('_')
+        || lower.ends_with("_tools")
         || lower.ends_with("_test")
         || lower.starts_with("test_")
         || lower.contains("test_")
@@ -795,6 +862,30 @@ fn native_tool_token_looks_like_path_or_harness_artifact(token: &str) -> bool {
         || lower == "pytest"
         || lower == "unittest"
         || lower == "pythonpath"
+        || lower == "first"
+        || lower == "then"
+        || lower == "for"
+        || lower == "it"
+}
+
+fn native_tool_token_looks_like_called_public_api(token: &str) -> bool {
+    if token.len() < 3 || token.len() > 80 {
+        return false;
+    }
+    if token.chars().any(|ch| ch.is_ascii_digit()) {
+        return false;
+    }
+    let mut chars = token.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return false;
+    }
+    if !chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+        return false;
+    }
+    token.chars().any(|ch| ch.is_ascii_lowercase())
 }
 
 fn native_tool_token_looks_like_public_api(token: &str) -> bool {

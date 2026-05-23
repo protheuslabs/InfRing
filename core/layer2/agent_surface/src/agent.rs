@@ -375,8 +375,39 @@ impl AgentContract {
         let wall_timeout = native_tool_wall_timeout(&self.metadata);
         let coding_task_lane = native_tool_coding_task_lane(&self.metadata, &self.initial_prompt);
         let micro_direct_write_task = coding_task_lane == "new_file_fast_path";
+        let bounded_direct_edit_task = !micro_direct_write_task
+            && native_tool_bounded_direct_edit_lane_active(&self.metadata, &self.initial_prompt);
+        if bounded_direct_edit_task {
+            prompt = native_tool_bounded_direct_edit_initial_prompt(
+                &self.metadata,
+                &self.initial_prompt,
+            );
+            let bootstrap_receipts =
+                native_tool_bootstrap_context_receipts(&dispatcher, &self.initial_prompt);
+            if !bootstrap_receipts.is_empty() {
+                all_receipts.extend(bootstrap_receipts);
+                let observation = native_tool_observation_prompt(&all_receipts);
+                let default_bootstrap_rule = if native_tool_prompt_requires_pre_mutation_validation(
+                    &self.initial_prompt,
+                ) {
+                    "Runtime has already loaded the bounded local context for this direct edit. The user requested validation before mutation, so run the requested validation command first. After observing the failure, return only JSON tool calls for the smallest source/test file_write or file_patch repair, then rerun validation."
+                } else {
+                    "Runtime has already loaded the bounded local context for this direct edit. Do not repeat file_list/file_read unless validation names a new missing file. Return only JSON tool calls for the smallest source/test file_write or file_patch mutation next, then run requested validation."
+                };
+                let bootstrap_rule = native_tool_orchestration_prompt_text(
+                    &self.metadata,
+                    "bounded_direct_edit_bootstrap_rule",
+                    default_bootstrap_rule,
+                );
+                prompt = format!("{prompt}\n\n{bootstrap_rule}\n\nNative tool observations:\n{observation}");
+            }
+        }
         if !micro_direct_write_task && native_tool_requires_successful_mutation(&self.metadata) {
-            if native_tool_bounded_patch_artifact_lane_enabled(&self.metadata) {
+            if bounded_direct_edit_task {
+                // The direct edit lane deliberately skips pre-mutation artifact synthesis.
+                // It reuses the native tool loop below so small bounded edits can mutate
+                // through receipt-backed file tools instead of timing out before mutation.
+            } else if native_tool_bounded_patch_artifact_lane_enabled(&self.metadata) {
                 let outcome = native_tool_bounded_patch_artifact_lane(
                     &provider,
                     &dispatcher,
@@ -401,8 +432,27 @@ impl AgentContract {
                         observation
                     );
                 }
-                if let Some(result) = outcome.terminal {
-                    return Ok(result);
+                if let Some((response, terminal_receipts, provider_call_count, provider_id)) =
+                    outcome.terminal
+                {
+                    if all_receipts.is_empty() {
+                        return Ok((
+                            response,
+                            terminal_receipts,
+                            provider_call_count,
+                            provider_id,
+                        ));
+                    }
+                    let mut merged_receipts = all_receipts.clone();
+                    for receipt in terminal_receipts {
+                        if !merged_receipts
+                            .iter()
+                            .any(|existing| existing.call_id == receipt.call_id)
+                        {
+                            merged_receipts.push(receipt);
+                        }
+                    }
+                    return Ok((response, merged_receipts, provider_call_count, provider_id));
                 }
             } else {
                 all_receipts.push(native_tool_bounded_patch_artifact_marker_receipt(
@@ -434,11 +484,19 @@ impl AgentContract {
                     None,
                     None,
                 );
-                let bootstrap_rule = native_tool_orchestration_prompt_text(
-                    &self.metadata,
-                    "bootstrap_context_continuation_rule",
-                    "Runtime bootstrap context was collected before the first model call. Continue from this already-read context and return only JSON tool calls next. If the source/test files needed for this bounded edit are already present in the observations, do not repeat file_list/file_read; make the smallest file_write/file_patch mutation, then validate when requested.",
-                );
+                let bootstrap_rule = if bounded_direct_edit_task {
+                    native_tool_orchestration_prompt_text(
+                        &self.metadata,
+                        "bounded_direct_edit_bootstrap_continuation_rule",
+                        "The bounded direct edit lane has already read the relevant local files. Return only JSON tool calls next. Prefer the smallest file_patch/file_write mutations to source and test files, then run requested validation/probe commands. Do not ask for more context unless a receipt shows the task is blocked.",
+                    )
+                } else {
+                    native_tool_orchestration_prompt_text(
+                        &self.metadata,
+                        "bootstrap_context_continuation_rule",
+                        "Runtime bootstrap context was collected before the first model call. Continue from this already-read context and return only JSON tool calls next. If the source/test files needed for this bounded edit are already present in the observations, do not repeat file_list/file_read; make the smallest file_write/file_patch mutation, then validate when requested.",
+                    )
+                };
                 prompt = format!(
                     "{}\n\n{}\n\nNative tool observations:\n{}",
                     self.initial_prompt,
@@ -634,7 +692,13 @@ impl AgentContract {
                 }
                 Err(error) => return Err(error),
             };
-            let calls = parse_native_tool_calls(&response.output);
+            let mut calls = parse_native_tool_calls(&response.output);
+            if bounded_direct_edit_task
+                && native_tool_prompt_requires_pre_mutation_validation(&self.initial_prompt)
+                && !native_tool_has_any_validation_command(&all_receipts)
+            {
+                native_tool_prioritize_pre_mutation_validation_calls(&mut calls);
+            }
             if calls.is_empty() {
                 if all_receipts.is_empty() && empty_tool_retry_count < empty_tool_retry_limit {
                     empty_tool_retry_count += 1;
@@ -778,6 +842,19 @@ impl AgentContract {
                 && native_tool_has_successful_validation_command(&all_receipts)
                 && native_tool_prompt_evidence_gaps(&self.initial_prompt, &all_receipts).is_empty()
             {
+                if bounded_direct_edit_task {
+                    let direct_tool_call_count = all_receipts.len();
+                    native_tool_push_bounded_direct_edit_marker_once(
+                        &mut all_receipts,
+                        "success",
+                        json!({
+                            "terminal_status": "ok",
+                            "provider_call_count": provider_call_count,
+                            "tool_call_count": direct_tool_call_count,
+                            "reason": "successful_validation_receipt_runtime_early_success"
+                        }),
+                    );
+                }
                 let mut response = native_tool_synthetic_completion_evidence_response(
                     &response,
                     &self.metadata,
@@ -1313,6 +1390,19 @@ impl AgentContract {
         if !unresolved_final_reasons.is_empty()
             && native_tool_artifact_contract_enabled(&self.metadata)
         {
+            if bounded_direct_edit_task {
+                let direct_tool_call_count = all_receipts.len();
+                native_tool_push_bounded_direct_edit_marker_once(
+                    &mut all_receipts,
+                    "partial_blocked",
+                    json!({
+                        "terminal_status": "partial_blocked",
+                        "provider_call_count": provider_call_count,
+                        "tool_call_count": direct_tool_call_count,
+                        "unresolved_completion_evidence": unresolved_final_reasons.clone(),
+                    }),
+                );
+            }
             let reason = format!(
                 "native_tool_unresolved_completion_evidence:{};receipt_summary={}",
                 unresolved_final_reasons.join(","),
@@ -1339,6 +1429,19 @@ impl AgentContract {
                 }
             });
             return Ok((response, all_receipts, provider_call_count, "partial_blocked".to_string()));
+        }
+        if bounded_direct_edit_task {
+            let direct_tool_call_count = all_receipts.len();
+            native_tool_push_bounded_direct_edit_marker_once(
+                &mut all_receipts,
+                "success",
+                json!({
+                    "terminal_status": "ok",
+                    "provider_call_count": provider_call_count,
+                    "tool_call_count": direct_tool_call_count,
+                    "reason": "terminal_receipt_synthesis"
+                }),
+            );
         }
         response.raw = json!({
             "provider_raw": response.raw,
@@ -1585,6 +1688,75 @@ fn native_tool_bounded_patch_artifact_lane_enabled(metadata: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn native_tool_bounded_direct_edit_lane_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("bounded_direct_edit_lane"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_bounded_direct_edit_max_files(metadata: &Value) -> usize {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("bounded_direct_edit_max_files"))
+        .and_then(Value::as_u64)
+        .unwrap_or(8)
+        .clamp(1, 16) as usize
+}
+
+fn native_tool_bounded_direct_edit_lane_active(metadata: &Value, original_prompt: &str) -> bool {
+    if !native_tool_bounded_direct_edit_lane_enabled(metadata)
+        || !native_tool_requires_successful_mutation(metadata)
+    {
+        return false;
+    }
+    let prompt_lower = original_prompt.to_ascii_lowercase();
+    if prompt_lower.contains("create a new project")
+        || prompt_lower.contains("initialize a new project")
+        || prompt_lower.contains("from scratch")
+    {
+        return false;
+    }
+    let Some(project_root) = native_tool_prompt_project_root(original_prompt) else {
+        return false;
+    };
+    let root = PathBuf::from(project_root);
+    if !root.is_dir() {
+        return false;
+    }
+    let mut paths = native_tool_unique_code_path_mentions(original_prompt)
+        .into_iter()
+        .filter_map(|path| {
+            let candidate = if path.starts_with('/') {
+                PathBuf::from(path)
+            } else {
+                root.join(path.trim_start_matches("./"))
+            };
+            if candidate.is_file() {
+                Some(candidate.display().to_string())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    paths.extend(native_tool_bootstrap_likely_context_paths(&root, &paths));
+    paths.sort();
+    paths.dedup();
+    !paths.is_empty() && paths.len() <= native_tool_bounded_direct_edit_max_files(metadata)
+}
+
+fn native_tool_bounded_direct_edit_initial_prompt(metadata: &Value, original_prompt: &str) -> String {
+    let rule = native_tool_orchestration_prompt_text(
+        metadata,
+        "bounded_direct_edit_lane_rule",
+        "Use the bounded direct edit lane for this local coding task. Keep the run concrete and receipt-backed: read bounded local context, make the smallest native file_patch/file_write mutations needed, run requested validation/probe commands, and stop with a receipt-backed final answer. Return JSON tool calls whenever tools are needed.",
+    );
+    format!("{}\n\n{}", original_prompt, rule)
+}
+
 fn native_tool_bounded_patch_artifact_max_files(metadata: &Value) -> usize {
     metadata
         .get("native_success_criteria")
@@ -1603,6 +1775,43 @@ fn native_tool_bounded_patch_artifact_provider_timeout_seconds(metadata: &Value)
         .and_then(Value::as_u64)
         .unwrap_or(60)
         .clamp(10, 180)
+}
+
+fn native_tool_bounded_patch_artifact_strict_retry_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("bounded_patch_artifact_strict_retry"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn native_tool_bounded_patch_artifact_timeout_strict_retry_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("bounded_patch_artifact_timeout_strict_retry"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_bounded_patch_artifact_retry_provider_timeout_seconds(metadata: &Value) -> u64 {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("bounded_patch_artifact_retry_provider_timeout_seconds"))
+        .and_then(Value::as_u64)
+        .unwrap_or(25)
+        .clamp(10, 90)
+}
+
+fn native_tool_bounded_patch_open_loop_after_artifact_failure(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("bounded_patch_artifact_open_loop_after_retry_failure"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
 }
 
 fn native_tool_small_scoped_edit_artifact_lane_enabled(metadata: &Value) -> bool {
@@ -1904,25 +2113,115 @@ fn native_tool_bounded_patch_artifact_lane(
             }
         }
         Err(error) if native_tool_provider_error_is_timeout(&error) => {
-            native_tool_persist_run_journal(
-                metadata,
-                original_prompt,
-                "bounded_patch_artifact_fallback",
-                provider_call_count,
-                &receipts,
-                None,
-                Some("provider_timeout_before_patch_artifact"),
-            );
-            return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
-                "provider_timeout_before_patch_artifact",
-                json!({
-                    "provider_error": error.message,
+            let first_timeout = error.message.clone();
+            if native_tool_bounded_patch_artifact_strict_retry_enabled(metadata)
+                && native_tool_bounded_patch_artifact_timeout_strict_retry_enabled(metadata)
+                && provider_call_count < 2
+            {
+                attempted_artifact_profiles
+                    .push(format!("{}_timeout_strict_retry", artifact_profile.as_str()));
+                provider_call_count += 1;
+                let mut retry_metadata = metadata.clone();
+                if let Some(object) = retry_metadata.as_object_mut() {
+                    object.insert(
+                        "provider_timeout_seconds".to_string(),
+                        json!(native_tool_bounded_patch_artifact_retry_provider_timeout_seconds(
+                            metadata
+                        )),
+                    );
+                    object.insert("native_bounded_patch_artifact_lane".to_string(), json!(true));
+                    object.insert(
+                        "native_patch_artifact_profile".to_string(),
+                        json!(format!("{}_timeout_strict_retry", artifact_profile.as_str())),
+                    );
+                }
+                let retry_request = ProviderRequest {
+                    prompt: native_tool_bounded_patch_artifact_retry_prompt(
+                        metadata,
+                        original_prompt,
+                        &file_context,
+                        "",
+                        artifact_profile,
+                    ),
+                    system: Some(native_tool_bounded_patch_artifact_system_prompt(
+                        NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact,
+                    )),
+                    tools: Vec::new(),
+                    model: model.clone(),
+                    metadata: retry_metadata,
+                };
+                match provider.complete(&retry_request) {
+                    Ok(response) => response,
+                    Err(retry_error) if native_tool_provider_error_is_timeout(&retry_error) => {
+                        native_tool_persist_run_journal(
+                            metadata,
+                            original_prompt,
+                            "bounded_patch_artifact_fallback",
+                            provider_call_count,
+                            &receipts,
+                            None,
+                            Some("artifact_timeout_strict_retry_timeout"),
+                        );
+                        let details = json!({
+                            "provider_error": retry_error.message,
+                            "first_timeout": first_timeout,
+                            "context_paths": context_paths
+                                .iter()
+                                .map(|path| path.display().to_string())
+                                .collect::<Vec<_>>(),
+                            "artifact_profile": artifact_profile.as_str(),
+                            "attempted_artifact_profiles": attempted_artifact_profiles,
+                            "open_loop_after_artifact_failure": native_tool_bounded_patch_open_loop_after_artifact_failure(metadata),
+                            "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                                lane_started,
+                                context_read_ms,
+                                file_context_ms,
+                                native_tool_bounded_patch_elapsed_ms(model_call_started),
+                                0,
+                                0
+                            ),
+                        });
+                        if native_tool_bounded_patch_open_loop_after_artifact_failure(metadata) {
+                            return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+                                "artifact_timeout_strict_retry_timeout",
+                                details,
+                            ));
+                        }
+                        return Ok(NativeToolBoundedPatchLaneOutcome::terminal_failure((
+                            native_tool_bounded_patch_artifact_failure_response(
+                                "runtime",
+                                model.as_deref(),
+                                "artifact_timeout_strict_retry_timeout",
+                                provider_call_count,
+                                &receipts,
+                                details,
+                            ),
+                            receipts,
+                            provider_call_count,
+                            "artifact_failure".to_string(),
+                        )));
+                    }
+                    Err(retry_error) => return Err(retry_error),
+                }
+            } else {
+                native_tool_persist_run_journal(
+                    metadata,
+                    original_prompt,
+                    "bounded_patch_artifact_fallback",
+                    provider_call_count,
+                    &receipts,
+                    None,
+                    Some("provider_timeout_before_patch_artifact"),
+                );
+                let details = json!({
+                    "provider_error": first_timeout,
                     "context_paths": context_paths
                         .iter()
                         .map(|path| path.display().to_string())
                         .collect::<Vec<_>>(),
                     "artifact_profile": artifact_profile.as_str(),
                     "attempted_artifact_profiles": attempted_artifact_profiles,
+                    "open_loop_after_artifact_failure": native_tool_bounded_patch_open_loop_after_artifact_failure(metadata),
                     "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
                         lane_started,
                         context_read_ms,
@@ -1931,8 +2230,27 @@ fn native_tool_bounded_patch_artifact_lane(
                         0,
                         0
                     ),
-                }),
-            ));
+                });
+                if native_tool_bounded_patch_open_loop_after_artifact_failure(metadata) {
+                    return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+                        "provider_timeout_before_patch_artifact",
+                        details,
+                    ));
+                }
+                return Ok(NativeToolBoundedPatchLaneOutcome::terminal_failure((
+                    native_tool_bounded_patch_artifact_failure_response(
+                        "runtime",
+                        model.as_deref(),
+                        "provider_timeout_before_patch_artifact",
+                        provider_call_count,
+                        &receipts,
+                        details,
+                    ),
+                    receipts,
+                    provider_call_count,
+                    "artifact_failure".to_string(),
+                )));
+            }
         }
         Err(error) => return Err(error),
     };
@@ -2013,6 +2331,98 @@ fn native_tool_bounded_patch_artifact_lane(
             &context_paths,
         );
     }
+    if patches.is_empty()
+        && native_tool_bounded_patch_artifact_strict_retry_enabled(metadata)
+        && provider_call_count < 2
+    {
+        attempted_artifact_profiles.push(format!("{}_strict_retry", artifact_profile.as_str()));
+        provider_call_count += 1;
+        let mut retry_metadata = metadata.clone();
+        if let Some(object) = retry_metadata.as_object_mut() {
+            object.insert(
+                "provider_timeout_seconds".to_string(),
+                json!(native_tool_bounded_patch_artifact_retry_provider_timeout_seconds(metadata)),
+            );
+            object.insert("native_bounded_patch_artifact_lane".to_string(), json!(true));
+            object.insert(
+                "native_patch_artifact_profile".to_string(),
+                json!(format!("{}_strict_retry", artifact_profile.as_str())),
+            );
+        }
+        let retry_request = ProviderRequest {
+            prompt: native_tool_bounded_patch_artifact_retry_prompt(
+                metadata,
+                original_prompt,
+                &file_context,
+                &response.output,
+                artifact_profile,
+            ),
+            system: Some(native_tool_bounded_patch_artifact_system_prompt(
+                NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact,
+            )),
+            tools: Vec::new(),
+            model: model.clone(),
+            metadata: retry_metadata,
+        };
+        response = match provider.complete(&retry_request) {
+            Ok(response) => response,
+            Err(error) if native_tool_provider_error_is_timeout(&error) => {
+                native_tool_persist_run_journal(
+                    metadata,
+                    original_prompt,
+                    "bounded_patch_artifact_fallback",
+                    provider_call_count,
+                    &receipts,
+                    Some(&response.output),
+                    Some("artifact_strict_retry_timeout"),
+                );
+                let details = json!({
+                    "provider_error": error.message,
+                    "first_profile_output_preview": response.output.chars().take(1600).collect::<String>(),
+                    "context_paths": context_paths
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>(),
+                    "artifact_profile": artifact_profile.as_str(),
+                    "attempted_artifact_profiles": attempted_artifact_profiles,
+                    "open_loop_after_artifact_failure": native_tool_bounded_patch_open_loop_after_artifact_failure(metadata),
+                    "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                        lane_started,
+                        context_read_ms,
+                        file_context_ms,
+                        native_tool_bounded_patch_elapsed_ms(model_call_started),
+                        0,
+                        0
+                    ),
+                });
+                if native_tool_bounded_patch_open_loop_after_artifact_failure(metadata) {
+                    return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+                        "artifact_strict_retry_timeout",
+                        details,
+                    ));
+                }
+                return Ok(NativeToolBoundedPatchLaneOutcome::terminal_failure((
+                    native_tool_bounded_patch_artifact_failure_response(
+                        "runtime",
+                        model.as_deref(),
+                        "artifact_strict_retry_timeout",
+                        provider_call_count,
+                        &receipts,
+                        details,
+                    ),
+                    receipts,
+                    provider_call_count,
+                    "artifact_failure".to_string(),
+                )));
+            }
+            Err(error) => return Err(error),
+        };
+        patches = native_tool_bounded_patch_artifact_patches(
+            &response.output,
+            &project_root,
+            &context_paths,
+        );
+    }
     let model_call_ms = native_tool_bounded_patch_elapsed_ms(model_call_started);
     if patches.is_empty() {
         native_tool_persist_run_journal(
@@ -2024,26 +2434,43 @@ fn native_tool_bounded_patch_artifact_lane(
             Some(&response.output),
             Some("missing_or_invalid_patch_artifact"),
         );
-        return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
-            "missing_or_invalid_patch_artifact",
-            json!({
-                "output_preview": response.output.chars().take(1600).collect::<String>(),
-                "context_paths": context_paths
-                    .iter()
-                    .map(|path| path.display().to_string())
-                    .collect::<Vec<_>>(),
-                "artifact_profile": artifact_profile.as_str(),
-                "attempted_artifact_profiles": attempted_artifact_profiles,
-                "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
-                    lane_started,
-                    context_read_ms,
-                    file_context_ms,
-                    model_call_ms,
-                    0,
-                    0
-                ),
-            }),
-        ));
+        let details = json!({
+            "output_preview": response.output.chars().take(1600).collect::<String>(),
+            "context_paths": context_paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
+            "artifact_profile": artifact_profile.as_str(),
+            "attempted_artifact_profiles": attempted_artifact_profiles,
+            "open_loop_after_artifact_failure": native_tool_bounded_patch_open_loop_after_artifact_failure(metadata),
+            "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                lane_started,
+                context_read_ms,
+                file_context_ms,
+                model_call_ms,
+                0,
+                0
+            ),
+        });
+        if native_tool_bounded_patch_open_loop_after_artifact_failure(metadata) {
+            return Ok(NativeToolBoundedPatchLaneOutcome::fallback(
+                "missing_or_invalid_patch_artifact",
+                details,
+            ));
+        }
+        return Ok(NativeToolBoundedPatchLaneOutcome::terminal_failure((
+            native_tool_bounded_patch_artifact_failure_response(
+                &response.provider,
+                Some(&response.model),
+                "missing_or_invalid_patch_artifact",
+                provider_call_count,
+                &receipts,
+                details,
+            ),
+            receipts,
+            provider_call_count,
+            "artifact_failure".to_string(),
+        )));
     }
     let patch_apply_started = Instant::now();
     for (idx, patch) in patches.into_iter().enumerate() {
@@ -2179,6 +2606,46 @@ fn native_tool_bounded_patch_artifact_lane(
         )));
     }
 
+    if !native_tool_bounded_patch_open_loop_after_artifact_failure(metadata) {
+        let details = json!({
+            "evidence_gaps": native_tool_prompt_evidence_gaps(original_prompt, &receipts),
+            "has_successful_validation": native_tool_has_successful_validation_command(&receipts),
+            "lane_receipts": native_tool_bounded_patch_lane_receipt_summary(&receipts),
+            "artifact_profile": artifact_profile.as_str(),
+            "attempted_artifact_profiles": attempted_artifact_profiles,
+            "context_paths": context_paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
+            "phase_latency_ms": native_tool_bounded_patch_phase_latency_json(
+                lane_started,
+                context_read_ms,
+                file_context_ms,
+                model_call_ms,
+                patch_apply_ms,
+                validation_ms
+            ),
+        });
+        let mut terminal_receipts = receipts;
+        terminal_receipts.push(native_tool_bounded_patch_artifact_marker_receipt(
+            "unresolved_evidence_after_patch_lane",
+            details.clone(),
+        ));
+        return Ok(NativeToolBoundedPatchLaneOutcome::terminal_failure((
+            native_tool_bounded_patch_artifact_failure_response(
+                &response.provider,
+                Some(&response.model),
+                "unresolved_evidence_after_patch_lane",
+                provider_call_count,
+                &terminal_receipts,
+                details,
+            ),
+            terminal_receipts,
+            provider_call_count,
+            "runtime".to_string(),
+        )));
+    }
+
     Ok(NativeToolBoundedPatchLaneOutcome::fallback_with_receipts(
         "unresolved_evidence_after_patch_lane",
         json!({
@@ -2234,6 +2701,28 @@ impl NativeToolBoundedPatchLaneOutcome {
         Self {
             terminal: None,
             observability_receipts: receipts,
+        }
+    }
+
+    fn terminal_failure(terminal: (ProviderResponse, Vec<NativeToolReceipt>, u64, String)) -> Self {
+        let mut observability_receipts = terminal.1.clone();
+        if !observability_receipts
+            .iter()
+            .any(|receipt| receipt.tool_name == "bounded_patch_artifact_lane")
+        {
+            let details = serde_json::from_str::<Value>(&terminal.0.output)
+                .unwrap_or_else(|_| json!({ "output_preview": terminal.0.output.chars().take(500).collect::<String>() }));
+            let reason = details
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("terminal_failure")
+                .to_string();
+            observability_receipts
+                .push(native_tool_bounded_patch_artifact_marker_receipt(&reason, details));
+        }
+        Self {
+            terminal: Some(terminal),
+            observability_receipts,
         }
     }
 }
@@ -2303,6 +2792,81 @@ fn native_tool_bounded_patch_artifact_success_receipt(details: Value) -> NativeT
             "details": details,
         }),
         error: None,
+    }
+}
+
+fn native_tool_bounded_direct_edit_marker_receipt(
+    reason: &str,
+    details: Value,
+) -> NativeToolReceipt {
+    let terminal_status = details
+        .get("terminal_status")
+        .cloned()
+        .unwrap_or_else(|| json!("ok"));
+    NativeToolReceipt {
+        call_id: format!(
+            "bounded_direct_edit_lane_{}",
+            reason
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+                .collect::<String>()
+        ),
+        tool_name: "bounded_direct_edit_lane".to_string(),
+        status: "ok".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "terminal_status": terminal_status,
+            "reason": reason,
+            "details": details,
+        }),
+        error: None,
+    }
+}
+
+fn native_tool_push_bounded_direct_edit_marker_once(
+    receipts: &mut Vec<NativeToolReceipt>,
+    reason: &str,
+    details: Value,
+) {
+    let call_id = format!(
+        "bounded_direct_edit_lane_{}",
+        reason
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+            .collect::<String>()
+    );
+    if receipts.iter().any(|receipt| receipt.call_id == call_id) {
+        return;
+    }
+    receipts.push(native_tool_bounded_direct_edit_marker_receipt(
+        reason, details,
+    ));
+}
+
+fn native_tool_bounded_patch_artifact_failure_response(
+    provider_id: &str,
+    model: Option<&str>,
+    reason: &str,
+    provider_call_count: u64,
+    receipts: &[NativeToolReceipt],
+    details: Value,
+) -> ProviderResponse {
+    let output = format!(
+        "Bounded patch artifact generation stopped before entering the open native tool loop: {reason}. Returning structured failure so quick-edit work fails fast instead of drifting into a long recovery loop."
+    );
+    ProviderResponse {
+        provider: provider_id.to_string(),
+        model: model.unwrap_or("unknown").to_string(),
+        usage_tokens: output.split_whitespace().count() as u64,
+        output,
+        raw: json!({
+            "ok": false,
+            "terminal_status": "artifact_failure",
+            "reason": reason,
+            "provider_call_count": provider_call_count,
+            "native_tool_call_count": receipts.len(),
+            "details": details,
+        }),
     }
 }
 
@@ -2392,7 +2956,7 @@ fn native_tool_bounded_patch_artifact_system_prompt(
 ) -> String {
     match artifact_profile {
         NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact => {
-            "You are Infring's bounded patch artifact generator. Return only a machine-applicable patch artifact, with no prose, no tool calls, and no final answer. Preferred format is valid JSON: {\"patches\":[{\"path\":\"/absolute/path\",\"old\":\"exact existing text\",\"new\":\"replacement text\"}]}. You may also return Aider-style SEARCH/REPLACE blocks with a file path heading immediately before each block. Each old/SEARCH field must be an exact contiguous substring from the supplied file context. Prefer the smallest complete source/test patch set. Do not include validation output or explanations.".to_string()
+            "Emit only a machine-applicable patch artifact. Prefer SEARCH/REPLACE blocks with the absolute path immediately before each block. SEARCH must exactly match supplied context. No prose, no tool calls, no final answer.".to_string()
         }
         NativeToolBoundedPatchArtifactProfile::SmallScopedEditArtifact => {
             "Return only SEARCH/REPLACE edit blocks. Put the absolute file path immediately before each <<<<<<< SEARCH. SEARCH must exactly match supplied file context. Use the fewest small blocks that complete the edit. No prose, no tool calls, no final answer.".to_string()
@@ -2411,12 +2975,11 @@ fn native_tool_bounded_patch_artifact_prompt(
             let rule = native_tool_orchestration_prompt_text(
                 metadata,
                 "bounded_patch_artifact_lane_rule",
-                "Generate the smallest deterministic patch artifact for this bounded local code edit. The runtime will apply the patch and run validation from receipts. Do not ask for files; the relevant file context is already supplied.",
+                "Generate the smallest deterministic edit artifact for this bounded local code edit. Use only supplied paths and supplied file text. Do not ask for files.",
             );
             format!(
-                "{}\n\nOriginal task:\n{}\n\nSelected local file context:\n{}\n\nReturn only the JSON patch artifact now.",
-                rule,
-                original_prompt.chars().take(2600).collect::<String>(),
+                "{rule}\n\nTASK:\n{}\n\nFILES:\n{}\n\nOUTPUT ONLY:\n/absolute/path\n<<<<<<< SEARCH\nexact old text\n=======\nnew text\n>>>>>>> REPLACE",
+                original_prompt.chars().take(1200).collect::<String>(),
                 file_context
             )
         }
@@ -2433,6 +2996,27 @@ fn native_tool_bounded_patch_artifact_prompt(
             )
         }
     }
+}
+
+fn native_tool_bounded_patch_artifact_retry_prompt(
+    metadata: &Value,
+    original_prompt: &str,
+    file_context: &str,
+    previous_output: &str,
+    artifact_profile: NativeToolBoundedPatchArtifactProfile,
+) -> String {
+    let rule = native_tool_orchestration_prompt_text(
+        metadata,
+        "bounded_patch_artifact_strict_retry_rule",
+        "The previous patch artifact was empty, malformed, or not machine-applicable. Retry once with compact SEARCH/REPLACE edit blocks only. Do not ask for files, explain, or include tool calls.",
+    );
+    format!(
+        "{rule}\n\nPROFILE: {}\nFAILURE: missing_or_invalid_patch_artifact\nBAD_OUTPUT_PREVIEW:\n{}\n\nTASK:\n{}\n\nFILES:\n{}\n\nOUTPUT ONLY:\n/absolute/path\n<<<<<<< SEARCH\nexact old text\n=======\nnew text\n>>>>>>> REPLACE",
+        artifact_profile.as_str(),
+        previous_output.chars().take(500).collect::<String>(),
+        original_prompt.chars().take(900).collect::<String>(),
+        file_context
+    )
 }
 
 fn native_tool_bounded_patch_artifact_patches(
@@ -3035,14 +3619,7 @@ fn native_tool_product_source_stage_satisfied(
     {
         return false;
     }
-    !native_tool_prompt_evidence_gaps(original_prompt, receipts)
-        .iter()
-        .any(|reason| {
-            reason
-                .strip_prefix("missing_changed_path:")
-                .map(native_tool_path_is_product_mutation_path)
-                .unwrap_or(false)
-        })
+    true
 }
 
 fn native_tool_has_successful_implementation_source_mutation(
@@ -3236,6 +3813,23 @@ fn native_tool_call_is_context_only(call: &NativeToolCall) -> bool {
             | "workspace.read_many"
             | "workspace_read_many"
     )
+}
+
+fn native_tool_prioritize_pre_mutation_validation_calls(calls: &mut Vec<NativeToolCall>) {
+    if calls.len() < 2 || !calls.iter().any(native_tool_call_is_command_run) {
+        return;
+    }
+    let mut validation_calls = Vec::new();
+    let mut other_calls = Vec::new();
+    for call in calls.drain(..) {
+        if native_tool_call_is_command_run(&call) {
+            validation_calls.push(call);
+        } else {
+            other_calls.push(call);
+        }
+    }
+    validation_calls.extend(other_calls);
+    *calls = validation_calls;
 }
 
 fn native_tool_product_repair_context_blocked_receipt(
@@ -3586,7 +4180,13 @@ fn native_tool_stage_block_reason(
                 && native_tool_call_is_command_run(call)
                 && !needs_requested_pre_mutation_validation
             {
-                Some("staged_controller_requires_product_source_mutation_before_command")
+                if native_tool_bounded_direct_edit_lane_active(metadata, original_prompt)
+                    && native_tool_has_successful_mutation(receipts)
+                {
+                    None
+                } else {
+                    Some("staged_controller_requires_product_source_mutation_before_command")
+                }
             } else if !has_product_source
                 && read_context_count >= native_tool_pre_mutation_read_budget(metadata)
                 && native_tool_call_is_context_only(call)
@@ -3626,7 +4226,7 @@ fn native_tool_stage_block_reason(
                 Some("staged_controller_requires_validation_before_memory_closure")
             } else if native_tool_call_is_command_run(call) {
                 None
-            } else if has_failed_validation && native_tool_call_is_mutation(call) {
+            } else if native_tool_call_is_mutation(call) {
                 None
             } else if has_failed_validation
                 && native_tool_call_is_context_only(call)

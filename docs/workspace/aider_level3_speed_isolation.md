@@ -101,6 +101,13 @@ Keep `small_scoped_edit_artifact` dormant for now. The primitive remains part of
 the model, but live same-model attempts showed high tail latency and timeout
 cascades. The stable default is the general bounded patch artifact lane.
 
+Quick-edit performance rule:
+
+The general bounded patch artifact lane should not silently drift into the full
+native loop after invalid artifact output or artifact-call timeout. It gets one
+compact artifact retry, then a structured artifact failure unless the workflow
+explicitly allows open-loop escalation.
+
 Current optimization boundary:
 
 - Keep model routing omitted for now so Infring, Aider, ForgeCode, and other

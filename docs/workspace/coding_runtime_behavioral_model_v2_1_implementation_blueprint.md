@@ -338,6 +338,14 @@ The small scoped profile must not drop directly into the full native tool loop
 after a malformed artifact or first-profile timeout. It should retry the general
 bounded patch artifact prompt against the same selected file context first, then
 fall back to the heavier open native loop only if artifact synthesis still fails.
+
+Bounded artifact retry rule:
+
+The general bounded artifact lane must also be bounded. If it returns an empty
+or invalid artifact, or if the first artifact call times out, retry once with
+the parser/timeout failure, prior output preview when available, and same
+selected file context. If that retry fails, return a structured artifact failure
+unless the workflow CD explicitly permits open-loop escalation.
 - no architecture decision is needed
 - no validation was requested
 - permission policy grants the mutation
@@ -422,3 +430,78 @@ final answer: receipt-backed
 
 That is the minimum proof that the reference runtime behavior was integrated,
 not merely documented.
+## Addendum: implement bounded direct edit lane
+
+Derived from:
+
+- `docs/workspace/coding_runtime_behavioral_model_v2.md`
+- `references/coding-agent-systems/runtime_trace_harness/reports/codex_level3_level4_batch_20260523_130434/report.json`
+- `references/coding-agent-systems/runtime_trace_harness/reports/codex_level3_level4_batch_20260523_130434/codex_runtime_pattern_extraction.md`
+
+Implementation target:
+
+```text
+bounded_direct_edit_lane
+```
+
+Implementation status:
+
+`v1 wired behind workflow flags` in `core/layer2/agent_surface/src/agent.rs`, `orchestration/src/control_plane/workflows/lab/composites/coding/local_coding_phase1_mutation_spine.workflow.json`, and `orchestration/src/control_plane/workflows/official/coding_project_operator.workflow.json`.
+
+Purpose:
+
+Provide a receipt-backed direct edit primitive for bounded existing-project coding tasks. This lane should prevent simple edits from depending exclusively on a separate patch-artifact generation step that can time out before any mutation.
+
+Activation conditions:
+
+- Task requires local code mutation.
+- Project root is known and bounded.
+- Relevant file set is small or discoverable within a bounded read budget.
+- Task has clear target behavior and optional validation/probe commands.
+- Native file and command tools are available with required permissions.
+
+Execution shape:
+
+```text
+1. discover/select bounded file context
+2. read selected files
+3. perform direct native `file_patch` or `file_write` mutations
+4. run validation/probe commands when requested or required by lane contract
+5. if validation fails, perform at most one bounded repair cycle using failure output
+6. emit terminal success or structured blocker with receipts
+```
+
+Current v1 behavior:
+
+- Detects bounded existing-project mutation tasks with a known project root and a small local candidate file set.
+- Skips pre-mutation patch-artifact synthesis for those bounded tasks.
+- Reuses the native file/tool loop for direct `file_patch`/`file_write` execution and validation receipts.
+- Emits `bounded_direct_edit_lane` marker receipts on terminal success or blocked completion evidence.
+- Leaves `bounded_patch_artifact_lane` enabled as the peer/fallback path when the direct lane does not activate.
+
+Controller constraints:
+
+- No unbounded open loop.
+- No level-specific task names, fixture paths, or expected markers.
+- No success without mutation receipts for mutation tasks.
+- No success without validation/evidence receipts when validation/probe status is requested.
+- If no mutation occurs within the lane budget, return a structured blocker instead of drifting into unrelated discovery.
+
+Relationship to existing lanes:
+
+- `bounded_patch_artifact_lane` remains an optimization for model-produced patch artifacts.
+- `bounded_direct_edit_lane` is the fallback/peer primitive for tasks where direct runtime mutation is more reliable.
+- Higher-level coding workflows may choose between the two based on task scale, file-set boundedness, and recent lane health metrics.
+
+Minimum receipts:
+
+```text
+bounded_direct_edit_context_read
+bounded_direct_edit_mutation
+bounded_direct_edit_validation
+bounded_direct_edit_terminal
+```
+
+Eval requirement:
+
+Before promotion, run lower-level monotonic gates. A direct edit lane patch must improve or preserve Level 1/2/3 behavior before being used to chase higher levels.

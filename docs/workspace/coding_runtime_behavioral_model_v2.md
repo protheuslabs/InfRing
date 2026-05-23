@@ -191,6 +191,17 @@ Fallback ladder:
    bounded patch artifact profile with the same already-selected context.
 3. Enter the full native tool loop only after both artifact profiles fail.
 
+Bounded artifact reliability contract:
+
+1. Try the bounded patch artifact lane.
+2. If the artifact call times out, or if the artifact is empty, malformed, or
+   not parser-applicable, retry once with compact failure context and the same
+   selected file context.
+3. If the retry still fails, return a structured artifact failure unless the
+   workflow explicitly allows escalation into the open native tool loop.
+4. Quick-edit lanes should fail fast rather than slowly succeed through an
+   unbounded recovery path.
+
 ### Tier 3: validation and repair loop
 
 Use when validation is requested, expected, or necessary for confidence.
@@ -432,3 +443,65 @@ The primitive foundation should not be considered restored until:
   scaffolding?
 - Which reference system should be the primary parity target for Tier 3 repair:
   ForgeCode benchmark runtime, SWE-agent edit loop, or a hybrid?
+## Addendum: Codex-derived bounded direct edit lane
+
+Source evidence:
+
+- `references/coding-agent-systems/runtime_trace_harness/reports/codex_level3_level4_batch_20260523_130434/report.json`
+- `references/coding-agent-systems/runtime_trace_harness/reports/codex_level3_level4_batch_20260523_130434/codex_runtime_pattern_extraction.md`
+
+Observed Codex runtime result with `kimi-k2.6:cloud` through Codex OSS/Ollama:
+
+- Level 3: `5/5` passed, average wall time `23.9s`, average first mutation `13.7s`.
+- Level 4: `5/5` passed, average wall time `39.3s`, average first mutation `26.1s`.
+
+Pattern isolated:
+
+```text
+bounded local context read
+-> direct file mutation through runtime tools
+-> validation command receipts
+-> semantic/evidence command receipts
+-> terminal final answer
+```
+
+Model update:
+
+`bounded_direct_edit_lane` is now part of the unified coding runtime model. It is a primitive execution lane for small or bounded existing-project mutation tasks where the runtime can identify a small relevant file set and clear validation/probe commands.
+
+Non-goals:
+
+- It is not a Level 3 fixture special case.
+- It is not a replacement for the bounded patch artifact lane.
+- It must not bypass receipts, validation, permission checks, or terminal failure reporting.
+- It must not expand into an unbounded open agent loop.
+
+Relationship to artifact lanes:
+
+The bounded patch artifact lane remains useful when the model can quickly emit a machine-applicable patch artifact. Codex traces show that relying on artifact synthesis as the only mutation path creates avoidable timeout failures. The direct edit lane should sit beside artifact synthesis as the more robust primitive when a small bounded edit can be executed directly with native tools.
+
+Required lane contract:
+
+```text
+input:
+  original user task
+  bounded project root
+  selected local file context
+  optional validation command
+  optional semantic/evidence command
+
+execution:
+  read only bounded relevant files
+  mutate only selected product/test files
+  run requested validation/evidence commands
+  repair only within bounded budget when validation fails
+
+output:
+  mutation receipts
+  validation/evidence receipts
+  terminal success or structured blocker
+```
+
+Assimilation rule:
+
+When Codex/Aider-style direct bounded execution succeeds faster and more reliably than patch-artifact synthesis, Infring should model that as a primitive lane, not as a prompt hack. The primitive must be general enough to compose upward into larger workflows and safe enough that higher-level workflow changes cannot regress lower-level behavior.
