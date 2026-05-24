@@ -9,6 +9,7 @@
   "block_direct_pushes": true,
   "require_pull_request_for_human_changes": true,
   "require_status_checks": true,
+  "release_per_prefixed_main_commit": true,
   "version_bump_protected_branch_writer_secret": "REPO_ADMIN_TOKEN",
   "required_status_checks": [
     "Conventional Commit Lint / conventional-commit-lint"

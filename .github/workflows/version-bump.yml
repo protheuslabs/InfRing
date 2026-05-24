@@ -16,7 +16,7 @@ on:
           - beta
           - stable
       dry_run:
-        description: Plan the bump without writing version files or committing
+        description: Plan the release without creating tags/releases or writing version files
         required: false
         default: false
         type: boolean
@@ -96,13 +96,9 @@ jobs:
           set -euo pipefail
           mkdir -p core/local/artifacts
           DRY_RUN="${DRY_RUN_INPUT:-false}"
-          WRITE="1"
-          if [ "$DRY_RUN" = "true" ]; then
-            WRITE="0"
-          fi
           cargo run --quiet --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops -- release-semver-contract run \
             --strict=1 \
-            --write="${WRITE}" \
+            --write=0 \
             --channel=${{ steps.channel.outputs.release_channel }} \
             > core/local/artifacts/version_bump_plan_current.json
           cat core/local/artifacts/version_bump_plan_current.json
@@ -139,8 +135,64 @@ jobs:
           echo "Dry run only. Planned ${{ steps.semver.outputs.bump }} bump to ${{ steps.semver.outputs.tag }}."
           exit 0
 
-      - name: Commit version files
+      - name: Create or update per-commit GitHub release
         if: steps.semver.outputs.release_ready == '1' && steps.semver.outputs.dry_run != '1'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN || github.token }}
+          RELEASE_TAG: ${{ steps.semver.outputs.tag }}
+          NEXT_VERSION: ${{ steps.semver.outputs.next_version }}
+          RELEASE_CHANNEL: ${{ steps.channel.outputs.release_channel }}
+          BUMP_KIND: ${{ steps.semver.outputs.bump }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            TAG_SHA="$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")"
+            if [ "${TAG_SHA}" != "${HEAD_SHA}" ]; then
+              echo "::error::Release tag ${RELEASE_TAG} already exists on ${TAG_SHA}, not ${HEAD_SHA}."
+              exit 1
+            fi
+            echo "Tag ${RELEASE_TAG} already points at this commit."
+          else
+            git tag -a "${RELEASE_TAG}" "${HEAD_SHA}" -m "${RELEASE_TAG}"
+            git push origin "refs/tags/${RELEASE_TAG}"
+          fi
+          cat > /tmp/release-notes.md <<EOF
+          Automated ${BUMP_KIND} release for version ${NEXT_VERSION}.
+
+          Commit: ${HEAD_SHA}
+          Channel: ${RELEASE_CHANNEL}
+          Workflow: ${RUN_URL}
+
+          This release is generated for every prefixed commit on main.
+          EOF
+          prerelease_args=()
+          create_latest_args=(--latest)
+          edit_latest_args=(--latest)
+          if [ "${RELEASE_CHANNEL}" != "stable" ]; then
+            prerelease_args=(--prerelease)
+            create_latest_args=(--latest=false)
+            edit_latest_args=()
+          fi
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --title "${RELEASE_TAG}" \
+              --notes-file /tmp/release-notes.md \
+              "${edit_latest_args[@]}" \
+              "${prerelease_args[@]}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --target "${HEAD_SHA}" \
+              --title "${RELEASE_TAG}" \
+              --notes-file /tmp/release-notes.md \
+              "${create_latest_args[@]}" \
+              "${prerelease_args[@]}"
+          fi
+
+      - name: Commit version files
+        if: steps.semver.outputs.release_ready == '1' && steps.semver.outputs.dry_run != '1' && vars.INFRING_RELEASE_PERSIST_VERSION == '1'
         env:
           RELEASE_BOT_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
         run: |
@@ -151,6 +203,11 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          cargo run --quiet --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops -- release-semver-contract run \
+            --strict=1 \
+            --write=1 \
+            --channel=${{ steps.channel.outputs.release_channel }} \
+            > core/local/artifacts/version_bump_persist_current.json
           git add package.json package-lock.json client/runtime/config/runtime_version.json
           if git diff --cached --quiet; then
             echo "No version files changed."
@@ -159,34 +216,3 @@ jobs:
           git commit -m "chore(release): ${{ steps.semver.outputs.tag }}"
           git remote set-url origin "https://x-access-token:${RELEASE_BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin HEAD:main
-
-      - name: Create tag and GitHub release
-        if: steps.semver.outputs.release_ready == '1' && steps.semver.outputs.dry_run != '1'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.semver.outputs.tag }}
-          NEXT_VERSION: ${{ steps.semver.outputs.next_version }}
-          RELEASE_CHANNEL: ${{ steps.channel.outputs.release_channel }}
-          BUMP_KIND: ${{ steps.semver.outputs.bump }}
-        run: |
-          set -euo pipefail
-          git fetch --force --tags origin
-          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
-            echo "Tag ${RELEASE_TAG} already exists."
-          else
-            git tag -a "${RELEASE_TAG}" -m "${RELEASE_TAG}"
-            git push origin "refs/tags/${RELEASE_TAG}"
-          fi
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "GitHub release ${RELEASE_TAG} already exists."
-            exit 0
-          fi
-          prerelease_args=()
-          if [ "${RELEASE_CHANNEL}" != "stable" ]; then
-            prerelease_args=(--prerelease)
-          fi
-          gh release create "${RELEASE_TAG}" \
-            --title "${RELEASE_TAG}" \
-            --notes "Automated ${BUMP_KIND} release for version ${NEXT_VERSION} from conventional commit prefixes." \
-            --latest \
-            "${prerelease_args[@]}"
