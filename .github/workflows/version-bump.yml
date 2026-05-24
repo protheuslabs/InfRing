@@ -92,6 +92,8 @@ jobs:
         id: semver
         env:
           DRY_RUN_INPUT: ${{ github.event.inputs.dry_run }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_CHANNEL: ${{ steps.channel.outputs.release_channel }}
         run: |
           set -euo pipefail
           mkdir -p core/local/artifacts
@@ -102,14 +104,43 @@ jobs:
             --channel=${{ steps.channel.outputs.release_channel }} \
             > core/local/artifacts/version_bump_plan_current.json
           cat core/local/artifacts/version_bump_plan_current.json
-          RELEASE_READY="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("core/local/artifacts/version_bump_plan_current.json","utf8"));process.stdout.write(p.release_ready?"1":"0");')"
-          TAG="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("core/local/artifacts/version_bump_plan_current.json","utf8"));process.stdout.write(String(p.next_tag||"none"));')"
-          NEXT_VERSION="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("core/local/artifacts/version_bump_plan_current.json","utf8"));process.stdout.write(String(p.next_version||"0.0.0"));')"
-          BUMP="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("core/local/artifacts/version_bump_plan_current.json","utf8"));process.stdout.write(String(p.bump||"none"));')"
+          node <<'NODE' > core/local/artifacts/version_bump_outputs.env
+          const fs = require("fs");
+          const p = JSON.parse(fs.readFileSync("core/local/artifacts/version_bump_plan_current.json", "utf8"));
+          const eventName = String(process.env.EVENT_NAME || "");
+          const rawChannel = String(process.env.RELEASE_CHANNEL || "alpha").trim().toLowerCase();
+          const channel = ["alpha", "beta", "stable"].includes(rawChannel) ? rawChannel : "alpha";
+          let releaseReady = Boolean(p.release_ready);
+          let tag = String(p.next_tag || "none");
+          let nextVersion = String(p.next_version || "0.0.0");
+          let bump = String(p.bump || "none");
+          let syntheticPerCommitRelease = false;
+          if (!releaseReady && eventName === "push") {
+            const current = String(p.current_version || "0.0.0").split(/[+-]/)[0];
+            const parts = current.split(".").map((part) => Number.parseInt(part, 10));
+            const major = Number.isFinite(parts[0]) ? parts[0] : 0;
+            const minor = Number.isFinite(parts[1]) ? parts[1] : 0;
+            const patch = Number.isFinite(parts[2]) ? parts[2] : 0;
+            nextVersion = `${major}.${minor}.${patch + 1}`;
+            tag = `v${nextVersion}${channel === "stable" ? "" : `-${channel}`}`;
+            bump = "patch";
+            releaseReady = true;
+            syntheticPerCommitRelease = true;
+          }
+          const emit = (key, value) => console.log(`${key}=${String(value).replace(/\n/g, "")}`);
+          emit("RELEASE_READY", releaseReady ? "1" : "0");
+          emit("TAG", tag);
+          emit("NEXT_VERSION", nextVersion);
+          emit("BUMP", bump);
+          emit("SYNTHETIC_PER_COMMIT_RELEASE", syntheticPerCommitRelease ? "1" : "0");
+          NODE
+          cat core/local/artifacts/version_bump_outputs.env
+          . core/local/artifacts/version_bump_outputs.env
           echo "release_ready=${RELEASE_READY}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "next_version=${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
           echo "bump=${BUMP}" >> "$GITHUB_OUTPUT"
+          echo "synthetic_per_commit_release=${SYNTHETIC_PER_COMMIT_RELEASE}" >> "$GITHUB_OUTPUT"
           if [ "$DRY_RUN" = "true" ]; then
             echo "dry_run=1" >> "$GITHUB_OUTPUT"
           else
@@ -126,7 +157,7 @@ jobs:
       - name: Stop when no releasable conventional commits
         if: steps.semver.outputs.release_ready != '1'
         run: |
-          echo "No conventional commit requiring a version bump."
+          echo "No releasable commit found. Prefixed main pushes synthesize a patch release when semantic bumping has no release."
           exit 0
 
       - name: Stop after dry run
@@ -143,6 +174,7 @@ jobs:
           NEXT_VERSION: ${{ steps.semver.outputs.next_version }}
           RELEASE_CHANNEL: ${{ steps.channel.outputs.release_channel }}
           BUMP_KIND: ${{ steps.semver.outputs.bump }}
+          SYNTHETIC_PER_COMMIT_RELEASE: ${{ steps.semver.outputs.synthetic_per_commit_release }}
           HEAD_SHA: ${{ github.sha }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -164,30 +196,28 @@ jobs:
 
           Commit: ${HEAD_SHA}
           Channel: ${RELEASE_CHANNEL}
+          Synthetic per-commit fallback: ${SYNTHETIC_PER_COMMIT_RELEASE}
           Workflow: ${RUN_URL}
 
           This release is generated for every prefixed commit on main.
           EOF
           prerelease_args=()
-          create_latest_args=(--latest)
-          edit_latest_args=(--latest)
+          latest_args=(--latest)
           if [ "${RELEASE_CHANNEL}" != "stable" ]; then
             prerelease_args=(--prerelease)
-            create_latest_args=(--latest=false)
-            edit_latest_args=()
           fi
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release edit "${RELEASE_TAG}" \
               --title "${RELEASE_TAG}" \
               --notes-file /tmp/release-notes.md \
-              "${edit_latest_args[@]}" \
+              "${latest_args[@]}" \
               "${prerelease_args[@]}"
           else
             gh release create "${RELEASE_TAG}" \
               --target "${HEAD_SHA}" \
               --title "${RELEASE_TAG}" \
               --notes-file /tmp/release-notes.md \
-              "${create_latest_args[@]}" \
+              "${latest_args[@]}" \
               "${prerelease_args[@]}"
           fi
 
