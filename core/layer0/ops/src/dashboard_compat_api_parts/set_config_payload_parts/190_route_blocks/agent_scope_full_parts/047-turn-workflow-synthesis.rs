@@ -1223,19 +1223,14 @@ fn evidence_packet_answer_unit(row: &Value) -> Option<String> {
     let answer_text = if !claim.is_empty() {
         claim
     } else {
-        [
-            "relevant_extract",
-            "support_snippet",
-            "snippet",
-            "content",
-        ]
-        .iter()
-        .find_map(|field| {
-            let extract = evidence_packet_text_field(row, &[*field], 360);
-            let sentence = first_sentence(&extract, 260);
-            evidence_packet_text_is_answer_claim(&sentence).then_some(sentence)
-        })
-        .unwrap_or_default()
+        ["relevant_extract", "support_snippet", "snippet", "content"]
+            .iter()
+            .find_map(|field| {
+                let extract = evidence_packet_text_field(row, &[*field], 360);
+                let sentence = first_sentence(&extract, 260);
+                evidence_packet_text_is_answer_claim(&sentence).then_some(sentence)
+            })
+            .unwrap_or_default()
     };
     if answer_text.is_empty() {
         return None;
@@ -1270,6 +1265,66 @@ fn evidence_packet_answer_units(response_tools: &[Value], limit: usize) -> Vec<S
         }
     }
     units
+}
+
+fn workflow_compact_source_refs(response_tools: &[Value], limit: usize) -> Vec<Value> {
+    let mut refs = Vec::<Value>::new();
+    let mut seen = std::collections::HashSet::<String>::new();
+    let limit = limit.clamp(1, 12);
+    for tool in response_tools {
+        for key in ["evidence_pack", "evidence_refs", "evidence_pack_candidates"] {
+            for row in tool_hidden_array(tool, key) {
+                if key == "evidence_pack" && !evidence_packet_counts_as_usable(&row) {
+                    continue;
+                }
+                let title =
+                    evidence_packet_text_field(&row, &["title", "source_title", "source_ref"], 160);
+                let locator = evidence_packet_text_field(&row, &["locator", "url", "link"], 240);
+                let source_domain =
+                    evidence_packet_text_field(&row, &["source_domain", "domain"], 120);
+                let source_kind =
+                    evidence_packet_text_field(&row, &["source_kind", "kind", "type"], 80);
+                if locator.starts_with("tool:no-results") || locator.starts_with("tool:low-signal")
+                {
+                    continue;
+                }
+                if title.is_empty() && locator.is_empty() && source_domain.is_empty() {
+                    continue;
+                }
+                let dedupe_key = format!(
+                    "{}|{}|{}",
+                    title.to_ascii_lowercase(),
+                    locator.to_ascii_lowercase(),
+                    source_domain.to_ascii_lowercase()
+                );
+                if !seen.insert(dedupe_key) {
+                    continue;
+                }
+                refs.push(json!({
+                    "title": title,
+                    "locator": locator,
+                    "source_domain": source_domain,
+                    "source_kind": source_kind,
+                }));
+                if refs.len() >= limit {
+                    return refs;
+                }
+            }
+        }
+    }
+    refs
+}
+
+fn persist_workflow_compact_source_refs(workflow: &mut Value, response_tools: &[Value]) {
+    let source_refs = workflow_compact_source_refs(response_tools, 6);
+    if source_refs.is_empty() {
+        return;
+    }
+    workflow["source_refs"] = Value::Array(source_refs.clone());
+    workflow["response_workflow"]["final_llm_response"]["source_refs"] =
+        Value::Array(source_refs.clone());
+    workflow["response_finalization"]["final_response"]["source_refs"] =
+        Value::Array(source_refs);
 }
 
 fn workflow_push_evidence_alignment_text(
@@ -1797,16 +1852,37 @@ fn evidence_packet_answer_units_for_goal(
         return units;
     }
     let goal_terms = workflow_answer_unit_goal_terms(message);
-    let filtered = units
+    let mut filtered = units
         .iter()
         .filter(|unit| {
-            !workflow_answer_unit_is_process_or_metadata_fact(unit)
-                && workflow_answer_unit_matches_goal(unit, &goal_terms)
+            let (answer, _) = fallback_answer_unit_text_and_source(unit);
+            !answer.is_empty()
+                && !workflow_answer_unit_is_process_or_metadata_fact(&answer)
+                && !workflow_answer_unit_contains_ui_or_source_shell(&answer)
+                && workflow_answer_unit_matches_goal(&answer, &goal_terms)
+                && evidence_packet_text_is_answer_claim(&answer)
         })
         .cloned()
         .collect::<Vec<_>>();
+    filtered.sort_by(|left, right| {
+        workflow_answer_unit_rank(right, &goal_terms)
+            .cmp(&workflow_answer_unit_rank(left, &goal_terms))
+    });
     if filtered.is_empty() {
-        units
+        let mut fallback = units
+            .into_iter()
+            .filter(|unit| {
+                let (answer, _) = fallback_answer_unit_text_and_source(unit);
+                !answer.is_empty()
+                    && !workflow_answer_unit_contains_ui_or_source_shell(&answer)
+                    && evidence_packet_text_is_answer_claim(&answer)
+            })
+            .collect::<Vec<_>>();
+        fallback.sort_by(|left, right| {
+            workflow_answer_unit_rank(right, &goal_terms)
+                .cmp(&workflow_answer_unit_rank(left, &goal_terms))
+        });
+        fallback
     } else {
         filtered
     }
@@ -1817,14 +1893,170 @@ fn response_tools_have_answer_ready_evidence_packets(response_tools: &[Value]) -
 }
 
 fn fallback_answer_unit_text_and_source(unit: &str) -> (String, String) {
+    fn trim_answer_tail(raw: &str) -> String {
+        let cleaned = clean_text(raw, 520);
+        let lowered = cleaned.to_ascii_lowercase();
+        let mut cut_at = cleaned.len();
+        for marker in [
+            " copy markdown",
+            " copy as markdown",
+            " open in chatgpt",
+            " open in claude",
+            " open in cursor",
+            " view as markdown",
+        ] {
+            if let Some(index) = lowered.find(marker) {
+                cut_at = cut_at.min(index);
+            }
+        }
+        clean_text(&cleaned[..cut_at], 520)
+    }
     if let Some((answer, source)) = unit.split_once(" Source: ") {
         (
-            clean_text(answer, 520),
+            trim_answer_tail(answer),
             clean_text(source.trim_end_matches('.'), 220),
         )
     } else {
-        (clean_text(unit, 520), String::new())
+        (trim_answer_tail(unit), String::new())
     }
+}
+
+fn workflow_answer_unit_contains_ui_or_source_shell(unit: &str) -> bool {
+    let normalized = unit.to_ascii_lowercase();
+    workflow_answer_unit_contains_any(
+        &normalized,
+        &[
+            "copy markdown",
+            "copy as markdown",
+            "open in chatgpt",
+            "open in claude",
+            "open in cursor",
+            "view as markdown",
+            "web result from ",
+        ],
+    )
+}
+
+fn workflow_answer_unit_has_clean_lead(answer: &str) -> bool {
+    let cleaned = clean_text(answer, 520);
+    let normalized = cleaned.to_ascii_lowercase();
+    cleaned
+        .chars()
+        .next()
+        .map(|ch| ch.is_ascii_uppercase())
+        .unwrap_or(false)
+        && !normalized.starts_with("and ")
+        && !normalized.starts_with("or ")
+        && !normalized.starts_with("so ")
+        && !normalized.starts_with("so that ")
+        && !normalized.starts_with("to ")
+        && !normalized.starts_with("for ")
+}
+
+fn workflow_answer_unit_goal_overlap_count(unit: &str, goal_terms: &[String]) -> usize {
+    if goal_terms.is_empty() {
+        return 0;
+    }
+    let normalized = unit.to_ascii_lowercase();
+    goal_terms
+        .iter()
+        .filter(|term| normalized.contains(term.as_str()))
+        .count()
+}
+
+fn workflow_answer_unit_rank(unit: &str, goal_terms: &[String]) -> (usize, usize, usize, usize) {
+    let (answer, source) = fallback_answer_unit_text_and_source(unit);
+    (
+        workflow_answer_unit_goal_overlap_count(&answer, goal_terms),
+        usize::from(evidence_packet_text_is_answer_claim(&answer)),
+        usize::from(workflow_answer_unit_has_clean_lead(&answer)),
+        usize::from(
+            !source.is_empty() && !source.to_ascii_lowercase().contains("web result from "),
+        ),
+    )
+}
+
+fn workflow_finish_visible_sentence(raw: &str) -> String {
+    let cleaned = clean_text(raw, 900);
+    if cleaned.is_empty() {
+        return String::new();
+    }
+    if cleaned.ends_with('.') || cleaned.ends_with('!') || cleaned.ends_with('?') {
+        cleaned
+    } else {
+        format!("{cleaned}.")
+    }
+}
+
+fn hard_required_entity_lanes_for_tools(response_tools: &[Value], limit: usize) -> Vec<String> {
+    let mut lanes = Vec::<String>::new();
+    let limit = limit.clamp(1, 12);
+    for lane in synthesis_coverage_lanes_for_tools(response_tools, limit.saturating_mul(3)) {
+        let kind = clean_text(lane.get("kind").and_then(Value::as_str).unwrap_or(""), 80)
+            .to_ascii_lowercase();
+        if kind != "entity" {
+            continue;
+        }
+        let requested = clean_text(
+            lane.get("requested_text")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            120,
+        );
+        if requested.is_empty()
+            || lanes
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(&requested))
+            || !coverage_lane_should_be_hard_required(&requested, response_tools)
+        {
+            continue;
+        }
+        lanes.push(requested);
+        if lanes.len() >= limit {
+            break;
+        }
+    }
+    lanes
+}
+
+fn text_matches_required_entity_lanes(text: &str, required_entity_lanes: &[String]) -> Vec<String> {
+    let normalized = normalize_coverage_lane_text(text);
+    if normalized.is_empty() {
+        return Vec::new();
+    }
+    required_entity_lanes
+        .iter()
+        .filter(|lane| normalized_response_covers_coverage_lane(&normalized, lane))
+        .cloned()
+        .collect()
+}
+
+fn fallback_visible_answer_for_required_lanes(
+    unit: &str,
+    required_entity_lanes: &[String],
+) -> (String, Vec<String>) {
+    let (answer, source) = fallback_answer_unit_text_and_source(unit);
+    if answer.is_empty() {
+        return (String::new(), Vec::new());
+    }
+    let matched_in_answer = text_matches_required_entity_lanes(&answer, required_entity_lanes);
+    if required_entity_lanes.is_empty() || !matched_in_answer.is_empty() {
+        return (answer, matched_in_answer);
+    }
+    let matched_in_source = text_matches_required_entity_lanes(&source, required_entity_lanes);
+    if matched_in_source.len() == 1 {
+        let lane = clean_text(&matched_in_source[0], 120);
+        return (clean_text(&format!("For {lane}, {answer}"), 520), matched_in_source);
+    }
+    (answer, matched_in_source)
+}
+
+fn response_mentions_any_required_entity_lane(
+    response_text: &str,
+    response_tools: &[Value],
+) -> bool {
+    let lanes = hard_required_entity_lanes_for_tools(response_tools, 12);
+    lanes.is_empty() || !text_matches_required_entity_lanes(response_text, &lanes).is_empty()
 }
 
 fn fallback_user_visible_coverage_note(response_tools: &[Value]) -> String {
@@ -1839,9 +2071,10 @@ fn fallback_user_visible_coverage_note(response_tools: &[Value]) -> String {
     if lower.contains("usable evidence is present") && !lower.contains("weak or missing") {
         return String::new();
     }
-    coverage
-        .replace("Coverage state: ", "")
-        .replace("Coverage gaps still matter for:", "coverage gaps remain for")
+    coverage.replace("Coverage state: ", "").replace(
+        "Coverage gaps still matter for:",
+        "coverage gaps remain for",
+    )
 }
 
 fn annotate_final_evidence_outcome_posture(workflow: &mut Value, response_tools: &[Value]) {
@@ -1851,43 +2084,40 @@ fn annotate_final_evidence_outcome_posture(workflow: &mut Value, response_tools:
 }
 
 fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[Value]) -> String {
+    let required_entity_lanes = hard_required_entity_lanes_for_tools(response_tools, 8);
     let answer_units = evidence_packet_answer_units_for_goal(message, response_tools, 4);
     if !answer_units.is_empty() {
         let mut answer_parts = Vec::<String>::new();
-        let mut sources = Vec::<String>::new();
+        let mut covered_required_entity_lanes = std::collections::BTreeSet::<String>::new();
         for unit in answer_units {
-            let (answer, source) = fallback_answer_unit_text_and_source(&unit);
+            let (answer, matched_lanes) =
+                fallback_visible_answer_for_required_lanes(&unit, &required_entity_lanes);
             if !answer.is_empty() && !answer_parts.iter().any(|existing| existing == &answer) {
                 answer_parts.push(answer);
             }
-            if !source.is_empty() && !sources.iter().any(|existing| existing == &source) {
-                sources.push(source);
+            for lane in matched_lanes {
+                covered_required_entity_lanes.insert(normalize_coverage_lane_text(&lane));
             }
         }
-        let Some(first_answer) = answer_parts.first() else {
-            return String::new();
-        };
-        let mut parts = vec![format!(
-            "The current evidence supports this answer: {first_answer}"
-        )];
-        if answer_parts.len() > 1 {
-            let additional = answer_parts[1..]
-                .iter()
-                .map(|part| part.trim_end_matches('.'))
-                .collect::<Vec<_>>()
-                .join(". ");
-            parts.push(format!(
-                "Additional supported points: {additional}."
-            ));
+        if !required_entity_lanes.is_empty() && covered_required_entity_lanes.is_empty() {
+            answer_parts.clear();
         }
-        let coverage_note = fallback_user_visible_coverage_note(response_tools);
-        if !coverage_note.is_empty() {
-            parts.push(format!("Important limitation: {coverage_note}"));
+        if let Some(first_answer) = answer_parts.first() {
+            let mut parts = vec![workflow_finish_visible_sentence(first_answer)];
+            if answer_parts.len() > 1 {
+                let additional = answer_parts[1..]
+                    .iter()
+                    .map(|part| part.trim_end_matches('.'))
+                    .collect::<Vec<_>>()
+                    .join(". ");
+                parts.push(format!("Other supported points: {additional}."));
+            }
+            let coverage_note = fallback_user_visible_coverage_note(response_tools);
+            if !coverage_note.is_empty() {
+                parts.push(format!("Important limitation: {coverage_note}"));
+            }
+            return clean_text(&parts.join("\n"), 2_400);
         }
-        if !sources.is_empty() {
-            parts.push(format!("Sources: {}.", sources.join("; ")));
-        }
-        return clean_text(&parts.join("\n"), 2_400);
     }
     let failure_reason = clean_text(
         &first_sentence(
@@ -1896,17 +2126,30 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
         ),
         360,
     );
-    let findings = clean_text(
+    let mut findings = clean_text(
         &first_sentence(&response_tools_summary_for_user(response_tools, 4), 420),
         480,
     );
-    if findings.is_empty() && failure_reason.is_empty() {
-        return String::new();
+    if !required_entity_lanes.is_empty()
+        && text_matches_required_entity_lanes(&findings, &required_entity_lanes).is_empty()
+    {
+        findings.clear();
     }
     let coverage_note = clean_text(
         &first_sentence(&fallback_coverage_lane_sentence(response_tools), 280),
         320,
     );
+    if findings.is_empty() && failure_reason.is_empty() {
+        if coverage_note.is_empty() {
+            return String::new();
+        }
+        return clean_text(
+            &format!(
+                "My recommendation is to treat the current evidence as insufficient for a direct source-backed conclusion. {coverage_note}"
+            ),
+            900,
+        );
+    }
     let opening = if !findings.is_empty() {
         "The practical answer is that the current evidence supports only a partial conclusion."
     } else {
@@ -2081,6 +2324,7 @@ fn maybe_preserve_rejected_synthesis_with_coverage_note(
 ) -> bool {
     if !final_verifier_reject_reason_missing_coverage_lanes(last_reject_reason)
         || !rejected_synthesized_response_is_salvageable(last_invalid_response_text, response_tools)
+        || !response_mentions_any_required_entity_lane(last_invalid_response_text, response_tools)
     {
         return false;
     }
@@ -2979,6 +3223,7 @@ fn run_turn_workflow_final_response(
         draft_response,
         message,
     );
+    persist_workflow_compact_source_refs(&mut workflow, response_tools);
     let missing_turn_tool_context_prompt =
         workflow_missing_turn_tool_context_prompt(message, response_tools);
     let missing_turn_tool_context_recovery = !missing_turn_tool_context_prompt.is_empty();
@@ -5698,15 +5943,9 @@ mod workflow_fallback_tests {
                 ]
             })],
         );
-        assert!(
-            response.starts_with("The current evidence supports this answer"),
-            "{response}"
-        );
+        assert!(response.starts_with("LangGraph focuses on"), "{response}");
         assert!(response.contains("LangGraph focuses on"), "{response}");
-        assert!(
-            response.contains("Sources: LangGraph overview"),
-            "{response}"
-        );
+        assert!(!response.contains("Sources:"), "{response}");
         assert!(!response.contains("tool_evidence_runtime_fallback_suppressed"));
         assert!(!response.contains("Recorded evidence so far"));
     }
@@ -5736,18 +5975,18 @@ mod workflow_fallback_tests {
             })],
         );
         assert!(
-            response.starts_with("The current evidence supports this answer"),
+            response.starts_with("A 2026 solid-state battery chemistry milestone"),
             "{response}"
         );
         assert!(
             response.contains("solid-state battery chemistry milestone"),
             "{response}"
         );
+        assert!(!response.contains("Sources:"), "{response}");
         assert!(
-            response.contains("Sources: Battery milestone report, example.test."),
+            !response.contains("strongest supported answer"),
             "{response}"
         );
-        assert!(!response.contains("strongest supported answer"), "{response}");
         assert!(!response.contains("Here's what I found"), "{response}");
         assert!(!response.contains("Recorded evidence so far"), "{response}");
         assert!(!response.contains("From web retrieval"), "{response}");
@@ -5841,7 +6080,47 @@ mod workflow_fallback_tests {
             })],
         );
         assert!(!response.contains("Articles / Creatine"), "{response}");
-        assert!(!response.contains("what does the evidence actually show"), "{response}");
+        assert!(
+            !response.contains("what does the evidence actually show"),
+            "{response}"
+        );
+    }
+
+    #[test]
+    fn tool_evidence_fallback_filters_doc_action_chrome_and_prefers_substantive_units() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Compare LlamaIndex workflows versus LangGraph for document-heavy research assistants.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "evidence_pack": [
+                    {
+                        "title": "LlamaAgents Agent Workflows",
+                        "source_domain": "developers.llamaindex.ai",
+                        "claim_hints": [
+                            "LlamaAgents Agent Workflows Introduction Copy Markdown Open in Claude Open in ChatGPT Open in Cursor View as Markdown Introduction What is a workflow."
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "LlamaIndex ingestion guide",
+                        "source_domain": "developers.llamaindex.ai",
+                        "claim_hints": [
+                            "LlamaIndex has introduced async metadata extraction for ingestion pipelines."
+                        ],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(
+            response.starts_with("LlamaIndex has introduced async metadata extraction"),
+            "{response}"
+        );
+        assert!(!response.contains("Copy Markdown"), "{response}");
+        assert!(!response.contains("Open in ChatGPT"), "{response}");
+        assert!(!response.contains("View as Markdown"), "{response}");
     }
 
     #[test]
@@ -5864,6 +6143,43 @@ mod workflow_fallback_tests {
         );
         assert!(
             response.contains("Nobel Prize announcements are scheduled"),
+            "{response}"
+        );
+    }
+
+    #[test]
+    fn tool_evidence_fallback_avoids_off_topic_units_when_required_entity_lanes_are_uncovered() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Compare LlamaIndex workflows versus LangGraph for document-heavy research assistants.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["LlamaIndex", "LangGraph"]
+                    }
+                },
+                "result": "Retrieved a governed AI evidence-retrieval paper that does not directly compare the requested frameworks.",
+                "evidence_pack": [{
+                    "title": "Kura governed AI",
+                    "source_domain": "example.test",
+                    "relevant_extract": "Kura focuses on governed evidence retrieval for AI systems.",
+                    "claim_hints": ["Kura focuses on governed evidence retrieval for AI systems."],
+                    "counts_as_usable_evidence": true
+                }]
+            })],
+        );
+        assert!(!response.starts_with("Kura focuses on"), "{response}");
+        assert!(
+            response.contains("insufficient for a direct source-backed conclusion")
+                || response.contains("partial conclusion"),
+            "{response}"
+        );
+        assert!(
+            response.contains("LlamaIndex")
+                || response.contains("LangGraph")
+                || response.contains("coverage gaps remain"),
             "{response}"
         );
     }
@@ -6194,17 +6510,14 @@ mod workflow_fallback_tests {
             .and_then(Value::as_str)
             .unwrap_or("");
         assert!(
-            response.starts_with("The current evidence supports this answer"),
+            response.starts_with("LangGraph is production-oriented"),
             "{response}"
         );
         assert!(
             response.contains("LangGraph is production-oriented"),
             "{response}"
         );
-        assert!(
-            response.contains("Sources: Framework comparison."),
-            "{response}"
-        );
+        assert!(!response.contains("Sources:"), "{response}");
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/status")
@@ -6281,6 +6594,71 @@ mod workflow_fallback_tests {
                 .pointer("/final_llm_response/original_reject_reason")
                 .and_then(Value::as_str),
             Some("final_response_verifier_contract:missing_coverage_lanes=Weaviate, Chroma")
+        );
+    }
+
+    #[test]
+    fn rejected_tool_backed_response_without_required_lane_presence_uses_fallback_rewrite() {
+        let mut workflow = json!({
+            "response": "",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": false,
+                "status": "synthesis_failed"
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "result": "Retrieved a governed AI evidence-retrieval paper that does not directly compare the requested frameworks.",
+            "query_metadata": {
+                "required_coverage": {
+                    "entities": ["LlamaIndex", "LangGraph"]
+                }
+            },
+            "evidence_pack": [{
+                "title": "Kura governed AI",
+                "source_domain": "example.test",
+                "relevant_extract": "Kura focuses on governed evidence retrieval for AI systems.",
+                "claim_hints": ["Kura focuses on governed evidence retrieval for AI systems."],
+                "counts_as_usable_evidence": true
+            }]
+        })];
+        let rejected_response =
+            "An answer grounding pipeline is more than RAG because it adds governed evidence routing and source-trust controls.";
+
+        let rewritten = maybe_apply_rejected_tool_evidence_fallback(
+            &mut workflow,
+            "Compare LlamaIndex workflows versus LangGraph for document-heavy research assistants.",
+            &tools,
+            rejected_response,
+            rejected_response,
+            "final_response_verifier_contract:missing_coverage_lanes=LlamaIndex, LangGraph",
+        );
+
+        assert!(rewritten);
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(!response.contains("answer grounding pipeline is more than RAG"), "{response}");
+        assert!(
+            response.contains("LlamaIndex")
+                || response.contains("LangGraph")
+                || response.contains("coverage gaps remain"),
+            "{response}"
+        );
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/status")
+                .and_then(Value::as_str),
+            Some("tool_evidence_fallback_used")
+        );
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/replacement_response_used")
+                .and_then(Value::as_bool),
+            Some(true)
         );
     }
 
@@ -6826,6 +7204,70 @@ mod workflow_fallback_tests {
         assert_eq!(
             workflow_structured_gate_final_answer(r#""gate_6_final_answer": "Hey, I'm here!""#),
             Some("Hey, I'm here!".to_string())
+        );
+    }
+
+    #[test]
+    fn compact_source_refs_are_persisted_from_usable_tool_evidence() {
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "evidence_pack": [
+                {
+                    "title": "Enterprise agent platform report",
+                    "locator": "https://market.example.test/agent-platform-report-2026",
+                    "source_domain": "market.example.test",
+                    "source_kind": "industry_report",
+                    "counts_as_usable_evidence": true,
+                    "confidence": "usable"
+                },
+                {
+                    "title": "Low signal placeholder",
+                    "locator": "tool:low-signal",
+                    "source_domain": "",
+                    "counts_as_usable_evidence": true,
+                    "confidence": "usable"
+                }
+            ],
+            "evidence_refs": [
+                {
+                    "title": "Runtime orchestration release notes",
+                    "locator": "https://runtime.example.test/release-notes-2026",
+                    "source_domain": "runtime.example.test",
+                    "source_kind": "release_notes"
+                }
+            ]
+        })];
+        let mut workflow = json!({});
+
+        persist_workflow_compact_source_refs(&mut workflow, &tools);
+
+        let root_refs = workflow
+            .get("source_refs")
+            .and_then(Value::as_array)
+            .expect("root source refs");
+        assert_eq!(root_refs.len(), 2, "{root_refs:#?}");
+        assert_eq!(
+            workflow
+                .pointer("/response_workflow/final_llm_response/source_refs")
+                .and_then(Value::as_array)
+                .map(|rows| rows.len()),
+            Some(2)
+        );
+        assert_eq!(
+            workflow
+                .pointer("/response_finalization/final_response/source_refs")
+                .and_then(Value::as_array)
+                .map(|rows| rows.len()),
+            Some(2)
+        );
+        assert_eq!(
+            root_refs[0].get("title").and_then(Value::as_str),
+            Some("Enterprise agent platform report")
+        );
+        assert_eq!(
+            root_refs[1].get("title").and_then(Value::as_str),
+            Some("Runtime orchestration release notes")
         );
     }
 }

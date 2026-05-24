@@ -1,0 +1,64 @@
+{
+  "dataset_id": "research_post_tool_downstream_dataset_v1",
+  "purpose": "Offline downstream-only harness for research post-tool synthesis. These cases assume high-quality retrieved evidence already exists and measure the path from packaged evidence to useful user-facing answer.",
+  "reliability_thresholds": {
+    "min_cases_for_reliability_claim": 3,
+    "workflow_gate_pass_min": 0.95,
+    "research_success_min": 0.85,
+    "max_empty_responses": 0,
+    "max_raw_tool_leaks": 0,
+    "max_tool_choice_as_final_response": 0,
+    "max_unsupported_factual_claims": 0
+  },
+  "scoring_contract": {
+    "pass_score": 85,
+    "excellent_score": 95
+  },
+  "cases": [
+    {
+      "id": "post_tool_framework_comparison",
+      "category": "post_tool_synthesis",
+      "tags": ["comparison", "software_technical", "current"],
+      "prompt": "Compare LlamaIndex workflows versus LangGraph for document-heavy research assistants.",
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      },
+      "required_entities": ["LlamaIndex", "LangGraph"],
+      "required_facets": ["document ingestion", "stateful orchestration"]
+    },
+    {
+      "id": "post_tool_agentic_landscape_update",
+      "category": "post_tool_synthesis",
+      "tags": ["overview", "business_market", "current"],
+      "prompt": "Give me an update on the AI agentic landscape in May 2026.",
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      },
+      "required_entities": [],
+      "required_facets": ["enterprise adoption", "governance", "runtime orchestration"]
+    },
+    {
+      "id": "post_tool_weekly_news_snapshot",
+      "category": "post_tool_synthesis",
+      "tags": ["news_current_events", "overview", "current"],
+      "prompt": "Give me news from this week.",
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      },
+      "required_entities": [],
+      "required_facets": ["technology", "business", "policy"]
+    }
+  ]
+}

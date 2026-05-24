@@ -1,0 +1,478 @@
+{
+  "responses": [
+    {
+      "case_id": "post_tool_framework_comparison",
+      "response_payload": {
+        "response": "For document-heavy research assistants, LlamaIndex looks stronger when the bottleneck is document ingestion, indexing, and retrieval composition, while LangGraph looks stronger when the bottleneck is durable workflow control and long-running stateful orchestration. The retrieved evidence supports LlamaIndex on document-centric ingestion pipelines and LangGraph on graph-based execution for persistent agent flows. Practical recommendation: start with LlamaIndex if document processing quality is the core problem, and layer LangGraph when the system needs more explicit workflow control, resumability, and state management.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "LlamaIndex workflows versus LangGraph document-heavy research assistants",
+            "queries": [
+              "LlamaIndex workflows document ingestion research assistants",
+              "LangGraph durable graph workflows research assistants"
+            ],
+            "keywords": ["LlamaIndex", "LangGraph", "document-heavy", "research assistants"],
+            "required_coverage": {
+              "entities": ["LlamaIndex", "LangGraph"],
+              "facets": ["document ingestion", "stateful orchestration"]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed framework evidence for document ingestion and durable workflow orchestration.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": ["LlamaIndex", "LangGraph"],
+                "facets": ["document ingestion", "stateful orchestration"]
+              }
+            },
+            "raw_results": [
+              {
+                "title": "LlamaIndex workflow docs",
+                "snippet": "LlamaIndex documentation emphasizes ingestion pipelines, indexing, retrieval, and document workflow composition."
+              },
+              {
+                "title": "LangGraph durable execution docs",
+                "snippet": "LangGraph documentation emphasizes durable graph execution, stateful flows, and long-running agent orchestration."
+              }
+            ],
+            "evidence_refs": [
+              {
+                "title": "LlamaIndex workflow docs",
+                "locator": "https://docs.example.test/llamaindex/workflows",
+                "snippet": "LlamaIndex documentation emphasizes ingestion pipelines, indexing, retrieval, and document workflow composition.",
+                "score": 0.94
+              },
+              {
+                "title": "LangGraph durable execution docs",
+                "locator": "https://docs.example.test/langgraph/durable-execution",
+                "snippet": "LangGraph documentation emphasizes durable graph execution, stateful flows, and long-running agent orchestration.",
+                "score": 0.95
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "LlamaIndex workflow docs",
+                "locator": "https://docs.example.test/llamaindex/workflows",
+                "source_domain": "docs.example.test",
+                "relevant_extract": "LlamaIndex documentation emphasizes ingestion pipelines, indexing, retrieval, and document workflow composition.",
+                "why_relevant_to_query": "It directly supports the LlamaIndex side of the comparison for document-heavy assistants.",
+                "claim_hints": [
+                  "LlamaIndex emphasizes ingestion pipelines, indexing, retrieval, and document workflow composition."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "LangGraph durable execution docs",
+                "locator": "https://docs.example.test/langgraph/durable-execution",
+                "source_domain": "docs.example.test",
+                "relevant_extract": "LangGraph documentation emphasizes durable graph execution, stateful flows, and long-running agent orchestration.",
+                "why_relevant_to_query": "It directly supports the LangGraph side of the comparison for document-heavy assistants.",
+                "claim_hints": [
+                  "LangGraph emphasizes durable graph execution, stateful flows, and long-running agent orchestration."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 2,
+              "content_rich_candidate_count": 2,
+              "claim_hint_count": 2,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            }
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": ["evidence:llamaindex", "evidence:langgraph"],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": ["evidence:llamaindex", "evidence:langgraph"],
+            "source_refs": [
+              {
+                "title": "LlamaIndex workflow docs",
+                "locator": "https://docs.example.test/llamaindex/workflows",
+                "source_domain": "docs.example.test"
+              },
+              {
+                "title": "LangGraph durable execution docs",
+                "locator": "https://docs.example.test/langgraph/durable-execution",
+                "source_domain": "docs.example.test"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "LlamaIndex workflow docs",
+                "locator": "https://docs.example.test/llamaindex/workflows",
+                "source_domain": "docs.example.test"
+              },
+              {
+                "title": "LangGraph durable execution docs",
+                "locator": "https://docs.example.test/langgraph/durable-execution",
+                "source_domain": "docs.example.test"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": ["evidence:llamaindex", "evidence:langgraph"]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_agentic_landscape_update",
+      "response_payload": {
+        "response": "In May 2026, the retrieved evidence shows an AI agentic landscape centered on enterprise governance and runtime operations. One source emphasizes enterprise agent platforms with observability and approval controls, while another emphasizes runtime frameworks with durable execution, tracing, and operational visibility for long-running agents. Together, those signals point to agentic AI work concentrating on governed deployment, approval boundaries, and runtime control rather than loosely managed agent behavior.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "AI agentic landscape May 2026",
+            "queries": [
+              "AI agentic landscape May 2026 enterprise adoption",
+              "agent runtime governance observability May 2026"
+            ],
+            "keywords": ["AI agents", "agentic AI", "May 2026", "governance", "runtime"],
+            "required_coverage": {
+              "facets": ["enterprise adoption", "governance", "runtime orchestration"]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence on enterprise adoption, governance, and runtime orchestration patterns.",
+            "raw_results": [
+              {
+                "title": "Enterprise agent platform report",
+                "snippet": "The market is shifting toward governed, enterprise-grade agent platforms with observability and approval controls."
+              },
+              {
+                "title": "Runtime orchestration release notes",
+                "snippet": "Framework releases emphasize durable execution, tracing, and operational visibility for long-running agents."
+              }
+            ],
+            "evidence_refs": [
+              {
+                "title": "Enterprise agent platform report",
+                "locator": "https://market.example.test/agent-platform-report-2026",
+                "snippet": "The market is shifting toward governed, enterprise-grade agent platforms with observability and approval controls.",
+                "score": 0.93
+              },
+              {
+                "title": "Runtime orchestration release notes",
+                "locator": "https://runtime.example.test/release-notes-2026",
+                "snippet": "Framework releases emphasize durable execution, tracing, and operational visibility for long-running agents.",
+                "score": 0.9
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "industry_report",
+                "source_class": "secondary_analysis",
+                "title": "Enterprise agent platform report",
+                "locator": "https://market.example.test/agent-platform-report-2026",
+                "source_domain": "market.example.test",
+                "relevant_extract": "The market is shifting toward governed, enterprise-grade agent platforms with observability and approval controls.",
+                "why_relevant_to_query": "It supports the enterprise adoption and governance part of the requested landscape update.",
+                "claim_hints": [
+                  "The agentic AI market is shifting toward governed, enterprise-grade platforms with observability and approval controls."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "release_notes",
+                "source_class": "official_or_primary",
+                "title": "Runtime orchestration release notes",
+                "locator": "https://runtime.example.test/release-notes-2026",
+                "source_domain": "runtime.example.test",
+                "relevant_extract": "Framework releases emphasize durable execution, tracing, and operational visibility for long-running agents.",
+                "why_relevant_to_query": "It supports the runtime orchestration and operations part of the requested landscape update.",
+                "claim_hints": [
+                  "Framework releases emphasize durable execution, tracing, and operational visibility for long-running agents."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 2,
+              "content_rich_candidate_count": 2,
+              "claim_hint_count": 2,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            }
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": ["evidence:market", "evidence:runtime"],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": ["evidence:market", "evidence:runtime"],
+            "source_refs": [
+              {
+                "title": "Enterprise agent platform report",
+                "locator": "https://market.example.test/agent-platform-report-2026",
+                "source_domain": "market.example.test"
+              },
+              {
+                "title": "Runtime orchestration release notes",
+                "locator": "https://runtime.example.test/release-notes-2026",
+                "source_domain": "runtime.example.test"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Enterprise agent platform report",
+                "locator": "https://market.example.test/agent-platform-report-2026",
+                "source_domain": "market.example.test"
+              },
+              {
+                "title": "Runtime orchestration release notes",
+                "locator": "https://runtime.example.test/release-notes-2026",
+                "source_domain": "runtime.example.test"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": ["evidence:market", "evidence:runtime"]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_weekly_news_snapshot",
+      "response_payload": {
+        "response": "This week's news snapshot is centered on three concurrent themes in the retrieved evidence: AI policy, enterprise AI spending, and assistant product launches. One source covers a Washington AI governance proposal with safety-reporting and disclosure requirements, another covers an enterprise software earnings call that tied AI infrastructure and assistant deployments to higher spending, and a third covers an on-device assistant launch positioned around privacy. Taken together, this week's news reads as policy movement, business investment, and consumer assistant rollout happening at the same time rather than one single dominant headline.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "news this week",
+            "queries": [
+              "technology policy business news this week",
+              "AI spending enterprise earnings this week"
+            ],
+            "keywords": ["news", "this week", "technology", "policy", "business"],
+            "required_coverage": {
+              "facets": ["technology", "business", "policy"]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned a cross-section of policy, business, and technology headlines for the requested week.",
+            "raw_results": [
+              {
+                "title": "Washington AI governance proposal",
+                "snippet": "Lawmakers introduced a proposal focused on safety reporting and disclosure requirements for high-impact AI deployments."
+              },
+              {
+                "title": "Enterprise software earnings call",
+                "snippet": "Executives said AI infrastructure and assistant deployments were driving an increase in enterprise spending."
+              },
+              {
+                "title": "On-device assistant launch",
+                "snippet": "A new consumer product launch emphasized on-device assistant features and privacy positioning."
+              }
+            ],
+            "evidence_refs": [
+              {
+                "title": "Washington AI governance proposal",
+                "locator": "https://policy.example.test/ai-governance-proposal",
+                "snippet": "Lawmakers introduced a proposal focused on safety reporting and disclosure requirements for high-impact AI deployments.",
+                "score": 0.92
+              },
+              {
+                "title": "Enterprise software earnings call",
+                "locator": "https://business.example.test/enterprise-ai-earnings",
+                "snippet": "Executives said AI infrastructure and assistant deployments were driving an increase in enterprise spending.",
+                "score": 0.9
+              },
+              {
+                "title": "On-device assistant launch",
+                "locator": "https://tech.example.test/on-device-assistant-launch",
+                "snippet": "A new consumer product launch emphasized on-device assistant features and privacy positioning.",
+                "score": 0.89
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "news_report",
+                "source_class": "secondary_analysis",
+                "title": "Washington AI governance proposal",
+                "locator": "https://policy.example.test/ai-governance-proposal",
+                "source_domain": "policy.example.test",
+                "relevant_extract": "Lawmakers introduced a proposal focused on safety reporting and disclosure requirements for high-impact AI deployments.",
+                "why_relevant_to_query": "It fills the policy lane for the requested weekly news snapshot.",
+                "claim_hints": [
+                  "A Washington policy proposal this week focused on safety reporting and disclosure for high-impact AI deployments."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "earnings_report",
+                "source_class": "official_or_primary",
+                "title": "Enterprise software earnings call",
+                "locator": "https://business.example.test/enterprise-ai-earnings",
+                "source_domain": "business.example.test",
+                "relevant_extract": "Executives said AI infrastructure and assistant deployments were driving an increase in enterprise spending.",
+                "why_relevant_to_query": "It fills the business lane for the requested weekly news snapshot.",
+                "claim_hints": [
+                  "Enterprise software executives said AI infrastructure and assistant deployments were driving more spending this week."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "product_launch",
+                "source_class": "official_or_primary",
+                "title": "On-device assistant launch",
+                "locator": "https://tech.example.test/on-device-assistant-launch",
+                "source_domain": "tech.example.test",
+                "relevant_extract": "A new consumer product launch emphasized on-device assistant features and privacy positioning.",
+                "why_relevant_to_query": "It fills the technology lane for the requested weekly news snapshot.",
+                "claim_hints": [
+                  "A new product launch this week emphasized on-device assistant features and privacy positioning."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 3,
+              "content_rich_candidate_count": 3,
+              "claim_hint_count": 3,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            }
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": ["evidence:policy", "evidence:business", "evidence:tech"],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": ["evidence:policy", "evidence:business", "evidence:tech"],
+            "source_refs": [
+              {
+                "title": "Washington AI governance proposal",
+                "locator": "https://policy.example.test/ai-governance-proposal",
+                "source_domain": "policy.example.test"
+              },
+              {
+                "title": "Enterprise software earnings call",
+                "locator": "https://business.example.test/enterprise-ai-earnings",
+                "source_domain": "business.example.test"
+              },
+              {
+                "title": "On-device assistant launch",
+                "locator": "https://tech.example.test/on-device-assistant-launch",
+                "source_domain": "tech.example.test"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Washington AI governance proposal",
+                "locator": "https://policy.example.test/ai-governance-proposal",
+                "source_domain": "policy.example.test"
+              },
+              {
+                "title": "Enterprise software earnings call",
+                "locator": "https://business.example.test/enterprise-ai-earnings",
+                "source_domain": "business.example.test"
+              },
+              {
+                "title": "On-device assistant launch",
+                "locator": "https://tech.example.test/on-device-assistant-launch",
+                "source_domain": "tech.example.test"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": ["evidence:policy", "evidence:business", "evidence:tech"]
+          }
+        }
+      }
+    }
+  ]
+}
