@@ -14,7 +14,7 @@ infring-nexus-core-v1 = { path = "../nexus" }
 hex = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.10"
+sha2 = "0.11"
 wait-timeout = "0.2"
 
 [dev-dependencies]
