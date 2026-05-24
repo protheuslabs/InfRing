@@ -1,3 +1,5 @@
+// Layer ownership: orchestration (research eval authority)
+
 fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(*needle))
 }
@@ -144,9 +146,11 @@ fn strip_internal_evidence_posture_prefix_for_grading(response_text: &str) -> St
         "bounded_partial_answer",
         "evidence_insufficient_answer",
     ] {
-        let Some(after_posture) = trimmed.strip_prefix(posture) else {
+        let lowered_trimmed = trimmed.to_ascii_lowercase();
+        let Some(_) = lowered_trimmed.strip_prefix(posture) else {
             continue;
         };
+        let after_posture = &trimmed[posture.len()..];
         let after_posture = after_posture.trim_start_matches(|ch: char| {
             ch.is_whitespace() || matches!(ch, ':' | '-' | '.' | ';' | '*' | '`' | '_')
         });
@@ -162,37 +166,50 @@ fn strip_internal_evidence_posture_disclosure_for_grading(response_text: &str) -
         "bounded_partial_answer",
         "evidence_insufficient_answer",
     ] {
-        for marker in [
-            format!("**Posture: `{posture}`** — "),
-            format!("**Posture: `{posture}`** - "),
-            format!("**Posture: `{posture}`** "),
-            format!("**Posture:** `{posture}` — "),
-            format!("**Posture:** `{posture}` - "),
-            format!("**Posture:** `{posture}` "),
-            format!("Posture: `{posture}` — "),
-            format!("Posture: `{posture}` - "),
-            format!("Posture: `{posture}` "),
-            format!("Posture: {posture} — "),
-            format!("Posture: {posture} - "),
-            format!("Posture: {posture} "),
-            format!("**Outcome posture: `{posture}`** — "),
-            format!("**Outcome posture: `{posture}`** - "),
-            format!("**Outcome posture: `{posture}`** "),
-            format!("**Outcome posture:** `{posture}` — "),
-            format!("**Outcome posture:** `{posture}` - "),
-            format!("**Outcome posture:** `{posture}` "),
-            format!("Outcome posture: `{posture}` — "),
-            format!("Outcome posture: `{posture}` - "),
-            format!("Outcome posture: `{posture}` "),
-            format!("Outcome posture: {posture} — "),
-            format!("Outcome posture: {posture} - "),
-            format!("Outcome posture: {posture} "),
-            format!("**Outcome posture: {posture}** "),
-        ] {
-            cleaned = cleaned.replace(&marker, "");
+        for posture_variant in internal_evidence_posture_label_variants_for_grading(posture) {
+            for marker in [
+                format!("**Posture: `{posture_variant}`** — "),
+                format!("**Posture: `{posture_variant}`** - "),
+                format!("**Posture: `{posture_variant}`** "),
+                format!("**Posture:** `{posture_variant}` — "),
+                format!("**Posture:** `{posture_variant}` - "),
+                format!("**Posture:** `{posture_variant}` "),
+                format!("Posture: `{posture_variant}` — "),
+                format!("Posture: `{posture_variant}` - "),
+                format!("Posture: `{posture_variant}` "),
+                format!("Posture: {posture_variant} — "),
+                format!("Posture: {posture_variant} - "),
+                format!("Posture: {posture_variant} "),
+                format!("**Outcome posture: `{posture_variant}`** — "),
+                format!("**Outcome posture: `{posture_variant}`** - "),
+                format!("**Outcome posture: `{posture_variant}`** "),
+                format!("**Outcome posture:** `{posture_variant}` — "),
+                format!("**Outcome posture:** `{posture_variant}` - "),
+                format!("**Outcome posture:** `{posture_variant}` "),
+                format!("Outcome posture: `{posture_variant}` — "),
+                format!("Outcome posture: `{posture_variant}` - "),
+                format!("Outcome posture: `{posture_variant}` "),
+                format!("Outcome posture: {posture_variant} — "),
+                format!("Outcome posture: {posture_variant} - "),
+                format!("Outcome posture: {posture_variant} "),
+                format!("**Outcome posture: {posture_variant}** "),
+            ] {
+                cleaned = cleaned.replace(&marker, "");
+            }
         }
     }
     clean_text(&cleaned, 12_000)
+}
+
+fn internal_evidence_posture_label_variants_for_grading(posture: &str) -> Vec<String> {
+    let mut variants = vec![posture.to_string(), posture.to_ascii_uppercase()];
+    if let Some(first) = posture.chars().next() {
+        let rest = &posture[first.len_utf8()..];
+        variants.push(format!("{}{}", first.to_ascii_uppercase(), rest));
+    }
+    variants.sort();
+    variants.dedup();
+    variants
 }
 
 fn response_looks_truncated_or_incomplete(response_text: &str) -> bool {

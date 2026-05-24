@@ -1,3 +1,5 @@
+// Layer ownership: orchestration (research eval authority)
+
 pub(super) struct CaseGrade {
     pub(super) score: u64,
     pub(super) pass: bool,
@@ -18,6 +20,7 @@ pub(super) struct CaseGrade {
     pub(super) query_satisfaction: Value,
     pub(super) response_grading_layers: Value,
     pub(super) soft_quality_smoke: Value,
+    pub(super) user_facing_answer_quality: Value,
     pub(super) answer_unit_evidence_alignment: Value,
     pub(super) answer_unit_usefulness: Value,
 }
@@ -117,6 +120,20 @@ pub(super) fn grade_case(
         answer_unit_evidence_alignment(payload, &response_text, &retrieval_quality);
     let answer_unit_usefulness =
         answer_unit_usefulness_for_prompt(&normalized_prompt, &response_text, &retrieval_quality);
+    let user_facing_answer_quality = user_facing_answer_quality_check(
+        &response_text,
+        &normalized,
+        &query_satisfaction,
+        &citation_behavior,
+        &soft_quality_smoke,
+        &answer_unit_evidence_alignment,
+        &answer_unit_usefulness,
+        source_summary_without_answer,
+        raw_tool_leak,
+        internal_leak,
+        tool_choice_final_response,
+        truncated_or_incomplete_response,
+    );
     let answer_unit_alignment_blocks_excellent = answer_unit_evidence_alignment
         .get("evaluated")
         .and_then(Value::as_bool)
@@ -262,6 +279,7 @@ pub(super) fn grade_case(
         query_satisfaction,
         response_grading_layers,
         soft_quality_smoke,
+        user_facing_answer_quality,
         answer_unit_evidence_alignment,
         answer_unit_usefulness,
     }

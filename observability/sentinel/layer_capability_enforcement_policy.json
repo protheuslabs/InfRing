@@ -1,0 +1,39 @@
+{
+  "type": "kernel_sentinel_layer_capability_enforcement_policy",
+  "owner_domain": "observability",
+  "contract_doc": "docs/workspace/KERNEL_LAYER_CAPABILITY_CONTRACT.md",
+  "automation": {
+    "changed_file_guard_command": "ops:layer-placement:check",
+    "whole_repo_report_command": "ops:layer-placement:report",
+    "layer0_dependency_guard_command": "ops:layer0:dependency-boundary:guard",
+    "trend_report_command": "ops:layer-capability:trend:report",
+    "trend_guard_command": "ops:layer-capability:trend:guard",
+    "changed_file_receipt": "core/local/artifacts/layer_placement_policy_check_current.json",
+    "whole_repo_receipt": "core/local/artifacts/layer_placement_policy_report_current.json",
+    "layer0_dependency_receipt": "core/local/artifacts/layer0_dependency_boundary_guard_current.json",
+    "trend_guard_receipt": "core/local/artifacts/layer_capability_trend_guard_current.json"
+  },
+  "layer0_envelope": {
+    "hardware_band": "microcontroller_to_edge_minimal",
+    "forbidden_capabilities": [
+      "web_retrieval",
+      "browser_automation",
+      "provider_orchestration",
+      "semantic_quality_diagnostics",
+      "query_rewriting",
+      "freshness_intent_policy"
+    ]
+  },
+  "sentinel_expectations": {
+    "must_flag_new_layer0_web_surface": true,
+    "must_flag_new_layer0_semantic_policy": true,
+    "must_track_legacy_layer_debt_separately_from_new_regressions": true
+  },
+  "policy_refs": [
+    "docs/workspace/KERNEL_LAYER_CAPABILITY_CONTRACT.md",
+    "client/runtime/config/layer_placement_policy.json",
+    "tests/tooling/scripts/ci/layer_placement_check.ts",
+    "tests/tooling/scripts/ci/layer0_dependency_boundary_guard.ts",
+    "observability/sentinel/layer_capability_trend_policy.json"
+  ]
+}

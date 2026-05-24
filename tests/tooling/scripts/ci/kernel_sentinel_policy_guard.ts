@@ -57,6 +57,51 @@ function validateBoundary(violations: Violation[]): void {
   }
   for (const ref of policy.policy_refs || []) if (!exists(String(ref))) violations.push({ kind: 'boundary_policy_ref_missing', path: rel, detail: String(ref) });
 }
+function validateLayerCapability(violations: Violation[]): void {
+  const rel = 'observability/sentinel/layer_capability_enforcement_policy.json';
+  const mdRel = 'observability/sentinel/layer_capability_enforcement_policy.md';
+  const contractRel = 'docs/workspace/KERNEL_LAYER_CAPABILITY_CONTRACT.md';
+  const placementRel = 'client/runtime/config/layer_placement_policy.json';
+  const policy = json(rel);
+  const md = read(mdRel);
+  const contract = read(contractRel);
+  const placement = json(placementRel);
+  if (policy.type !== 'kernel_sentinel_layer_capability_enforcement_policy') violations.push({ kind: 'layer_capability_policy_type_invalid', path: rel, detail: 'Wrong policy type.' });
+  if (policy.owner_domain !== 'observability') violations.push({ kind: 'layer_capability_owner_invalid', path: rel, detail: 'Owner must be observability.' });
+  if (policy.contract_doc !== contractRel) violations.push({ kind: 'layer_capability_contract_doc_invalid', path: rel, detail: 'Contract doc path mismatch.' });
+  requireArrayIncludes(
+    violations,
+    rel,
+    'layer_capability_forbidden_capability_missing',
+    policy.layer0_envelope?.forbidden_capabilities,
+    ['web_retrieval', 'browser_automation', 'provider_orchestration', 'semantic_quality_diagnostics', 'query_rewriting'],
+  );
+  if (policy.sentinel_expectations?.must_flag_new_layer0_web_surface !== true) violations.push({ kind: 'layer_capability_web_expectation_invalid', path: rel, detail: 'Sentinel must flag new Layer 0 web surfaces.' });
+  if (policy.sentinel_expectations?.must_flag_new_layer0_semantic_policy !== true) violations.push({ kind: 'layer_capability_semantic_expectation_invalid', path: rel, detail: 'Sentinel must flag new Layer 0 semantic policy.' });
+  if (policy.sentinel_expectations?.must_track_legacy_layer_debt_separately_from_new_regressions !== true) violations.push({ kind: 'layer_capability_legacy_debt_expectation_invalid', path: rel, detail: 'Sentinel must distinguish legacy debt from new regressions.' });
+  for (const token of ['Layer0 hardware envelope', 'Automation surfaces', 'Sentinel expectations', 'Legacy debt handling']) {
+    if (!md.includes(token)) violations.push({ kind: 'layer_capability_doc_section_missing', path: mdRel, detail: `Missing ${token}` });
+  }
+  for (const token of ['Status: hard repo-wide policy', 'Layer 0 Hard Boundary', 'web retrieval', 'ops:layer-placement:check', 'ops:layer0:dependency-boundary:guard', 'ops:layer-capability:trend:guard']) {
+    if (!contract.includes(token)) violations.push({ kind: 'layer_capability_contract_section_missing', path: contractRel, detail: `Missing ${token}` });
+  }
+  if (placement.contract_doc !== contractRel) violations.push({ kind: 'layer_capability_placement_contract_ref_invalid', path: placementRel, detail: 'Placement policy must point at the canonical contract doc.' });
+  requireArrayIncludes(
+    violations,
+    placementRel,
+    'layer_capability_path_rule_missing',
+    placement.forbidden_path_markers_by_prefix?.[0]?.markers,
+    ['web', 'browser', 'search', 'provider'],
+  );
+  requireArrayIncludes(
+    violations,
+    placementRel,
+    'layer_capability_concept_rule_missing',
+    placement.forbidden_concept_markers_by_prefix?.[0]?.markers,
+    ['answerability', 'source quality', 'current_web_intent', 'web_tool_quality'],
+  );
+  for (const ref of policy.policy_refs || []) if (!exists(String(ref))) violations.push({ kind: 'layer_capability_policy_ref_missing', path: rel, detail: String(ref) });
+}
 function main(): void {
   const strict = boolFlag('strict', true);
   const outJson = flag('out-json', 'core/local/artifacts/kernel_sentinel_policy_guard_current.json');
@@ -64,6 +109,7 @@ function main(): void {
   const violations: Violation[] = [];
   validateFeedback(violations);
   validateBoundary(violations);
+  validateLayerCapability(violations);
   const traceId = `observability:${new Date().toISOString()}:kernel-sentinel-policy-guard`;
   const payload = { trace_id: traceId, span_id: `span:${traceId}`, parent_span_id: null, source_domain: 'observability', ok: violations.length === 0, type: 'kernel_sentinel_policy_guard', generated_at: new Date().toISOString(), strict, violations };
   ensureDir(outJson);

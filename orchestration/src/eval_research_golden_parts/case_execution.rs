@@ -1,3 +1,5 @@
+// Layer ownership: orchestration (research eval authority)
+
 use super::*;
 
 pub(super) struct ResearchGoldenCaseRunInput<'a> {
@@ -432,6 +434,10 @@ pub(super) fn run_research_golden_cases(
                 grade.response_grading_layers,
             );
             object.insert("soft_quality_smoke".to_string(), grade.soft_quality_smoke);
+            object.insert(
+                "user_facing_answer_quality".to_string(),
+                grade.user_facing_answer_quality,
+            );
             object.insert(
                 "answer_unit_evidence_alignment".to_string(),
                 grade.answer_unit_evidence_alignment,

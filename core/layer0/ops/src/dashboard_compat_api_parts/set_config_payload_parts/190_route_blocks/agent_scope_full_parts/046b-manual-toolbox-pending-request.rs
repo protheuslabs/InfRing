@@ -1,3 +1,5 @@
+// Layer ownership: core/layer0/ops (authoritative)
+
 fn workflow_has_manual_toolbox_candidate_menu(workflow: &Value) -> bool {
     workflow
         .pointer("/workflow_control/direct_response_path")
@@ -142,15 +144,215 @@ fn manual_toolbox_pending_request_from_latent_candidates(
 }
 
 fn workflow_repair_recovered_request_payload(
-    _family_key: &str,
-    _tool_key: &str,
+    family_key: &str,
+    tool_key: &str,
     input: Value,
-    _message: &str,
+    message: &str,
 ) -> Value {
     // Raw-message recovery must stay mechanical and contract-driven. Do not
     // infer entities, aliases, facets, comparison modes, or temporal classes
     // from user prose in Rust.
+    workflow_reconcile_relative_time_window_payload(family_key, tool_key, input, message)
+}
+
+fn workflow_reconcile_relative_time_window_payload(
+    family_key: &str,
+    tool_key: &str,
+    mut input: Value,
+    message: &str,
+) -> Value {
+    if !workflow_is_web_query_tool(family_key, tool_key)
+        || !workflow_message_has_relative_time_window(message)
+    {
+        return input;
+    }
+    let Some((current_year, current_month)) = workflow_runtime_temporal_context() else {
+        return input;
+    };
+    let Some(input_object) = input.as_object_mut() else {
+        return input;
+    };
+    let mut changed = false;
+    for key in ["query", "queries", "keywords"] {
+        if let Some(value) = input_object.get_mut(key) {
+            changed |= workflow_reconcile_relative_time_window_value(
+                value,
+                message,
+                current_year,
+                current_month,
+            );
+        }
+    }
+    if changed {
+        input_object.insert(
+            "query_metadata_policy".to_string(),
+            json!({
+                "temporal_coherence": {
+                    "status": "reconciled_relative_time_window",
+                    "runtime_year": current_year,
+                    "runtime_month": current_month,
+                    "rule": "replace_unrequested_stale_year_or_month_year_in_query_fields"
+                }
+            }),
+        );
+    }
     input
+}
+
+fn workflow_is_web_query_tool(family_key: &str, tool_key: &str) -> bool {
+    let family = normalized_workflow_token(family_key);
+    let tool = normalized_workflow_token(tool_key);
+    family == "web research" && (tool == "batch query" || tool == "web search")
+}
+
+fn workflow_message_has_relative_time_window(message: &str) -> bool {
+    let lowered = message.to_ascii_lowercase();
+    [
+        "this month",
+        "this week",
+        "today",
+        "yesterday",
+        "tomorrow",
+        "latest",
+        "news today",
+        "news from this week",
+        "as of now",
+        "right now",
+    ]
+    .iter()
+    .any(|needle| lowered.contains(needle))
+}
+
+fn workflow_runtime_temporal_context() -> Option<(i32, &'static str)> {
+    let now = crate::now_iso();
+    let year = now.get(0..4)?.parse::<i32>().ok()?;
+    let month = match now.get(5..7)? {
+        "01" => "January",
+        "02" => "February",
+        "03" => "March",
+        "04" => "April",
+        "05" => "May",
+        "06" => "June",
+        "07" => "July",
+        "08" => "August",
+        "09" => "September",
+        "10" => "October",
+        "11" => "November",
+        "12" => "December",
+        _ => return None,
+    };
+    Some((year, month))
+}
+
+fn workflow_reconcile_relative_time_window_value(
+    value: &mut Value,
+    message: &str,
+    current_year: i32,
+    current_month: &str,
+) -> bool {
+    match value {
+        Value::String(raw) => {
+            let repaired = workflow_reconcile_relative_time_window_text(
+                raw,
+                message,
+                current_year,
+                current_month,
+            );
+            if repaired != *raw {
+                *raw = repaired;
+                true
+            } else {
+                false
+            }
+        }
+        Value::Array(rows) => {
+            let mut changed = false;
+            for row in rows.iter_mut() {
+                changed |= workflow_reconcile_relative_time_window_value(
+                    row,
+                    message,
+                    current_year,
+                    current_month,
+                );
+            }
+            changed
+        }
+        _ => false,
+    }
+}
+
+fn workflow_reconcile_relative_time_window_text(
+    raw: &str,
+    message: &str,
+    current_year: i32,
+    current_month: &str,
+) -> String {
+    let mut out = raw.to_string();
+    let message_lower = message.to_ascii_lowercase();
+    for stale_year in (current_year.saturating_sub(3))..current_year {
+        let stale_year_text = stale_year.to_string();
+        if message_lower.contains(&stale_year_text) {
+            continue;
+        }
+        let current_year_text = current_year.to_string();
+        for month in workflow_month_names() {
+            let lower_month = month.to_ascii_lowercase();
+            for month_variant in [*month, lower_month.as_str()] {
+                let stale_month_year = format!("{month_variant} {stale_year_text}");
+                if out.contains(&stale_month_year) {
+                    out = out.replace(
+                        &stale_month_year,
+                        &format!("{current_month} {current_year_text}"),
+                    );
+                }
+            }
+        }
+        out = workflow_replace_unrequested_year_token(&out, stale_year, current_year);
+    }
+    clean_text(&out, 1_200)
+}
+
+fn workflow_replace_unrequested_year_token(raw: &str, stale_year: i32, current_year: i32) -> String {
+    let stale = stale_year.to_string();
+    let current = current_year.to_string();
+    let mut out = String::with_capacity(raw.len());
+    let mut token = String::new();
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() {
+            token.push(ch);
+        } else {
+            if token == stale {
+                out.push_str(&current);
+            } else {
+                out.push_str(&token);
+            }
+            token.clear();
+            out.push(ch);
+        }
+    }
+    if token == stale {
+        out.push_str(&current);
+    } else {
+        out.push_str(&token);
+    }
+    out
+}
+
+fn workflow_month_names() -> &'static [&'static str] {
+    &[
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ]
 }
 
 fn workflow_batch_query_recovery_repair_policy(family_key: &str) -> Option<Value> {
@@ -1302,6 +1504,75 @@ mod manual_toolbox_pending_request_tests {
                 "query": "what is the public sentiment on xvacume versus yvacume?",
                 "aperture": "medium"
             })
+        );
+    }
+
+    #[test]
+    fn recovered_payload_repair_reconciles_relative_time_window_years() {
+        let (current_year, current_month) =
+            workflow_runtime_temporal_context().expect("runtime temporal context");
+        let stale_year = current_year - 1;
+        let payload = workflow_repair_recovered_request_payload(
+            "web_research",
+            "batch_query",
+            serde_json::json!({
+                "source": "web",
+                "query": "Research current shipping and logistics disruptions this month.",
+                "queries": [
+                    format!("shipping logistics disruptions February {stale_year} news"),
+                    format!("air cargo demand supply chain bottlenecks {stale_year}")
+                ],
+                "keywords": [
+                    format!("January {stale_year}"),
+                    format!("February {stale_year}")
+                ],
+                "aperture": "medium"
+            }),
+            "Research current shipping and logistics disruptions this month.",
+        );
+
+        let rendered = payload.to_string();
+        assert!(
+            !rendered.contains(&stale_year.to_string()),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains(&current_year.to_string()),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains(current_month),
+            "{rendered}"
+        );
+        assert_eq!(
+            payload
+                .pointer("/query_metadata_policy/temporal_coherence/status")
+                .and_then(Value::as_str),
+            Some("reconciled_relative_time_window")
+        );
+    }
+
+    #[test]
+    fn recovered_payload_repair_preserves_user_supplied_year() {
+        let payload = workflow_repair_recovered_request_payload(
+            "web_research",
+            "batch_query",
+            serde_json::json!({
+                "source": "web",
+                "query": "Research shipping disruptions this month compared with 2025.",
+                "queries": ["shipping disruptions 2025 comparison"],
+                "aperture": "medium"
+            }),
+            "Research shipping disruptions this month compared with 2025.",
+        );
+
+        assert!(
+            payload.to_string().contains("2025"),
+            "{payload}"
+        );
+        assert!(
+            payload.pointer("/query_metadata_policy").is_none(),
+            "{payload}"
         );
     }
 

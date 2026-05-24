@@ -1,5 +1,13 @@
 {
-  "version": "2026-03-10",
+  "version": "2026-05-23",
+  "contract_doc": "docs/workspace/KERNEL_LAYER_CAPABILITY_CONTRACT.md",
+  "layer_hardware_envelopes": {
+    "layer_minus_one": "exotic_substrate_adapter_only",
+    "layer0": "microcontroller_to_edge_minimal",
+    "layer1": "generic_low_power_runtime",
+    "layer2": "full_orchestration_runtime",
+    "layer3": "full_os_userland"
+  },
   "authority_client_roots": [
     "client/runtime/systems/security/",
     "client/runtime/systems/spine/",
@@ -55,11 +63,52 @@
         "agent surface",
         "provider orchestration",
         "native tool loop",
-        "runtime lane"
+        "runtime lane",
+        "answerability",
+        "source quality",
+        "quality diagnostic",
+        "claim hint",
+        "query rewrite",
+        "freshness intent",
+        "current_web_intent",
+        "relative_or_update_freshness_intent",
+        "web_tool_quality",
+        "framework catalog",
+        "provider_starved",
+        "strong_search_provider",
+        "tavily",
+        "exa",
+        "serper",
+        "duckduckgo",
+        "bing rss",
+        "google news",
+        "brave search"
+      ],
+      "allow_exact_paths": [
+        "core/layer0/ops/src/batch_query_primitive_parts/016-retrieval-policy-api.rs"
+      ],
+      "allow_path_prefixes": [],
+      "hint": "Layer 0 is the microcontroller-to-edge minimal kernel band. Move workflow-specific coding policy, web/provider semantics, checkpoint handoff semantics, public reasoning rollups, freshness/source-quality scoring, and task-specific evidence heuristics to Layer 1+/orchestration; Layer 0 should consume only generic contracts and receipt primitives that can survive constrained hardware."
+    }
+  ],
+  "forbidden_path_markers_by_prefix": [
+    {
+      "path_prefix": "core/layer0/",
+      "case_insensitive": true,
+      "markers": [
+        "web",
+        "browser",
+        "search",
+        "provider",
+        "crawl",
+        "fetch",
+        "rss"
       ],
       "allow_exact_paths": [],
-      "allow_path_prefixes": [],
-      "hint": "Layer 0 is the safety plane. Move workflow-specific coding policy, checkpoint handoff semantics, public reasoning rollups, and task-specific evidence heuristics to orchestration or a higher core execution/policy layer; Layer 0 should consume only generic contracts and receipt primitives."
+      "allow_path_prefixes": [
+        "core/layer0/kernel_layers/"
+      ],
+      "hint": "Layer 0 targets microcontroller/toaster-class survivability. Do not introduce new web/browser/search/provider surfaces into core/layer0; promote them upward and consume them through lower-layer receipts/contracts instead."
     }
   ]
 }

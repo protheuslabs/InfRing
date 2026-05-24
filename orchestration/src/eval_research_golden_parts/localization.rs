@@ -1,3 +1,5 @@
+// Layer ownership: orchestration (research eval authority)
+
 use super::*;
 
 pub(super) fn excellent_quality_report(rows: &[Value]) -> Value {
@@ -123,6 +125,7 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
         "",
     );
     let smoke_top_blocker = str_at(row, &["soft_quality_smoke", "top_blocker"], "");
+    let user_facing_top_blocker = str_at(row, &["user_facing_answer_quality", "top_blocker"], "");
     let answer_unit_alignment_top_blocker =
         str_at(row, &["answer_unit_evidence_alignment", "top_blocker"], "");
     let answer_unit_usefulness_top_blocker =
@@ -146,6 +149,7 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
         true,
     );
     let smoke_failed = !bool_at(row, &["soft_quality_smoke", "pass"], true);
+    let user_facing_failed = !bool_at(row, &["user_facing_answer_quality", "pass"], true);
     let answer_unit_alignment_failed =
         !bool_at(row, &["answer_unit_evidence_alignment", "pass"], true)
             && bool_at(row, &["answer_unit_evidence_alignment", "evaluated"], false);
@@ -153,6 +157,11 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
         && bool_at(row, &["answer_unit_usefulness", "evaluated"], false);
     let authoritative_contract_failures = collect_authoritative_contract_failures(row);
     let mut soft_smoke_flags = string_array_at(row, &["soft_quality_smoke", "blockers"]);
+    soft_smoke_flags.extend(
+        string_array_at(row, &["user_facing_answer_quality", "blockers"])
+            .into_iter()
+            .map(|blocker| format!("user_facing_answer_quality:{blocker}")),
+    );
     soft_smoke_flags.extend(
         string_array_at(row, &["answer_unit_evidence_alignment", "blockers"])
             .into_iter()
@@ -168,6 +177,7 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
 
     let (earliest_failure_layer, earliest_failure_boundary) = if case_pass
         && !smoke_failed
+        && !user_facing_failed
         && !answer_unit_alignment_failed
         && !answer_unit_usefulness_failed
     {
@@ -244,6 +254,13 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
             "soft_quality_smoke_flagged".to_string()
         };
         ("ux_smoke".to_string(), boundary)
+    } else if user_facing_failed {
+        let boundary = if !user_facing_top_blocker.is_empty() && user_facing_top_blocker != "none" {
+            user_facing_top_blocker
+        } else {
+            "user_facing_answer_quality_flagged".to_string()
+        };
+        ("ux_answer_quality".to_string(), boundary)
     } else if answer_unit_alignment_failed {
         let boundary = if !answer_unit_alignment_top_blocker.is_empty()
             && answer_unit_alignment_top_blocker != "none"

@@ -1,3 +1,5 @@
+// Layer ownership: orchestration (research eval authority)
+
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -50,14 +52,21 @@ use measurement_split::*;
 use query_diagnostics::*;
 use reporting::*;
 
-fn case_selection_requested_sample_size(args: &[String], input: &Value, limit: usize) -> Option<usize> {
+fn case_selection_requested_sample_size(
+    args: &[String],
+    input: &Value,
+    limit: usize,
+) -> Option<usize> {
     let explicit = parse_u64_flag(args, "sample-size", 0) as usize;
     if explicit > 0 {
         return Some(explicit);
     }
     let auto_when_truncated = bool_at(
         input,
-        &["sampling_policy", "auto_sample_when_limit_is_lower_than_pool"],
+        &[
+            "sampling_policy",
+            "auto_sample_when_limit_is_lower_than_pool",
+        ],
         false,
     );
     auto_when_truncated
@@ -141,10 +150,8 @@ fn select_research_golden_cases(
             .cloned()
             .enumerate()
             .map(|(ordinal, case)| {
-                let case_id = clean_text(
-                    &str_at(&case, &["id"], &format!("case_{ordinal:03}")),
-                    160,
-                );
+                let case_id =
+                    clean_text(&str_at(&case, &["id"], &format!("case_{ordinal:03}")), 160);
                 (case_selection_hash(seed, &case_id, ordinal), ordinal, case)
             })
             .collect::<Vec<_>>();
@@ -161,10 +168,7 @@ fn select_research_golden_cases(
         .iter()
         .enumerate()
         .map(|(ordinal, case)| {
-            clean_text(
-                &str_at(case, &["id"], &format!("case_{ordinal:03}")),
-                160,
-            )
+            clean_text(&str_at(case, &["id"], &format!("case_{ordinal:03}")), 160)
         })
         .collect::<Vec<_>>();
     let planned_execution_count = selected_cases.iter().take(limit).count();
@@ -494,6 +498,12 @@ pub fn run_research_golden(args: &[String]) -> i32 {
                 "generic_response_contract",
                 "tool_backed_evidence_contract",
                 "workflow_specific_rubric"
+            ],
+            "soft_diagnostic_lanes": [
+                "soft_quality_smoke",
+                "user_facing_answer_quality",
+                "answer_unit_evidence_alignment",
+                "answer_unit_usefulness"
             ]
         },
         "summary": {

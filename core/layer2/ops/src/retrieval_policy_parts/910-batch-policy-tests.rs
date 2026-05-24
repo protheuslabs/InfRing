@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (retrieval policy authority tests)
+
 mod quality_tests {
     use super::*;
     use std::sync::Mutex;
@@ -3704,6 +3707,26 @@ mod quality_tests {
             excerpt_hash: "beta-wrapper-preview".to_string(),
             timestamp: None,
             permissions: None,
+            status_code: 200,
+        };
+
+        assert!(
+            !candidate_retention_preview_eligible(query, &candidate, 0.62),
+            "{candidate:#?}"
+        );
+    }
+
+    #[test]
+    fn category_listing_pages_are_not_retained_as_evidence_preview() {
+        let query = "what are the current shipping disruptions this month";
+        let candidate = Candidate {
+            source_kind: "web_conduit_fetch_page_enriched".to_string(),
+            title: "Web result from thegeochronicle.example".to_string(),
+            locator: "https://thegeochronicle.example/category/social-media-posts/".to_string(),
+            snippet: "Social Media Posts 2026 Red Sea Conflict: Geopolitical Risk for Global Logistics and Investors. As of May 23, 2026, shipping insurers raised premiums and carriers warned of Suez route disruptions affecting Q3 planning.".to_string(),
+            excerpt_hash: "shipping-category-preview".to_string(),
+            timestamp: None,
+            permissions: Some("public_web;page_enriched".to_string()),
             status_code: 200,
         };
 

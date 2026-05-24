@@ -65,6 +65,7 @@ memmap2 = "0.9"
 aes-gcm = { version = "0.10", features = ["aes"] }
 rand = "0.10"
 infring-nexus-core-v1 = { path = "../../layer2/nexus" }
+infring-ops-core-v1 = { path = "../../layer2/ops" }
 mimalloc = { version = "0.1", default-features = false, optional = true }
 infring-pure-workspace = { path = "../../../client/pure-workspace", optional = true }
 crossbeam-channel = "0.5"

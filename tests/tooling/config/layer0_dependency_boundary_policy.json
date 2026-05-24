@@ -1,0 +1,21 @@
+{
+  "schema_id": "infring_layer0_dependency_boundary_policy",
+  "schema_version": "1.0",
+  "layer0_root": "core/layer0",
+  "forbidden_runtime_dependency_names": [
+    "reqwest",
+    "hyper",
+    "ureq",
+    "surf",
+    "fantoccini",
+    "playwright",
+    "chromiumoxide",
+    "headless_chrome",
+    "thirtyfour",
+    "webdriver",
+    "webbrowser"
+  ],
+  "allow_manifest_prefixes": [],
+  "out_json": "core/local/artifacts/layer0_dependency_boundary_guard_current.json",
+  "out_markdown": "local/workspace/reports/LAYER0_DEPENDENCY_BOUNDARY_GUARD_CURRENT.md"
+}

@@ -1,3 +1,5 @@
+// Layer ownership: orchestration (research eval authority)
+
 fn soft_quality_smoke_check(
     response_text: &str,
     normalized_response: &str,
@@ -109,3 +111,229 @@ fn soft_quality_smoke_check(
     })
 }
 
+fn user_facing_answer_quality_check(
+    response_text: &str,
+    normalized_response: &str,
+    query_satisfaction: &Value,
+    citation_behavior: &Value,
+    soft_quality_smoke: &Value,
+    answer_unit_evidence_alignment: &Value,
+    answer_unit_usefulness: &Value,
+    source_summary_without_answer: bool,
+    raw_tool_leak: bool,
+    internal_leak: bool,
+    tool_choice_final_response: bool,
+    truncated_or_incomplete_response: bool,
+) -> Value {
+    let final_answer_present = !response_text.trim().is_empty()
+        && response_text.split_whitespace().count() >= 20
+        && normal_prose_signal(response_text);
+    let intent_answered = query_satisfaction
+        .get("intent_answered")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let decision_value = query_satisfaction
+        .get("decision_value")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let right_granularity = query_satisfaction
+        .get("right_granularity")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let citation_signal = citation_behavior
+        .get("citation_signal")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let response_source_signal = citation_behavior
+        .get("response_source_signal")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let citable_evidence_available = citation_behavior
+        .get("evidence_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        > 0;
+    let soft_smoke_pass = soft_quality_smoke
+        .get("pass")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let direct_useful_units = answer_unit_usefulness
+        .get("direct_useful_units")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let substantive_units = answer_unit_usefulness
+        .get("substantive_units")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let process_metadata_units = answer_unit_usefulness
+        .get("process_metadata_units")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let useful_units_pass = answer_unit_usefulness
+        .get("pass")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let alignment_evaluated = answer_unit_evidence_alignment
+        .get("evaluated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let alignment_pass = answer_unit_evidence_alignment
+        .get("pass")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let term_support_rate = answer_unit_evidence_alignment
+        .get("term_support_rate")
+        .and_then(Value::as_f64)
+        .unwrap_or(1.0);
+    let unsupported_unit_count = answer_unit_evidence_alignment
+        .get("unsupported_unit_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let limitation_heavy = limitation_heavy_for_excellent(normalized_response);
+    let meta_process_talk = response_has_meta_process_talk(normalized_response);
+    let delegates_research = response_delegates_research_back_to_user(normalized_response);
+    let projection_clean = !raw_tool_leak && !internal_leak && !tool_choice_final_response;
+    let enough_substance = substantive_units >= 2
+        || response_text.split_whitespace().count() >= 55
+        || (intent_answered && direct_useful_units >= 1);
+    let useful_substance = direct_useful_units >= 2
+        || (intent_answered && (decision_value || has_tradeoff_or_structure(normalized_response)));
+    let readable_and_complete =
+        normal_prose_signal(response_text) && !truncated_or_incomplete_response;
+    let source_signal_ok = !citable_evidence_available || citation_signal || response_source_signal;
+    let not_mostly_limits = !limitation_heavy || direct_useful_units >= 2;
+    let not_process_dominated =
+        process_metadata_units == 0 || process_metadata_units * 2 < substantive_units.max(1);
+    let traceable_enough = !alignment_evaluated || alignment_pass || term_support_rate >= 0.85;
+    let specific_without_bad_overreach =
+        unsupported_unit_count == 0 || (unsupported_unit_count <= 1 && term_support_rate >= 0.9);
+    let direct_answer_signal = intent_answered || direct_useful_units > 0;
+
+    let mut subgates = serde_json::Map::new();
+    subgates.insert(
+        "user_1_stands_alone_as_answer".to_string(),
+        json!(final_answer_present && direct_answer_signal),
+    );
+    subgates.insert(
+        "user_2_has_substantive_user_value".to_string(),
+        json!(useful_substance && enough_substance),
+    );
+    subgates.insert(
+        "user_3_not_source_or_process_recap".to_string(),
+        json!(!source_summary_without_answer && !meta_process_talk && !delegates_research),
+    );
+    subgates.insert(
+        "user_4_readable_complete_shape".to_string(),
+        json!(readable_and_complete),
+    );
+    subgates.insert(
+        "user_5_not_limitation_heavy".to_string(),
+        json!(not_mostly_limits),
+    );
+    subgates.insert(
+        "user_6_source_signal_fits_evidence".to_string(),
+        json!(source_signal_ok),
+    );
+    subgates.insert(
+        "user_7_answer_units_are_prompt_useful".to_string(),
+        json!(useful_units_pass && direct_useful_units > 0 && not_process_dominated),
+    );
+    subgates.insert(
+        "user_8_concrete_units_trace_to_evidence".to_string(),
+        json!(traceable_enough && specific_without_bad_overreach),
+    );
+    subgates.insert(
+        "user_9_projection_clean".to_string(),
+        json!(projection_clean && readable_and_complete && !source_summary_without_answer),
+    );
+    subgates.insert(
+        "user_10_right_level_of_detail".to_string(),
+        json!(right_granularity && enough_substance),
+    );
+
+    let ordered = [
+        ("user_1_stands_alone_as_answer", "standalone_answer_missing"),
+        (
+            "user_2_has_substantive_user_value",
+            "substantive_user_value_missing",
+        ),
+        (
+            "user_3_not_source_or_process_recap",
+            "source_or_process_recap_visible",
+        ),
+        (
+            "user_4_readable_complete_shape",
+            "readability_or_completion_issue",
+        ),
+        ("user_5_not_limitation_heavy", "limitation_heavy_answer"),
+        (
+            "user_6_source_signal_fits_evidence",
+            "source_signal_missing_for_citable_evidence",
+        ),
+        (
+            "user_7_answer_units_are_prompt_useful",
+            "answer_units_not_prompt_useful",
+        ),
+        (
+            "user_8_concrete_units_trace_to_evidence",
+            "concrete_units_not_traceable_enough",
+        ),
+        ("user_9_projection_clean", "projection_or_smoke_issue"),
+        ("user_10_right_level_of_detail", "wrong_level_of_detail"),
+    ];
+    let blockers = ordered
+        .iter()
+        .filter_map(|(gate, blocker)| {
+            (!subgates
+                .get(*gate)
+                .and_then(Value::as_bool)
+                .unwrap_or(false))
+            .then(|| (*blocker).to_string())
+        })
+        .collect::<Vec<_>>();
+    let score = subgates
+        .values()
+        .filter(|value| value.as_bool().unwrap_or(false))
+        .count() as u64;
+    let pass = score >= 8
+        && !blockers.iter().any(|blocker| {
+            matches!(
+                blocker.as_str(),
+                "standalone_answer_missing"
+                    | "source_or_process_recap_visible"
+                    | "readability_or_completion_issue"
+                    | "projection_or_smoke_issue"
+            )
+        });
+    let verdict = if pass {
+        "sounds_good"
+    } else if score >= 6 {
+        "borderline"
+    } else {
+        "sounds_bad"
+    };
+    json!({
+        "schema_version": 1,
+        "lane_id": "user_facing_answer_quality_v1",
+        "pass": pass,
+        "verdict": verdict,
+        "score": score,
+        "max_score": 10,
+        "subgates": Value::Object(subgates),
+        "blockers": blockers,
+        "top_blocker": blockers.first().cloned().unwrap_or_else(|| "none".to_string()),
+        "signals": {
+            "direct_useful_units": direct_useful_units,
+            "substantive_units": substantive_units,
+            "process_metadata_units": process_metadata_units,
+            "term_support_rate": term_support_rate,
+            "unsupported_unit_count": unsupported_unit_count,
+            "limitation_heavy": limitation_heavy,
+            "soft_smoke_pass": soft_smoke_pass,
+            "citable_evidence_available": citable_evidence_available,
+            "citation_signal": citation_signal,
+            "response_source_signal": response_source_signal
+        },
+        "note": "Soft user-facing proxy. It asks whether the final visible text would feel useful and coherent to a real user if formatting and evaluator state were ignored. It is intentionally diagnostic and does not change pass/fail by itself."
+    })
+}

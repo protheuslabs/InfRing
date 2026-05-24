@@ -1,3 +1,5 @@
+// Layer ownership: orchestration (research eval authority)
+
 use super::eval_research_golden_utils::*;
 use serde_json::{json, Value};
 
@@ -278,6 +280,62 @@ pub(super) fn markdown_report(report: &Value) -> String {
             split,
             &["soft_quality_smoke", "top_blocker", "name"],
             "none"
+        )
+    ));
+    out.push_str(&format!(
+        "- user_facing_answer_quality: pass={}/{} ({:.3}) flagged={}/{} ({:.3}) avg_score={:.3} top_blocker={}\n",
+        u64_at(split, &["user_facing_answer_quality", "pass_cases"], 0),
+        u64_at(summary, &["cases"], 0),
+        f64_at(split, &["user_facing_answer_quality", "pass_rate"], 0.0),
+        u64_at(split, &["user_facing_answer_quality", "flagged_cases"], 0),
+        u64_at(summary, &["cases"], 0),
+        f64_at(split, &["user_facing_answer_quality", "flagged_rate"], 0.0),
+        f64_at(split, &["user_facing_answer_quality", "average_score"], 0.0),
+        str_at(
+            split,
+            &["user_facing_answer_quality", "top_blocker", "name"],
+            "none"
+        )
+    ));
+    out.push_str(&format!(
+        "  - grader_comparison: agreement={}/{} ({:.3}) hard_pass_but_soft_flagged={} hard_fail_but_soft_passed={} excellent_but_soft_flagged={}\n",
+        u64_at(
+            split,
+            &["user_facing_answer_quality", "grader_comparison", "agreement_cases"],
+            0
+        ),
+        u64_at(summary, &["cases"], 0),
+        f64_at(
+            split,
+            &["user_facing_answer_quality", "grader_comparison", "agreement_rate"],
+            0.0
+        ),
+        u64_at(
+            split,
+            &[
+                "user_facing_answer_quality",
+                "grader_comparison",
+                "hard_pass_but_user_facing_flagged"
+            ],
+            0
+        ),
+        u64_at(
+            split,
+            &[
+                "user_facing_answer_quality",
+                "grader_comparison",
+                "hard_fail_but_user_facing_passed"
+            ],
+            0
+        ),
+        u64_at(
+            split,
+            &[
+                "user_facing_answer_quality",
+                "grader_comparison",
+                "excellent_but_user_facing_flagged"
+            ],
+            0
         )
     ));
     out.push_str(&format!(

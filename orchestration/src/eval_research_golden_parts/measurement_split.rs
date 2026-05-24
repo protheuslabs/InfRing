@@ -1,3 +1,5 @@
+// Layer ownership: orchestration (research eval authority)
+
 use super::*;
 
 pub(super) fn measurement_split_report(
@@ -218,6 +220,48 @@ pub(super) fn measurement_split_report(
         .count() as u64;
     let soft_quality_smoke_flagged_cases =
         total_cases.saturating_sub(soft_quality_smoke_pass_cases);
+    let user_facing_answer_quality_pass_cases = rows
+        .iter()
+        .filter(|row| bool_at(row, &["user_facing_answer_quality", "pass"], false))
+        .count() as u64;
+    let user_facing_answer_quality_flagged_cases =
+        total_cases.saturating_sub(user_facing_answer_quality_pass_cases);
+    let user_facing_answer_quality_score_average = if total_cases == 0 {
+        0.0
+    } else {
+        rows.iter()
+            .map(|row| u64_at(row, &["user_facing_answer_quality", "score"], 0))
+            .sum::<u64>() as f64
+            / total_cases as f64
+    };
+    let hard_pass_but_user_facing_flagged = rows
+        .iter()
+        .filter(|row| {
+            bool_at(row, &["pass"], false)
+                && !bool_at(row, &["user_facing_answer_quality", "pass"], true)
+        })
+        .count() as u64;
+    let hard_fail_but_user_facing_passed = rows
+        .iter()
+        .filter(|row| {
+            !bool_at(row, &["pass"], false)
+                && bool_at(row, &["user_facing_answer_quality", "pass"], false)
+        })
+        .count() as u64;
+    let excellent_but_user_facing_flagged = rows
+        .iter()
+        .filter(|row| {
+            bool_at(row, &["excellent"], false)
+                && !bool_at(row, &["user_facing_answer_quality", "pass"], true)
+        })
+        .count() as u64;
+    let user_facing_grader_agreement_cases = rows
+        .iter()
+        .filter(|row| {
+            bool_at(row, &["pass"], false)
+                == bool_at(row, &["user_facing_answer_quality", "pass"], false)
+        })
+        .count() as u64;
     let answer_unit_alignment_evaluated_cases = rows
         .iter()
         .filter(|row| bool_at(row, &["answer_unit_evidence_alignment", "evaluated"], false))
@@ -357,6 +401,40 @@ pub(super) fn measurement_split_report(
                 "count": 0
             })
         });
+    let mut user_facing_answer_quality_blockers = BTreeMap::<String, u64>::new();
+    let mut user_facing_answer_quality_verdicts = BTreeMap::<String, u64>::new();
+    for row in rows {
+        let verdict = str_at(row, &["user_facing_answer_quality", "verdict"], "missing");
+        *user_facing_answer_quality_verdicts
+            .entry(verdict)
+            .or_insert(0) += 1;
+        for blocker in row
+            .pointer("/user_facing_answer_quality/blockers")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            *user_facing_answer_quality_blockers
+                .entry(blocker.to_string())
+                .or_insert(0) += 1;
+        }
+    }
+    let top_user_facing_answer_quality_blocker = user_facing_answer_quality_blockers
+        .iter()
+        .max_by_key(|(_, count)| **count)
+        .map(|(blocker, count)| {
+            json!({
+                "name": blocker,
+                "count": count
+            })
+        })
+        .unwrap_or_else(|| {
+            json!({
+                "name": "none",
+                "count": 0
+            })
+        });
     let query_satisfaction_total = rows
         .iter()
         .map(|row| u64_at(row, &["query_satisfaction", "score"], 0))
@@ -480,6 +558,24 @@ pub(super) fn measurement_split_report(
             "top_blocker": top_soft_quality_smoke_blocker,
             "blocker_counts": soft_quality_smoke_blockers,
             "note": "A non-authoritative UX smoke lane that flags obviously bad answers for manual review even when structural metrics look healthy."
+        },
+        "user_facing_answer_quality": {
+            "pass_cases": user_facing_answer_quality_pass_cases,
+            "pass_rate": ratio(user_facing_answer_quality_pass_cases, total_cases),
+            "flagged_cases": user_facing_answer_quality_flagged_cases,
+            "flagged_rate": ratio(user_facing_answer_quality_flagged_cases, total_cases),
+            "average_score": user_facing_answer_quality_score_average,
+            "verdict_counts": user_facing_answer_quality_verdicts,
+            "top_blocker": top_user_facing_answer_quality_blocker,
+            "blocker_counts": user_facing_answer_quality_blockers,
+            "grader_comparison": {
+                "agreement_cases": user_facing_grader_agreement_cases,
+                "agreement_rate": ratio(user_facing_grader_agreement_cases, total_cases),
+                "hard_pass_but_user_facing_flagged": hard_pass_but_user_facing_flagged,
+                "hard_fail_but_user_facing_passed": hard_fail_but_user_facing_passed,
+                "excellent_but_user_facing_flagged": excellent_but_user_facing_flagged
+            },
+            "note": "A stronger non-authoritative UX proxy: would the visible answer probably feel coherent, useful, specific, and honest to a real user? Comparison fields show where this disagrees with the structural pass/fail grader."
         },
         "upstream_failure_localization": upstream_failure_localization,
         "excellent_quality": excellent_quality,

@@ -1338,6 +1338,7 @@ dependencies = [
  "hex",
  "hmac",
  "infring-nexus-core-v1",
+ "infring-ops-core-v1",
  "infring-pure-workspace",
  "lopdf",
  "memmap2",
@@ -1366,14 +1367,17 @@ name = "infring-ops-core-v1"
 version = "0.1.0"
 dependencies = [
  "async-nats",
+ "base64",
  "chrono",
  "futures",
  "hex",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
  "tokio",
+ "urlencoding",
  "uuid",
 ]
 

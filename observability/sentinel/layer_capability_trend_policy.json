@@ -1,0 +1,17 @@
+{
+  "type": "kernel_sentinel_layer_capability_trend_policy",
+  "source_report_path": "core/local/artifacts/layer_placement_policy_report_current.json",
+  "changed_file_report_path": "core/local/artifacts/layer_placement_policy_check_current.json",
+  "report_path": "observability/reports/layer_capability_trend_report_current.json",
+  "sample_store_path": "observability/reports/layer_capability_trend_samples.jsonl",
+  "budgets": {
+    "max_report_bytes": 131072,
+    "max_recent_samples_in_report": 12
+  },
+  "focus_metrics": [
+    "layer0_capability_debt_total",
+    "layer0_capability_path_debt",
+    "layer0_capability_concept_debt",
+    "changed_file_layer0_capability_violations"
+  ]
+}

@@ -12,6 +12,7 @@ pub mod bookmark_knowledge_pipeline;
 pub mod collector_cache;
 pub mod command_center_session;
 pub mod company_layer_orchestration;
+pub mod contract_lane_utils;
 pub mod context_doctor;
 pub mod contribution_oracle;
 pub mod decentralized_data_marketplace;
@@ -30,6 +31,7 @@ pub mod p2p_gossip_seed;
 pub mod persistent_background_runtime;
 pub mod public_api_catalog;
 pub mod release_gate_canary_rollback_enforcer;
+pub mod retrieval_policy;
 pub mod srs_contract_runtime;
 pub mod startup_agency_builder;
 pub mod system_health;
@@ -67,11 +69,44 @@ pub fn parse_cli_flag(argv: &[String], key: &str) -> Option<String> {
     None
 }
 
+#[derive(Debug, Clone)]
+pub struct ParsedArgs {
+    pub positional: Vec<String>,
+    pub flags: std::collections::HashMap<String, String>,
+}
+
+pub fn parse_args(raw: &[String]) -> ParsedArgs {
+    let mut positional = Vec::new();
+    let mut flags = std::collections::HashMap::new();
+    for token in raw {
+        if !token.starts_with("--") {
+            positional.push(token.clone());
+            continue;
+        }
+        match token.split_once('=') {
+            Some((k, v)) => {
+                flags.insert(k.trim_start_matches("--").to_string(), v.to_string());
+            }
+            None => {
+                flags.insert(
+                    token.trim_start_matches("--").to_string(),
+                    "true".to_string(),
+                );
+            }
+        }
+    }
+    ParsedArgs { positional, flags }
+}
+
 pub fn now_epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+pub fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 pub fn daemon_control_receipt(command: &str, mode: Option<&str>) -> Value {

@@ -1,3 +1,5 @@
+// Layer ownership: orchestration (research eval authority)
+
 use super::*;
 use std::collections::BTreeSet;
 use std::fs;
@@ -188,7 +190,10 @@ fn research_user_prompt_pool_fixture_declares_100_cases_and_taxonomies() {
         .collect::<BTreeSet<_>>();
     assert!(bool_at(
         &dataset,
-        &["sampling_policy", "auto_sample_when_limit_is_lower_than_pool"],
+        &[
+            "sampling_policy",
+            "auto_sample_when_limit_is_lower_than_pool"
+        ],
         false
     ));
     assert_eq!(
@@ -287,10 +292,7 @@ fn research_golden_case_sampling_is_seeded_and_reproducible() {
         str_at(&meta_a, &["selection_mode"], ""),
         "deterministic_seeded_sample"
     );
-    assert_eq!(
-        str_at(&meta_a, &["effective_sample_seed"], ""),
-        "alpha"
-    );
+    assert_eq!(str_at(&meta_a, &["effective_sample_seed"], ""), "alpha");
     assert_eq!(
         meta_a.get("selected_case_ids"),
         meta_b.get("selected_case_ids")

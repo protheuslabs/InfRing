@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (retrieval policy authority)
+
 fn search_row_url_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| Regex::new(r"https?://[^\s)]+").expect("search-row-url"))
@@ -582,6 +585,7 @@ fn candidate_retention_preview_eligible(query: &str, candidate: &Candidate, scor
         && !looks_like_ack_only(&snippet)
         && !looks_like_low_signal_search_summary(&snippet)
         && substantive_preview_text
+        && !candidate_has_non_evidence_payload(candidate)
         && !citation_wrapper_link(&candidate.locator)
         && !is_search_engine_domain(&domain)
         && !looks_like_portal_noise_candidate(candidate)

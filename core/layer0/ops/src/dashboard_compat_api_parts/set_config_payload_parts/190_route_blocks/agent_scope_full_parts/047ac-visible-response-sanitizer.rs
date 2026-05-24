@@ -1,3 +1,5 @@
+// Layer ownership: core/layer0/ops (authoritative)
+
 fn strip_no_tool_gate_prefix_from_visible_response(response: &str) -> String {
     let cleaned = clean_text(response, 8_000);
     if cleaned.is_empty() {
@@ -133,9 +135,11 @@ fn strip_internal_evidence_posture_prefix(response_text: &str) -> String {
         "bounded_partial_answer",
         "evidence_insufficient_answer",
     ] {
-        let Some(after_posture) = trimmed.strip_prefix(posture) else {
+        let lowered_trimmed = trimmed.to_ascii_lowercase();
+        let Some(_) = lowered_trimmed.strip_prefix(posture) else {
             continue;
         };
+        let after_posture = &trimmed[posture.len()..];
         let after_posture = after_posture.trim_start_matches(|ch: char| {
             ch.is_whitespace() || matches!(ch, ':' | '-' | '.' | ';' | '*' | '`' | '_')
         });
@@ -151,39 +155,52 @@ fn strip_internal_evidence_posture_disclosure(response_text: &str) -> String {
         "bounded_partial_answer",
         "evidence_insufficient_answer",
     ] {
-        for marker in [
-            format!("**Posture: `{posture}`** — "),
-            format!("**Posture: `{posture}`** - "),
-            format!("**Posture: `{posture}`** "),
-            format!("**Posture:** `{posture}` — "),
-            format!("**Posture:** `{posture}` - "),
-            format!("**Posture:** `{posture}` "),
-            format!("Posture: `{posture}` — "),
-            format!("Posture: `{posture}` - "),
-            format!("Posture: `{posture}` "),
-            format!("Posture: {posture} — "),
-            format!("Posture: {posture} - "),
-            format!("Posture: {posture} "),
-            format!("**Outcome posture: `{posture}`** — "),
-            format!("**Outcome posture: `{posture}`** - "),
-            format!("**Outcome posture: `{posture}`** "),
-            format!("**Outcome posture:** `{posture}` — "),
-            format!("**Outcome posture:** `{posture}` - "),
-            format!("**Outcome posture:** `{posture}` "),
-            format!("Outcome posture: `{posture}` — "),
-            format!("Outcome posture: `{posture}` - "),
-            format!("Outcome posture: `{posture}` "),
-            format!("Outcome posture: {posture} — "),
-            format!("Outcome posture: {posture} - "),
-            format!("Outcome posture: {posture} "),
-            format!("**Outcome posture: {posture}** "),
-            format!("`{posture}` — "),
-            format!("`{posture}` - "),
-        ] {
-            cleaned = cleaned.replace(&marker, "");
+        for posture_variant in internal_evidence_posture_label_variants(posture) {
+            for marker in [
+                format!("**Posture: `{posture_variant}`** — "),
+                format!("**Posture: `{posture_variant}`** - "),
+                format!("**Posture: `{posture_variant}`** "),
+                format!("**Posture:** `{posture_variant}` — "),
+                format!("**Posture:** `{posture_variant}` - "),
+                format!("**Posture:** `{posture_variant}` "),
+                format!("Posture: `{posture_variant}` — "),
+                format!("Posture: `{posture_variant}` - "),
+                format!("Posture: `{posture_variant}` "),
+                format!("Posture: {posture_variant} — "),
+                format!("Posture: {posture_variant} - "),
+                format!("Posture: {posture_variant} "),
+                format!("**Outcome posture: `{posture_variant}`** — "),
+                format!("**Outcome posture: `{posture_variant}`** - "),
+                format!("**Outcome posture: `{posture_variant}`** "),
+                format!("**Outcome posture:** `{posture_variant}` — "),
+                format!("**Outcome posture:** `{posture_variant}` - "),
+                format!("**Outcome posture:** `{posture_variant}` "),
+                format!("Outcome posture: `{posture_variant}` — "),
+                format!("Outcome posture: `{posture_variant}` - "),
+                format!("Outcome posture: `{posture_variant}` "),
+                format!("Outcome posture: {posture_variant} — "),
+                format!("Outcome posture: {posture_variant} - "),
+                format!("Outcome posture: {posture_variant} "),
+                format!("**Outcome posture: {posture_variant}** "),
+                format!("`{posture_variant}` — "),
+                format!("`{posture_variant}` - "),
+            ] {
+                cleaned = cleaned.replace(&marker, "");
+            }
         }
     }
     cleaned
+}
+
+fn internal_evidence_posture_label_variants(posture: &str) -> Vec<String> {
+    let mut variants = vec![posture.to_string(), posture.to_ascii_uppercase()];
+    if let Some(first) = posture.chars().next() {
+        let rest = &posture[first.len_utf8()..];
+        variants.push(format!("{}{}", first.to_ascii_uppercase(), rest));
+    }
+    variants.sort();
+    variants.dedup();
+    variants
 }
 
 fn strip_trailing_research_follow_up_offer(response_text: &str) -> String {
@@ -380,6 +397,16 @@ mod visible_response_sanitizer_tests {
     fn sanitizer_strips_markdown_internal_evidence_posture_prefix_from_visible_answer() {
         let response =
             "**bounded_partial_answer** Based on the retrieved evidence, here is the useful answer.";
+        assert_eq!(
+            sanitize_workflow_visible_response_text(response),
+            "Based on the retrieved evidence, here is the useful answer."
+        );
+    }
+
+    #[test]
+    fn sanitizer_strips_capitalized_markdown_internal_evidence_posture_prefix() {
+        let response =
+            "**Bounded_partial_answer** Based on the retrieved evidence, here is the useful answer.";
         assert_eq!(
             sanitize_workflow_visible_response_text(response),
             "Based on the retrieved evidence, here is the useful answer."

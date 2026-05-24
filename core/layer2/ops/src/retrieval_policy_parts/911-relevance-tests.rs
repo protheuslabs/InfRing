@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (retrieval policy authority tests)
+
 mod web_quality_diagnostics_tests {
     use super::*;
     use std::sync::Mutex;
@@ -934,6 +937,31 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn evidence_selection_preserves_pack_ready_materialization_preference_when_covering_facets() {
+        let facet = research_facet_from_metadata_text("diplomacy", 0, "facet").expect("facet");
+        let stronger_materialized = materialized_candidate(
+            "https://www.aljazeera.com/news/2026/5/21/diplomacy-summit-terms",
+            "This week's world news includes a May 21, 2026 diplomacy report where mediators outlined ceasefire terms, trade concessions, and regional security commitments.",
+        );
+        let mut higher_score_feed = structured_feed_candidate(
+            "https://www.reuters.com/world/diplomacy-roundup",
+            "This week's world news includes a May 21, 2026 diplomacy roundup where mediators outlined ceasefire terms and regional commitments in a concise feed summary.",
+        );
+        higher_score_feed.title = "Diplomacy roundup".to_string();
+
+        let selected = select_pack_ready_ranked_candidates(
+            "Give me the biggest world news from this week.",
+            vec![(higher_score_feed, 0.99), (stronger_materialized.clone(), 0.78)],
+            &[facet],
+            1,
+            1,
+        );
+
+        assert_eq!(selected.len(), 1, "{selected:#?}");
+        assert_eq!(selected[0].0.locator, stronger_materialized.locator);
+    }
+
+    #[test]
     fn social_video_shell_rows_do_not_count_as_usable_evidence() {
         let mut candidate = materialized_candidate(
             "https://www.tiktok.com/@reviewer/video/123",
@@ -1678,6 +1706,47 @@ mod web_quality_diagnostics_tests {
             first.get("counts_as_usable_evidence")
                 .and_then(Value::as_bool),
             Some(false),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
+    fn materialized_category_pages_do_not_count_as_usable_evidence_even_when_content_rich() {
+        let mut candidate = candidate(
+            "https://thegeochronicle.example/category/social-media-posts/",
+            "Social Media Posts 2026 Red Sea Conflict: Geopolitical Risk for Global Logistics and Investors. As of May 23, 2026, shipping insurers raised premiums and carriers warned of Suez route disruptions affecting Q3 planning.",
+        );
+        candidate.source_kind = "web_conduit_fetch_page_enriched".to_string();
+        candidate.permissions = Some("public_web;page_enriched".to_string());
+
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "what are the current shipping disruptions this month",
+            &[],
+            1,
+            &[(candidate, 0.99)],
+            1,
+        );
+        let first = pack.pointer("/0").expect("evidence row");
+        assert!(
+            first
+                .get("quality_flags")
+                .and_then(Value::as_array)
+                .map(|flags| flags
+                    .iter()
+                    .any(|flag| flag.as_str() == Some("listing_or_index_path")))
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+        assert_eq!(
+            first.get("counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{first:#?}"
+        );
+        assert_eq!(
+            first.get("confidence").and_then(Value::as_str),
+            Some("candidate_only"),
             "{first:#?}"
         );
     }

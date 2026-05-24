@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (retrieval policy authority)
+
 fn current_web_intent(query: &str) -> bool {
     let lowered = clean_text(query, 600).to_ascii_lowercase();
     if lowered.contains(&current_year()) {
@@ -442,6 +445,9 @@ fn candidate_quality_flags(query: &str, candidate: &Candidate, score: f64) -> Ve
     if looks_like_social_video_shell(candidate) {
         flags.push("social_video_shell".to_string());
     }
+    if page_extraction_link_has_listing_or_index_path(&candidate.locator) {
+        flags.push("listing_or_index_path".to_string());
+    }
     if looks_like_link_directory_or_aggregator_shell(&snippet) {
         flags.push("link_directory_or_aggregator_shell".to_string());
     }
@@ -469,11 +475,30 @@ fn select_diverse_ranked_candidates(
     ranked: Vec<(Candidate, f64)>,
     max_evidence: usize,
 ) -> Vec<(Candidate, f64)> {
+    select_diverse_ranked_candidates_with_order(ranked, max_evidence, false)
+}
+
+fn select_diverse_ranked_candidates_preserving_order(
+    ranked: Vec<(Candidate, f64)>,
+    max_evidence: usize,
+) -> Vec<(Candidate, f64)> {
+    select_diverse_ranked_candidates_with_order(ranked, max_evidence, true)
+}
+
+fn select_diverse_ranked_candidates_with_order(
+    ranked: Vec<(Candidate, f64)>,
+    max_evidence: usize,
+    preserve_input_order: bool,
+) -> Vec<(Candidate, f64)> {
     let limit = max_evidence.max(1);
-    let sorted = sorted_ranked_candidates(ranked);
+    let ordered = if preserve_input_order {
+        ranked
+    } else {
+        sorted_ranked_candidates(ranked)
+    };
     let mut selected = Vec::<(Candidate, f64)>::new();
     let mut seen_domains = HashSet::<String>::new();
-    for row in &sorted {
+    for row in &ordered {
         let domain = candidate_domain_hint(&row.0).to_ascii_lowercase();
         if !domain.is_empty() && domain != "source" && !seen_domains.insert(domain) {
             continue;
@@ -483,7 +508,7 @@ fn select_diverse_ranked_candidates(
             return selected;
         }
     }
-    for row in sorted {
+    for row in ordered {
         if selected.iter().any(|(candidate, _)| {
             candidate.locator == row.0.locator && candidate.excerpt_hash == row.0.excerpt_hash
         }) {
@@ -577,9 +602,14 @@ fn select_pack_ready_ranked_candidates(
 
     let pack_ready = dedupe_ranked_candidates_by_locator_for_evidence(query, pack_ready);
     let mut selected = if facets.is_empty() {
-        select_diverse_ranked_candidates(pack_ready.clone(), limit)
+        select_diverse_ranked_candidates_preserving_order(pack_ready.clone(), limit)
     } else {
-        select_facet_covered_ranked_candidates(pack_ready.clone(), facets, limit, min_terms)
+        select_facet_covered_ranked_candidates_preserving_order(
+            pack_ready.clone(),
+            facets,
+            limit,
+            min_terms,
+        )
     };
     let mut selected_keys = selected
         .iter()
@@ -593,7 +623,9 @@ fn select_pack_ready_ranked_candidates(
                 !selected_keys.contains(&candidate_locator_identity_key(candidate))
             })
             .collect::<Vec<_>>();
-        for row in select_diverse_ranked_candidates(remaining_ready, limit - selected.len()) {
+        for row in
+            select_diverse_ranked_candidates_preserving_order(remaining_ready, limit - selected.len())
+        {
             selected_keys.insert(candidate_locator_identity_key(&row.0));
             selected.push(row);
             if selected.len() >= limit {
@@ -940,15 +972,54 @@ fn select_facet_covered_ranked_candidates(
     max_evidence: usize,
     min_terms: usize,
 ) -> Vec<(Candidate, f64)> {
+    select_facet_covered_ranked_candidates_with_order(
+        ranked,
+        facets,
+        max_evidence,
+        min_terms,
+        false,
+    )
+}
+
+fn select_facet_covered_ranked_candidates_preserving_order(
+    ranked: Vec<(Candidate, f64)>,
+    facets: &[ResearchFacet],
+    max_evidence: usize,
+    min_terms: usize,
+) -> Vec<(Candidate, f64)> {
+    select_facet_covered_ranked_candidates_with_order(
+        ranked,
+        facets,
+        max_evidence,
+        min_terms,
+        true,
+    )
+}
+
+fn select_facet_covered_ranked_candidates_with_order(
+    ranked: Vec<(Candidate, f64)>,
+    facets: &[ResearchFacet],
+    max_evidence: usize,
+    min_terms: usize,
+    preserve_input_order: bool,
+) -> Vec<(Candidate, f64)> {
     if facets.is_empty() {
-        return select_diverse_ranked_candidates(ranked, max_evidence);
+        return select_diverse_ranked_candidates_with_order(
+            ranked,
+            max_evidence,
+            preserve_input_order,
+        );
     }
     let limit = max_evidence.max(1);
-    let sorted = sorted_ranked_candidates(ranked);
+    let ordered = if preserve_input_order {
+        ranked
+    } else {
+        sorted_ranked_candidates(ranked)
+    };
     let mut selected = Vec::<(Candidate, f64)>::new();
     let mut selected_keys = HashSet::<String>::new();
     for facet in facets {
-        if let Some(row) = sorted.iter().find(|(candidate, _)| {
+        if let Some(row) = ordered.iter().find(|(candidate, _)| {
             !selected_keys.contains(&candidate_identity_key(candidate))
                 && candidate_matches_facet(facet, candidate, min_terms)
         }) {
@@ -959,11 +1030,15 @@ fn select_facet_covered_ranked_candidates(
             }
         }
     }
-    let remaining = sorted
+    let remaining = ordered
         .into_iter()
         .filter(|(candidate, _)| !selected_keys.contains(&candidate_identity_key(candidate)))
         .collect::<Vec<_>>();
-    for row in select_diverse_ranked_candidates(remaining, limit.saturating_sub(selected.len())) {
+    for row in select_diverse_ranked_candidates_with_order(
+        remaining,
+        limit.saturating_sub(selected.len()),
+        preserve_input_order,
+    ) {
         selected_keys.insert(candidate_identity_key(&row.0));
         selected.push(row);
         if selected.len() >= limit {
@@ -1979,6 +2054,7 @@ fn candidate_has_non_evidence_payload(candidate: &Candidate) -> bool {
     contains_web_junk_marker(&combined)
         || looks_like_style_or_script_dump(&candidate.snippet)
         || looks_like_social_video_shell(candidate)
+        || page_extraction_link_has_listing_or_index_path(&candidate.locator)
         || looks_like_link_directory_or_aggregator_shell(&candidate.snippet)
         || looks_like_page_chrome_or_unavailable_shell(&candidate.snippet)
 }
@@ -2002,6 +2078,7 @@ fn quality_flags_block_query_usable_evidence(
                 "junk_marker"
                     | "style_or_script_dump"
                     | "social_video_shell"
+                    | "listing_or_index_path"
                     | "link_directory_or_aggregator_shell"
                     | "page_chrome_or_unavailable_shell"
                     | "weak_query_overlap_only"
@@ -4816,6 +4893,68 @@ fn page_extraction_link_has_article_like_path(link: &str) -> bool {
         || has_doi_marker
         || (has_article_marker && (segments.len() >= 3 || has_long_slug))
         || (segments.len() >= 3 && has_long_slug)
+}
+
+fn page_extraction_link_has_listing_or_index_path(link: &str) -> bool {
+    let Some((_, _, path, query)) = parse_page_extraction_http_url(link) else {
+        return false;
+    };
+    if page_extraction_link_has_article_like_path(link) {
+        return false;
+    }
+    let path_lower = clean_text(path, 1_800).to_ascii_lowercase();
+    if path_lower.is_empty() || path_lower == "/" {
+        return false;
+    }
+    let query_lower = clean_text(query.unwrap_or(""), 600).to_ascii_lowercase();
+    if query_lower.starts_with("page=")
+        || query_lower.contains("&page=")
+        || query_lower.starts_with("paged=")
+        || query_lower.contains("&paged=")
+        || query_lower.starts_with("s=")
+        || query_lower.contains("&s=")
+        || query_lower.starts_with("search=")
+        || query_lower.contains("&search=")
+    {
+        return true;
+    }
+    let segments = path_lower
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    if segments.is_empty() {
+        return false;
+    }
+    if segments.iter().any(|segment| {
+        matches!(
+            *segment,
+            "category"
+                | "categories"
+                | "tag"
+                | "tags"
+                | "topic"
+                | "topics"
+                | "archive"
+                | "archives"
+                | "author"
+                | "authors"
+                | "search"
+                | "results"
+                | "feed"
+                | "feeds"
+                | "rss"
+                | "section"
+                | "sections"
+                | "label"
+                | "labels"
+        )
+    }) {
+        return true;
+    }
+    matches!(
+        segments.last().copied().unwrap_or_default(),
+        "index" | "latest" | "latest-news" | "latest-updates" | "all-posts"
+    ) && segments.len() <= 3
 }
 
 fn candidate_looks_like_relevant_discovery_hub(query: &str, candidate: &Candidate) -> bool {

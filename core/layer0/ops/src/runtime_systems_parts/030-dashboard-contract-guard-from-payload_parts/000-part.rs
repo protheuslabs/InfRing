@@ -1,3 +1,5 @@
+// Layer ownership: core/layer0/ops (authoritative)
+
 fn dashboard_contract_guard_from_payload(payload: &Value) -> Value {
     let input_text = payload_string(payload, "input_text", "");
     let lowered = input_text.to_ascii_lowercase();
@@ -6,6 +8,36 @@ fn dashboard_contract_guard_from_payload(payload: &Value) -> Value {
         payload_u64(payload, "rogue_message_rate_max_per_min", 20).clamp(1, 1_000_000);
 
     let contains_any = |terms: &[&str]| -> bool { terms.iter().any(|term| lowered.contains(term)) };
+    let normalized_words = lowered
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { ' ' })
+        .collect::<String>();
+    let has_word = |word: &str| {
+        normalized_words
+            .split_whitespace()
+            .any(|token| token == word)
+    };
+    let has_any_word = |terms: &[&str]| terms.iter().any(|term| has_word(term));
+    let sensitive_target = contains_any(&[
+        "api key",
+        "private key",
+        "customer data",
+        "user data",
+        "access token",
+    ]) || has_any_word(&[
+        "secret",
+        "secrets",
+        "credential",
+        "credentials",
+        "password",
+        "passwords",
+        "token",
+        "tokens",
+        "pii",
+    ]);
+    let malicious_secret_action = has_any_word(&["exfiltrate", "steal"])
+        || contains_any(&["data exfil"])
+        || (has_any_word(&["dump", "leak", "expose", "extract"]) && sensitive_target);
 
     let mut reason = String::new();
     let mut detail = String::new();
@@ -14,7 +46,7 @@ fn dashboard_contract_guard_from_payload(payload: &Value) -> Value {
     {
         reason = "contract_override_attempt".to_string();
         detail = "input_requested_contract_bypass".to_string();
-    } else if contains_any(&["exfiltrate", "steal", "dump secrets", "leak", "data exfil"]) {
+    } else if malicious_secret_action {
         reason = "data_exfiltration_attempt".to_string();
         detail = "input_requested_exfiltration".to_string();
     } else if contains_any(&["extend", "increase"])
