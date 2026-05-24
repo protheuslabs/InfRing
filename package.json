@@ -197,6 +197,7 @@
     "foundation:simplicity:capture-baseline": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/ops/simplicity_budget_gate.ts capture-baseline",
     "foundation:simplicity:offset-backfill": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/ops/simplicity_offset_backfill.ts run --apply=1",
     "foundation:simplicity:run": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/ops/simplicity_budget_gate.ts run --strict=1",
+    "ops:coding-primitive-hardcoding:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/primitive_first_doctrine_guard.ts --strict=1 --scan-kind=coding-synthesis --out-json=core/local/artifacts/coding_primitive_hardcoding_guard_current.json --out-markdown=local/workspace/reports/CODING_PRIMITIVE_HARDCODING_GUARD_CURRENT.md",
     "ops:primitive-first:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/primitive_first_doctrine_guard.ts --strict=1 --out-json=core/local/artifacts/primitive_first_doctrine_guard_current.json --out-markdown=local/workspace/reports/PRIMITIVE_FIRST_DOCTRINE_GUARD_CURRENT.md",
     "fractal:child:rollback": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/fractal/child_organ_runtime.ts rollback",
     "fractal:child:run": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/fractal/child_organ_runtime.ts run",

@@ -180,6 +180,17 @@
         "local/workspace/reports/PRIMITIVE_FIRST_DOCTRINE_GUARD_CURRENT.md"
       ]
     },
+    "ops:coding-primitive-hardcoding:guard": {
+      "owner": "governance",
+      "description": "Focused primitive-first coding guard that rejects production fixture/test/probe-derived implementation synthesis.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "script": "ops:coding-primitive-hardcoding:guard",
+      "artifact_paths": [
+        "core/local/artifacts/coding_primitive_hardcoding_guard_current.json",
+        "local/workspace/reports/CODING_PRIMITIVE_HARDCODING_GUARD_CURRENT.md"
+      ]
+    },
     "ops:repo-health:check": {
       "owner": "ops",
       "description": "Repo health gate for package-script budget, file-size exception debt, shared tooling adoption, and root-surface drift.",

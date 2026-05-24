@@ -145,6 +145,47 @@ When reference artifacts from successful systems are available, use them before 
 
 Patching without updating the model, primitive contract, composition boundary, tool contract, profile, or eval boundary is method regression unless the patch is an obvious local implementation bug.
 
+## Coding workflow anti-hardcoding law
+
+Coding workflows must build coding capability through reusable primitives:
+
+- `safe_file_read`
+- `safe_file_write`
+- `safe_file_patch`
+- `command_run`
+- validation receipt tracking
+- context selection
+- edit planning
+- bounded repair
+- final receipt synthesis
+
+Production coding runtime must not synthesize domain implementation logic from eval fixtures, benchmark prompts, local probes, semantic probe examples, test assertions, or one observed project shape.
+
+Forbidden in production coding paths:
+
+- Deriving implementation bodies such as arithmetic, parsing, slugification, routing, API behavior, or data transforms from one fixture or probe.
+- Branching on eval level, package name, symbol name, test file name, fixture app shape, generated project shape, or benchmark prompt wording.
+- Creating runtime success shortcuts that pass one coding level without improving the general edit primitive.
+- Treating a semantic probe, failing test, or expected output as an implementation recipe inside the runtime.
+- Adding deterministic "smart" synthesis for one language/task shape unless it is promoted as a general primitive with cross-case tests and an explicit owner.
+
+Allowed in production coding paths:
+
+- Parsing validation command boundaries.
+- Tracking post-mutation validation receipts.
+- Identifying owner-file constraints as placement constraints.
+- Building a context pack from local evidence.
+- Asking a model or declared edit primitive to produce a general edit plan.
+- Applying and validating model-proposed edits through generic tools.
+- Returning a structured blocker when evidence is insufficient.
+
+Fixture-specific expectations belong only in eval harnesses, test fixtures, scorers, goldens, or clearly marked examples. If production code needs behavior that looks special, promote it through the special-case promotion policy before wiring it into runtime.
+
+Enforcement gates:
+
+- `ops:primitive-first:guard` checks the repo-wide doctrine surface and broad production hardcoding signals.
+- `ops:coding-primitive-hardcoding:guard` specifically rejects production coding-runtime fixture/test/probe-derived implementation synthesis.
+
 ## Review checklist
 
 Before merging or promoting a change, ask:
@@ -160,6 +201,7 @@ Before merging or promoting a change, ask:
 - Did the patch update the correct model, primitive, composition boundary, tool contract, profile, or eval boundary rather than only the symptom?
 - If reference artifacts exist for this behavior, were they checked or was the reason for invention documented?
 - Does the change preserve a cheap path for simple tasks when speed matters?
+- Does any coding-runtime change derive domain implementation logic from a fixture, probe, test assertion, expected output, or benchmark prompt?
 
 ## Violation signals
 
@@ -175,5 +217,6 @@ Treat these as doctrine violations:
 - The only way to change behavior is to edit Rust or TypeScript case branches instead of changing a contract, policy, config, adapter declaration, or workflow/tool CD.
 - Eval failures trigger repeated production patches without failure classification or model/contract updates.
 - A successful external-system pattern is copied as prompt wording instead of being converted into a reusable primitive behavior.
+- A coding runtime generates implementation bodies directly from probe/test examples instead of using a declared edit primitive or model edit plan.
 
 When these signals appear, stop adding special cases and repair the abstraction boundary.

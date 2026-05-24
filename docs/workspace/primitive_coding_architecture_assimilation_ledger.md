@@ -991,3 +991,52 @@ Rules:
 - final success must recompute required changed-path and test-change evidence
   from prompt plus receipts, not only from transient repair-reason state
 - no eval level names or fixture file names may appear in runtime logic
+
+## Rejected pattern: fixture-derived implementation synthesis
+
+Status: `forbidden_in_production`
+
+Incident source:
+
+- A local coding optimization attempted to inspect public API bindings plus
+  Python tests/probes and synthesize missing function bodies directly in the
+  Rust runtime.
+- The path could pass a narrow eval quickly by deriving an implementation body
+  from fixture-shaped evidence instead of improving general coding ability.
+
+Why this is rejected:
+
+- It creates fake capability: the benchmark passes without proving the agent can
+  plan, edit, validate, or repair arbitrary software.
+- It violates primitive monotonicity because a higher-level eval patch can
+  distort lower-level runtime behavior.
+- It makes metrics untrustworthy by moving task-specific reasoning into hidden
+  production branches.
+
+Forbidden production behaviors:
+
+- derive arithmetic/string/router/API/data-transform implementation bodies from
+  local probe examples or assertions
+- branch on package names, symbol names, fixture file names, eval levels, or
+  benchmark prompt shapes
+- return success from deterministic synthesis that bypasses the generic edit
+  primitive or model edit plan
+
+Allowed replacement:
+
+- use local evidence only for context selection, owner-file constraints,
+  validation commands, and completion evidence
+- ask the model or a declared general edit primitive for the edit plan
+- apply edits through generic file tools with receipts
+- validate using command receipts and repair through bounded generic repair
+- keep fixture-specific expected behavior in eval fixtures and scorers only
+
+Enforcement:
+
+- `ops:primitive-first:guard` rejects production fixture/test/probe-derived
+  implementation synthesis patterns.
+- `ops:coding-primitive-hardcoding:guard` is the focused clean gate for this
+  specific failure class.
+- Any future deterministic coding synthesis must be registered as a primitive,
+  have cross-case tests, document its extension surface, and remain disabled in
+  production until promoted.

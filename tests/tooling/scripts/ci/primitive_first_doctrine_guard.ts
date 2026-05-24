@@ -74,6 +74,7 @@ type Args = {
   allowlistPath: string;
   registryPath: string;
   regressionGatesPath: string;
+  scanKind: string;
   outJson: string;
   outMarkdown: string;
   includeControlledViolation: boolean;
@@ -120,6 +121,7 @@ const REQUIRED_DOC_TOKENS: Record<string, string[]> = {
     'Production behavior must be primitive first.',
     'Hardcoding behavior for a specific case is forbidden',
     'Hardcoding is allowed inside explicit test and eval boundaries.',
+    'Coding workflow anti-hardcoding law',
     'primitive_capability_registry.json',
   ],
   'docs/workspace/REAL_WORK_FIRST.md': [
@@ -169,7 +171,24 @@ const RULES: Rule[] = [
     pattern:
       /\b(if|else if|match|switch)\b[^\n]{0,220}\b(verifier|rubric|grader|expected_output|expectedOutput)\b[^\n]{0,220}["'`]/i,
   },
+  {
+    kind: 'fixture_derived_coding_synthesis',
+    detail: 'Production coding runtime must not synthesize domain implementation bodies from fixture, test, probe, or benchmark evidence; use declared primitives, model edit plans, and generic file tools.',
+    pattern:
+      /\b(probe_derived|fixture_derived|test_derived|benchmark_derived)[A-Za-z0-9_]*(patch|implementation|synthesis|edit)|\b[A-Za-z0-9_]*(infer|derive|synthesi[sz]e)[A-Za-z0-9_]*(expression|implementation|function_body|domain_code)\b/i,
+  },
+  {
+    kind: 'production_domain_code_template',
+    detail: 'Production runtime must not contain generated domain-code templates for eval-like implementation bodies; reusable code generation must be a registered primitive with cross-case tests or stay in eval fixtures.',
+    pattern:
+      /\bappend_functions\b|\breturn\s+\{expression\}|\bruntime_lane_try_[A-Za-z0-9_]*evidence_synthesis\b/i,
+  },
 ];
+
+const CODING_SYNTHESIS_RULE_KINDS = new Set([
+  'fixture_derived_coding_synthesis',
+  'production_domain_code_template',
+]);
 
 function normalizePath(value: string): string {
   return value.replace(/\\/g, '/').replace(/^\.\//, '');
@@ -205,6 +224,7 @@ function parseArgs(argv: string[]): Args {
     allowlistPath: readFlag(argv, 'allowlist') || DEFAULT_ALLOWLIST,
     registryPath: readFlag(argv, 'registry') || DEFAULT_PRIMITIVE_REGISTRY,
     regressionGatesPath: readFlag(argv, 'regression-gates') || DEFAULT_REGRESSION_GATES,
+    scanKind: readFlag(argv, 'scan-kind') || 'repo',
     outJson: readFlag(argv, 'out-json') || out,
     outMarkdown: readFlag(argv, 'out-markdown') || DEFAULT_OUT_MD,
     includeControlledViolation: parseBool(readFlag(argv, 'include-controlled-violation'), false),
@@ -494,7 +514,11 @@ function validateDocs(violations: Violation[]): void {
   }
 }
 
-function scanProductionFiles(allowlist: Allowlist, violations: Violation[]): number {
+function scanProductionFiles(
+  allowlist: Allowlist,
+  violations: Violation[],
+  ruleFilter?: Set<string>,
+): number {
   let scanned = 0;
   for (const file of trackedFiles()) {
     if (!shouldScanFile(file)) continue;
@@ -507,6 +531,7 @@ function scanProductionFiles(allowlist: Allowlist, violations: Violation[]): num
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
       for (const rule of RULES) {
+        if (ruleFilter && !ruleFilter.has(rule.kind)) continue;
         if (rule.kind === 'case_specific_workflow_literal' && !workflowOrToolContract) continue;
         if (!rule.pattern.test(line)) continue;
         const violation: Violation = {
@@ -529,6 +554,7 @@ function markdown(payload: any): string {
   lines.push('');
   lines.push(`- Generated at: ${payload.generated_at}`);
   lines.push(`- Pass: ${payload.ok}`);
+  lines.push(`- Scan kind: ${payload.scan_kind}`);
   lines.push(`- Allowlist: ${payload.allowlist_path}`);
   lines.push(`- Files scanned: ${payload.summary.files_scanned}`);
   lines.push(`- Violations: ${payload.summary.violations}`);
@@ -546,6 +572,7 @@ function markdown(payload: any): string {
   lines.push('## Doctrine');
   lines.push('- Production behavior must be primitive first.');
   lines.push('- Specific-case hardcoding is allowed only inside explicit test/eval boundaries.');
+  lines.push('- Coding runtimes must not synthesize domain implementation bodies from fixture, test, probe, or benchmark evidence.');
   lines.push('- Legitimate production specificity must be represented as primitives, contracts, policies, schemas, adapters, profiles, config, or composition.');
   return `${lines.join('\n')}\n`;
 }
@@ -562,10 +589,21 @@ async function run(argv = process.argv.slice(2)) {
   const regressionGates = readJson<RegressionGateContract>(args.regressionGatesPath);
   const violations: Violation[] = [];
   validateDocs(violations);
-  validateAllowlist(allowlist, violations);
-  validatePrimitiveRegistry(primitiveRegistry, violations);
-  validateRegressionGateContract(regressionGates, args.regressionGatesPath, violations);
-  const filesScanned = scanProductionFiles(allowlist, violations);
+  if (args.scanKind === 'repo') {
+    validateAllowlist(allowlist, violations);
+    validatePrimitiveRegistry(primitiveRegistry, violations);
+    validateRegressionGateContract(regressionGates, args.regressionGatesPath, violations);
+  } else if (args.scanKind === 'coding-synthesis') {
+    validateAllowlist(allowlist, violations);
+  } else {
+    violations.push({
+      kind: 'primitive_first_scan_kind_invalid',
+      path: 'tests/tooling/scripts/ci/primitive_first_doctrine_guard.ts',
+      detail: `Unknown scan kind: ${args.scanKind}`,
+    });
+  }
+  const ruleFilter = args.scanKind === 'coding-synthesis' ? CODING_SYNTHESIS_RULE_KINDS : undefined;
+  const filesScanned = scanProductionFiles(allowlist, violations, ruleFilter);
   if (args.includeControlledViolation) {
     violations.push({
       kind: 'controlled_primitive_first_violation',
@@ -576,6 +614,7 @@ async function run(argv = process.argv.slice(2)) {
   const payload = {
     generated_at: new Date().toISOString(),
     ok: violations.length === 0,
+    scan_kind: args.scanKind,
     allowlist_path: args.allowlistPath,
     primitive_registry_path: args.registryPath,
     regression_gates_path: args.regressionGatesPath,
