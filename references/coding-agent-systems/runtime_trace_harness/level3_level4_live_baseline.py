@@ -677,6 +677,9 @@ def _summarize_claude_code_stream(stdout: str) -> dict[str, Any]:
     tool_names: list[str] = []
     parse_errors = 0
     event_count = 0
+    result_is_error = False
+    api_error_status = None
+    result_text = ""
     for line in stdout.splitlines():
         line = line.strip()
         if not line:
@@ -689,6 +692,11 @@ def _summarize_claude_code_stream(stdout: str) -> dict[str, Any]:
         event_count += 1
         event_type = str(event.get("type") or event.get("event") or "unknown")
         event_types[event_type] = event_types.get(event_type, 0) + 1
+        if event_type == "result":
+            result_is_error = bool(event.get("is_error"))
+            api_error_status = event.get("api_error_status")
+            if isinstance(event.get("result"), str):
+                result_text = event["result"]
         tool_names.extend(_collect_claude_code_tool_names(event))
     return {
         "event_count": event_count,
@@ -696,6 +704,9 @@ def _summarize_claude_code_stream(stdout: str) -> dict[str, Any]:
         "tool_use_names": tool_names,
         "tool_use_count": len(tool_names),
         "json_parse_error_count": parse_errors,
+        "result_is_error": result_is_error,
+        "api_error_status": api_error_status,
+        "result_text": result_text,
     }
 
 
@@ -704,13 +715,17 @@ def run_claude_code(job: dict[str, Any], model: str) -> dict[str, Any]:
     if not claude_bin:
         return {"ok": False, "blocked": "cli_missing:claude", "wall_time_ms": None}
     requested_model = model
-    claude_model = model
-    if not (
-        model in {"sonnet", "opus", "haiku"}
-        or model.startswith("claude-")
-        or model.startswith("anthropic/")
-    ):
-        claude_model = os.environ.get("INFRING_CLAUDE_CODE_MODEL", "sonnet")
+    claude_model = os.environ.get("INFRING_CLAUDE_CODE_MODEL", model)
+    if claude_model != requested_model:
+        return {
+            "ok": False,
+            "blocked": "claude_code_control_model_mismatch",
+            "wall_time_ms": None,
+            "model": claude_model,
+            "requested_model": requested_model,
+            "model_controlled": False,
+            "model_routing_note": "Claude Code comparison requires the requested harness model. Set INFRING_CLAUDE_CODE_MODEL equal to --model or unset it.",
+        }
     outputs = job["project_root"] / ".infring" / "system_outputs" / "claude-code"
     outputs.mkdir(parents=True, exist_ok=True)
     prompt_path = outputs / "prompt.txt"
@@ -747,16 +762,25 @@ def run_claude_code(job: dict[str, Any], model: str) -> dict[str, Any]:
     stdout_path.write_text(result.get("stdout") or "", encoding="utf-8")
     stderr_path.write_text(result.get("stderr") or "", encoding="utf-8")
     stream_summary = _summarize_claude_code_stream(result.get("stdout") or "")
+    control_model_unavailable = (
+        stream_summary["result_is_error"]
+        and stream_summary["api_error_status"] in {400, 404}
+        and requested_model in stream_summary["result_text"]
+    )
     return {
-        "ok": result["ok"],
+        "ok": result["ok"] and not stream_summary["result_is_error"],
+        "blocked": "claude_code_control_model_unavailable" if control_model_unavailable else None,
         "wall_time_ms": result["wall_time_ms"],
         "model": claude_model,
         "requested_model": requested_model,
-        "model_routing_note": None
-        if claude_model == requested_model
-        else "Claude Code does not accept this harness model directly; routed through INFRING_CLAUDE_CODE_MODEL or sonnet.",
+        "model_controlled": claude_model == requested_model,
+        "model_routing_note": "Claude Code was invoked with the requested harness control model.",
         "cli_path": claude_bin,
-        "error": result.get("stderr_tail") if not result["ok"] else None,
+        "error": stream_summary["result_text"]
+        if stream_summary["result_is_error"]
+        else result.get("stderr_tail")
+        if not result["ok"]
+        else None,
         "stdout_path": str(stdout_path),
         "stderr_path": str(stderr_path),
         "debug_path": str(debug_path),
@@ -766,6 +790,8 @@ def run_claude_code(job: dict[str, Any], model: str) -> dict[str, Any]:
         "tool_use_names": stream_summary["tool_use_names"],
         "tool_use_count": stream_summary["tool_use_count"],
         "stream_json_parse_error_count": stream_summary["json_parse_error_count"],
+        "stream_result_is_error": stream_summary["result_is_error"],
+        "stream_api_error_status": stream_summary["api_error_status"],
     }
 
 
