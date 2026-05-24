@@ -712,8 +712,9 @@ def _summarize_claude_code_stream(stdout: str) -> dict[str, Any]:
 
 def run_claude_code(job: dict[str, Any], model: str) -> dict[str, Any]:
     claude_bin = shutil.which("claude")
-    if not claude_bin:
-        return {"ok": False, "blocked": "cli_missing:claude", "wall_time_ms": None}
+    ollama_bin = shutil.which("ollama")
+    if not claude_bin and not ollama_bin:
+        return {"ok": False, "blocked": "cli_missing:claude_and_ollama", "wall_time_ms": None}
     requested_model = model
     claude_model = os.environ.get("INFRING_CLAUDE_CODE_MODEL", model)
     if claude_model != requested_model:
@@ -739,25 +740,69 @@ def run_claude_code(job: dict[str, Any], model: str) -> dict[str, Any]:
         + "\nRun the semantic probe too. Do not commit.",
         encoding="utf-8",
     )
-    result = run_cmd(
-        [
+    bridge_mode = os.environ.get("INFRING_CLAUDE_CODE_BRIDGE", "ollama-launch").strip().lower()
+    if bridge_mode not in {"ollama-launch", "anthropic-base-url", "direct"}:
+        bridge_mode = "ollama-launch"
+    if bridge_mode == "ollama-launch" and not ollama_bin:
+        return {
+            "ok": False,
+            "blocked": "claude_code_ollama_launch_unavailable",
+            "wall_time_ms": None,
+            "model": claude_model,
+            "requested_model": requested_model,
+            "model_controlled": True,
+            "model_routing_note": "Claude Code control run requires ollama launch for Ollama model routing, but ollama was not found.",
+        }
+    if bridge_mode != "ollama-launch" and not claude_bin:
+        return {"ok": False, "blocked": "cli_missing:claude", "wall_time_ms": None}
+    common_args = [
+        "--print",
+        "--output-format=stream-json",
+        "--verbose",
+        "--include-partial-messages",
+        "--no-session-persistence",
+        "--permission-mode=bypassPermissions",
+        "--tools=Read,Edit,MultiEdit,Write,Bash",
+        f"--allowedTools=Read,Edit,MultiEdit,Write,Bash",
+        f"--debug-file={debug_path}",
+        f"--model={claude_model}",
+        f"--add-dir={job['project_root']}",
+        prompt_path.read_text(encoding="utf-8"),
+    ]
+    if bridge_mode == "ollama-launch":
+        command = [
+            ollama_bin,
+            "launch",
+            "claude",
+            "--model",
+            claude_model,
+            "--yes",
+            "--",
+            *common_args,
+        ]
+        env = os.environ | {"PYTHONPATH": "."}
+    elif bridge_mode == "anthropic-base-url":
+        command = [
             claude_bin,
-            "--print",
-            "--output-format=stream-json",
-            "--verbose",
-            "--include-partial-messages",
-            "--no-session-persistence",
-            "--permission-mode=bypassPermissions",
-            "--tools=Read,Edit,MultiEdit,Write,Bash",
-            f"--allowedTools=Read,Edit,MultiEdit,Write,Bash",
-            f"--debug-file={debug_path}",
-            f"--model={claude_model}",
-            f"--add-dir={job['project_root']}",
-            prompt_path.read_text(encoding="utf-8"),
-        ],
+            *common_args,
+        ]
+        env = os.environ | {
+            "PYTHONPATH": ".",
+            "ANTHROPIC_AUTH_TOKEN": "ollama",
+            "ANTHROPIC_API_KEY": "",
+            "ANTHROPIC_BASE_URL": os.environ.get("ANTHROPIC_BASE_URL", "http://localhost:11434"),
+        }
+    else:
+        command = [
+            claude_bin,
+            *common_args,
+        ]
+        env = os.environ | {"PYTHONPATH": "."}
+    result = run_cmd(
+        command,
         cwd=job["project_root"],
         timeout=300,
-        env=os.environ | {"PYTHONPATH": "."},
+        env=env,
     )
     stdout_path.write_text(result.get("stdout") or "", encoding="utf-8")
     stderr_path.write_text(result.get("stderr") or "", encoding="utf-8")
@@ -767,15 +812,26 @@ def run_claude_code(job: dict[str, Any], model: str) -> dict[str, Any]:
         and stream_summary["api_error_status"] in {400, 404}
         and requested_model in stream_summary["result_text"]
     )
+    bridge_unavailable = stream_summary["result_is_error"] and (
+        "ollama" in stream_summary["result_text"].lower()
+        or "base url" in stream_summary["result_text"].lower()
+        or "api key" in stream_summary["result_text"].lower()
+    )
     return {
         "ok": result["ok"] and not stream_summary["result_is_error"],
-        "blocked": "claude_code_control_model_unavailable" if control_model_unavailable else None,
+        "blocked": "claude_code_control_model_unavailable"
+        if control_model_unavailable
+        else "claude_code_ollama_bridge_unavailable"
+        if bridge_unavailable
+        else None,
         "wall_time_ms": result["wall_time_ms"],
         "model": claude_model,
         "requested_model": requested_model,
         "model_controlled": claude_model == requested_model,
-        "model_routing_note": "Claude Code was invoked with the requested harness control model.",
+        "model_routing_note": f"Claude Code was invoked with the requested harness control model through bridge={bridge_mode}.",
+        "bridge_mode": bridge_mode,
         "cli_path": claude_bin,
+        "ollama_path": ollama_bin,
         "error": stream_summary["result_text"]
         if stream_summary["result_is_error"]
         else result.get("stderr_tail")
