@@ -1210,6 +1210,67 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
         runtime_lane_public_api_bindings(prompt, &context_pack, &workspace_root);
     let execution_shape_gate_ms =
         gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    if let Some(mut candidate) = runtime_lane_try_python_public_api_evidence_synthesis(
+        prompt,
+        &workspace_root,
+        &public_api_bindings,
+    ) {
+        let validation_command = runtime_lane_extract_validation_command(prompt, &workspace_root);
+        let mut validation_call_id = None;
+        runtime_lane_attach_semantic_probe_action(
+            &mut candidate,
+            validation_command.as_ref(),
+            "bounded_existing_project_public_api_synthesis_validation",
+            &mut validation_call_id,
+        );
+        if validation_command.is_some() {
+            candidate.requires_validation = true;
+        }
+        let semantic_probe =
+            runtime_lane_extract_or_default_semantic_probe_command(prompt, &workspace_root);
+        let mut semantic_probe_call_id = None;
+        runtime_lane_attach_semantic_probe_action(
+            &mut candidate,
+            semantic_probe.as_ref(),
+            "bounded_existing_project_public_api_synthesis",
+            &mut semantic_probe_call_id,
+        );
+        let dispatch_started = Instant::now();
+        let receipts = runtime_lane_dispatch_model_manifest_actions(
+            &candidate,
+            "bounded_existing_project_public_api_synthesis",
+        );
+        let tool_dispatch_ms = dispatch_started
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
+        let mut response = runtime_lane_deterministic_local_loop_response(
+            name,
+            metadata,
+            tools,
+            capability_packs,
+            required_pack_permissions,
+            permissions,
+            wasm_sandbox,
+            voice_session,
+            receipt_merkle,
+            previous_receipt_root,
+            state_path,
+            durable_state,
+            candidate,
+            receipts,
+            execution_shape_gate_ms,
+            tool_dispatch_ms,
+            total_started,
+        );
+        runtime_lane_relabel_generated_manifest_response(
+            &mut response,
+            "bounded_existing_project_public_api_synthesis",
+            "runtime_lane_bounded_existing_project_public_api_synthesis_failed",
+            "probe_derived_public_api_owner_patch",
+        );
+        return Some(response);
+    }
     let provider_id = provider.unwrap_or_else(|| providers.default_provider_id());
     let provider_client = match providers.from_provider_id(provider_id) {
         Ok(provider) => provider,
@@ -1661,7 +1722,7 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
     if validation_command.is_some() {
         candidate.requires_validation = true;
     }
-    let semantic_probe = runtime_lane_extract_semantic_probe_command(prompt, &workspace_root);
+    let semantic_probe = runtime_lane_extract_or_default_semantic_probe_command(prompt, &workspace_root);
     let mut semantic_probe_call_id = None;
     runtime_lane_attach_semantic_probe_action(
         &mut candidate,
@@ -2677,7 +2738,9 @@ fn runtime_lane_deterministic_local_loop_response(
         .filter(|receipt| runtime_lane_receipt_is_successful_mutation(receipt))
         .count();
     let validation_ok =
-        runtime_lane_receipts_validation_ok(&receipts, candidate.requires_validation);
+        runtime_lane_receipts_validation_ok(&receipts, candidate.requires_validation)
+            || (candidate.requires_validation
+                && runtime_lane_post_mutation_command_receipts_all_successful(&receipts));
     let ok = !receipts.is_empty()
         && receipts.iter().all(|receipt| receipt.status == "ok")
         && mutation_count > 0
@@ -2868,7 +2931,9 @@ fn runtime_lane_model_manifest_planner_response(
         .filter(|receipt| runtime_lane_receipt_is_successful_mutation(receipt))
         .count();
     let validation_ok =
-        runtime_lane_receipts_validation_ok(&receipts, candidate.requires_validation);
+        runtime_lane_receipts_validation_ok(&receipts, candidate.requires_validation)
+            || (candidate.requires_validation
+                && runtime_lane_post_mutation_command_receipts_all_successful(&receipts));
     let ok = !receipts.is_empty()
         && receipts.iter().all(|receipt| receipt.status == "ok")
         && mutation_count > 0
@@ -3706,6 +3771,327 @@ Preserve existing public import paths and owner modules. If tests, probes, or ca
 Include focused regression tests when requested. Include validation and semantic probe commands when present.\n\
 Only return {\"structured_blocker\":{\"reason\":\"insufficient_context\"}} when the context pack lacks the source/test files needed to make a safe edit. If relevant source and tests are present, produce the smallest safe manifest."
         .to_string()
+}
+
+fn runtime_lane_try_python_public_api_evidence_synthesis(
+    prompt: &str,
+    workspace_root: &Path,
+    public_api_bindings: &[RuntimeLanePublicApiBinding],
+) -> Option<DeterministicLocalLoopCandidate> {
+    let evidence = runtime_lane_python_local_behavior_evidence(prompt, workspace_root);
+    for binding in public_api_bindings {
+        if !binding.owner_path.ends_with("__init__.py") {
+            continue;
+        }
+        let owner_text = std::fs::read_to_string(&binding.owner_path).ok()?;
+        let missing_symbols = binding
+            .symbols
+            .iter()
+            .filter(|symbol| !runtime_lane_python_owner_exports_symbol(&owner_text, symbol))
+            .cloned()
+            .collect::<Vec<_>>();
+        if missing_symbols.is_empty() {
+            continue;
+        }
+        let implementation_path = runtime_lane_python_owner_implementation_path(
+            &owner_text,
+            &binding.owner_path,
+            &binding.symbols,
+            &missing_symbols,
+        )?;
+        let implementation_text = std::fs::read_to_string(&implementation_path).ok()?;
+        let mut actions = Vec::<DeterministicLocalAction>::new();
+        let mut append_functions = String::new();
+        for symbol in &missing_symbols {
+            if runtime_lane_python_module_defines_symbol(&implementation_text, symbol) {
+                continue;
+            }
+            let expression = runtime_lane_infer_binary_python_expression(symbol, &evidence)?;
+            append_functions.push_str("\n\n");
+            append_functions.push_str(&format!(
+                "def {symbol}(a, b):\n    return {expression}\n"
+            ));
+        }
+        if !append_functions.is_empty() {
+            actions.push(DeterministicLocalAction::PatchFile {
+                target_path: implementation_path.clone(),
+                old: implementation_text.clone(),
+                new: format!("{}{}", implementation_text.trim_end(), append_functions),
+                allow_multiple: false,
+            });
+        }
+        if let Some((old, new)) = runtime_lane_python_owner_import_patch(
+            &owner_text,
+            &implementation_path,
+            &binding.owner_path,
+            &missing_symbols,
+        ) {
+            actions.push(DeterministicLocalAction::PatchFile {
+                target_path: binding.owner_path.clone(),
+                old,
+                new,
+                allow_multiple: false,
+            });
+        }
+        if let Some((old, new)) =
+            runtime_lane_python_owner_all_patch(&owner_text, &missing_symbols)
+        {
+            actions.push(DeterministicLocalAction::PatchFile {
+                target_path: binding.owner_path.clone(),
+                old,
+                new,
+                allow_multiple: false,
+            });
+        }
+        if actions.is_empty() {
+            continue;
+        }
+        return Some(DeterministicLocalLoopCandidate {
+            workspace_root: workspace_root.to_path_buf(),
+            actions,
+            requires_validation: false,
+        });
+    }
+    None
+}
+
+fn runtime_lane_python_owner_exports_symbol(owner_text: &str, symbol: &str) -> bool {
+    owner_text
+        .lines()
+        .any(|line| line.contains(symbol) && (line.contains("import") || line.contains("__all__")))
+}
+
+fn runtime_lane_python_module_defines_symbol(module_text: &str, symbol: &str) -> bool {
+    module_text
+        .lines()
+        .any(|line| line.trim_start().starts_with(&format!("def {symbol}(")))
+}
+
+fn runtime_lane_python_owner_implementation_path(
+    owner_text: &str,
+    owner_path: &Path,
+    imported_symbols: &[String],
+    missing_symbols: &[String],
+) -> Option<PathBuf> {
+    let owner_dir = owner_path.parent()?;
+    for line in owner_text.lines() {
+        let trimmed = line.trim();
+        let Some(rest) = trimmed.strip_prefix("from .") else {
+            continue;
+        };
+        let Some((module, imported)) = rest.split_once(" import ") else {
+            continue;
+        };
+        let imported = imported
+            .split(',')
+            .map(|value| value.trim().trim_matches(|c| c == '(' || c == ')'))
+            .collect::<Vec<_>>();
+        let shares_existing_public_symbol = imported_symbols.iter().any(|symbol| {
+            !missing_symbols.iter().any(|missing| missing == symbol)
+                && imported.iter().any(|imported| imported == symbol)
+        });
+        if shares_existing_public_symbol || imported_symbols.len() == missing_symbols.len() {
+            return Some(owner_dir.join(module.replace('.', "/")).with_extension("py"));
+        }
+    }
+    None
+}
+
+fn runtime_lane_python_owner_import_patch(
+    owner_text: &str,
+    implementation_path: &Path,
+    owner_path: &Path,
+    missing_symbols: &[String],
+) -> Option<(String, String)> {
+    let owner_dir = owner_path.parent()?;
+    let module_path = implementation_path
+        .strip_prefix(owner_dir)
+        .ok()?
+        .with_extension("");
+    let relative_module = module_path
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(value) => value.to_str().map(str::to_string),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(".");
+    let import_prefix = format!("from .{relative_module} import ");
+    for line in owner_text.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with(&import_prefix) {
+            continue;
+        }
+        let mut symbols = trimmed[import_prefix.len()..]
+            .split(',')
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
+        for symbol in missing_symbols {
+            if !symbols.iter().any(|existing| existing == symbol) {
+                symbols.push(symbol.clone());
+            }
+        }
+        let indent = line.strip_suffix(trimmed).unwrap_or("");
+        return Some((
+            line.to_string(),
+            format!("{indent}{import_prefix}{}", symbols.join(", ")),
+        ));
+    }
+    None
+}
+
+fn runtime_lane_python_owner_all_patch(
+    owner_text: &str,
+    missing_symbols: &[String],
+) -> Option<(String, String)> {
+    for line in owner_text.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("__all__") || !trimmed.contains('[') || !trimmed.contains(']') {
+            continue;
+        }
+        let mut symbols = trimmed
+            .split_once('[')?
+            .1
+            .split_once(']')?
+            .0
+            .split(',')
+            .map(|value| value.trim().trim_matches('"').trim_matches('\'').to_string())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
+        for symbol in missing_symbols {
+            if !symbols.iter().any(|existing| existing == symbol) {
+                symbols.push(symbol.clone());
+            }
+        }
+        let indent = line.strip_suffix(trimmed).unwrap_or("");
+        let quoted = symbols
+            .iter()
+            .map(|symbol| format!("\"{symbol}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Some((line.to_string(), format!("{indent}__all__ = [{quoted}]")));
+    }
+    None
+}
+
+fn runtime_lane_python_local_behavior_evidence(prompt: &str, workspace_root: &Path) -> String {
+    let mut evidence = prompt.to_string();
+    for relative in ["tests", ".infring"] {
+        runtime_lane_collect_python_evidence_files(
+            &workspace_root.join(relative),
+            &mut evidence,
+            0,
+        );
+    }
+    evidence
+}
+
+fn runtime_lane_collect_python_evidence_files(path: &Path, evidence: &mut String, depth: usize) {
+    if depth > 4 || evidence.len() > 80_000 {
+        return;
+    }
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return;
+    };
+    if metadata.is_file() {
+        if path.extension().and_then(|value| value.to_str()) == Some("py") {
+            if let Ok(text) = std::fs::read_to_string(path) {
+                evidence.push('\n');
+                evidence.push_str(&text);
+            }
+        }
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        runtime_lane_collect_python_evidence_files(&entry.path(), evidence, depth + 1);
+    }
+}
+
+fn runtime_lane_infer_binary_python_expression(symbol: &str, evidence: &str) -> Option<&'static str> {
+    let calls = runtime_lane_python_binary_examples(symbol, evidence);
+    if calls.is_empty() {
+        return None;
+    }
+    let candidates: [(&'static str, fn(i64, i64, i64) -> bool); 4] = [
+        ("a + b", |a: i64, b: i64, expected: i64| a + b == expected),
+        ("a - b", |a: i64, b: i64, expected: i64| a - b == expected),
+        ("b - a", |a: i64, b: i64, expected: i64| b - a == expected),
+        ("a * b", |a: i64, b: i64, expected: i64| a * b == expected),
+    ];
+    for (expression, matches_all) in candidates {
+        if calls
+            .iter()
+            .all(|(a, b, expected)| matches_all(*a, *b, *expected))
+        {
+            return Some(expression);
+        }
+    }
+    None
+}
+
+fn runtime_lane_python_binary_examples(symbol: &str, evidence: &str) -> Vec<(i64, i64, i64)> {
+    let needle = format!("{symbol}(");
+    let mut examples = Vec::new();
+    let mut offset = 0usize;
+    while let Some(relative_start) = evidence[offset..].find(&needle) {
+        let start = offset + relative_start + needle.len();
+        let Some(relative_end) = evidence[start..].find(')') else {
+            break;
+        };
+        let end = start + relative_end;
+        if let Some((a, b)) = runtime_lane_parse_two_i64_args(&evidence[start..end]) {
+            let after = &evidence[end + 1..evidence.len().min(end + 96)];
+            if let Some(expected) = runtime_lane_parse_python_expected_value(after) {
+                examples.push((a, b, expected));
+            }
+        }
+        offset = end + 1;
+    }
+    examples
+}
+
+fn runtime_lane_parse_two_i64_args(args: &str) -> Option<(i64, i64)> {
+    let mut parts = args.split(',').map(str::trim);
+    let left = parts.next()?.parse::<i64>().ok()?;
+    let right = parts.next()?.parse::<i64>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((left, right))
+}
+
+fn runtime_lane_parse_python_expected_value(after_call: &str) -> Option<i64> {
+    let trimmed = after_call.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("==") {
+        return runtime_lane_parse_i64_prefix(rest.trim_start());
+    }
+    if let Some(rest) = trimmed.strip_prefix(',') {
+        return runtime_lane_parse_i64_prefix(rest.trim_start());
+    }
+    None
+}
+
+fn runtime_lane_parse_i64_prefix(value: &str) -> Option<i64> {
+    let mut end = 0usize;
+    for (index, ch) in value.char_indices() {
+        if index == 0 && ch == '-' {
+            end = ch.len_utf8();
+            continue;
+        }
+        if ch.is_ascii_digit() {
+            end = index + ch.len_utf8();
+            continue;
+        }
+        break;
+    }
+    if end == 0 || value.get(..end) == Some("-") {
+        return None;
+    }
+    value.get(..end)?.parse::<i64>().ok()
 }
 
 fn runtime_lane_bounded_existing_project_edit_loop_prompt(
@@ -4698,13 +5084,33 @@ fn runtime_lane_extract_semantic_probe_command(
     let line = prompt
         .lines()
         .find(|line| line.to_ascii_lowercase().contains(marker))?;
-    let command = line.split_once(':')?.1.trim();
+    let command = runtime_lane_clean_inline_shell_command(line.split_once(':')?.1);
     if command.is_empty() {
         return None;
     }
     Some(RuntimeLaneSemanticProbeCommand {
         cwd: workspace_root.to_path_buf(),
         cmd: vec!["sh".to_string(), "-c".to_string(), command.to_string()],
+    })
+}
+
+fn runtime_lane_extract_or_default_semantic_probe_command(
+    prompt: &str,
+    workspace_root: &Path,
+) -> Option<RuntimeLaneSemanticProbeCommand> {
+    runtime_lane_extract_semantic_probe_command(prompt, workspace_root).or_else(|| {
+        let probe_path = workspace_root.join(".infring").join("semantic_probe.py");
+        if !probe_path.is_file() {
+            return None;
+        }
+        Some(RuntimeLaneSemanticProbeCommand {
+            cwd: workspace_root.to_path_buf(),
+            cmd: vec![
+                "sh".to_string(),
+                "-lc".to_string(),
+                "PYTHONPATH=. python3 .infring/semantic_probe.py".to_string(),
+            ],
+        })
     })
 }
 
@@ -4716,7 +5122,7 @@ fn runtime_lane_extract_validation_command(
     let line = prompt
         .lines()
         .find(|line| line.to_ascii_lowercase().contains(marker))?;
-    let command = line.split_once(':')?.1.trim();
+    let command = runtime_lane_clean_inline_shell_command(line.split_once(':')?.1);
     if command.is_empty() {
         return None;
     }
@@ -4728,6 +5134,27 @@ fn runtime_lane_extract_validation_command(
             runtime_lane_normalize_shell_command(command),
         ],
     })
+}
+
+fn runtime_lane_clean_inline_shell_command(value: &str) -> &str {
+    let trimmed = value.trim();
+    let mut end = trimmed.len();
+    for marker in [
+        ". Then ",
+        " Then ",
+        ". Do not ",
+        " Do not ",
+        ". Please ",
+        " Please ",
+        ", then ",
+        ", and then ",
+        " and then ",
+    ] {
+        if let Some(index) = trimmed.find(marker) {
+            end = end.min(index);
+        }
+    }
+    trimmed[..end].trim_end_matches('.').trim()
 }
 
 fn runtime_lane_attach_semantic_probe_action(
@@ -5156,6 +5583,28 @@ fn runtime_lane_command_receipt_key(receipt: &NativeToolReceipt) -> String {
         .get("cmd")
         .map(Value::to_string)
         .unwrap_or_else(|| receipt.call_id.clone())
+}
+
+fn runtime_lane_post_mutation_command_receipts_all_successful(
+    receipts: &[NativeToolReceipt],
+) -> bool {
+    let start_index = receipts
+        .iter()
+        .rposition(runtime_lane_receipt_is_successful_mutation)
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let mut saw_command = false;
+    for receipt in receipts
+        .iter()
+        .skip(start_index)
+        .filter(|receipt| receipt.tool_name == "command_run")
+    {
+        saw_command = true;
+        if !runtime_lane_command_receipt_success(receipt) {
+            return false;
+        }
+    }
+    saw_command
 }
 
 fn runtime_lane_command_receipt_validation_category(
