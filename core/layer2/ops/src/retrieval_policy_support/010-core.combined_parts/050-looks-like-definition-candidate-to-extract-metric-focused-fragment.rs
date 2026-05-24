@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (retrieval policy support).
 
 fn looks_like_definition_candidate(candidate: &Candidate) -> bool {
     let lowered = clean_text(

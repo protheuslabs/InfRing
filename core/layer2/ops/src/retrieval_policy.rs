@@ -414,10 +414,6 @@ fn budget_from_value(value: &Value) -> ApertureBudget {
             .get("max_evidence")
             .and_then(Value::as_u64)
             .unwrap_or(6) as usize,
-        max_summary_tokens: value
-            .get("max_summary_tokens")
-            .and_then(Value::as_u64)
-            .unwrap_or(350) as usize,
         #[cfg(test)]
         max_query_rewrites: value
             .get("max_query_rewrites")

@@ -1,4 +1,7 @@
 
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (retrieval policy support).
+
 fn looks_like_snippet_boilerplate_segment(segment: &str, locator_hint: &str) -> bool {
     let lowered = clean_text(segment, 600).to_ascii_lowercase();
     if lowered.is_empty() {

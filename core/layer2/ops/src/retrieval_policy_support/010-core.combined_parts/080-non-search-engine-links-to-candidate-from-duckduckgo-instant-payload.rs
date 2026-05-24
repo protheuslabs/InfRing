@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (retrieval policy support).
+
 fn percent_decode_wrapper_component(raw: &str) -> String {
     let bytes = raw.as_bytes();
     let mut out = String::new();
@@ -228,7 +231,7 @@ fn non_search_engine_links(payload: &Value, max_links: usize) -> Vec<String> {
     }
     let mut out = Vec::<String>::new();
     let mut seen = HashSet::<String>::new();
-    let mut push_link = |raw: &str, out: &mut Vec<String>, seen: &mut HashSet<String>| {
+    let push_link = |raw: &str, out: &mut Vec<String>, seen: &mut HashSet<String>| {
         let link = canonical_search_result_locator(raw, &[]);
         let Some(link) = normalize_document_candidate_link(&link) else {
             return;

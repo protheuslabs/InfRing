@@ -1,10 +1,10 @@
 {
-  "trace_id": "observability:2026-05-24T04:20:34.830Z:36154",
-  "span_id": "span:observability:2026-05-24T04:20:34.830Z:36154",
+  "trace_id": "observability:2026-05-24T05:43:51.780Z:97610",
+  "span_id": "span:observability:2026-05-24T05:43:51.780Z:97610",
   "parent_span_id": null,
   "source_domain": "observability",
   "type": "layer_capability_trend_report",
-  "generated_at": "2026-05-24T04:20:34.834Z",
+  "generated_at": "2026-05-24T05:43:51.784Z",
   "policy_path": "observability/sentinel/layer_capability_trend_policy.json",
   "source_report_path": "core/local/artifacts/layer_placement_policy_report_current.json",
   "changed_file_report_path": "core/local/artifacts/layer_placement_policy_check_current.json",
@@ -34,7 +34,7 @@
     "layer0_capability_debt_from_best": 0
   },
   "best_historical_layer0_capability_debt": 1115,
-  "previous_sample_generated_at": "2026-05-24T04:13:02.021Z",
+  "previous_sample_generated_at": "2026-05-24T05:37:16.915Z",
   "recent_samples": [
     {
       "generated_at": "2026-05-24T03:10:17.240Z",
@@ -68,6 +68,21 @@
     },
     {
       "generated_at": "2026-05-24T04:20:34.832Z",
+      "layer0_capability_debt_total": 1115,
+      "changed_file_layer0_capability_violations": 0
+    },
+    {
+      "generated_at": "2026-05-24T05:35:07.978Z",
+      "layer0_capability_debt_total": 1115,
+      "changed_file_layer0_capability_violations": 0
+    },
+    {
+      "generated_at": "2026-05-24T05:37:16.915Z",
+      "layer0_capability_debt_total": 1115,
+      "changed_file_layer0_capability_violations": 0
+    },
+    {
+      "generated_at": "2026-05-24T05:43:51.783Z",
       "layer0_capability_debt_total": 1115,
       "changed_file_layer0_capability_violations": 0
     }

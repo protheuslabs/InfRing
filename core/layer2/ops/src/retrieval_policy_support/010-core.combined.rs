@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (retrieval policy support).
 // Split from 010-core.combined.rs into focused include parts for maintainability.
 include!("010-core.combined_parts/010-prelude-and-shared.rs");
 include!("010-core.combined_parts/020-policy-rel-to-instruction-tail-regex.rs");

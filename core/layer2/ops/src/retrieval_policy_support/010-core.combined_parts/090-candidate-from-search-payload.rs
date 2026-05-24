@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (retrieval policy support).
+
 fn candidate_from_search_payload(query: &str, payload: &Value) -> Result<Candidate, String> {
     if !payload.get("ok").and_then(Value::as_bool).unwrap_or(false) {
         return Err(clean_text(

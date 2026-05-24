@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (retrieval policy support).
 
 fn candidate_domain_hint(candidate: &Candidate) -> String {
     if let Some(domain) = provider_source_hint_domain(candidate) {

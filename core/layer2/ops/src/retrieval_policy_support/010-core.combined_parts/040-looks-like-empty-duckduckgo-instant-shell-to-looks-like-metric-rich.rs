@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (retrieval policy support).
 
 fn looks_like_empty_duckduckgo_instant_shell(decoded: &Value) -> bool {
     let Some(obj) = decoded.as_object() else {
