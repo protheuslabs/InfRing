@@ -245,6 +245,17 @@
       "contract_surface": "native_runtime_first_mutation_contract",
       "extension_surface": "bounded_direct_edit_first_turn_tool_and_prompt_policy",
       "promotion_status": "seed"
+    },
+    {
+      "id": "runtime.provider_turn_timing_probe",
+      "name": "Provider Turn Timing Probe",
+      "kind": "primitive",
+      "owner_domain": "core",
+      "layer": "2",
+      "path": "core/layer2/agent_surface/src/agent.rs",
+      "contract_surface": "native_runtime_timing_probe",
+      "extension_surface": "provider_turn_prompt_size_and_latency_observation",
+      "promotion_status": "seed"
     }
   ]
 }

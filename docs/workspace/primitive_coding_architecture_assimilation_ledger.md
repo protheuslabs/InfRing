@@ -1087,7 +1087,7 @@ Expected effect:
 
 ## Primitive candidate: `first_edit_batch_contract`
 
-Status: `v1_wired_inside_bounded_fast_edit_preflight`
+Status: `dormant_runtime_primitive`
 
 Evidence source:
 
@@ -1122,6 +1122,37 @@ Expected effect:
   receipt-backed safety
 - keep speed optimization primitive-level and reusable across bounded coding
   tasks rather than tied to any eval case
+
+Current decision:
+
+- The first live Level 5 run with this contract passed but regressed from about
+  `55s / 44s` wall/first-mutation timing to about `86s / 72s`.
+- The primitive remains available as reusable runtime policy, but workflow CDs
+  keep it dormant until the timing probe shows a prompt shape that improves
+  latency without weakening mutation receipts.
+
+## Primitive candidate: `provider_turn_timing_probe`
+
+Status: `v1_sidecar_jsonl_probe`
+
+Primitive definition:
+
+`provider_turn_timing_probe` records provider-turn prompt size, system size,
+observation size, tool count, status, and provider latency without adding fake
+native tool receipts or changing success gates.
+
+Rules:
+
+- write telemetry beside the native coding run journal
+- do not affect native tool receipt counts
+- do not affect pass/fail semantics
+- record prompt/system/observation sizes before provider completion
+- record provider latency and error preview after provider completion
+
+Expected effect:
+
+- make slow first-mutation runs diagnosable without adding prompt weight
+- compare Infring timing against reference-agent traces at the primitive level
 
 Expected effect:
 

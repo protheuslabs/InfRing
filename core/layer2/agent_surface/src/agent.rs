@@ -40,6 +40,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -558,8 +559,7 @@ impl AgentContract {
                     );
                 }
             }
-            let request = ProviderRequest {
-                prompt: if first_edit_batch_turn {
+            let request_prompt = if first_edit_batch_turn {
                     native_tool_first_edit_batch_prompt(
                         &self.metadata,
                         &self.initial_prompt,
@@ -567,21 +567,45 @@ impl AgentContract {
                     )
                 } else {
                     prompt.clone()
-                },
-                system: Some(if first_edit_batch_turn {
-                    native_tool_first_edit_batch_system()
-                } else {
-                    system.clone()
-                }),
-                tools: if first_edit_batch_turn {
-                    native_tool_bounded_fast_edit_preflight_tools(tools)
-                } else {
-                    tools.to_vec()
-                },
+                };
+            let request_system = if first_edit_batch_turn {
+                native_tool_first_edit_batch_system()
+            } else {
+                system.clone()
+            };
+            let request_tools = if first_edit_batch_turn {
+                native_tool_bounded_fast_edit_preflight_tools(tools)
+            } else {
+                tools.to_vec()
+            };
+            let request_observation_chars =
+                native_tool_observation_prompt(&all_receipts).chars().count();
+            let request = ProviderRequest {
+                prompt: request_prompt,
+                system: Some(request_system),
+                tools: request_tools,
                 model: self.model.clone(),
                 metadata: request_metadata,
             };
-            let response = match provider.complete(&request) {
+            let provider_turn_started = Instant::now();
+            let provider_result = provider.complete(&request);
+            let provider_turn_latency_ms =
+                native_tool_bounded_patch_elapsed_ms(provider_turn_started);
+            native_tool_persist_provider_turn_timing_probe(
+                &self.metadata,
+                &self.initial_prompt,
+                provider_call_count,
+                turn_idx,
+                &request,
+                request_observation_chars,
+                provider_turn_latency_ms,
+                if provider_result.is_ok() { "ok" } else { "error" },
+                provider_result
+                    .as_ref()
+                    .err()
+                    .map(|error| error.message.as_str()),
+            );
+            let response = match provider_result {
                 Ok(response) => response,
                 Err(error)
                     if native_tool_provider_error_is_timeout(&error)
@@ -1708,6 +1732,48 @@ fn native_tool_run_journal_path(metadata: &Value, original_prompt: &str) -> Opti
         .map(|root| root.join(".infring").join("native_run_journal.json"))
 }
 
+fn native_tool_persist_provider_turn_timing_probe(
+    metadata: &Value,
+    original_prompt: &str,
+    provider_call_count: u64,
+    turn_idx: u64,
+    request: &ProviderRequest,
+    observation_chars: usize,
+    provider_latency_ms: u64,
+    status: &str,
+    error: Option<&str>,
+) {
+    let Some(journal_path) = native_tool_run_journal_path(metadata, original_prompt) else {
+        return;
+    };
+    let Some(parent) = journal_path.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let path = parent.join("native_provider_turn_timing.jsonl");
+    let payload = json!({
+        "schema_version": "native_provider_turn_timing_probe_v1",
+        "source": "infring_native_tool_runtime",
+        "updated_at_unix_ms": Utc::now().timestamp_millis(),
+        "provider_call_count": provider_call_count,
+        "turn_idx": turn_idx,
+        "status": status,
+        "provider_latency_ms": provider_latency_ms,
+        "prompt_chars": request.prompt.chars().count(),
+        "system_chars": request.system.as_ref().map(|value| value.chars().count()).unwrap_or(0),
+        "observation_chars": observation_chars,
+        "tool_count": request.tools.len(),
+        "error_preview": error.unwrap_or("").chars().take(500).collect::<String>(),
+    });
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
+        if let Ok(line) = serde_json::to_string(&payload) {
+            let _ = writeln!(file, "{line}");
+        }
+    }
+}
+
 fn native_tool_empty_retry_limit(metadata: &Value) -> u64 {
     let criteria = metadata
         .get("native_success_criteria")
@@ -1878,13 +1944,10 @@ fn native_tool_first_edit_batch_contract_enabled(metadata: &Value) -> bool {
 }
 
 fn native_tool_first_edit_batch_system() -> String {
-    "You are the first_edit_batch_contract primitive for a local coding runtime.\n\
-Return only JSON. No markdown. No prose.\n\
-Use this shape: {\"tool_calls\":[{\"id\":\"patch_1\",\"name\":\"file_patch\",\"args\":{\"path\":\"/absolute/path\",\"old\":\"exact old text\",\"new\":\"replacement text\",\"allow_multiple\":false}}]}.\n\
-Allowed tool names in this turn: file_patch, file_write, command_run. command_run is allowed only after a preceding successful file_write or file_patch receipt in this same batch.\n\
-The runtime has already loaded bounded local context and any explicitly requested pre-mutation validation evidence.\n\
-Do not call read/list/stat/resolve tools. Do not produce a final answer. Do not run validation before at least one mutation when validation was already observed.\n\
-Emit the smallest safe edit batch first, then requested validation/probe command_run calls. If local mutation is unsafe, return {\"structured_blocker\":{\"reason\":\"...\"}}."
+    "First edit batch contract.\n\
+Return only JSON tool_calls.\n\
+Use file_patch/file_write before command_run.\n\
+No read/list/stat/resolve; blocker only if receipts prove unsafe."
         .to_string()
 }
 
@@ -1897,7 +1960,7 @@ fn native_tool_first_edit_batch_prompt(
     let rule = native_tool_orchestration_prompt_text(
         metadata,
         "first_edit_batch_contract_rule",
-        "First edit batch contract: use the receipt-backed context and validation evidence below to produce the first concrete mutation batch now. Do not reopen discovery. Prefer file_patch for small existing-file edits and file_write only for new files or full small-file replacement. Include command_run validation/probe calls after mutation when requested. If the loaded context proves the edit cannot be made safely, return a structured blocker instead of guessing.",
+        "Use preflight observations. Return only JSON tool_calls. Mutate first with file_write/file_patch, then validate. No discovery/prose; blocker only if receipts prove unsafe.",
     );
     format!(
         "User task:\n{}\n\nReceipt-backed preflight observations:\n{}\n\n{}",
