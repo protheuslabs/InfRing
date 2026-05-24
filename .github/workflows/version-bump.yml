@@ -201,24 +201,18 @@ jobs:
 
           This release is generated for every prefixed commit on main.
           EOF
-          prerelease_args=()
           latest_args=(--latest)
-          if [ "${RELEASE_CHANNEL}" != "stable" ]; then
-            prerelease_args=(--prerelease)
-          fi
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release edit "${RELEASE_TAG}" \
               --title "${RELEASE_TAG}" \
               --notes-file /tmp/release-notes.md \
-              "${latest_args[@]}" \
-              "${prerelease_args[@]}"
+              "${latest_args[@]}"
           else
             gh release create "${RELEASE_TAG}" \
               --target "${HEAD_SHA}" \
               --title "${RELEASE_TAG}" \
               --notes-file /tmp/release-notes.md \
-              "${latest_args[@]}" \
-              "${prerelease_args[@]}"
+              "${latest_args[@]}"
           fi
 
       - name: Commit version files
