@@ -104,18 +104,33 @@ jobs:
             --channel=${{ steps.channel.outputs.release_channel }} \
             > core/local/artifacts/version_bump_plan_current.json
           cat core/local/artifacts/version_bump_plan_current.json
+          CHANNEL_SUFFIX=""
+          if [ "${RELEASE_CHANNEL}" != "stable" ]; then
+            CHANNEL_SUFFIX="-${RELEASE_CHANNEL}"
+          fi
+          HEAD_RELEASE_TAG="$(git tag --points-at HEAD | grep -E "^v[0-9]+\\.[0-9]+\\.[0-9]+${CHANNEL_SUFFIX}$" | sort -V | tail -n 1 || true)"
+          export HEAD_RELEASE_TAG
           node <<'NODE' > core/local/artifacts/version_bump_outputs.env
           const fs = require("fs");
           const p = JSON.parse(fs.readFileSync("core/local/artifacts/version_bump_plan_current.json", "utf8"));
           const eventName = String(process.env.EVENT_NAME || "");
           const rawChannel = String(process.env.RELEASE_CHANNEL || "alpha").trim().toLowerCase();
           const channel = ["alpha", "beta", "stable"].includes(rawChannel) ? rawChannel : "alpha";
+          const headReleaseTag = String(process.env.HEAD_RELEASE_TAG || "").trim();
           let releaseReady = Boolean(p.release_ready);
           let tag = String(p.next_tag || "none");
           let nextVersion = String(p.next_version || "0.0.0");
           let bump = String(p.bump || "none");
           let syntheticPerCommitRelease = false;
-          if (!releaseReady && eventName === "push") {
+          if (!releaseReady && eventName === "push" && headReleaseTag) {
+            tag = headReleaseTag;
+            const match = headReleaseTag.match(/^v([0-9]+)\.([0-9]+)\.([0-9]+)/);
+            if (match) {
+              nextVersion = `${match[1]}.${match[2]}.${match[3]}`;
+            }
+            bump = "none";
+            releaseReady = true;
+          } else if (!releaseReady && eventName === "push") {
             const current = String(p.current_version || "0.0.0").split(/[+-]/)[0];
             const parts = current.split(".").map((part) => Number.parseInt(part, 10));
             const major = Number.isFinite(parts[0]) ? parts[0] : 0;
