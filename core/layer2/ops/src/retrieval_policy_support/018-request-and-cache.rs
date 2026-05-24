@@ -21,13 +21,6 @@ impl BatchQueryKeywordPack {
     }
 }
 
-#[cfg(test)]
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct BatchQuerySearchScope {
-    allowed_domains: Vec<String>,
-    exclude_subdomains: bool,
-}
-
 fn contains_antibot_marker(text: &str) -> bool {
     let lowered = clean_text(text, 4_000).to_ascii_lowercase();
     if lowered.is_empty() {

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Layer ownership: core/layer2/ops (maintainability maps guard).
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -172,14 +175,19 @@ fn collect_source_files(root: &Path, policy: &MaintainabilityPolicy) -> Vec<Stri
     let mut files = Vec::new();
     for scan_root in &policy.scan_roots {
         let start = root.join(scan_root);
-        collect_source_files_inner(&start, &mut files, policy);
+        collect_source_files_inner(root, &start, &mut files, policy);
     }
     files.sort();
     files.dedup();
     files
 }
 
-fn collect_source_files_inner(path: &Path, out: &mut Vec<String>, policy: &MaintainabilityPolicy) {
+fn collect_source_files_inner(
+    root: &Path,
+    path: &Path,
+    out: &mut Vec<String>,
+    policy: &MaintainabilityPolicy,
+) {
     let Ok(meta) = fs::metadata(path) else { return };
     if meta.is_dir() {
         let Ok(entries) = fs::read_dir(path) else {
@@ -193,7 +201,7 @@ fn collect_source_files_inner(path: &Path, out: &mut Vec<String>, policy: &Maint
             ) {
                 continue;
             }
-            collect_source_files_inner(entry.path().as_path(), out, policy);
+            collect_source_files_inner(root, entry.path().as_path(), out, policy);
         }
         return;
     }
@@ -210,7 +218,7 @@ fn collect_source_files_inner(path: &Path, out: &mut Vec<String>, policy: &Maint
     {
         return;
     }
-    out.push(normalize_path(path));
+    out.push(normalize_path(root, path));
 }
 
 fn build_architecture_map(
@@ -310,8 +318,11 @@ fn root_for(policy: &MaintainabilityPolicy, path: &str) -> String {
         .unwrap_or_else(|| path.split('/').next().unwrap_or("unknown").to_string())
 }
 
-fn normalize_path(path: &Path) -> String {
-    let path = path.strip_prefix(PathBuf::from(".")).unwrap_or(path);
+fn normalize_path(root: &Path, path: &Path) -> String {
+    let path = path
+        .strip_prefix(root)
+        .or_else(|_| path.strip_prefix(PathBuf::from(".")))
+        .unwrap_or(path);
     path.to_string_lossy().replace('\\', "/")
 }
 
@@ -338,13 +349,21 @@ mod tests {
             .expect("policy")
     }
 
+    fn workspace_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+    }
+
     #[test]
     fn deletion_policy_tracks_ratio() {
         let policy = policy();
+        let root = workspace_root();
         let report = build_maintainability_report(
             DEFAULT_MAINTAINABILITY_POLICY_PATH,
             &policy,
-            Path::new("."),
+            &root,
         );
         assert!(
             report
@@ -359,10 +378,11 @@ mod tests {
     #[test]
     fn maps_include_architecture_dependency_and_ownership() {
         let policy = policy();
+        let root = workspace_root();
         let report = build_maintainability_report(
             DEFAULT_MAINTAINABILITY_POLICY_PATH,
             &policy,
-            Path::new("."),
+            &root,
         );
         assert!(report.ok);
         assert!(report

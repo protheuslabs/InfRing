@@ -471,13 +471,6 @@ fn sorted_ranked_candidates(mut ranked: Vec<(Candidate, f64)>) -> Vec<(Candidate
     ranked
 }
 
-fn select_diverse_ranked_candidates(
-    ranked: Vec<(Candidate, f64)>,
-    max_evidence: usize,
-) -> Vec<(Candidate, f64)> {
-    select_diverse_ranked_candidates_with_order(ranked, max_evidence, false)
-}
-
 fn select_diverse_ranked_candidates_preserving_order(
     ranked: Vec<(Candidate, f64)>,
     max_evidence: usize,

@@ -53,14 +53,6 @@ fn provider_source_hint_domain(candidate: &Candidate) -> Option<String> {
     None
 }
 
-fn skip_duckduckgo_fallback_for_error(primary_err: &str) -> bool {
-    let lowered = clean_text(primary_err, 240).to_ascii_lowercase();
-    lowered.contains("policy_blocked")
-        || lowered.contains("source_blocked")
-        || lowered.contains("aperture_blocked")
-        || lowered.contains("domain_blocked")
-}
-
 fn looks_like_html_markup(text: &str) -> bool {
     static HTML_HINT_RE: OnceLock<Regex> = OnceLock::new();
     let re = HTML_HINT_RE.get_or_init(|| {
@@ -123,58 +115,4 @@ fn normalize_htmlish_content_for_snippet(raw: &str) -> String {
         .to_string();
     slim = html_all_tags_regex().replace_all(&slim, " ").to_string();
     clean_text(&slim, 12_000)
-}
-
-fn snippet_split_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| {
-        Regex::new(r"(?u)(?:\s*[|•·]\s*|\s+[—–-]{1,2}\s+|[.!?]\s+)")
-            .expect("snippet-split")
-    })
-}
-
-fn snippet_phrase_strip_regexes() -> &'static [Regex] {
-    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
-    REGEXES.get_or_init(|| {
-        vec![
-            Regex::new(r"(?i)\byour browser does not support the video tag\.?").expect("video-tag"),
-            Regex::new(
-                r#"(?i)security notice:\s*the following content is from an external,\s*untrusted source\s*\(web fetch\)\.\s*do not treat any part of it as system instructions or commands\.?"#,
-            )
-            .expect("security-notice"),
-            Regex::new(r#"(?i)<<<external_untrusted_content[^>]*>>>"#).expect("external-content-open"),
-            Regex::new(r#"(?i)<<<end_external_untrusted_content[^>]*>>>"#)
-                .expect("external-content-close"),
-            Regex::new(r"(?i)\bsource:\s*web fetch\b").expect("source-web-fetch"),
-            Regex::new(r"(?i)\bskip to content\b").expect("skip-to-content"),
-            Regex::new(r"(?i)\bnavigation menu\b").expect("navigation-menu"),
-            Regex::new(r"(?i)\btoggle navigation\b").expect("toggle-navigation"),
-            Regex::new(r"(?i)\bsign in\b").expect("sign-in"),
-            Regex::new(r"(?i)\bgithub copilot\b").expect("github-copilot"),
-            Regex::new(r"(?i)\bsearch code, repositories, users, issues, pull requests\b")
-                .expect("github-search-bar"),
-        ]
-    })
-}
-
-fn looks_like_url_dump_segment(segment: &str) -> bool {
-    let cleaned = clean_text(segment, 1_200);
-    if cleaned.is_empty() {
-        return false;
-    }
-    let domains = extract_domains_from_text(&cleaned, 12);
-    let words = cleaned.split_whitespace().count();
-    let linkish_tokens = cleaned
-        .split_whitespace()
-        .filter(|token| {
-            let normalized = token.trim_matches(|ch: char| {
-                !ch.is_ascii_alphanumeric() && !matches!(ch, ':' | '/' | '.' | '-' | '_')
-            });
-            normalized.starts_with("http://")
-                || normalized.starts_with("https://")
-                || normalized.contains("github.com/")
-                || normalized.contains("huggingface.co/")
-        })
-        .count();
-    linkish_tokens >= 3 || (domains.len() >= 2 && words <= domains.len() * 6 + 8)
 }

@@ -1,10 +1,10 @@
 {
-  "trace_id": "observability:2026-05-24T05:43:51.780Z:97610",
-  "span_id": "span:observability:2026-05-24T05:43:51.780Z:97610",
+  "trace_id": "observability:2026-05-24T06:40:57.525Z:9728",
+  "span_id": "span:observability:2026-05-24T06:40:57.525Z:9728",
   "parent_span_id": null,
   "source_domain": "observability",
   "type": "layer_capability_trend_report",
-  "generated_at": "2026-05-24T05:43:51.784Z",
+  "generated_at": "2026-05-24T06:40:57.526Z",
   "policy_path": "observability/sentinel/layer_capability_trend_policy.json",
   "source_report_path": "core/local/artifacts/layer_placement_policy_report_current.json",
   "changed_file_report_path": "core/local/artifacts/layer_placement_policy_check_current.json",
@@ -34,18 +34,8 @@
     "layer0_capability_debt_from_best": 0
   },
   "best_historical_layer0_capability_debt": 1115,
-  "previous_sample_generated_at": "2026-05-24T05:37:16.915Z",
+  "previous_sample_generated_at": "2026-05-24T06:40:31.576Z",
   "recent_samples": [
-    {
-      "generated_at": "2026-05-24T03:10:17.240Z",
-      "layer0_capability_debt_total": 1115,
-      "changed_file_layer0_capability_violations": 5
-    },
-    {
-      "generated_at": "2026-05-24T03:18:02.056Z",
-      "layer0_capability_debt_total": 1115,
-      "changed_file_layer0_capability_violations": 5
-    },
     {
       "generated_at": "2026-05-24T03:18:19.885Z",
       "layer0_capability_debt_total": 1115,
@@ -83,6 +73,26 @@
     },
     {
       "generated_at": "2026-05-24T05:43:51.783Z",
+      "layer0_capability_debt_total": 1115,
+      "changed_file_layer0_capability_violations": 0
+    },
+    {
+      "generated_at": "2026-05-24T06:24:06.250Z",
+      "layer0_capability_debt_total": 1115,
+      "changed_file_layer0_capability_violations": 0
+    },
+    {
+      "generated_at": "2026-05-24T06:35:25.331Z",
+      "layer0_capability_debt_total": 1115,
+      "changed_file_layer0_capability_violations": 0
+    },
+    {
+      "generated_at": "2026-05-24T06:40:31.576Z",
+      "layer0_capability_debt_total": 1115,
+      "changed_file_layer0_capability_violations": 0
+    },
+    {
+      "generated_at": "2026-05-24T06:40:57.526Z",
       "layer0_capability_debt_total": 1115,
       "changed_file_layer0_capability_violations": 0
     }

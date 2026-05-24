@@ -5,8 +5,6 @@
 struct ApertureBudget {
     max_candidates: usize,
     max_evidence: usize,
-    #[cfg(test)]
-    max_query_rewrites: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -294,26 +292,6 @@ fn default_policy() -> Value {
     })
 }
 
-#[cfg(test)]
-fn exact_match_regexes() -> &'static [Regex] {
-    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
-    REGEXES.get_or_init(|| {
-        vec![
-            Regex::new(r#""[^"]+""#).expect("quoted"),
-            Regex::new(r"https?://\S+").expect("url"),
-            Regex::new(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}").expect("email"),
-            Regex::new(r"\b[a-fA-F0-9]{8,}\b").expect("hex-id"),
-            Regex::new(r"[/~][A-Za-z0-9._/\-]+").expect("path"),
-            Regex::new(r"[A-Za-z_][A-Za-z0-9_]*::[A-Za-z_][A-Za-z0-9_]*").expect("symbol"),
-        ]
-    })
-}
-
-#[cfg(test)]
-fn is_exact_match_pattern(query: &str) -> bool {
-    exact_match_regexes().iter().any(|re| re.is_match(query))
-}
-
 fn instruction_frame_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
@@ -321,15 +299,5 @@ fn instruction_frame_regex() -> &'static Regex {
             r"(?i)\b(?:verify|check|test|research(?:ing)?|find(?:\s+out)?|report|return|provide|show|summarize|compare|assess|evaluate|investigate|answer|brief(?:ing)?|cite|prioritize|group|give)\b",
         )
         .expect("instruction-frame")
-    })
-}
-
-fn instruction_tail_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| {
-        Regex::new(
-            r"(?i)\b(?:verify|check|test|research(?:ing)?|find(?:\s+out)?|report|return|provide|show|summarize|compare|assess|evaluate|investigate|answer|brief(?:ing)?|cite|prioritize|group|give)\b.{0,120}?\b(?:by|about|on)\b\s+(.+)$",
-        )
-        .expect("instruction-tail")
     })
 }

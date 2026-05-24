@@ -442,11 +442,6 @@ fn candidate_has_trusted_primary_source_signal(query: &str, candidate: &Candidat
             && (query_len <= 8 || snippet_words >= 12))
 }
 
-fn candidate_has_trusted_official_source_signal(query: &str, candidate: &Candidate) -> bool {
-    is_official_source_query_lane(query)
-        && candidate_has_trusted_primary_source_signal(query, candidate)
-}
-
 fn candidate_title_for_relevance(candidate: &Candidate) -> String {
     if candidate
         .title

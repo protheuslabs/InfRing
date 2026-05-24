@@ -99,20 +99,6 @@ fn query_overlap_terms(query: &str, candidate: &Candidate) -> usize {
     query_overlap_profile(query, candidate).0
 }
 
-fn citation_wrapper_context_has_signal(query: &str, context: &str) -> bool {
-    let cleaned_context = clean_text(context, 1_800);
-    if cleaned_context.is_empty()
-        || contains_web_junk_marker(&cleaned_context)
-        || looks_like_low_signal_search_summary(&cleaned_context)
-    {
-        return false;
-    }
-    let candidate =
-        page_extraction_link_candidate_with_context("https://example.com/wrapper", &cleaned_context);
-    let (overlap, distinctive_overlap, _) = query_overlap_profile(query, &candidate);
-    distinctive_overlap > 0 || overlap >= 2
-}
-
 fn link_contains_collapsed_query_phrase(query: &str, link: &str) -> bool {
     let tokens = clean_text(query, 800)
         .to_ascii_lowercase()
@@ -414,11 +400,6 @@ fn budget_from_value(value: &Value) -> ApertureBudget {
             .get("max_evidence")
             .and_then(Value::as_u64)
             .unwrap_or(6) as usize,
-        #[cfg(test)]
-        max_query_rewrites: value
-            .get("max_query_rewrites")
-            .and_then(Value::as_u64)
-            .unwrap_or(1) as usize,
     }
 }
 
