@@ -59,6 +59,81 @@
       },
       "required_entities": [],
       "required_facets": ["technology", "business", "policy"]
+    },
+    {
+      "id": "post_tool_web_tooling_comparison",
+      "category": "post_tool_synthesis",
+      "tags": ["comparison", "software_technical", "current"],
+      "prompt": "Compare Firecrawl, Tavily, and Exa for developer-facing web research tooling.",
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      },
+      "required_entities": ["Firecrawl", "Tavily", "Exa"],
+      "required_facets": ["crawl depth", "search quality", "developer integration"]
+    },
+    {
+      "id": "post_tool_workspace_ai_suite_recommendation",
+      "category": "post_tool_synthesis",
+      "tags": ["comparison", "business_market", "current"],
+      "prompt": "Should a small business standardize on Microsoft Copilot or Google Workspace Gemini for everyday office work?",
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      },
+      "required_entities": ["Microsoft Copilot", "Google Workspace Gemini"],
+      "required_facets": ["office productivity", "document/email workflows", "admin surface"]
+    },
+    {
+      "id": "post_tool_public_sentiment_overview",
+      "category": "post_tool_synthesis",
+      "tags": ["overview", "business_market", "current"],
+      "prompt": "What is the public sentiment on generative AI assistants in 2026?",
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      },
+      "required_entities": [],
+      "required_facets": ["consumer trust", "workplace utility", "privacy concern"]
+    },
+    {
+      "id": "post_tool_policy_summary",
+      "category": "post_tool_synthesis",
+      "tags": ["overview", "policy_legal_civic", "current"],
+      "prompt": "Summarize the main points of the new AI governance proposal this week.",
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      },
+      "required_entities": [],
+      "required_facets": ["safety reporting", "disclosure", "enforcement"]
+    },
+    {
+      "id": "post_tool_kyoto_neighborhoods",
+      "category": "post_tool_synthesis",
+      "tags": ["recommendation", "local_travel", "current"],
+      "prompt": "What neighborhoods should a first-time visitor stay in when visiting Kyoto?",
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": ["source", "query", "aperture"],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      },
+      "required_entities": ["Kyoto Station", "Kawaramachi", "Gion"],
+      "required_facets": ["transit access", "sightseeing access", "first-time convenience"]
     }
   ]
 }

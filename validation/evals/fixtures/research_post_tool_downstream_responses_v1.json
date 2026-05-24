@@ -473,6 +473,888 @@
           }
         }
       }
+    },
+    {
+      "case_id": "post_tool_web_tooling_comparison",
+      "response_payload": {
+        "response": "For developer-facing web research tooling, the retrieved evidence separates the three products by job. Firecrawl is presented as a crawl-and-extract tool for turning websites into structured content, Tavily is presented as a search-oriented research API for finding and ranking relevant web results, and Exa is presented as a semantic discovery engine for neural web search and link exploration. Taken together, the evidence supports Firecrawl for site ingestion, Tavily for agent search workflows, and Exa for broader semantic discovery across the web.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Compare Firecrawl Tavily Exa developer-facing web research tooling",
+            "queries": [
+              "Firecrawl crawl extract docs structured web content",
+              "Tavily research search api docs ranking results",
+              "Exa neural search docs semantic discovery"
+            ],
+            "keywords": ["Firecrawl", "Tavily", "Exa", "web research", "developer tooling"],
+            "required_coverage": {
+              "entities": ["Firecrawl", "Tavily", "Exa"],
+              "facets": ["crawl depth", "search quality", "developer integration"]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence covering crawl/extract, search retrieval, and semantic discovery across the three products.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": ["Firecrawl", "Tavily", "Exa"],
+                "facets": ["crawl depth", "search quality", "developer integration"]
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Firecrawl crawl docs",
+                "snippet": "Firecrawl documentation emphasizes crawling websites and extracting structured content for downstream applications."
+              },
+              {
+                "title": "Tavily search docs",
+                "snippet": "Tavily documentation emphasizes research search, ranking relevant web results, and search APIs for agents."
+              },
+              {
+                "title": "Exa search docs",
+                "snippet": "Exa documentation emphasizes neural search, link discovery, and semantic web exploration."
+              }
+            ],
+            "evidence_refs": [
+              {
+                "title": "Firecrawl crawl docs",
+                "locator": "https://docs.example.test/firecrawl/crawl",
+                "snippet": "Firecrawl documentation emphasizes crawling websites and extracting structured content for downstream applications.",
+                "score": 0.95
+              },
+              {
+                "title": "Tavily search docs",
+                "locator": "https://docs.example.test/tavily/search",
+                "snippet": "Tavily documentation emphasizes research search, ranking relevant web results, and search APIs for agents.",
+                "score": 0.94
+              },
+              {
+                "title": "Exa search docs",
+                "locator": "https://docs.example.test/exa/search",
+                "snippet": "Exa documentation emphasizes neural search, link discovery, and semantic web exploration.",
+                "score": 0.93
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Firecrawl crawl docs",
+                "locator": "https://docs.example.test/firecrawl/crawl",
+                "source_domain": "docs.example.test",
+                "relevant_extract": "Firecrawl documentation emphasizes crawling websites and extracting structured content for downstream applications.",
+                "why_relevant_to_query": "It supports the Firecrawl side of the comparison for crawl depth and structured ingestion.",
+                "claim_hints": [
+                  "Firecrawl emphasizes crawling websites and extracting structured content."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Tavily search docs",
+                "locator": "https://docs.example.test/tavily/search",
+                "source_domain": "docs.example.test",
+                "relevant_extract": "Tavily documentation emphasizes research search, ranking relevant web results, and search APIs for agents.",
+                "why_relevant_to_query": "It supports the Tavily side of the comparison for search quality and agent search workflows.",
+                "claim_hints": [
+                  "Tavily emphasizes research search, result ranking, and search APIs for agents."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Exa search docs",
+                "locator": "https://docs.example.test/exa/search",
+                "source_domain": "docs.example.test",
+                "relevant_extract": "Exa documentation emphasizes neural search, link discovery, and semantic web exploration.",
+                "why_relevant_to_query": "It supports the Exa side of the comparison for semantic discovery and developer-facing search integration.",
+                "claim_hints": [
+                  "Exa emphasizes neural search, link discovery, and semantic web exploration."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 3,
+              "content_rich_candidate_count": 3,
+              "claim_hint_count": 3,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            }
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": ["evidence:firecrawl", "evidence:tavily", "evidence:exa"],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": ["evidence:firecrawl", "evidence:tavily", "evidence:exa"],
+            "source_refs": [
+              {
+                "title": "Firecrawl crawl docs",
+                "locator": "https://docs.example.test/firecrawl/crawl",
+                "source_domain": "docs.example.test"
+              },
+              {
+                "title": "Tavily search docs",
+                "locator": "https://docs.example.test/tavily/search",
+                "source_domain": "docs.example.test"
+              },
+              {
+                "title": "Exa search docs",
+                "locator": "https://docs.example.test/exa/search",
+                "source_domain": "docs.example.test"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Firecrawl crawl docs",
+                "locator": "https://docs.example.test/firecrawl/crawl",
+                "source_domain": "docs.example.test"
+              },
+              {
+                "title": "Tavily search docs",
+                "locator": "https://docs.example.test/tavily/search",
+                "source_domain": "docs.example.test"
+              },
+              {
+                "title": "Exa search docs",
+                "locator": "https://docs.example.test/exa/search",
+                "source_domain": "docs.example.test"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": ["evidence:firecrawl", "evidence:tavily", "evidence:exa"]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_workspace_ai_suite_recommendation",
+      "response_payload": {
+        "response": "For everyday office work, the retrieved evidence makes this mostly an ecosystem decision. Microsoft Copilot is framed around Microsoft 365 documents, Outlook, Teams, and Microsoft 365 administration, while Google Workspace Gemini is framed around Gmail, Docs, Sheets, Meet, and Workspace administration. If the business already runs on Microsoft 365, choose Copilot; if it already runs on Google Workspace, choose Workspace Gemini.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Microsoft Copilot versus Google Workspace Gemini small business office work",
+            "queries": [
+              "Microsoft Copilot Microsoft 365 Outlook Teams admin docs",
+              "Google Workspace Gemini Gmail Docs Sheets Meet admin docs"
+            ],
+            "keywords": ["Microsoft Copilot", "Google Workspace Gemini", "small business", "office work"],
+            "required_coverage": {
+              "entities": ["Microsoft Copilot", "Google Workspace Gemini"],
+              "facets": ["office productivity", "document/email workflows", "admin surface"]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence covering office-suite integration and administration across Copilot and Gemini.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": ["Microsoft Copilot", "Google Workspace Gemini"],
+                "facets": ["office productivity", "document/email workflows", "admin surface"]
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Microsoft Copilot for Microsoft 365 docs",
+                "snippet": "Microsoft documentation emphasizes Copilot across Word, Excel, Outlook, Teams, and Microsoft 365 administration."
+              },
+              {
+                "title": "Google Workspace Gemini docs",
+                "snippet": "Google documentation emphasizes Gemini across Gmail, Docs, Sheets, Meet, and Workspace administration."
+              }
+            ],
+            "evidence_refs": [
+              {
+                "title": "Microsoft Copilot for Microsoft 365 docs",
+                "locator": "https://docs.example.test/microsoft/copilot-m365",
+                "snippet": "Microsoft documentation emphasizes Copilot across Word, Excel, Outlook, Teams, and Microsoft 365 administration.",
+                "score": 0.95
+              },
+              {
+                "title": "Google Workspace Gemini docs",
+                "locator": "https://docs.example.test/google/workspace-gemini",
+                "snippet": "Google documentation emphasizes Gemini across Gmail, Docs, Sheets, Meet, and Workspace administration.",
+                "score": 0.95
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Microsoft Copilot for Microsoft 365 docs",
+                "locator": "https://docs.example.test/microsoft/copilot-m365",
+                "source_domain": "docs.example.test",
+                "relevant_extract": "Microsoft documentation emphasizes Copilot across Word, Excel, Outlook, Teams, and Microsoft 365 administration.",
+                "why_relevant_to_query": "It supports the Microsoft Copilot side of the office-work comparison.",
+                "claim_hints": [
+                  "Microsoft Copilot is framed around Word, Excel, Outlook, Teams, and Microsoft 365 administration."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Google Workspace Gemini docs",
+                "locator": "https://docs.example.test/google/workspace-gemini",
+                "source_domain": "docs.example.test",
+                "relevant_extract": "Google documentation emphasizes Gemini across Gmail, Docs, Sheets, Meet, and Workspace administration.",
+                "why_relevant_to_query": "It supports the Workspace Gemini side of the office-work comparison.",
+                "claim_hints": [
+                  "Google Workspace Gemini is framed around Gmail, Docs, Sheets, Meet, and Workspace administration."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 2,
+              "content_rich_candidate_count": 2,
+              "claim_hint_count": 2,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            }
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": ["evidence:copilot", "evidence:gemini"],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": ["evidence:copilot", "evidence:gemini"],
+            "source_refs": [
+              {
+                "title": "Microsoft Copilot for Microsoft 365 docs",
+                "locator": "https://docs.example.test/microsoft/copilot-m365",
+                "source_domain": "docs.example.test"
+              },
+              {
+                "title": "Google Workspace Gemini docs",
+                "locator": "https://docs.example.test/google/workspace-gemini",
+                "source_domain": "docs.example.test"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Microsoft Copilot for Microsoft 365 docs",
+                "locator": "https://docs.example.test/microsoft/copilot-m365",
+                "source_domain": "docs.example.test"
+              },
+              {
+                "title": "Google Workspace Gemini docs",
+                "locator": "https://docs.example.test/google/workspace-gemini",
+                "source_domain": "docs.example.test"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": ["evidence:copilot", "evidence:gemini"]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_public_sentiment_overview",
+      "response_payload": {
+        "response": "The retrieved evidence shows public sentiment on generative AI assistants in 2026 as mixed. One survey source reports strong interest in workplace usefulness and time savings, another reports persistent privacy and data-handling concerns, and another reports cautious adoption where trust and accuracy concerns remain unresolved. The clearest picture is interest in usefulness alongside continuing privacy, trust, and accuracy concern.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "public sentiment generative AI assistants 2026",
+            "queries": [
+              "survey generative AI assistants workplace usefulness 2026",
+              "privacy trust concerns generative AI assistants 2026"
+            ],
+            "keywords": ["generative AI assistants", "2026", "public sentiment", "trust", "privacy"],
+            "required_coverage": {
+              "facets": ["consumer trust", "workplace utility", "privacy concern"]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned survey and analysis evidence on usefulness, privacy concern, and trust around generative AI assistants.",
+            "raw_results": [
+              {
+                "title": "Assistant adoption survey",
+                "snippet": "Respondents reported strong interest in workplace usefulness and time savings from AI assistants."
+              },
+              {
+                "title": "Privacy concern report",
+                "snippet": "Consumers and workers continued to cite privacy and data-handling concerns around AI assistants."
+              },
+              {
+                "title": "Trust and adoption tracker",
+                "snippet": "Adoption remained cautious where trust, accuracy, and governance concerns were unresolved."
+              }
+            ],
+            "evidence_refs": [
+              {
+                "title": "Assistant adoption survey",
+                "locator": "https://survey.example.test/assistant-adoption-2026",
+                "snippet": "Respondents reported strong interest in workplace usefulness and time savings from AI assistants.",
+                "score": 0.93
+              },
+              {
+                "title": "Privacy concern report",
+                "locator": "https://privacy.example.test/assistant-concerns-2026",
+                "snippet": "Consumers and workers continued to cite privacy and data-handling concerns around AI assistants.",
+                "score": 0.91
+              },
+              {
+                "title": "Trust and adoption tracker",
+                "locator": "https://market.example.test/assistant-trust-2026",
+                "snippet": "Adoption remained cautious where trust, accuracy, and governance concerns were unresolved.",
+                "score": 0.9
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "survey_report",
+                "source_class": "secondary_analysis",
+                "title": "Assistant adoption survey",
+                "locator": "https://survey.example.test/assistant-adoption-2026",
+                "source_domain": "survey.example.test",
+                "relevant_extract": "Respondents reported strong interest in workplace usefulness and time savings from AI assistants.",
+                "why_relevant_to_query": "It supports the usefulness side of public sentiment toward AI assistants.",
+                "claim_hints": [
+                  "Public sentiment included strong interest in workplace usefulness and time savings."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "analysis_report",
+                "source_class": "secondary_analysis",
+                "title": "Privacy concern report",
+                "locator": "https://privacy.example.test/assistant-concerns-2026",
+                "source_domain": "privacy.example.test",
+                "relevant_extract": "Consumers and workers continued to cite privacy and data-handling concerns around AI assistants.",
+                "why_relevant_to_query": "It supports the privacy-concern side of public sentiment toward AI assistants.",
+                "claim_hints": [
+                  "Public sentiment also included persistent privacy and data-handling concerns."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "market_tracker",
+                "source_class": "secondary_analysis",
+                "title": "Trust and adoption tracker",
+                "locator": "https://market.example.test/assistant-trust-2026",
+                "source_domain": "market.example.test",
+                "relevant_extract": "Adoption remained cautious where trust, accuracy, and governance concerns were unresolved.",
+                "why_relevant_to_query": "It supports the trust-and-adoption side of public sentiment toward AI assistants.",
+                "claim_hints": [
+                  "Adoption remained cautious where trust and accuracy concerns were unresolved."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 3,
+              "content_rich_candidate_count": 3,
+              "claim_hint_count": 3,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            }
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": ["evidence:survey", "evidence:privacy", "evidence:trust"],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": ["evidence:survey", "evidence:privacy", "evidence:trust"],
+            "source_refs": [
+              {
+                "title": "Assistant adoption survey",
+                "locator": "https://survey.example.test/assistant-adoption-2026",
+                "source_domain": "survey.example.test"
+              },
+              {
+                "title": "Privacy concern report",
+                "locator": "https://privacy.example.test/assistant-concerns-2026",
+                "source_domain": "privacy.example.test"
+              },
+              {
+                "title": "Trust and adoption tracker",
+                "locator": "https://market.example.test/assistant-trust-2026",
+                "source_domain": "market.example.test"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Assistant adoption survey",
+                "locator": "https://survey.example.test/assistant-adoption-2026",
+                "source_domain": "survey.example.test"
+              },
+              {
+                "title": "Privacy concern report",
+                "locator": "https://privacy.example.test/assistant-concerns-2026",
+                "source_domain": "privacy.example.test"
+              },
+              {
+                "title": "Trust and adoption tracker",
+                "locator": "https://market.example.test/assistant-trust-2026",
+                "source_domain": "market.example.test"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": ["evidence:survey", "evidence:privacy", "evidence:trust"]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_policy_summary",
+      "response_payload": {
+        "response": "Based on the retrieved evidence, the new AI governance proposal this week mainly does three things: it requires safety reporting for certain high-impact AI deployments, it adds disclosure obligations for some AI-generated or AI-assisted outputs, and it creates enforcement or oversight provisions for noncompliance. The evidence shows the proposal is organized around reporting, disclosure, and enforcement.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "new AI governance proposal this week summary",
+            "queries": [
+              "AI governance proposal safety reporting this week",
+              "AI governance proposal disclosure enforcement this week"
+            ],
+            "keywords": ["AI governance proposal", "this week", "safety reporting", "disclosure", "enforcement"],
+            "required_coverage": {
+              "facets": ["safety reporting", "disclosure", "enforcement"]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned proposal coverage on reporting requirements, disclosure language, and enforcement design.",
+            "raw_results": [
+              {
+                "title": "Proposal reporting summary",
+                "snippet": "The proposal requires safety reporting for certain high-impact AI deployments."
+              },
+              {
+                "title": "Proposal disclosure summary",
+                "snippet": "The proposal includes disclosure obligations for some AI-generated or AI-assisted outputs."
+              },
+              {
+                "title": "Proposal oversight summary",
+                "snippet": "The proposal includes enforcement and oversight provisions for noncompliance."
+              }
+            ],
+            "evidence_refs": [
+              {
+                "title": "Proposal reporting summary",
+                "locator": "https://policy.example.test/proposal-reporting",
+                "snippet": "The proposal requires safety reporting for certain high-impact AI deployments.",
+                "score": 0.94
+              },
+              {
+                "title": "Proposal disclosure summary",
+                "locator": "https://policy.example.test/proposal-disclosure",
+                "snippet": "The proposal includes disclosure obligations for some AI-generated or AI-assisted outputs.",
+                "score": 0.93
+              },
+              {
+                "title": "Proposal oversight summary",
+                "locator": "https://policy.example.test/proposal-oversight",
+                "snippet": "The proposal includes enforcement and oversight provisions for noncompliance.",
+                "score": 0.92
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "policy_coverage",
+                "source_class": "secondary_analysis",
+                "title": "Proposal reporting summary",
+                "locator": "https://policy.example.test/proposal-reporting",
+                "source_domain": "policy.example.test",
+                "relevant_extract": "The proposal requires safety reporting for certain high-impact AI deployments.",
+                "why_relevant_to_query": "It covers the safety-reporting part of the proposal.",
+                "claim_hints": [
+                  "The proposal requires safety reporting for certain high-impact AI deployments."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "policy_coverage",
+                "source_class": "secondary_analysis",
+                "title": "Proposal disclosure summary",
+                "locator": "https://policy.example.test/proposal-disclosure",
+                "source_domain": "policy.example.test",
+                "relevant_extract": "The proposal includes disclosure obligations for some AI-generated or AI-assisted outputs.",
+                "why_relevant_to_query": "It covers the disclosure part of the proposal.",
+                "claim_hints": [
+                  "The proposal includes disclosure obligations for some AI-generated or AI-assisted outputs."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "policy_coverage",
+                "source_class": "secondary_analysis",
+                "title": "Proposal oversight summary",
+                "locator": "https://policy.example.test/proposal-oversight",
+                "source_domain": "policy.example.test",
+                "relevant_extract": "The proposal includes enforcement and oversight provisions for noncompliance.",
+                "why_relevant_to_query": "It covers the enforcement part of the proposal.",
+                "claim_hints": [
+                  "The proposal includes enforcement and oversight provisions for noncompliance."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 3,
+              "content_rich_candidate_count": 3,
+              "claim_hint_count": 3,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            }
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": ["evidence:reporting", "evidence:disclosure", "evidence:oversight"],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": ["evidence:reporting", "evidence:disclosure", "evidence:oversight"],
+            "source_refs": [
+              {
+                "title": "Proposal reporting summary",
+                "locator": "https://policy.example.test/proposal-reporting",
+                "source_domain": "policy.example.test"
+              },
+              {
+                "title": "Proposal disclosure summary",
+                "locator": "https://policy.example.test/proposal-disclosure",
+                "source_domain": "policy.example.test"
+              },
+              {
+                "title": "Proposal oversight summary",
+                "locator": "https://policy.example.test/proposal-oversight",
+                "source_domain": "policy.example.test"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Proposal reporting summary",
+                "locator": "https://policy.example.test/proposal-reporting",
+                "source_domain": "policy.example.test"
+              },
+              {
+                "title": "Proposal disclosure summary",
+                "locator": "https://policy.example.test/proposal-disclosure",
+                "source_domain": "policy.example.test"
+              },
+              {
+                "title": "Proposal oversight summary",
+                "locator": "https://policy.example.test/proposal-oversight",
+                "source_domain": "policy.example.test"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": ["evidence:reporting", "evidence:disclosure", "evidence:oversight"]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_kyoto_neighborhoods",
+      "response_payload": {
+        "response": "For most first-time visitors, Downtown Kawaramachi is the best default base because the retrieved guidance frames it as the most balanced central option. Choose Kyoto Station if rail access and day-trip convenience matter most, and choose Gion or Higashiyama if walking access to historic sights matters most. The evidence consistently points to those three neighborhoods as the strongest first-time options for different priorities.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "best Kyoto neighborhoods for first-time visitors",
+            "queries": [
+              "Kyoto Station first-time visitor transit convenience",
+              "Kawaramachi Gion first-time visitor historic sights"
+            ],
+            "keywords": ["Kyoto", "first-time visitors", "Kyoto Station", "Kawaramachi", "Gion"],
+            "required_coverage": {
+              "entities": ["Kyoto Station", "Kawaramachi", "Gion"],
+              "facets": ["transit access", "sightseeing access", "first-time convenience"]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned travel-guidance evidence covering transit convenience, central access, and historic-sight proximity across Kyoto neighborhoods.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": ["Kyoto Station", "Kawaramachi", "Gion"],
+                "facets": ["transit access", "sightseeing access", "first-time convenience"]
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Kyoto Station stay guide",
+                "snippet": "Kyoto Station is recommended for rail access, airport transfers, and day-trip convenience."
+              },
+              {
+                "title": "Downtown Kawaramachi stay guide",
+                "snippet": "Kawaramachi is recommended for central restaurants, shopping, and broad city access."
+              },
+              {
+                "title": "Gion and Higashiyama stay guide",
+                "snippet": "Gion and Higashiyama are recommended for walking access to historic temples, streets, and sights."
+              }
+            ],
+            "evidence_refs": [
+              {
+                "title": "Kyoto Station stay guide",
+                "locator": "https://travel.example.test/kyoto-station-stay",
+                "snippet": "Kyoto Station is recommended for rail access, airport transfers, and day-trip convenience.",
+                "score": 0.94
+              },
+              {
+                "title": "Downtown Kawaramachi stay guide",
+                "locator": "https://travel.example.test/kawaramachi-stay",
+                "snippet": "Kawaramachi is recommended for central restaurants, shopping, and broad city access.",
+                "score": 0.93
+              },
+              {
+                "title": "Gion and Higashiyama stay guide",
+                "locator": "https://travel.example.test/gion-higashiyama-stay",
+                "snippet": "Gion and Higashiyama are recommended for walking access to historic temples, streets, and sights.",
+                "score": 0.93
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "travel_guide",
+                "source_class": "secondary_analysis",
+                "title": "Kyoto Station stay guide",
+                "locator": "https://travel.example.test/kyoto-station-stay",
+                "source_domain": "travel.example.test",
+                "relevant_extract": "Kyoto Station is recommended for rail access, airport transfers, and day-trip convenience.",
+                "why_relevant_to_query": "It supports the Kyoto Station option for first-time convenience and transit access.",
+                "claim_hints": [
+                  "Kyoto Station is recommended for rail access, transfers, and day-trip convenience."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "travel_guide",
+                "source_class": "secondary_analysis",
+                "title": "Downtown Kawaramachi stay guide",
+                "locator": "https://travel.example.test/kawaramachi-stay",
+                "source_domain": "travel.example.test",
+                "relevant_extract": "Kawaramachi is recommended for central restaurants, shopping, and broad city access.",
+                "why_relevant_to_query": "It supports Kawaramachi as a balanced central base for first-time visitors.",
+                "claim_hints": [
+                  "Kawaramachi is recommended for central restaurants, shopping, and broad city access."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "travel_guide",
+                "source_class": "secondary_analysis",
+                "title": "Gion and Higashiyama stay guide",
+                "locator": "https://travel.example.test/gion-higashiyama-stay",
+                "source_domain": "travel.example.test",
+                "relevant_extract": "Gion and Higashiyama are recommended for walking access to historic temples, streets, and sights.",
+                "why_relevant_to_query": "It supports Gion as the sightseeing-oriented base for first-time visitors.",
+                "claim_hints": [
+                  "Gion and Higashiyama are recommended for walking access to historic sights."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 3,
+              "content_rich_candidate_count": 3,
+              "claim_hint_count": 3,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            }
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": ["evidence:station", "evidence:kawaramachi", "evidence:gion"],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": ["evidence:station", "evidence:kawaramachi", "evidence:gion"],
+            "source_refs": [
+              {
+                "title": "Kyoto Station stay guide",
+                "locator": "https://travel.example.test/kyoto-station-stay",
+                "source_domain": "travel.example.test"
+              },
+              {
+                "title": "Downtown Kawaramachi stay guide",
+                "locator": "https://travel.example.test/kawaramachi-stay",
+                "source_domain": "travel.example.test"
+              },
+              {
+                "title": "Gion and Higashiyama stay guide",
+                "locator": "https://travel.example.test/gion-higashiyama-stay",
+                "source_domain": "travel.example.test"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Kyoto Station stay guide",
+                "locator": "https://travel.example.test/kyoto-station-stay",
+                "source_domain": "travel.example.test"
+              },
+              {
+                "title": "Downtown Kawaramachi stay guide",
+                "locator": "https://travel.example.test/kawaramachi-stay",
+                "source_domain": "travel.example.test"
+              },
+              {
+                "title": "Gion and Higashiyama stay guide",
+                "locator": "https://travel.example.test/gion-higashiyama-stay",
+                "source_domain": "travel.example.test"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": ["evidence:station", "evidence:kawaramachi", "evidence:gion"]
+          }
+        }
+      }
     }
   ]
 }

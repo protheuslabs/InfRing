@@ -248,7 +248,7 @@ fn research_post_tool_downstream_fixture_replays_cleanly_offline() {
     assert_eq!(code, 0);
     let report = read_json(root.join("out.json").to_str().unwrap());
     let rows = report.get("cases").and_then(Value::as_array).expect("cases");
-    assert_eq!(rows.len(), 3);
+    assert_eq!(rows.len(), 8);
     for row in rows {
         assert_eq!(row.get("pass"), Some(&Value::Bool(true)), "{row:#?}");
         assert_eq!(
