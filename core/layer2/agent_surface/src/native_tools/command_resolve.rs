@@ -512,3 +512,51 @@ fn unix_ms() -> u64 {
         .map(|value| value.as_millis().min(u128::from(u64::MAX)) as u64)
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn resolves_configured_binary_without_cargo_run() {
+        let executable = std::env::current_exe().expect("current test executable");
+        let cwd = std::env::current_dir().expect("current dir");
+        let receipt = command_resolve(&json!({
+            "intent": "run_project_validation",
+            "tool_id": "self_test_binary",
+            "configured_paths": [executable.display().to_string()],
+            "args": ["--list"],
+            "cwd": cwd.display().to_string(),
+            "allowed_execution_modes": ["installed_cli_binary", "workspace_cli_binary"],
+            "timing_comparable_required": true
+        }))
+        .expect("configured binary should resolve");
+
+        assert_eq!(receipt["receipt_type"], "command_resolution_receipt_v1");
+        assert_eq!(receipt["allowed_by_gate"], true);
+        assert_eq!(receipt["cargo_run_used"], false);
+        assert_eq!(receipt["timing_comparable"], true);
+        assert!(matches!(
+            receipt["execution_mode"].as_str(),
+            Some("installed_cli_binary" | "workspace_cli_binary")
+        ));
+    }
+
+    #[test]
+    fn comparison_policy_forbids_cargo_run_fallback() {
+        let error = command_resolve(&json!({
+            "intent": "run_development_tool",
+            "tool_id": "definitely_missing_binary_for_command_resolve_test",
+            "candidate_binaries": ["definitely_missing_binary_for_command_resolve_test"],
+            "policy": "comparison",
+            "cargo_package": "xtask",
+            "cargo_bin": "xtask",
+            "allowed_execution_modes": ["installed_cli_binary", "workspace_cli_binary"],
+            "timing_comparable_required": true
+        }))
+        .expect_err("comparison policy should not fall back to cargo run");
+
+        assert!(error.contains("command_resolve_no_allowed_candidate"));
+    }
+}

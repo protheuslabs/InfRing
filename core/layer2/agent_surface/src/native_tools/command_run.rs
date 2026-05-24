@@ -295,3 +295,52 @@ fn read_capped_text(path: &std::path::Path, max_bytes: usize) -> (String, bool) 
     }
     (String::from_utf8_lossy(&bytes).to_string(), truncated)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn runs_admitted_resolved_command() {
+        let cwd = std::env::current_dir().expect("current dir");
+        let result = command_run(&json!({
+            "cwd": cwd.display().to_string(),
+            "resolved_command": {
+                "receipt_type": "command_resolution_receipt_v1",
+                "intent": "run_project_validation",
+                "tool_id": "sh",
+                "policy": "comparison",
+                "execution_mode": "installed_cli_binary",
+                "resolved_executable": "sh",
+                "resolved_command": ["sh", "-lc", "printf resolved-ok"],
+                "ready_to_run": true,
+                "timing_comparable": true,
+                "cargo_run_used": false
+            },
+            "timeout_seconds": 10,
+            "max_output_bytes": 4096
+        }))
+        .expect("resolved command should run");
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["stdout"], "resolved-ok");
+        assert_eq!(
+            result.pointer("/command_resolution/execution_mode"),
+            Some(&json!("installed_cli_binary"))
+        );
+    }
+
+    #[test]
+    fn rejects_required_resolution_when_missing() {
+        let cwd = std::env::current_dir().expect("current dir");
+        let error = command_run(&json!({
+            "cwd": cwd.display().to_string(),
+            "cmd": ["sh", "-lc", "printf raw"],
+            "require_command_resolution": true
+        }))
+        .expect_err("strict gate should require a command resolution receipt");
+
+        assert_eq!(error, "command_run_requires_command_resolution_receipt");
+    }
+}
