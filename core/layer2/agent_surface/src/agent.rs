@@ -339,7 +339,7 @@ impl AgentContract {
         provider: Arc<dyn crate::provider::ProviderClient>,
         tools: &[String],
     ) -> Result<(ProviderResponse, Vec<NativeToolReceipt>, u64, String), ProviderError> {
-        let dispatcher = NativeToolDispatcher::new(tools);
+        let dispatcher = NativeToolDispatcher::with_metadata(tools, &self.metadata);
         if !dispatcher.has_native_tools() {
             let request = ProviderRequest {
                 prompt: self.initial_prompt.clone(),
@@ -4004,6 +4004,11 @@ fn native_tool_call_is_context_only(call: &NativeToolCall) -> bool {
             | "read_many_files"
             | "workspace.read_many"
             | "workspace_read_many"
+            | "command_resolve"
+            | "resolve_command"
+            | "command.resolve"
+            | "executable_resolve"
+            | "executable.resolve"
     )
 }
 

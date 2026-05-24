@@ -107,6 +107,9 @@ pub(crate) fn native_tool_context_only_turn(receipts: &[NativeToolReceipt]) -> b
             "command_run" => {
                 saw_successful_context |= receipt.status == "ok";
             }
+            "command_resolve" => {
+                saw_successful_context |= receipt.status == "ok";
+            }
             _ => return false,
         }
     }

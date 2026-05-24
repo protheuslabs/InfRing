@@ -21,6 +21,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from command_resolution import command_execution_policy, resolve_forge_command, resolve_xtask_command
+
 
 THIS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = THIS_DIR.parents[2]
@@ -331,19 +333,20 @@ def classify_failure(failures: list[str], run_result: dict[str, Any]) -> str | N
 
 def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
     started = time.monotonic()
-    xtask_bin = Path(os.environ.get("INFRING_XTASK_BIN", REPO_ROOT / "target/debug/xtask"))
-    if xtask_bin.exists():
-        command = [str(xtask_bin), "infring-agent-run"]
-    else:
-        command = [
-            "cargo",
-            "run",
-            "--quiet",
-            "-p",
-            "xtask",
-            "--",
-            "infring-agent-run",
-        ]
+    resolution = resolve_xtask_command(REPO_ROOT, policy=command_execution_policy())
+    if not resolution["ok"]:
+        return {
+            "ok": False,
+            "blocked": resolution.get("blocked"),
+            "wall_time_ms": round((time.monotonic() - started) * 1000),
+            "model": model,
+            "raw_command_ok": False,
+            "error": resolution.get("blocked"),
+            "command_resolution": resolution["receipt"],
+            "execution_mode": resolution["receipt"]["execution_mode"],
+            "timing_comparable": resolution["receipt"]["timing_comparable"],
+        }
+    command = list(resolution["command"])
     command.extend(
         [
             "--workflow=local_coding_phase1_mutation_spine",
@@ -353,7 +356,7 @@ def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
             f"--model={model}",
             "--permissions-template=admin",
             "--pack=local-coding-files",
-            "--tool=file_list,file_stat,file_read,file_read_many,file_write,file_patch,command_run",
+            "--tool=file_list,file_stat,file_read,file_read_many,file_write,file_patch,command_resolve,command_run",
         ]
     )
     result = run_cmd(
@@ -414,6 +417,9 @@ def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
         "native_patch_lane_phase_latency_ms": lane_phase_latency_ms,
         "agent_runtime_phase_latency_ms": agent_runtime_phase_latency_ms,
         "xtask_outer_timing_ms": xtask_outer_timing_ms,
+        "command_resolution": resolution["receipt"],
+        "execution_mode": resolution["receipt"]["execution_mode"],
+        "timing_comparable": resolution["receipt"]["timing_comparable"],
         "timed_out": result.get("timed_out"),
     }
 
@@ -568,6 +574,7 @@ def run_swe_agent(job: dict[str, Any], model: str) -> dict[str, Any]:
 
 
 def run_forgecode(job: dict[str, Any], model: str) -> dict[str, Any]:
+    started = time.monotonic()
     forge_root = REPO_ROOT / "references/coding-agent-systems/forgecode"
     if not (forge_root / "Cargo.toml").exists():
         return {"ok": False, "blocked": "repo_missing:references/coding-agent-systems/forgecode", "wall_time_ms": None}
@@ -597,18 +604,25 @@ def run_forgecode(job: dict[str, Any], model: str) -> dict[str, Any]:
         + "\nDo not commit.",
         encoding="utf-8",
     )
+    resolution = resolve_forge_command(REPO_ROOT, forge_root, policy=command_execution_policy())
+    if not resolution["ok"]:
+        return {
+            "ok": False,
+            "blocked": resolution.get("blocked"),
+            "wall_time_ms": round((time.monotonic() - started) * 1000),
+            "model": model,
+            "provider": "openai_compatible",
+            "error": resolution.get("blocked"),
+            "stdout_path": str(stdout_path),
+            "debug_requests_path": str(debug_requests),
+            "debug_request_file_count": 0,
+            "command_resolution": resolution["receipt"],
+            "execution_mode": resolution["receipt"]["execution_mode"],
+            "timing_comparable": resolution["receipt"]["timing_comparable"],
+        }
     result = run_cmd(
         [
-            "cargo",
-            "run",
-            "--quiet",
-            "--manifest-path",
-            str(forge_root / "Cargo.toml"),
-            "--package",
-            "forge_main",
-            "--bin",
-            "forge",
-            "--",
+            *resolution["command"],
             "-C",
             str(job["project_root"]),
             "-p",
@@ -638,6 +652,9 @@ def run_forgecode(job: dict[str, Any], model: str) -> dict[str, Any]:
         "stdout_path": str(stdout_path),
         "debug_requests_path": str(debug_requests),
         "debug_request_file_count": 1 if debug_requests.exists() else 0,
+        "command_resolution": resolution["receipt"],
+        "execution_mode": resolution["receipt"]["execution_mode"],
+        "timing_comparable": resolution["receipt"]["timing_comparable"],
         "timed_out": result.get("timed_out"),
     }
 

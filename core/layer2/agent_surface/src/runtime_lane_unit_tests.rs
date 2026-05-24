@@ -123,6 +123,7 @@ fn runtime_lane_direct_mutation_skips_provider_for_explicit_file_content() {
                 "file.read": 1,
                 "file.write": 1,
                 "file.patch": 1,
+                "command.resolve": 1,
                 "command.run": 1
             }
         })),
@@ -189,6 +190,7 @@ fn runtime_lane_deterministic_local_loop_executes_manifest_without_provider() {
                 "file.read": 1,
                 "file.write": 1,
                 "file.patch": 1,
+                "command.resolve": 1,
                 "command.run": 1
             }
         })),

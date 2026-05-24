@@ -64,6 +64,7 @@
       "file.read",
       "file.write",
       "file.patch",
+      "command.resolve",
       "command.run"
     ],
     "tools_bound_by": "capability_pack_registry",
@@ -82,7 +83,9 @@
       "file_read",
       "file_read_many",
       "file_write",
-      "file_patch"
+      "file_patch",
+      "command_resolve",
+      "command_run"
     ],
     "tool_to_workflow_capability": {
       "file_list": "safe_file_read",
@@ -90,7 +93,9 @@
       "file_read": "safe_file_read",
       "file_read_many": "safe_file_read",
       "file_write": "safe_file_write",
-      "file_patch": "safe_file_patch"
+      "file_patch": "safe_file_patch",
+      "command_resolve": "command_resolution",
+      "command_run": "validation_command_runner"
     },
     "runtime_requirements": [
       "native_tool_loop_enabled",
@@ -98,6 +103,51 @@
       "tool_receipts_attached_to_agent_receipt",
       "final_answer_must_not_claim_unreceipted_file_changes"
     ],
+    "tool_execution_gate": {
+      "version": "tool_execution_gate_v1",
+      "purpose": "Let workflow CD specify command/tool admission policy while native tooling resolves concrete executables.",
+      "default_policy": "comparison",
+      "tool_intents": {
+        "run_project_validation": {
+          "allowed_tools": [
+            "command_resolve",
+            "command_run"
+          ],
+          "allowed_execution_modes": [
+            "installed_cli_binary",
+            "workspace_cli_binary",
+            "dev_build_then_run"
+          ],
+          "forbidden_execution_modes": [
+            "cargo_run_dev_fallback"
+          ],
+          "timing_comparable_required": true,
+          "requires_command_resolution_receipt": false
+        },
+        "run_development_tool": {
+          "allowed_tools": [
+            "command_resolve",
+            "command_run"
+          ],
+          "allowed_execution_modes": [
+            "installed_cli_binary",
+            "workspace_cli_binary",
+            "dev_build_then_run",
+            "cargo_run_dev_fallback"
+          ],
+          "timing_comparable_required": false,
+          "requires_command_resolution_receipt": false
+        }
+      },
+      "receipt_contract": [
+        "command_resolution_receipt_v1",
+        "command_run_receipt_v1"
+      ],
+      "non_goals": [
+        "do_not_encode_cargo_run_or_binary_paths_in_workflow_logic",
+        "do_not_allow_agents_to_override_forbidden_execution_modes"
+      ]
+    },
     "delegated_workflow_id": "local_coding_program_builder",
     "non_goals": [
       "do_not_reimplement_safe_file_logic_in_this_wrapper",

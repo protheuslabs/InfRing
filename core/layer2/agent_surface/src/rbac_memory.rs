@@ -79,6 +79,7 @@ pub fn permission_template_manifest(
                 ("file.read".to_string(), PermissionTrit::Allow),
                 ("file.write".to_string(), PermissionTrit::Allow),
                 ("file.patch".to_string(), PermissionTrit::Allow),
+                ("command.resolve".to_string(), PermissionTrit::Allow),
                 ("command.run".to_string(), PermissionTrit::Allow),
             ]),
         },

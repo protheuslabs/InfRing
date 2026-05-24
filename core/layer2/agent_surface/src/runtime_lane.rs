@@ -6048,6 +6048,8 @@ fn file_tool_permission(tool: &str) -> Option<&'static str> {
         "command_run" | "run_command" | "command.run" | "shell.run" | "shell_run" => {
             Some("command.run")
         }
+        "command_resolve" | "resolve_command" | "command.resolve" | "executable_resolve"
+        | "executable.resolve" => Some("command.resolve"),
         _ => None,
     }
 }
@@ -6233,6 +6235,8 @@ fn normalize_native_tool_name(raw: &str) -> String {
         "command_run" | "run_command" | "command.run" | "shell.run" | "shell_run" => {
             "command_run".to_string()
         }
+        "command_resolve" | "resolve_command" | "command.resolve" | "executable_resolve"
+        | "executable.resolve" => "command_resolve".to_string(),
         "read_file" | "workspace.read" | "workspace_read" => "file_read".to_string(),
         "read_many_files" | "workspace.read_many" | "workspace_read_many" => {
             "file_read_many".to_string()

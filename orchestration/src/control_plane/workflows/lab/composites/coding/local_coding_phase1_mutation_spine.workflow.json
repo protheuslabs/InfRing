@@ -12,6 +12,75 @@
     "special_case_policy": "This composite wires generic primitives only. Eval-specific setup, filenames, expected outputs, and scoring must remain in eval fixtures.",
     "monotonic_lower_level_regression_policy": "This spine must preserve Level 1 create-file behavior as higher coding workflows compose additional context, validation, repair, and memory primitives."
   },
+  "native_runtime_tooling": {
+    "version": "native_runtime_tooling_v1",
+    "capability_packs": [
+      "local-coding-files"
+    ],
+    "permission_template": "local-coding-files",
+    "permission_keys": [
+      "file.read",
+      "file.write",
+      "file.patch",
+      "command.resolve",
+      "command.run"
+    ],
+    "required_native_tools": [
+      "file_list",
+      "file_stat",
+      "file_read",
+      "file_read_many",
+      "file_write",
+      "file_patch",
+      "command_resolve",
+      "command_run"
+    ],
+    "tool_execution_gate": {
+      "version": "tool_execution_gate_v1",
+      "purpose": "Declare command execution modes for validation and development tools without hardcoding launch mechanics.",
+      "default_policy": "comparison",
+      "tool_intents": {
+        "run_project_validation": {
+          "allowed_tools": [
+            "command_resolve",
+            "command_run"
+          ],
+          "allowed_execution_modes": [
+            "installed_cli_binary",
+            "workspace_cli_binary",
+            "dev_build_then_run"
+          ],
+          "forbidden_execution_modes": [
+            "cargo_run_dev_fallback"
+          ],
+          "timing_comparable_required": true,
+          "requires_command_resolution_receipt": false
+        },
+        "run_development_tool": {
+          "allowed_tools": [
+            "command_resolve",
+            "command_run"
+          ],
+          "allowed_execution_modes": [
+            "installed_cli_binary",
+            "workspace_cli_binary",
+            "dev_build_then_run",
+            "cargo_run_dev_fallback"
+          ],
+          "timing_comparable_required": false,
+          "requires_command_resolution_receipt": false
+        }
+      },
+      "receipt_contract": [
+        "command_resolution_receipt_v1",
+        "command_run_receipt_v1"
+      ],
+      "non_goals": [
+        "do_not_encode_cargo_run_or_binary_paths_in_workflow_logic",
+        "do_not_allow_agents_to_override_forbidden_execution_modes"
+      ]
+    }
+  },
   "native_execution_success_contract": {
     "native_success_criteria": {
       "requires_successful_mutation_receipt": true,

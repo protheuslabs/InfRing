@@ -611,6 +611,7 @@ Forbidden transitions:
 | read several files | `file_read_many` | `file_observation_receipt_v1` |
 | write new file | `file_write` | `file_mutation_receipt_v1` |
 | patch existing file | `file_patch` | `file_mutation_receipt_v1` |
+| resolve command/tool executable | `command_resolve` | `command_resolution_receipt_v1` |
 | run validation | `command_run` | `validation_receipt_v1` |
 | record trace | `receipt_journal_append` | `journal_receipt_v1` |
 | capture handoff | memory/project-context writer | `checkpoint_handoff_receipt_v1` |
@@ -618,6 +619,21 @@ Forbidden transitions:
 Tool availability rule:
 
 If a workflow declares a tool in its contract but the native runtime cannot expose it, fail closed with `failed_tooling`.
+
+Command execution mode rule:
+
+Workflow CDs declare tool intent and allowed execution modes; native tooling resolves the concrete executable and emits a receipt. Coding workflows must not hardcode development launchers such as `cargo run` unless they are explicitly dev/debug workflows.
+
+| Execution mode | Meaning | Timing comparable |
+|---|---|---|
+| `installed_cli_binary` | Use an installed/PATH or configured binary directly. | yes |
+| `workspace_cli_binary` | Use an already-built workspace binary directly. | yes |
+| `dev_build_then_run` | Build through an admitted build command, then run the produced binary directly. | only after the build step is separately receipted |
+| `cargo_run_dev_fallback` | Use `cargo run` as a last-resort development/debug launcher. | no |
+
+Gate rule:
+
+Eval/comparison workflows should allow `installed_cli_binary`, `workspace_cli_binary`, and optionally `dev_build_then_run`; they should forbid `cargo_run_dev_fallback`. Local development workflows may allow all modes, but receipts must mark `cargo_run_dev_fallback` as `timing_comparable: false`.
 
 ## Eval-level mapping
 
