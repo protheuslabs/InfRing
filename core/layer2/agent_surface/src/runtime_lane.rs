@@ -22,6 +22,7 @@ use crate::wasm_sandbox::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::time::Instant;
 
@@ -70,6 +71,19 @@ fn runtime_lane_response_is_provider_timeout(response: &RuntimeLaneResponse) -> 
             .and_then(|details| details.get("failure_code"))
             .and_then(Value::as_str)
             == Some("provider_timeout")
+}
+
+fn runtime_lane_response_allows_bounded_existing_project_fallback(
+    response: &RuntimeLaneResponse,
+) -> bool {
+    if runtime_lane_response_is_provider_timeout(response) {
+        return true;
+    }
+    matches!(
+        response.error.as_deref(),
+        Some("runtime_lane_bounded_existing_project_edit_loop_manifest_failed")
+            | Some("runtime_lane_bounded_existing_project_edit_loop_manifest_repair_failed")
+    )
 }
 
 #[derive(Debug)]
@@ -388,7 +402,7 @@ pub fn run_runtime_lane_with_registry(
         &mut durable_state,
         providers,
     ) {
-        if !runtime_lane_response_is_provider_timeout(&response) {
+        if !runtime_lane_response_allows_bounded_existing_project_fallback(&response) {
             return Ok(response);
         }
     }
@@ -1771,6 +1785,19 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
             }
         }
     }
+    if runtime_lane_receipts_need_repair(&receipts, candidate.requires_validation)
+        && receipts
+            .iter()
+            .any(runtime_lane_receipt_is_successful_mutation)
+    {
+        runtime_lane_append_explicit_validation_recheck(
+            &mut receipts,
+            &workspace_root,
+            validation_command.as_ref(),
+            semantic_probe.as_ref(),
+            "bounded_existing_project_edit_loop_validation_recheck",
+        );
+    }
     if runtime_lane_receipts_need_repair(&receipts, candidate.requires_validation) {
         if let Some(initial_failure_summary) = runtime_lane_first_receipt_failure_summary(&receipts)
         {
@@ -1935,10 +1962,25 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                     "bounded_existing_project_edit_loop_validation_repair",
                     &mut repair_probe_call_id,
                 );
-                let repair_receipts = runtime_lane_dispatch_model_manifest_actions(
+                let mut repair_receipts = runtime_lane_dispatch_model_manifest_actions(
                     &repair_candidate,
                     "bounded_existing_project_edit_loop_validation_repair",
                 );
+                if runtime_lane_receipts_need_repair(
+                    &repair_receipts,
+                    repair_candidate.requires_validation,
+                ) && repair_receipts
+                    .iter()
+                    .any(runtime_lane_receipt_is_successful_mutation)
+                {
+                    runtime_lane_append_explicit_validation_recheck(
+                        &mut repair_receipts,
+                        &workspace_root,
+                        validation_command.as_ref(),
+                        semantic_probe.as_ref(),
+                        "bounded_existing_project_edit_loop_validation_repair_recheck",
+                    );
+                }
                 let repair_success = repair_receipts
                     .iter()
                     .any(runtime_lane_receipt_is_successful_mutation)
@@ -4723,6 +4765,43 @@ fn runtime_lane_attach_semantic_probe_action(
     *semantic_probe_call_id = Some(format!("{call_prefix}_{}", index + 1));
 }
 
+fn runtime_lane_append_explicit_validation_recheck(
+    receipts: &mut Vec<NativeToolReceipt>,
+    workspace_root: &Path,
+    validation_command: Option<&RuntimeLaneSemanticProbeCommand>,
+    semantic_probe: Option<&RuntimeLaneSemanticProbeCommand>,
+    call_prefix: &str,
+) {
+    if validation_command.is_none() && semantic_probe.is_none() {
+        return;
+    }
+    let mut recheck_candidate = DeterministicLocalLoopCandidate {
+        workspace_root: workspace_root.to_path_buf(),
+        actions: Vec::new(),
+        requires_validation: true,
+    };
+    let mut validation_call_id = None;
+    runtime_lane_attach_semantic_probe_action(
+        &mut recheck_candidate,
+        validation_command,
+        call_prefix,
+        &mut validation_call_id,
+    );
+    let mut semantic_probe_call_id = None;
+    runtime_lane_attach_semantic_probe_action(
+        &mut recheck_candidate,
+        semantic_probe,
+        call_prefix,
+        &mut semantic_probe_call_id,
+    );
+    if recheck_candidate.actions.is_empty() {
+        return;
+    }
+    let mut recheck_receipts =
+        runtime_lane_dispatch_model_manifest_actions(&recheck_candidate, call_prefix);
+    receipts.append(&mut recheck_receipts);
+}
+
 fn runtime_lane_commands_equivalent(left: &[String], right: &[String]) -> bool {
     if left == right {
         return true;
@@ -5014,20 +5093,12 @@ fn runtime_lane_receipts_need_repair(
     if receipts.iter().any(|receipt| receipt.status != "ok") {
         return true;
     }
-    if receipts.iter().any(|receipt| {
-        receipt.tool_name == "command_run"
-            && !receipt
-                .result
-                .get("success")
-                .and_then(Value::as_bool)
-                .unwrap_or(true)
-    }) {
-        return true;
+    if requires_validation {
+        return !runtime_lane_receipts_validation_ok(receipts, requires_validation);
     }
-    if !requires_validation {
-        return false;
-    }
-    false
+    receipts.iter().any(|receipt| {
+        receipt.tool_name == "command_run" && !runtime_lane_command_receipt_success(receipt)
+    })
 }
 
 fn runtime_lane_receipts_validation_ok(
@@ -5037,23 +5108,82 @@ fn runtime_lane_receipts_validation_ok(
     if !requires_validation {
         return true;
     }
+    let start_index = receipts
+        .iter()
+        .rposition(runtime_lane_receipt_is_successful_mutation)
+        .map(|index| index + 1)
+        .unwrap_or(0);
     let mut saw_command = false;
+    let mut latest_by_command = BTreeMap::<String, bool>::new();
+    let mut latest_validation_command = None;
+    let mut latest_semantic_probe_command = None;
     for receipt in receipts
         .iter()
+        .skip(start_index)
         .filter(|receipt| receipt.tool_name == "command_run")
     {
         saw_command = true;
-        if receipt.status != "ok"
-            || !receipt
-                .result
-                .get("success")
-                .and_then(Value::as_bool)
-                .unwrap_or(true)
-        {
-            return false;
+        let success = runtime_lane_command_receipt_success(receipt);
+        match runtime_lane_command_receipt_validation_category(receipt) {
+            Some("semantic_probe") => latest_semantic_probe_command = Some(success),
+            Some("validation") => latest_validation_command = Some(success),
+            _ => {}
         }
+        latest_by_command.insert(
+            runtime_lane_command_receipt_key(receipt),
+            success,
+        );
     }
-    saw_command
+    if latest_validation_command.is_some() || latest_semantic_probe_command.is_some() {
+        return latest_validation_command.unwrap_or(true)
+            && latest_semantic_probe_command.unwrap_or(true);
+    }
+    saw_command && latest_by_command.values().all(|success| *success)
+}
+
+fn runtime_lane_command_receipt_success(receipt: &NativeToolReceipt) -> bool {
+    receipt.status == "ok"
+        && receipt
+            .result
+            .get("success")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+}
+
+fn runtime_lane_command_receipt_key(receipt: &NativeToolReceipt) -> String {
+    receipt
+        .result
+        .get("cmd")
+        .map(Value::to_string)
+        .unwrap_or_else(|| receipt.call_id.clone())
+}
+
+fn runtime_lane_command_receipt_validation_category(
+    receipt: &NativeToolReceipt,
+) -> Option<&'static str> {
+    let command_text = receipt
+        .result
+        .get("cmd")
+        .map(Value::to_string)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if command_text.contains("semantic_probe") {
+        return Some("semantic_probe");
+    }
+    if command_text.contains("pytest")
+        || command_text.contains("unittest")
+        || command_text.contains("cargo test")
+        || command_text.contains("npm test")
+        || command_text.contains("pnpm test")
+        || command_text.contains("yarn test")
+        || command_text.contains("go test")
+        || command_text.contains("swift test")
+        || command_text.contains("mix test")
+        || command_text.contains("dotnet test")
+    {
+        return Some("validation");
+    }
+    None
 }
 
 fn runtime_lane_tail(value: &str, max_chars: usize) -> String {

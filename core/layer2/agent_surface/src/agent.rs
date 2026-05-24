@@ -2676,9 +2676,16 @@ fn native_tool_bounded_patch_artifact_lane(
     }
 
     let mut response = response;
+    let completion_evidence_ready = native_tool_prompt_evidence_gaps(original_prompt, &receipts)
+        .is_empty()
+        && (!native_tool_prompt_requires_validation_command(&original_prompt.to_ascii_lowercase())
+            || native_tool_has_successful_validation_command(&receipts));
     let repair_reasons =
         native_tool_runtime_repair_reasons(metadata, original_prompt, &response.output, &receipts);
-    if !repair_reasons.is_empty() && native_tool_completion_evidence_repair_enabled(metadata) {
+    if !completion_evidence_ready
+        && !repair_reasons.is_empty()
+        && native_tool_completion_evidence_repair_enabled(metadata)
+    {
         let repaired = native_tool_completion_evidence_repair_loop(
             provider,
             dispatcher,

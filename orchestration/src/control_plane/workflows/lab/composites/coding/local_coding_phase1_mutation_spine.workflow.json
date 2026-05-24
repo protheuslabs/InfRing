@@ -88,6 +88,8 @@
       "staged_execution_controller_enabled": true,
       "staged_pre_mutation_read_budget": 4,
       "provider_timeout_seconds": 90,
+      "fast_lane_provider_timeout_seconds": 20,
+      "fast_lane_repair_provider_timeout_seconds": 15,
       "native_wall_timeout_seconds": 150,
       "bounded_direct_edit_lane": true,
       "bounded_direct_edit_max_files": 8,
