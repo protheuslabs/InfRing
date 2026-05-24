@@ -39,6 +39,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          token: ${{ secrets.REPO_ADMIN_TOKEN || github.token }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -140,8 +141,14 @@ jobs:
 
       - name: Commit version files
         if: steps.semver.outputs.release_ready == '1' && steps.semver.outputs.dry_run != '1'
+        env:
+          RELEASE_BOT_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -z "${RELEASE_BOT_TOKEN:-}" ]; then
+            echo "::error::REPO_ADMIN_TOKEN is required to persist version commits to protected main. Store a repo-admin or bypass-capable PAT as REPO_ADMIN_TOKEN, then rerun this workflow."
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json client/runtime/config/runtime_version.json
@@ -150,6 +157,7 @@ jobs:
             exit 0
           fi
           git commit -m "chore(release): ${{ steps.semver.outputs.tag }}"
+          git remote set-url origin "https://x-access-token:${RELEASE_BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin HEAD:main
 
       - name: Create tag and GitHub release
