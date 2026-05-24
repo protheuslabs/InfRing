@@ -1148,7 +1148,10 @@ fn runtime_lane_try_public_api_extension_lane(
         durable_state,
         providers,
     )?;
-    if runtime_lane_response_is_provider_timeout(&response) {
+    if runtime_lane_response_is_provider_timeout(&response)
+        || runtime_lane_response_allows_bounded_existing_project_fallback(&response)
+        || !runtime_lane_response_has_successful_mutation(&response)
+    {
         return None;
     }
     runtime_lane_relabel_generated_manifest_response(
@@ -1158,6 +1161,23 @@ fn runtime_lane_try_public_api_extension_lane(
         "public_api_owner_binding_first_loop",
     );
     Some(response)
+}
+
+fn runtime_lane_response_has_successful_mutation(response: &RuntimeLaneResponse) -> bool {
+    response
+        .receipt
+        .get("native_tool_receipts")
+        .and_then(Value::as_array)
+        .map(|receipts| {
+            receipts.iter().any(|receipt| {
+                receipt.get("status").and_then(Value::as_str) == Some("ok")
+                    && matches!(
+                        receipt.get("tool_name").and_then(Value::as_str),
+                        Some("file_write" | "file_patch")
+                    )
+            })
+        })
+        .unwrap_or(false)
 }
 
 fn runtime_lane_try_bounded_existing_project_edit_loop(

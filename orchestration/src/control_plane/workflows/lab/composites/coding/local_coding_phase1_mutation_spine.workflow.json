@@ -92,6 +92,8 @@
       "fast_lane_repair_provider_timeout_seconds": 15,
       "native_wall_timeout_seconds": 150,
       "bounded_direct_edit_lane": true,
+      "bounded_fast_edit_preflight": true,
+      "first_edit_batch_contract": true,
       "bounded_direct_edit_max_files": 8,
       "bounded_direct_edit_repair_attempts": 1,
       "bounded_direct_edit_open_loop_after_failure": false,

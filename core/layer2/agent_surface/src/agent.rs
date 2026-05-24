@@ -372,6 +372,10 @@ impl AgentContract {
         let micro_direct_write_task = coding_task_lane == "new_file_fast_path";
         let bounded_direct_edit_task = !micro_direct_write_task
             && native_tool_bounded_direct_edit_lane_active(&self.metadata, &self.initial_prompt);
+        let bounded_fast_edit_preflight =
+            bounded_direct_edit_task && native_tool_bounded_fast_edit_preflight_enabled(&self.metadata);
+        let first_edit_batch_contract = bounded_fast_edit_preflight
+            && native_tool_first_edit_batch_contract_enabled(&self.metadata);
         let mut next_provider_timeout_seconds: Option<u64> = None;
         if bounded_direct_edit_task {
             prompt = native_tool_bounded_direct_edit_initial_prompt(
@@ -392,7 +396,11 @@ impl AgentContract {
                     all_receipts.push(validation_receipt);
                 }
                 let observation = native_tool_observation_prompt(&all_receipts);
-                let default_bootstrap_rule = if native_tool_prompt_requires_pre_mutation_validation(
+                let preflight_ready = bounded_fast_edit_preflight
+                    && native_tool_has_successful_read_context_receipt(&all_receipts);
+                let default_bootstrap_rule = if preflight_ready {
+                    "Runtime bounded_fast_edit_preflight has already loaded bounded local context and any explicitly requested pre-mutation validation receipt. Do not call read/list/stat/resolve tools before the first mutation. Use the observed files and validation output to return one small JSON tool-call batch with file_patch/file_write edits first, followed by requested validation/probe command_run calls. Return a structured blocker only if the loaded context proves mutation is unsafe."
+                } else if native_tool_prompt_requires_pre_mutation_validation(
                     &self.initial_prompt,
                 ) {
                     "Runtime has already loaded the bounded local context for this direct edit. If a pre-mutation validation receipt is present, do not rerun the same failing command before repair; use its output to return the smallest source/test file_write or file_patch repair next, then rerun validation/probe commands."
@@ -538,6 +546,9 @@ impl AgentContract {
                 }
             }
             provider_call_count += 1;
+            let first_edit_batch_turn = first_edit_batch_contract
+                && native_tool_has_successful_read_context_receipt(&all_receipts)
+                && !native_tool_has_successful_mutation(&all_receipts);
             let mut request_metadata = self.metadata.clone();
             if let Some(timeout_seconds) = next_provider_timeout_seconds.take() {
                 if let Value::Object(object) = &mut request_metadata {
@@ -548,9 +559,25 @@ impl AgentContract {
                 }
             }
             let request = ProviderRequest {
-                prompt: prompt.clone(),
-                system: Some(system.clone()),
-                tools: tools.to_vec(),
+                prompt: if first_edit_batch_turn {
+                    native_tool_first_edit_batch_prompt(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &all_receipts,
+                    )
+                } else {
+                    prompt.clone()
+                },
+                system: Some(if first_edit_batch_turn {
+                    native_tool_first_edit_batch_system()
+                } else {
+                    system.clone()
+                }),
+                tools: if first_edit_batch_turn {
+                    native_tool_bounded_fast_edit_preflight_tools(tools)
+                } else {
+                    tools.to_vec()
+                },
                 model: self.model.clone(),
                 metadata: request_metadata,
             };
@@ -798,6 +825,14 @@ impl AgentContract {
                         >= native_tool_max_context_only_turns(&self.metadata)
                     && native_tool_has_successful_context_receipt(&all_receipts)
                     && native_tool_call_is_context_only(&call);
+                let preflight_context_blocked = bounded_fast_edit_preflight
+                    && native_tool_has_successful_read_context_receipt(&all_receipts)
+                    && !native_tool_has_successful_mutation(&all_receipts)
+                    && native_tool_call_is_context_only(&call);
+                let first_edit_batch_command_blocked = first_edit_batch_turn
+                    && !native_tool_has_successful_mutation(&all_receipts)
+                    && !native_tool_has_successful_mutation(&turn_receipts)
+                    && native_tool_call_is_command_run(&call);
                 let receipt = if let Some(blocked) = native_tool_live_stage_blocked_receipt(
                     &self.metadata,
                     &self.initial_prompt,
@@ -814,6 +849,10 @@ impl AgentContract {
                     &call,
                 ) {
                     blocked
+                } else if preflight_context_blocked {
+                    native_tool_bounded_fast_edit_preflight_context_blocked_receipt(call)
+                } else if first_edit_batch_command_blocked {
+                    native_tool_first_edit_batch_command_blocked_receipt(call)
                 } else if context_blocked {
                     native_tool_product_repair_context_blocked_receipt(call, &[], &all_receipts)
                 } else {
@@ -1818,6 +1857,118 @@ fn native_tool_bounded_direct_edit_lane_enabled(metadata: &Value) -> bool {
         .and_then(|value| value.get("bounded_direct_edit_lane"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
+}
+
+fn native_tool_bounded_fast_edit_preflight_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("bounded_fast_edit_preflight"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_first_edit_batch_contract_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("first_edit_batch_contract"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_first_edit_batch_system() -> String {
+    "You are the first_edit_batch_contract primitive for a local coding runtime.\n\
+Return only JSON. No markdown. No prose.\n\
+Use this shape: {\"tool_calls\":[{\"id\":\"patch_1\",\"name\":\"file_patch\",\"args\":{\"path\":\"/absolute/path\",\"old\":\"exact old text\",\"new\":\"replacement text\",\"allow_multiple\":false}}]}.\n\
+Allowed tool names in this turn: file_patch, file_write, command_run. command_run is allowed only after a preceding successful file_write or file_patch receipt in this same batch.\n\
+The runtime has already loaded bounded local context and any explicitly requested pre-mutation validation evidence.\n\
+Do not call read/list/stat/resolve tools. Do not produce a final answer. Do not run validation before at least one mutation when validation was already observed.\n\
+Emit the smallest safe edit batch first, then requested validation/probe command_run calls. If local mutation is unsafe, return {\"structured_blocker\":{\"reason\":\"...\"}}."
+        .to_string()
+}
+
+fn native_tool_first_edit_batch_prompt(
+    metadata: &Value,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> String {
+    let observation = native_tool_observation_prompt(receipts);
+    let rule = native_tool_orchestration_prompt_text(
+        metadata,
+        "first_edit_batch_contract_rule",
+        "First edit batch contract: use the receipt-backed context and validation evidence below to produce the first concrete mutation batch now. Do not reopen discovery. Prefer file_patch for small existing-file edits and file_write only for new files or full small-file replacement. Include command_run validation/probe calls after mutation when requested. If the loaded context proves the edit cannot be made safely, return a structured blocker instead of guessing.",
+    );
+    format!(
+        "User task:\n{}\n\nReceipt-backed preflight observations:\n{}\n\n{}",
+        original_prompt.trim(),
+        observation,
+        rule
+    )
+}
+
+fn native_tool_bounded_fast_edit_preflight_tools(tools: &[String]) -> Vec<String> {
+    let filtered = tools
+        .iter()
+        .filter(|tool| {
+            matches!(
+                tool.trim().to_ascii_lowercase().as_str(),
+                "file_write"
+                    | "write_file"
+                    | "workspace.write"
+                    | "workspace_write"
+                    | "file_patch"
+                    | "patch_file"
+                    | "workspace.patch"
+                    | "workspace_patch"
+                    | "command_run"
+                    | "run_command"
+                    | "command.run"
+                    | "shell.run"
+                    | "shell_run"
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if filtered.is_empty() {
+        tools.to_vec()
+    } else {
+        filtered
+    }
+}
+
+fn native_tool_bounded_fast_edit_preflight_context_blocked_receipt(
+    call: NativeToolCall,
+) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: call.id,
+        tool_name: call.name.trim().to_ascii_lowercase(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "bounded_fast_edit_preflight",
+            "reason": "preflight_context_already_loaded_first_mutation_required",
+            "required_next_tool": "file_write_or_file_patch"
+        }),
+        error: Some("preflight_context_already_loaded_first_mutation_required".to_string()),
+    }
+}
+
+fn native_tool_first_edit_batch_command_blocked_receipt(
+    call: NativeToolCall,
+) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: call.id,
+        tool_name: call.name.trim().to_ascii_lowercase(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "first_edit_batch_contract",
+            "reason": "first_edit_batch_requires_mutation_before_command",
+            "required_next_tool": "file_write_or_file_patch"
+        }),
+        error: Some("first_edit_batch_requires_mutation_before_command".to_string()),
+    }
 }
 
 fn native_tool_bounded_direct_edit_max_files(metadata: &Value) -> usize {

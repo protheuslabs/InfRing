@@ -223,6 +223,28 @@
       "contract_surface": "workflow_cd",
       "extension_surface": "final_receipt_contract",
       "promotion_status": "seed"
+    },
+    {
+      "id": "runtime.bounded_fast_edit_preflight",
+      "name": "Bounded Fast Edit Preflight",
+      "kind": "primitive",
+      "owner_domain": "core",
+      "layer": "2",
+      "path": "core/layer2/agent_surface/src/agent.rs",
+      "contract_surface": "native_runtime_receipt_contract",
+      "extension_surface": "bounded_direct_edit_context_and_tool_menu_policy",
+      "promotion_status": "seed"
+    },
+    {
+      "id": "runtime.first_edit_batch_contract",
+      "name": "First Edit Batch Contract",
+      "kind": "primitive",
+      "owner_domain": "core",
+      "layer": "2",
+      "path": "core/layer2/agent_surface/src/agent.rs",
+      "contract_surface": "native_runtime_first_mutation_contract",
+      "extension_surface": "bounded_direct_edit_first_turn_tool_and_prompt_policy",
+      "promotion_status": "seed"
     }
   ]
 }

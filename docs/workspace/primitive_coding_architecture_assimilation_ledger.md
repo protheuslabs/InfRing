@@ -1040,3 +1040,92 @@ Enforcement:
 - Any future deterministic coding synthesis must be registered as a primitive,
   have cross-case tests, document its extension surface, and remain disabled in
   production until promoted.
+
+## Primitive candidate: `bounded_fast_edit_preflight`
+
+Status: `v1_wired_inside_bounded_direct_edit_lane`
+
+Evidence source:
+
+- Controlled Level 5 comparison on May 24, 2026 using the same control model:
+  Claude Code reached first mutation in about 13s, ForgeCode in about 15s,
+  while Infring reached first mutation in about 46s.
+
+Observed failure mode:
+
+- Infring loaded bounded context and validation evidence but still exposed the
+  full discovery/read/write/command tool menu before the first mutation.
+- The model could spend extra turns on redundant read/list/status calls even
+  after runtime had already supplied the bounded local context.
+- Later finalization and repair machinery could add useful safety, but it
+  should not delay the first concrete edit for small bounded project changes.
+
+Primitive definition:
+
+`bounded_fast_edit_preflight` converts already-collected bounded context and
+explicit validation/probe receipts into a first-edit constraint: after preflight
+context is available, the next provider turn should use mutation and command
+tools rather than reopening broad discovery.
+
+Rules:
+
+- activate only inside the generic bounded direct edit lane
+- require receipt-backed local context before narrowing the first tool menu
+- do not infer implementation logic from tests, probes, symbols, package names,
+  eval levels, or fixture shapes
+- allow only file write/patch and command run tools until the first mutation
+- keep context and validation evidence as placement/diagnostic input, not as
+  deterministic implementation synthesis
+- return a structured blocker if the preflight context proves mutation is unsafe
+
+Expected effect:
+
+- preserve primitive-first behavior
+- reduce redundant pre-mutation context turns
+- move first mutation closer to successful reference-agent timing without
+  hiding task-specific code in the runtime
+
+## Primitive candidate: `first_edit_batch_contract`
+
+Status: `v1_wired_inside_bounded_fast_edit_preflight`
+
+Evidence source:
+
+- Infring Level 5 after `bounded_fast_edit_preflight` still reached first
+  mutation around 44s despite reducing provider calls and tool calls.
+- Claude Code and ForgeCode traces show the useful pattern: once context and
+  validation evidence exist, the next model turn emits an edit batch rather
+  than continuing broad discovery.
+
+Primitive definition:
+
+`first_edit_batch_contract` constrains the first provider turn after bounded
+preflight context to a compact mutation-oriented contract.
+
+Rules:
+
+- activate only after bounded direct edit preflight has successful read-context
+  receipts
+- expose only mutation and command tools for that first edit turn
+- use a compact system prompt that requires JSON tool calls only
+- require at least one file write/patch before validation if validation was
+  already observed
+- runtime-block command execution until the first edit batch has a successful
+  file write/patch receipt
+- permit a structured blocker when receipts prove mutation is unsafe
+- do not infer implementation bodies from fixtures, probes, tests, symbol names,
+  package names, or eval levels
+
+Expected effect:
+
+- convert preloaded context into faster first mutation without weakening
+  receipt-backed safety
+- keep speed optimization primitive-level and reusable across bounded coding
+  tasks rather than tied to any eval case
+
+Expected effect:
+
+- reduce first-mutation latency
+- preserve receipt-backed safety
+- keep public interface edits as generic placement/validation work rather than
+  case-specific synthesis
