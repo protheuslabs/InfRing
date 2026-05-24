@@ -26,6 +26,7 @@ type GateReport = {
 const ALLOWED_TYPES = [
   'feat',
   'fix',
+  'patch',
   'docs',
   'style',
   'refactor',
@@ -148,6 +149,7 @@ function main() {
     accepted_examples: [
       'feat(router): discover local ollama models',
       'fix(installer): verify checksum manifest before install',
+      'patch(runtime): tighten receipt evidence gate',
       'docs(enforcer): require conventional commit prefixes',
       'ci(commit): enforce conventional commit subjects',
       'test(sentinel): cover compact report fallback',

@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   version-bump:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.actor != 'github-actions[bot]' && vars.INFRING_RELEASE_PERSIST_VERSION != '1') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -54,6 +54,25 @@ jobs:
 
       - name: Refresh git tags
         run: git fetch --force --tags origin
+
+      - name: Enforce conventional commit prefixes before versioning
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ] && [ -n "${BEFORE_SHA:-}" ] && ! printf '%s' "${BEFORE_SHA}" | grep -Eq '^0+$'; then
+            node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/conventional_commit_gate.ts \
+              --from="${BEFORE_SHA}" \
+              --to="${HEAD_SHA}" \
+              --strict=1 \
+              --out=core/local/artifacts/version_bump_commit_gate_current.json
+          else
+            node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/conventional_commit_gate.ts \
+              --to=HEAD \
+              --strict=1 \
+              --out=core/local/artifacts/version_bump_commit_gate_current.json
+          fi
 
       - name: Resolve release channel
         id: channel
@@ -130,7 +149,7 @@ jobs:
             echo "No version files changed."
             exit 0
           fi
-          git commit -m "chore(release): ${{ steps.semver.outputs.tag }} [skip ci]"
+          git commit -m "chore(release): ${{ steps.semver.outputs.tag }}"
           git push origin HEAD:main
 
       - name: Create tag and GitHub release

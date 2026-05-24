@@ -2,16 +2,23 @@ name: Conventional Commit Lint
 
 on:
   pull_request:
+  merge_group:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: conventional-commit-lint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   conventional-commit-lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,17 +37,59 @@ jobs:
       - name: Lint commit messages (PR range)
         if: github.event_name == 'pull_request'
         run: |
+          set -euo pipefail
           node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/conventional_commit_gate.ts \
             --from=${{ github.event.pull_request.base.sha }} \
             --to=${{ github.event.pull_request.head.sha }} \
             --strict=1 \
             --out=core/local/artifacts/conventional_commit_gate_current.json
 
-      - name: Lint commit messages (push range)
-        if: github.event_name != 'pull_request'
+      - name: Lint commit messages (merge queue range)
+        if: github.event_name == 'merge_group'
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
         run: |
+          set -euo pipefail
           node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/conventional_commit_gate.ts \
-            --from=${{ github.event.before }} \
-            --to=${{ github.sha }} \
+            --from="${BASE_SHA}" \
+            --to="${HEAD_SHA}" \
             --strict=1 \
             --out=core/local/artifacts/conventional_commit_gate_current.json
+
+      - name: Lint commit messages (push range)
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BEFORE_SHA:-}" ] && ! printf '%s' "${BEFORE_SHA}" | grep -Eq '^0+$'; then
+            node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/conventional_commit_gate.ts \
+              --from="${BEFORE_SHA}" \
+              --to="${HEAD_SHA}" \
+              --strict=1 \
+              --out=core/local/artifacts/conventional_commit_gate_current.json
+          else
+            node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/conventional_commit_gate.ts \
+              --to="${HEAD_SHA}" \
+              --strict=1 \
+              --out=core/local/artifacts/conventional_commit_gate_current.json
+          fi
+
+      - name: Lint commit messages (manual range)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/conventional_commit_gate.ts \
+            --to=HEAD \
+            --strict=1 \
+            --out=core/local/artifacts/conventional_commit_gate_current.json
+
+      - name: Upload commit prefix report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conventional-commit-gate
+          path: core/local/artifacts/conventional_commit_gate_current.json
+          if-no-files-found: ignore
