@@ -23,6 +23,13 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         .get("evidence_pack_quality")
         .filter(|row| row.is_object())
         .or_else(|| payload.get("evidence_pack_quality"))
+        .or_else(|| payload.pointer("/tools/0/evidence_pack_quality"))
+        .or_else(|| payload.pointer("/tools/0/tool_pipeline/raw_payload/evidence_pack_quality"))
+        .or_else(|| {
+            payload.pointer(
+                "/response_finalization/tool_completion/tool_attempts/0/evidence_pack_quality",
+            )
+        })
         .unwrap_or(&Value::Null);
     let quality_pack_present = quality_pack.is_object();
     let pack_status = str_at(quality_pack, &["status"], "");
@@ -34,6 +41,18 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
     let pack_source_domain_count = u64_at(quality_pack, &["source_domain_count"], 0);
     let pack_missing_facet_count = u64_at(quality_pack, &["missing_facet_count"], 0);
     let pack_weak_facet_count = u64_at(quality_pack, &["weak_facet_count"], 0);
+    let pack_covered_facet_count = u64_at(quality_pack, &["covered_facet_count"], 0);
+    let pack_total_facet_count = u64_at(quality_pack, &["total_facet_count"], 0);
+    let pack_covered_facet_ratio = quality_pack
+        .get("covered_facet_ratio")
+        .and_then(Value::as_f64)
+        .unwrap_or_else(|| {
+            if pack_total_facet_count == 0 {
+                1.0
+            } else {
+                pack_covered_facet_count as f64 / pack_total_facet_count as f64
+            }
+        });
     let pack_min_usable_items = u64_at(quality_pack, &["thresholds", "min_usable_items"], 1).max(1);
     let pack_min_source_domains =
         u64_at(quality_pack, &["thresholds", "min_source_domains"], 1).max(1);
@@ -43,8 +62,12 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
             && pack_content_rich_count > 0
             && pack_low_confidence_count < pack_usable_count
             && pack_candidate_only_count < pack_usable_count);
-    let pack_coverage_thresholds_met =
-        !quality_pack_present || (pack_missing_facet_count == 0 && pack_weak_facet_count == 0);
+    let pack_coverage_thresholds_met = quality_pack
+        .get("coverage_thresholds_met")
+        .and_then(Value::as_bool)
+        .unwrap_or(
+            !quality_pack_present || (pack_missing_facet_count == 0 && pack_weak_facet_count == 0),
+        );
     let pack_status_allows_answerability = !quality_pack_present || pack_status == "usable";
 
     let evidence_item_count = scan
@@ -126,47 +149,158 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         "note": "Generic EvidencePacket contract: each answerable packet should carry source identity, source type, an extract, concrete claim material, and a query-relevance explanation. Dates are optional when unavailable."
     });
 
-    json!({
-        "schema_version": 1,
-        "source_quality_ready": source_quality_ready,
-        "claim_quality_ready": claim_quality_ready,
-        "citation_renderability_ready": citation_renderability_ready,
-        "evidence_packet_contract_ready": evidence_packet_contract_ready,
-        "answerability_ready": answerability_ready,
-        "evidence_item_count": evidence_item_count,
-        "clean_evidence_item_count": clean_evidence_count,
-        "low_quality_evidence_item_count": low_quality_evidence_count,
-        "clean_evidence_rate": clean_evidence_rate,
-        "low_quality_evidence_rate": low_quality_evidence_rate,
-        "source_quality_threshold_met": source_quality_threshold_met,
-        "clean_diverse_source_quality": clean_diverse_source_quality,
-        "low_quality_flags_block_source_quality": low_quality_flags_block_source_quality,
-        "evidence_pack_quality_status": pack_status,
-        "evidence_pack_quality_present": quality_pack_present,
-        "pack_source_thresholds_met": pack_source_thresholds_met,
-        "pack_coverage_thresholds_met": pack_coverage_thresholds_met,
-        "pack_status_allows_answerability": pack_status_allows_answerability,
-        "pack_usable_count": pack_usable_count,
-        "pack_content_rich_item_count": pack_content_rich_count,
-        "pack_source_domain_count": pack_source_domain_count,
-        "pack_missing_facet_count": pack_missing_facet_count,
-        "pack_weak_facet_count": pack_weak_facet_count,
-        "pack_thresholds": pack_thresholds,
-        "claim_count": claim_count,
-        "concrete_claim_count": concrete_claim_count,
-        "low_quality_claim_count": scan.low_quality_claim_count,
-        "citation_ready_claim_count": citation_ready_claim_count,
-        "citation_ready_evidence_item_count": scan.citation_ready_evidence_item_count,
-        "concrete_claim_rate": concrete_claim_rate,
-        "low_quality_claim_rate": low_quality_claim_rate,
-        "citation_ready_claim_rate": citation_ready_claim_rate,
-        "source_domain_count": scan.source_domains.len() as u64,
-        "source_domains": scan.source_domains,
-        "low_quality_flags": scan.low_quality_flags,
-        "evidence_packet_contract": evidence_packet_contract,
-        "artifact_refs": scan.refs,
-        "note": "Generic evidence-quality readout: checks whether packaged evidence has clean source-backed material, concrete claim text, and citation renderability without assuming the query domain."
-    })
+    let mut out = serde_json::Map::new();
+    out.insert("schema_version".to_string(), json!(1));
+    out.insert(
+        "source_quality_ready".to_string(),
+        json!(source_quality_ready),
+    );
+    out.insert(
+        "claim_quality_ready".to_string(),
+        json!(claim_quality_ready),
+    );
+    out.insert(
+        "citation_renderability_ready".to_string(),
+        json!(citation_renderability_ready),
+    );
+    out.insert(
+        "evidence_packet_contract_ready".to_string(),
+        json!(evidence_packet_contract_ready),
+    );
+    out.insert(
+        "answerability_ready".to_string(),
+        json!(answerability_ready),
+    );
+    out.insert(
+        "evidence_item_count".to_string(),
+        json!(evidence_item_count),
+    );
+    out.insert(
+        "clean_evidence_item_count".to_string(),
+        json!(clean_evidence_count),
+    );
+    out.insert(
+        "low_quality_evidence_item_count".to_string(),
+        json!(low_quality_evidence_count),
+    );
+    out.insert(
+        "clean_evidence_rate".to_string(),
+        json!(clean_evidence_rate),
+    );
+    out.insert(
+        "low_quality_evidence_rate".to_string(),
+        json!(low_quality_evidence_rate),
+    );
+    out.insert(
+        "source_quality_threshold_met".to_string(),
+        json!(source_quality_threshold_met),
+    );
+    out.insert(
+        "clean_diverse_source_quality".to_string(),
+        json!(clean_diverse_source_quality),
+    );
+    out.insert(
+        "low_quality_flags_block_source_quality".to_string(),
+        json!(low_quality_flags_block_source_quality),
+    );
+    out.insert(
+        "evidence_pack_quality_status".to_string(),
+        json!(pack_status),
+    );
+    out.insert(
+        "evidence_pack_quality_present".to_string(),
+        json!(quality_pack_present),
+    );
+    out.insert(
+        "pack_source_thresholds_met".to_string(),
+        json!(pack_source_thresholds_met),
+    );
+    out.insert(
+        "pack_coverage_thresholds_met".to_string(),
+        json!(pack_coverage_thresholds_met),
+    );
+    out.insert(
+        "pack_status_allows_answerability".to_string(),
+        json!(pack_status_allows_answerability),
+    );
+    out.insert("pack_usable_count".to_string(), json!(pack_usable_count));
+    out.insert(
+        "pack_content_rich_item_count".to_string(),
+        json!(pack_content_rich_count),
+    );
+    out.insert(
+        "pack_source_domain_count".to_string(),
+        json!(pack_source_domain_count),
+    );
+    out.insert(
+        "pack_missing_facet_count".to_string(),
+        json!(pack_missing_facet_count),
+    );
+    out.insert(
+        "pack_weak_facet_count".to_string(),
+        json!(pack_weak_facet_count),
+    );
+    out.insert(
+        "pack_covered_facet_count".to_string(),
+        json!(pack_covered_facet_count),
+    );
+    out.insert(
+        "pack_total_facet_count".to_string(),
+        json!(pack_total_facet_count),
+    );
+    out.insert(
+        "pack_covered_facet_ratio".to_string(),
+        json!(pack_covered_facet_ratio),
+    );
+    out.insert("pack_thresholds".to_string(), pack_thresholds);
+    out.insert("claim_count".to_string(), json!(claim_count));
+    out.insert(
+        "concrete_claim_count".to_string(),
+        json!(concrete_claim_count),
+    );
+    out.insert(
+        "low_quality_claim_count".to_string(),
+        json!(scan.low_quality_claim_count),
+    );
+    out.insert(
+        "citation_ready_claim_count".to_string(),
+        json!(citation_ready_claim_count),
+    );
+    out.insert(
+        "citation_ready_evidence_item_count".to_string(),
+        json!(scan.citation_ready_evidence_item_count),
+    );
+    out.insert(
+        "concrete_claim_rate".to_string(),
+        json!(concrete_claim_rate),
+    );
+    out.insert(
+        "low_quality_claim_rate".to_string(),
+        json!(low_quality_claim_rate),
+    );
+    out.insert(
+        "citation_ready_claim_rate".to_string(),
+        json!(citation_ready_claim_rate),
+    );
+    out.insert(
+        "source_domain_count".to_string(),
+        json!(scan.source_domains.len() as u64),
+    );
+    out.insert("source_domains".to_string(), json!(scan.source_domains));
+    out.insert(
+        "low_quality_flags".to_string(),
+        json!(scan.low_quality_flags),
+    );
+    out.insert(
+        "evidence_packet_contract".to_string(),
+        evidence_packet_contract,
+    );
+    out.insert("artifact_refs".to_string(), json!(scan.refs));
+    out.insert(
+        "note".to_string(),
+        json!("Generic evidence-quality readout: checks whether packaged evidence has clean source-backed material, concrete claim text, and citation renderability without assuming the query domain."),
+    );
+    Value::Object(out)
 }
 
 fn evidence_quality_refs(evidence_quality: &Value) -> Vec<String> {
@@ -417,7 +551,11 @@ fn evidence_packet_relevance_reason_ready(map: &serde_json::Map<String, Value>) 
         let cleaned = clean_text(raw, 300);
         !cleaned.is_empty() && !content_text_low_quality(&cleaned) && word_count(&cleaned) >= 4
     });
-    direct_reason || map.get("coverage_facets").map(value_has_content).unwrap_or(false)
+    direct_reason
+        || map
+            .get("coverage_facets")
+            .map(value_has_content)
+            .unwrap_or(false)
 }
 
 fn evidence_object_citation_ready(map: &serde_json::Map<String, Value>) -> bool {

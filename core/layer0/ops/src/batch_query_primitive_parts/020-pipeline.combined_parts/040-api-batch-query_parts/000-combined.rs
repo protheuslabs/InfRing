@@ -8,8 +8,15 @@ fn summary_strip_heading_fragments(raw: &str) -> String {
             continue;
         }
         let word_count = cleaned.split_whitespace().count();
-        let alpha_count = cleaned.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
-        let visible_count = cleaned.chars().filter(|ch| !ch.is_whitespace()).count().max(1);
+        let alpha_count = cleaned
+            .chars()
+            .filter(|ch| ch.is_ascii_alphabetic())
+            .count();
+        let visible_count = cleaned
+            .chars()
+            .filter(|ch| !ch.is_whitespace())
+            .count()
+            .max(1);
         if word_count < 6
             || alpha_count < 18
             || alpha_count * 2 < visible_count
@@ -84,7 +91,9 @@ fn summary_insights_from_evidence_claims(evidence_claims: &Value, limit: usize) 
             continue;
         }
         let domain = clean_text(
-            row.get("source_domain").and_then(Value::as_str).unwrap_or(""),
+            row.get("source_domain")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
             120,
         );
         let insight = if domain.is_empty() {
@@ -744,10 +753,8 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     } else {
         recovery_basis_query
     };
-    let first_pass_lacked_usable = !has_pack_ready_synthesis_candidate(
-        &recovery_basis_query,
-        &candidates,
-    );
+    let first_pass_lacked_usable =
+        !has_pack_ready_synthesis_candidate(&recovery_basis_query, &candidates);
     let first_pass_lacked_source_quality =
         !has_pack_ready_synthesis_source_quality(&recovery_basis_query, &candidates);
     let first_pass_research_facets = infer_research_facets(
@@ -757,8 +764,8 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         &policy,
         budget,
     );
-    let query_pack_declares_coverage =
-        !query_plan.query_metadata.entities.is_empty() || !query_plan.query_metadata.facets.is_empty();
+    let query_pack_declares_coverage = !query_plan.query_metadata.entities.is_empty()
+        || !query_plan.query_metadata.facets.is_empty();
     let mut planned_second_pass_queries = Vec::<String>::new();
     if source == "web" && query_execution_limited {
         second_pass_reason = "deferred_due_initial_query_execution_budget";
@@ -1152,8 +1159,11 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     let evidence_refs = evidence_ranked
         .iter()
         .filter(|(row, _)| {
-            candidate_counts_as_query_usable_evidence(&rerank_query, row, rerank_score(&rerank_query, row))
-                || candidate_is_low_confidence_retained(row)
+            candidate_counts_as_query_usable_evidence(
+                &rerank_query,
+                row,
+                rerank_score(&rerank_query, row),
+            )
         })
         .map(|(row, score)| EvidenceRef {
             source_kind: row.source_kind.clone(),
@@ -1163,16 +1173,8 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             score: (*score * 100.0).round() / 100.0,
             timestamp: row.timestamp.clone(),
             permissions: row.permissions.clone(),
-            confidence: if candidate_is_low_confidence_retained(row) {
-                "low_confidence_raw".to_string()
-            } else {
-                "usable".to_string()
-            },
-            quality_flags: if candidate_is_low_confidence_retained(row) {
-                vec!["low_confidence_raw".to_string()]
-            } else {
-                candidate_quality_flags(&rerank_query, row, *score)
-            },
+            confidence: "usable".to_string(),
+            quality_flags: candidate_quality_flags(&rerank_query, row, *score),
             coverage_facets: candidate_coverage_facets(&research_facets, row, facet_min_terms),
         })
         .collect::<Vec<_>>();
@@ -1183,6 +1185,21 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         facet_min_terms,
         &evidence_ranked,
         evidence_limit,
+    );
+    let evidence_pack = Value::Array(
+        evidence_pack
+            .as_array()
+            .map(|rows| {
+                rows.iter()
+                    .filter(|row| {
+                        row.get("counts_as_usable_evidence")
+                            .and_then(Value::as_bool)
+                            == Some(true)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
     );
     let evidence_claims = evidence_claims_from_pack(
         &query_plan.query_metadata,
@@ -1344,8 +1361,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
                     &rerank_query,
                     candidate,
                     rerank_score(&rerank_query, candidate),
-                )
-                    || candidate_is_low_confidence_retained(candidate)
+                ) || candidate_is_low_confidence_retained(candidate)
             }) {
                 let snippet_raw =
                     candidate_handoff_summary_fragment(&rerank_query, candidate, benchmark_intent);
@@ -1359,7 +1375,9 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
                 }
                 let domain = candidate_domain_hint(candidate);
                 let domain_key = clean_text(&domain, 160).to_ascii_lowercase();
-                if domain_key != "source" && !domain_key.is_empty() && !seen_domains.insert(domain_key)
+                if domain_key != "source"
+                    && !domain_key.is_empty()
+                    && !seen_domains.insert(domain_key)
                 {
                     continue;
                 }

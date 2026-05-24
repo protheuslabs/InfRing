@@ -360,11 +360,8 @@ mod tests {
     fn deletion_policy_tracks_ratio() {
         let policy = policy();
         let root = workspace_root();
-        let report = build_maintainability_report(
-            DEFAULT_MAINTAINABILITY_POLICY_PATH,
-            &policy,
-            &root,
-        );
+        let report =
+            build_maintainability_report(DEFAULT_MAINTAINABILITY_POLICY_PATH, &policy, &root);
         assert!(
             report
                 .deletion_policy
@@ -379,11 +376,8 @@ mod tests {
     fn maps_include_architecture_dependency_and_ownership() {
         let policy = policy();
         let root = workspace_root();
-        let report = build_maintainability_report(
-            DEFAULT_MAINTAINABILITY_POLICY_PATH,
-            &policy,
-            &root,
-        );
+        let report =
+            build_maintainability_report(DEFAULT_MAINTAINABILITY_POLICY_PATH, &policy, &root);
         assert!(report.ok);
         assert!(report
             .architecture_map

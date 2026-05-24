@@ -43,7 +43,11 @@ fn broad_current_query_without_distinctive_terms(query: &str) -> bool {
         && !query_looks_like_instruction_scaffold(query)
 }
 
-fn claim_hint_query_overlap(query: &str, query_terms: &HashSet<String>, text_terms: &HashSet<String>) -> bool {
+fn claim_hint_query_overlap(
+    query: &str,
+    query_terms: &HashSet<String>,
+    text_terms: &HashSet<String>,
+) -> bool {
     if query_terms.is_empty() {
         return true;
     }
@@ -58,7 +62,9 @@ fn claim_hint_query_overlap(query: &str, query_terms: &HashSet<String>, text_ter
     if query_looks_like_instruction_scaffold(query) {
         return false;
     }
-    query_terms.iter().any(|term| text_terms.contains(term.as_str()))
+    query_terms
+        .iter()
+        .any(|term| text_terms.contains(term.as_str()))
 }
 
 fn claim_hint_trusted_source_can_override_query_overlap(query: &str) -> bool {
@@ -255,7 +261,8 @@ fn segment_has_current_signal(text: &str) -> bool {
 }
 
 fn candidate_has_current_feed_context(candidate: &Candidate, haystack: &str) -> bool {
-    if !segment_has_weekday_signal(haystack) || segment_has_stale_date_for_current_window(haystack) {
+    if !segment_has_weekday_signal(haystack) || segment_has_stale_date_for_current_window(haystack)
+    {
         return false;
     }
     let snippet = clean_text(&candidate.snippet, 1_800);
@@ -263,7 +270,8 @@ fn candidate_has_current_feed_context(candidate: &Candidate, haystack: &str) -> 
         return false;
     }
     let source_kind = clean_text(&candidate.source_kind, 120).to_ascii_lowercase();
-    let permissions = clean_text(candidate.permissions.as_deref().unwrap_or(""), 240).to_ascii_lowercase();
+    let permissions =
+        clean_text(candidate.permissions.as_deref().unwrap_or(""), 240).to_ascii_lowercase();
     let materialization_quality = candidate_materialization_quality(candidate);
     let structured_feed = materialization_quality == "trusted_structured_feed"
         || source_kind.contains("rss")
@@ -271,10 +279,11 @@ fn candidate_has_current_feed_context(candidate: &Candidate, haystack: &str) -> 
         || source_kind.contains("api")
         || permissions.contains("structured_feed")
         || permissions.contains("headline_feed");
-    let article_like_materialized = matches!(
-        materialization_quality,
-        "full_materialized" | "partial_materialized"
-    ) && page_extraction_link_has_article_like_path(&candidate.locator);
+    let article_like_materialized =
+        matches!(
+            materialization_quality,
+            "full_materialized" | "partial_materialized"
+        ) && page_extraction_link_has_article_like_path(&candidate.locator);
     structured_feed || article_like_materialized
 }
 
@@ -381,7 +390,9 @@ fn source_trust_adjustment(candidate: &Candidate) -> f64 {
 fn domain_matches_source_suffix(domain: &str, suffix: &str) -> bool {
     let domain = domain.trim().trim_start_matches("www.");
     let suffix = suffix.trim().trim_start_matches('.');
-    !domain.is_empty() && !suffix.is_empty() && (domain == suffix || domain.ends_with(&format!(".{suffix}")))
+    !domain.is_empty()
+        && !suffix.is_empty()
+        && (domain == suffix || domain.ends_with(&format!(".{suffix}")))
 }
 
 fn recency_adjustment(query: &str, candidate: &Candidate) -> f64 {
@@ -413,12 +424,8 @@ fn candidate_quality_flags(query: &str, candidate: &Candidate, score: f64) -> Ve
     let mut flags = Vec::<String>::new();
     let snippet = clean_text(&candidate.snippet, 1_600);
     let trust = source_trust_adjustment(candidate);
-    let broad_current_article_evidence = candidate_has_broad_current_article_evidence_signal(
-        query,
-        candidate,
-        &snippet,
-        trust,
-    );
+    let broad_current_article_evidence =
+        candidate_has_broad_current_article_evidence_signal(query, candidate, &snippet, trust);
     if trust >= 0.15 {
         flags.push("trusted_source".to_string());
     } else if trust <= -0.14 {
@@ -476,6 +483,13 @@ fn select_diverse_ranked_candidates_preserving_order(
     max_evidence: usize,
 ) -> Vec<(Candidate, f64)> {
     select_diverse_ranked_candidates_with_order(ranked, max_evidence, true)
+}
+
+fn select_diverse_ranked_candidates(
+    ranked: Vec<(Candidate, f64)>,
+    max_evidence: usize,
+) -> Vec<(Candidate, f64)> {
+    select_diverse_ranked_candidates_with_order(ranked, max_evidence, false)
 }
 
 fn select_diverse_ranked_candidates_with_order(
@@ -560,7 +574,8 @@ fn dedupe_ranked_candidates_by_locator_for_evidence(
         evidence_selection_rank(query, &right.0, right.1)
             .total_cmp(&evidence_selection_rank(query, &left.0, left.1))
             .then_with(|| {
-                candidate_locator_identity_key(&left.0).cmp(&candidate_locator_identity_key(&right.0))
+                candidate_locator_identity_key(&left.0)
+                    .cmp(&candidate_locator_identity_key(&right.0))
             })
             .then_with(|| left.0.title.cmp(&right.0.title))
     });
@@ -595,14 +610,9 @@ fn select_pack_ready_ranked_candidates(
 
     let pack_ready = dedupe_ranked_candidates_by_locator_for_evidence(query, pack_ready);
     let mut selected = if facets.is_empty() {
-        select_diverse_ranked_candidates_preserving_order(pack_ready.clone(), limit)
+        select_diverse_ranked_candidates(pack_ready.clone(), limit)
     } else {
-        select_facet_covered_ranked_candidates_preserving_order(
-            pack_ready.clone(),
-            facets,
-            limit,
-            min_terms,
-        )
+        select_facet_covered_ranked_candidates(pack_ready.clone(), facets, limit, min_terms)
     };
     let mut selected_keys = selected
         .iter()
@@ -616,9 +626,7 @@ fn select_pack_ready_ranked_candidates(
                 !selected_keys.contains(&candidate_locator_identity_key(candidate))
             })
             .collect::<Vec<_>>();
-        for row in
-            select_diverse_ranked_candidates_preserving_order(remaining_ready, limit - selected.len())
-        {
+        for row in select_diverse_ranked_candidates(remaining_ready, limit - selected.len()) {
             selected_keys.insert(candidate_locator_identity_key(&row.0));
             selected.push(row);
             if selected.len() >= limit {
@@ -885,11 +893,9 @@ fn facet_compound_term_present(term: &str, haystack: &HashSet<String>) -> bool {
         }
         _ => {
             let pieces = haystack.iter().collect::<Vec<_>>();
-            pieces.iter().any(|left| {
-                pieces
-                    .iter()
-                    .any(|right| format!("{left}{right}") == lower)
-            })
+            pieces
+                .iter()
+                .any(|left| pieces.iter().any(|right| format!("{left}{right}") == lower))
         }
     }
 }
@@ -980,13 +986,7 @@ fn select_facet_covered_ranked_candidates_preserving_order(
     max_evidence: usize,
     min_terms: usize,
 ) -> Vec<(Candidate, f64)> {
-    select_facet_covered_ranked_candidates_with_order(
-        ranked,
-        facets,
-        max_evidence,
-        min_terms,
-        true,
-    )
+    select_facet_covered_ranked_candidates_with_order(ranked, facets, max_evidence, min_terms, true)
 }
 
 fn select_facet_covered_ranked_candidates_with_order(
@@ -1512,8 +1512,7 @@ fn usable_ranked_candidates_for_coverage(
         })
         .filter(|(candidate, score)| {
             candidate_counts_as_query_usable_evidence(query, candidate, *score)
-                &&
-            *score >= min_score
+                && *score >= min_score
                 && candidate_passes_relevance_gate(query, candidate, benchmark_intent)
                 && candidate_is_substantive(query, candidate, benchmark_intent)
         })
@@ -1648,12 +1647,9 @@ fn coverage_gap_recovery_queries(
             if template.contains("{entities}") && entities.is_empty() {
                 continue;
             }
-            if let Some(candidate) = expand_recovery_template(
-                &template,
-                query,
-                &facet.requested_text,
-                &entities,
-            ) {
+            if let Some(candidate) =
+                expand_recovery_template(&template, query, &facet.requested_text, &entities)
+            {
                 if seen.insert(candidate.to_ascii_lowercase()) {
                     out.push(candidate);
                 }
@@ -1693,8 +1689,7 @@ fn weak_research_facets_for_claim_support(
                         query,
                         candidate,
                         rerank_score(query, candidate),
-                    )
-                        && candidate_matches_facet(facet, candidate, min_terms)
+                    ) && candidate_matches_facet(facet, candidate, min_terms)
                 })
                 .map(|candidate| usable_candidate_claim_hint_count(query, candidate))
                 .sum::<usize>();
@@ -1756,12 +1751,9 @@ fn claim_gap_recovery_queries(
                 if template.contains("{entities}") && entities.is_empty() {
                     continue;
                 }
-                if let Some(candidate) = expand_recovery_template(
-                    template,
-                    query,
-                    &facet.requested_text,
-                    &entities,
-                ) {
+                if let Some(candidate) =
+                    expand_recovery_template(template, query, &facet.requested_text, &entities)
+                {
                     if seen.insert(candidate.to_ascii_lowercase()) {
                         out.push(candidate);
                     }
@@ -2033,17 +2025,11 @@ fn looks_like_social_video_shell(candidate: &Candidate) -> bool {
     if !social_video_domain {
         return false;
     }
-    looks_like_hashtag_keyword_shell(&format!(
-        "{} {}",
-        candidate.title, candidate.snippet
-    ))
+    looks_like_hashtag_keyword_shell(&format!("{} {}", candidate.title, candidate.snippet))
 }
 
 fn candidate_has_non_evidence_payload(candidate: &Candidate) -> bool {
-    let combined = clean_text(
-        &format!("{} {}", candidate.title, candidate.snippet),
-        2_400,
-    );
+    let combined = clean_text(&format!("{} {}", candidate.title, candidate.snippet), 2_400);
     contains_web_junk_marker(&combined)
         || looks_like_style_or_script_dump(&candidate.snippet)
         || looks_like_social_video_shell(candidate)
@@ -2068,14 +2054,14 @@ fn quality_flags_block_query_usable_evidence(
     if quality_flags.iter().any(|flag| {
         matches!(
             flag.as_str(),
-                "junk_marker"
-                    | "style_or_script_dump"
-                    | "social_video_shell"
-                    | "listing_or_index_path"
-                    | "link_directory_or_aggregator_shell"
-                    | "page_chrome_or_unavailable_shell"
-                    | "weak_query_overlap_only"
-                    | "low_score"
+            "junk_marker"
+                | "style_or_script_dump"
+                | "social_video_shell"
+                | "listing_or_index_path"
+                | "link_directory_or_aggregator_shell"
+                | "page_chrome_or_unavailable_shell"
+                | "weak_query_overlap_only"
+                | "low_score"
         )
     }) {
         return true;
@@ -2487,7 +2473,10 @@ fn claim_text_without_page_chrome_tail(text: &str) -> String {
     }
     let trimmed = clean_text(&cleaned[..cut_at], 520);
     let word_count = trimmed.split_whitespace().count();
-    let alpha_count = trimmed.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
+    let alpha_count = trimmed
+        .chars()
+        .filter(|ch| ch.is_ascii_alphabetic())
+        .count();
     if word_count >= 6 && alpha_count >= 24 && !claim_text_has_dangling_tail(&trimmed) {
         trimmed
     } else {
@@ -2558,8 +2547,15 @@ fn claim_hint_segment_is_substantive(segment: &str) -> bool {
     {
         return false;
     }
-    let alpha_count = cleaned.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
-    let visible_count = cleaned.chars().filter(|ch| !ch.is_whitespace()).count().max(1);
+    let alpha_count = cleaned
+        .chars()
+        .filter(|ch| ch.is_ascii_alphabetic())
+        .count();
+    let visible_count = cleaned
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .count()
+        .max(1);
     if alpha_count < 18 || alpha_count * 2 < visible_count {
         return false;
     }
@@ -2713,9 +2709,9 @@ fn evidence_pack_claim_hints(query: &str, snippet: &str, limit: usize) -> Vec<St
         }
         let segment_terms = tokenize_relevance(&cleaned, 80);
         let has_query_overlap = claim_hint_query_overlap(query, &query_terms, &segment_terms)
-            || (broad_current_no_distinctive
-                && segment_has_current_signal(&cleaned));
-        let has_query_overlap = has_query_overlap || (broad_current_no_distinctive && snippet_has_current_signal);
+            || (broad_current_no_distinctive && segment_has_current_signal(&cleaned));
+        let has_query_overlap =
+            has_query_overlap || (broad_current_no_distinctive && snippet_has_current_signal);
         if !has_query_overlap {
             continue;
         }
@@ -2765,8 +2761,8 @@ fn evidence_pack_list_claim_hints(
             continue;
         }
         let segment_terms = tokenize_relevance(&cleaned, 80);
-        let has_query_overlap = claim_hint_query_overlap(query, &query_terms, &segment_terms)
-            || allow_broad_current;
+        let has_query_overlap =
+            claim_hint_query_overlap(query, &query_terms, &segment_terms) || allow_broad_current;
         if !has_query_overlap {
             continue;
         }
@@ -2837,8 +2833,15 @@ fn evidence_pack_fallback_claim_hints_for_candidate(
     for segment in snippet.split(|ch| matches!(ch, '.' | ';' | '\n' | '\r')) {
         let cleaned = claim_text_without_page_chrome_tail(&clean_text(segment, 420));
         let word_count = cleaned.split_whitespace().count();
-        let alpha_count = cleaned.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
-        let visible_count = cleaned.chars().filter(|ch| !ch.is_whitespace()).count().max(1);
+        let alpha_count = cleaned
+            .chars()
+            .filter(|ch| ch.is_ascii_alphabetic())
+            .count();
+        let visible_count = cleaned
+            .chars()
+            .filter(|ch| !ch.is_whitespace())
+            .count()
+            .max(1);
         if word_count < 7
             || alpha_count < 24
             || alpha_count * 2 < visible_count
@@ -2933,7 +2936,10 @@ fn query_aligned_metric_fragment(query: &str, snippet: &str) -> String {
         .unwrap_or_else(|| extract_metric_focused_fragment(snippet))
 }
 
-fn evidence_pack_title_claim_hint_for_candidate(query: &str, candidate: &Candidate) -> Option<String> {
+fn evidence_pack_title_claim_hint_for_candidate(
+    query: &str,
+    candidate: &Candidate,
+) -> Option<String> {
     if !candidate_counts_as_query_usable_evidence(query, candidate, rerank_score(query, candidate))
     {
         return None;
@@ -2963,7 +2969,11 @@ fn evidence_pack_title_claim_hint_for_candidate(query: &str, candidate: &Candida
         return None;
     }
     let alpha_count = title.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
-    let visible_count = title.chars().filter(|ch| !ch.is_whitespace()).count().max(1);
+    let visible_count = title
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .count()
+        .max(1);
     if alpha_count < 18 || alpha_count * 2 < visible_count {
         return None;
     }
@@ -3641,7 +3651,10 @@ fn evidence_pack_relevance_reason(
         .collect::<Vec<_>>();
     if !facets.is_empty() {
         return clean_text(
-            &format!("Selected because it covers requested facets: {}.", facets.join(", ")),
+            &format!(
+                "Selected because it covers requested facets: {}.",
+                facets.join(", ")
+            ),
             320,
         );
     }
@@ -3653,7 +3666,10 @@ fn evidence_pack_relevance_reason(
         .collect::<Vec<_>>();
     if !terms.is_empty() {
         return clean_text(
-            &format!("Selected because it overlaps query terms: {}.", terms.join(", ")),
+            &format!(
+                "Selected because it overlaps query terms: {}.",
+                terms.join(", ")
+            ),
             320,
         );
     }
@@ -3782,12 +3798,16 @@ fn evidence_claims_from_pack(
             if let Some(hints) = row.get("claim_hints").and_then(Value::as_array) {
                 for hint in hints.iter().filter_map(Value::as_str) {
                     let claim = clean_text(hint, 240);
-                    let source_title =
-                        clean_text(source_ref.get("title").and_then(Value::as_str).unwrap_or(""), 180);
+                    let source_title = clean_text(
+                        source_ref
+                            .get("title")
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                        180,
+                    );
                     if claim.is_empty()
                         || !claim_text_is_synthesis_safe(&claim)
-                        || (!source_title.is_empty()
-                            && claim.eq_ignore_ascii_case(&source_title))
+                        || (!source_title.is_empty() && claim.eq_ignore_ascii_case(&source_title))
                     {
                         continue;
                     }
@@ -3835,6 +3855,14 @@ fn policy_usize_at(
         .clamp(min, max)
 }
 
+fn policy_ratio_at(policy: &Value, pointer: &str, default_value: f64) -> f64 {
+    policy
+        .pointer(pointer)
+        .and_then(Value::as_f64)
+        .unwrap_or(default_value)
+        .clamp(0.0, 1.0)
+}
+
 fn source_class_diversity_min(policy: &Value, query: &str) -> usize {
     let default_value = if current_web_intent(query) { 2 } else { 1 };
     policy_usize_at(
@@ -3864,6 +3892,11 @@ fn evidence_pack_quality_report(
         2,
         1,
         12,
+    );
+    let min_covered_facet_ratio = policy_ratio_at(
+        policy,
+        "/batch_query/evidence_pack_quality/min_covered_facet_ratio_for_usable",
+        0.6,
     );
     let mut usable_count = 0usize;
     let mut low_confidence_count = 0usize;
@@ -3957,6 +3990,15 @@ fn evidence_pack_quality_report(
             }
         }
     }
+    let total_facet_count = value_array_len(evidence_coverage);
+    let covered_facets = total_facet_count.saturating_sub(missing_facets + weak_facets);
+    let covered_facet_ratio = if total_facet_count == 0 {
+        1.0
+    } else {
+        covered_facets as f64 / total_facet_count as f64
+    };
+    let coverage_thresholds_met = total_facet_count == 0
+        || (covered_facets > 0 && covered_facet_ratio >= min_covered_facet_ratio);
     let item_count = value_array_len(evidence_pack);
     let status = if item_count == 0 {
         "absent"
@@ -3964,8 +4006,7 @@ fn evidence_pack_quality_report(
         "low_confidence_only"
     } else if usable_count < min_usable
         || domains.len() < min_domains
-        || missing_facets > 0
-        || weak_facets > 0
+        || !coverage_thresholds_met
         || content_rich_count == 0
         || claim_hint_count == 0
     {
@@ -3990,11 +4031,16 @@ fn evidence_pack_quality_report(
         "source_class_count": source_classes.len(),
         "missing_facet_count": missing_facets,
         "weak_facet_count": weak_facets,
+        "covered_facet_count": covered_facets,
+        "total_facet_count": total_facet_count,
+        "covered_facet_ratio": covered_facet_ratio,
+        "coverage_thresholds_met": coverage_thresholds_met,
         "thresholds": {
             "min_usable_items": min_usable,
             "min_source_domains": min_domains,
             "min_content_rich_items": 1,
-            "min_claim_hint_items": 1
+            "min_claim_hint_items": 1,
+            "min_covered_facet_ratio_for_usable": min_covered_facet_ratio
         },
         "synthesis_boundary": "quality metadata is calibration context, not citable evidence or final answer structure"
     })
@@ -4970,8 +5016,8 @@ fn candidate_looks_like_relevant_discovery_hub(query: &str, candidate: &Candidat
     if !looks_like_link_directory_or_aggregator_shell(&combined) && !section_context_signal {
         return false;
     }
-    let source_signal = source_trust_adjustment(candidate) >= 0.1
-        || query_overlap_terms(query, candidate) >= 1;
+    let source_signal =
+        source_trust_adjustment(candidate) >= 0.1 || query_overlap_terms(query, candidate) >= 1;
     if !source_signal {
         return false;
     }
@@ -5244,7 +5290,8 @@ fn normalized_materialization_failure_reason(reason: &str) -> Option<&'static st
         return Some("prefetch_rejected_off_intent");
     }
     if lowered.contains("page_extraction_candidate_prefetch_rejected:weak_overlap_link")
-        || lowered.contains("page_extraction_candidate_prefetch_rejected:no_distinctive_overlap_link")
+        || lowered
+            .contains("page_extraction_candidate_prefetch_rejected:no_distinctive_overlap_link")
         || lowered.contains("fetch_candidate_low_relevance")
         || lowered.contains("browser_materialization_candidate_low_relevance")
     {

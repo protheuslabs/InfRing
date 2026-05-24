@@ -242,6 +242,11 @@ fn answer_unit_is_process_or_metadata_fact(normalized_unit: &str) -> bool {
             "application window",
             "calendar",
             "press release",
+            "coverage state",
+            "usable evidence is present for",
+            "coverage gaps still matter",
+            "web result from",
+            "source: web result",
         ],
     )
 }
@@ -384,6 +389,20 @@ fn answer_text_units(response_text: &str) -> Vec<String> {
         let mut start = 0;
         for (idx, ch) in line.char_indices() {
             if matches!(ch, '.' | '!' | '?') {
+                if ch == '.' {
+                    let prev = line[..idx]
+                        .chars()
+                        .rev()
+                        .find(|candidate| !candidate.is_ascii_whitespace());
+                    let next = line[idx + ch.len_utf8()..]
+                        .chars()
+                        .find(|candidate| !candidate.is_ascii_whitespace());
+                    if prev.map(|candidate| candidate.is_ascii_digit()).unwrap_or(false)
+                        && next.map(|candidate| candidate.is_ascii_digit()).unwrap_or(false)
+                    {
+                        continue;
+                    }
+                }
                 push_answer_unit(&mut units, &line[start..idx + ch.len_utf8()]);
                 start = idx + ch.len_utf8();
             }
@@ -443,44 +462,65 @@ fn answer_unit_specific_terms(unit: &str) -> Vec<String> {
         if cleaned.is_empty() {
             continue;
         }
-        let normalized = normalize_research_token(cleaned);
-        if normalized.len() < 3
-            && normalized != "ai"
-            && !normalized.chars().any(|ch| ch.is_ascii_digit())
-        {
-            continue;
-        }
-        if answer_specific_stop_term(&normalized) {
-            continue;
-        }
-        let letters = cleaned
-            .chars()
-            .filter(|ch| ch.is_ascii_alphabetic())
-            .collect::<Vec<_>>();
-        let uppercase_letters = letters.iter().filter(|ch| ch.is_ascii_uppercase()).count();
-        let has_digit = cleaned.chars().any(|ch| ch.is_ascii_digit());
-        let is_acronym =
-            letters.len() >= 2 && uppercase_letters >= 2 && uppercase_letters * 2 >= letters.len();
-        let has_internal_capital = letters.iter().skip(1).any(|ch| ch.is_ascii_uppercase());
-        let is_capitalized = cleaned
-            .chars()
-            .next()
-            .map(|ch| ch.is_ascii_uppercase())
-            .unwrap_or(false);
-        let domain_like = token_looks_domain_like(cleaned);
-        let specific = has_digit
-            || is_acronym
-            || has_internal_capital
-            || domain_like
-            || (is_capitalized && normalized.len() >= 3);
-        if specific && seen.insert(normalized.clone()) {
-            terms.push(normalized);
+        for piece in answer_specific_term_pieces(cleaned) {
+            let normalized = normalize_research_token(piece);
+            if normalized.len() < 3
+                && normalized != "ai"
+                && !normalized.chars().any(|ch| ch.is_ascii_digit())
+            {
+                continue;
+            }
+            if answer_specific_stop_term(&normalized) {
+                continue;
+            }
+            let letters = piece
+                .chars()
+                .filter(|ch| ch.is_ascii_alphabetic())
+                .collect::<Vec<_>>();
+            let uppercase_letters = letters.iter().filter(|ch| ch.is_ascii_uppercase()).count();
+            let has_digit = piece.chars().any(|ch| ch.is_ascii_digit());
+            let is_acronym = letters.len() >= 2
+                && uppercase_letters >= 2
+                && uppercase_letters * 2 >= letters.len();
+            let has_internal_capital = letters.iter().skip(1).any(|ch| ch.is_ascii_uppercase());
+            let is_capitalized = piece
+                .chars()
+                .next()
+                .map(|ch| ch.is_ascii_uppercase())
+                .unwrap_or(false);
+            let domain_like = token_looks_domain_like(piece);
+            let specific = has_digit
+                || is_acronym
+                || has_internal_capital
+                || domain_like
+                || (is_capitalized && normalized.len() >= 3);
+            if specific && seen.insert(normalized.clone()) {
+                terms.push(normalized);
+            }
+            if terms.len() >= 12 {
+                break;
+            }
         }
         if terms.len() >= 12 {
             break;
         }
     }
     terms
+}
+
+fn answer_specific_term_pieces(token: &str) -> Vec<&str> {
+    if token_looks_domain_like(token) {
+        return vec![token];
+    }
+    let pieces = token
+        .split(|ch| matches!(ch, '/' | '-' | '_' | '+'))
+        .filter(|piece| !piece.is_empty())
+        .collect::<Vec<_>>();
+    if pieces.len() <= 1 {
+        vec![token]
+    } else {
+        pieces
+    }
 }
 
 fn token_looks_domain_like(token: &str) -> bool {

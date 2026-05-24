@@ -314,11 +314,34 @@ fn source_summary_without_answer_signal(normalized_response: &str) -> bool {
             "did not surface any directly citable",
         ],
     );
+    let fallback_source_fragment_dump =
+        normalized_response.contains("based on the retrieved evidence")
+            && normalized_response.contains("strongest supported answer")
+            && (normalized_response.contains("source web result from")
+                || normalized_response.contains("source: web result from")
+                || normalized_response.contains(" source:")
+                || normalized_response.contains("coverage state usable evidence is present")
+                || normalized_response.contains("description summary")
+                || normalized_response.contains("user guide"))
+            && !contains_any(
+                normalized_response,
+                &[
+                    "my recommendation",
+                    "i recommend",
+                    "the practical takeaway",
+                    "the tradeoff",
+                    "the trade-off",
+                    "what this means",
+                    "so the best",
+                    "so i would",
+                ],
+            );
     let broken_prompt_echo = normalized_response.contains("complete answer to ?");
     generic_bounded_template
         || raw_retrieval_summary
         || unanswered_retry_template
         || retrieval_status_dump
+        || fallback_source_fragment_dump
         || broken_prompt_echo
 }
 

@@ -180,7 +180,11 @@ fn rerank_score(query: &str, candidate: &Candidate) -> f64 {
     } else {
         overlap / query_tokens.len() as f64
     };
-    let locator_bonus = if candidate.locator.is_empty() { 0.0 } else { 0.2 };
+    let locator_bonus = if candidate.locator.is_empty() {
+        0.0
+    } else {
+        0.2
+    };
     let status_bonus = if (200..400).contains(&candidate.status_code) {
         0.2
     } else {
@@ -299,11 +303,32 @@ fn candidate_to_value(candidate: &Candidate) -> Value {
 
 fn candidate_from_value(value: &Value) -> Candidate {
     Candidate {
-        source_kind: clean_text(value.get("source_kind").and_then(Value::as_str).unwrap_or("web"), 120),
-        title: clean_text(value.get("title").and_then(Value::as_str).unwrap_or(""), 240),
-        locator: clean_text(value.get("locator").and_then(Value::as_str).unwrap_or(""), 2_200),
-        snippet: clean_text(value.get("snippet").and_then(Value::as_str).unwrap_or(""), 4_000),
-        excerpt_hash: clean_text(value.get("excerpt_hash").and_then(Value::as_str).unwrap_or(""), 128),
+        source_kind: clean_text(
+            value
+                .get("source_kind")
+                .and_then(Value::as_str)
+                .unwrap_or("web"),
+            120,
+        ),
+        title: clean_text(
+            value.get("title").and_then(Value::as_str).unwrap_or(""),
+            240,
+        ),
+        locator: clean_text(
+            value.get("locator").and_then(Value::as_str).unwrap_or(""),
+            2_200,
+        ),
+        snippet: clean_text(
+            value.get("snippet").and_then(Value::as_str).unwrap_or(""),
+            4_000,
+        ),
+        excerpt_hash: clean_text(
+            value
+                .get("excerpt_hash")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            128,
+        ),
         timestamp: value
             .get("timestamp")
             .and_then(Value::as_str)
@@ -314,7 +339,10 @@ fn candidate_from_value(value: &Value) -> Candidate {
             .and_then(Value::as_str)
             .map(|raw| clean_text(raw, 240))
             .filter(|raw| !raw.is_empty()),
-        status_code: value.get("status_code").and_then(Value::as_i64).unwrap_or(0),
+        status_code: value
+            .get("status_code")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
     }
 }
 
@@ -417,10 +445,19 @@ fn research_facet_from_value(value: &Value) -> ResearchFacet {
     ResearchFacet {
         id: clean_text(value.get("id").and_then(Value::as_str).unwrap_or(""), 80),
         requested_text: clean_text(
-            value.get("requested_text").and_then(Value::as_str).unwrap_or(""),
+            value
+                .get("requested_text")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
             240,
         ),
-        kind: clean_text(value.get("kind").and_then(Value::as_str).unwrap_or("inferred"), 80),
+        kind: clean_text(
+            value
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("inferred"),
+            80,
+        ),
         terms: string_vec_from_value(value.get("terms"))
             .into_iter()
             .collect::<HashSet<_>>(),
@@ -433,7 +470,11 @@ fn research_facet_from_value(value: &Value) -> ResearchFacet {
 fn facets_from_value(value: &Value) -> Vec<ResearchFacet> {
     value
         .as_array()
-        .map(|rows| rows.iter().map(research_facet_from_value).collect::<Vec<_>>())
+        .map(|rows| {
+            rows.iter()
+                .map(research_facet_from_value)
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default()
 }
 
@@ -516,7 +557,11 @@ pub fn selected_candidate_coverage_ids_api(
     candidate: &Value,
     min_terms: usize,
 ) -> Vec<String> {
-    selected_candidate_coverage_ids(&facets_from_value(facets), &candidate_from_value(candidate), min_terms)
+    selected_candidate_coverage_ids(
+        &facets_from_value(facets),
+        &candidate_from_value(candidate),
+        min_terms,
+    )
 }
 
 pub fn candidate_coverage_facets_api(
@@ -524,10 +569,18 @@ pub fn candidate_coverage_facets_api(
     candidate: &Value,
     min_terms: usize,
 ) -> Vec<String> {
-    candidate_coverage_facets(&facets_from_value(facets), &candidate_from_value(candidate), min_terms)
+    candidate_coverage_facets(
+        &facets_from_value(facets),
+        &candidate_from_value(candidate),
+        min_terms,
+    )
 }
 
-pub fn candidate_retention_preview_eligible_api(query: &str, candidate: &Value, score: f64) -> bool {
+pub fn candidate_retention_preview_eligible_api(
+    query: &str,
+    candidate: &Value,
+    score: f64,
+) -> bool {
     candidate_retention_preview_eligible(query, &candidate_from_value(candidate), score)
 }
 

@@ -216,7 +216,9 @@ fn tool_result_hidden_artifact_value(payload: &Value, key: &str) -> Option<Value
                 })
             })
             .or_else(|| derive_hidden_tool_result_artifact(payload, key)),
-        "tool_result_quality" => value.and_then(|value| value.is_object().then(|| value.clone())),
+        "tool_result_quality" | "evidence_pack_quality" => {
+            value.and_then(|value| value.is_object().then(|| value.clone()))
+        }
         _ => None,
     }
 }
@@ -498,7 +500,8 @@ fn project_hidden_tool_result_row(value: &Value) -> Option<Value> {
                 let Some(value) = map.get(key) else { continue };
                 match value {
                     Value::String(raw) => {
-                        let cleaned = trim_text(raw.trim(), if key == "locator" { 2_200 } else { 1_200 });
+                        let cleaned =
+                            trim_text(raw.trim(), if key == "locator" { 2_200 } else { 1_200 });
                         if !cleaned.is_empty() {
                             out.insert(key.to_string(), Value::String(cleaned));
                         }
@@ -532,7 +535,9 @@ fn project_hidden_tool_result_row(value: &Value) -> Option<Value> {
 }
 
 fn carry_hidden_tool_result_artifacts(card: &mut Value, payload: &Value) {
-    let Some(obj) = card.as_object_mut() else { return };
+    let Some(obj) = card.as_object_mut() else {
+        return;
+    };
     for key in [
         "search_results",
         "provider_results",
@@ -540,6 +545,7 @@ fn carry_hidden_tool_result_artifacts(card: &mut Value, payload: &Value) {
         "evidence_pack_candidates",
         "evidence_refs",
         "tool_result_quality",
+        "evidence_pack_quality",
     ] {
         if let Some(value) = tool_result_hidden_artifact_value(payload, key) {
             obj.insert(key.to_string(), value);
@@ -571,25 +577,42 @@ fn response_tool_card(
         Value::Object(obj)
     };
     if let Some(obj) = artifact_payload.as_object_mut() {
-        for (key, value) in [("query", input.get("query").or_else(|| input.get("q"))), ("source", input.get("source"))] {
-            if obj.get(key).and_then(Value::as_str).map(str::trim).unwrap_or("").is_empty() {
+        for (key, value) in [
+            ("query", input.get("query").or_else(|| input.get("q"))),
+            ("source", input.get("source")),
+        ] {
+            if obj
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
+            {
                 if let Some(value) = value.cloned() {
                     obj.insert(key.to_string(), value);
                 }
             }
         }
         let normalized_tool = normalize_tool_name(tool_name);
-        if matches!(normalized_tool.as_str(), "batch_query" | "batch-query" | "web_search" | "search_web" | "search" | "web_query")
-            && obj
-                .get("source")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .unwrap_or("")
-                .is_empty()
+        if matches!(
+            normalized_tool.as_str(),
+            "batch_query" | "batch-query" | "web_search" | "search_web" | "search" | "web_query"
+        ) && obj
+            .get("source")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
         {
             obj.insert("source".to_string(), json!("web"));
         }
-        if obj.get("status").and_then(Value::as_str).map(str::trim).unwrap_or("").is_empty() {
+        if obj
+            .get("status")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
             obj.insert("status".to_string(), json!(status));
         }
         if is_error
@@ -672,11 +695,13 @@ mod response_tool_card_tests {
         );
 
         assert_eq!(
-            card.pointer("/search_results/0/title").and_then(Value::as_str),
+            card.pointer("/search_results/0/title")
+                .and_then(Value::as_str),
             Some("LangGraph docs")
         );
         assert_eq!(
-            card.pointer("/evidence_refs/0/locator").and_then(Value::as_str),
+            card.pointer("/evidence_refs/0/locator")
+                .and_then(Value::as_str),
             Some("https://docs.langchain.com/langgraph")
         );
         assert_eq!(
@@ -729,12 +754,50 @@ mod response_tool_card_tests {
             Some("browser_materialized_page")
         );
         assert_eq!(
-            card.pointer("/evidence_refs/0/locator").and_then(Value::as_str),
+            card.pointer("/evidence_refs/0/locator")
+                .and_then(Value::as_str),
             Some("https://example.test/rendered")
         );
         assert_eq!(
-            card.pointer("/evidence_refs/0/title").and_then(Value::as_str),
+            card.pointer("/evidence_refs/0/title")
+                .and_then(Value::as_str),
             Some("Rendered research page")
+        );
+    }
+
+    #[test]
+    fn response_tool_card_carries_evidence_pack_quality() {
+        let payload = json!({
+            "tool_pipeline": {
+                "raw_payload": {
+                    "evidence_pack_quality": {
+                        "version": "evidence_pack_quality_v1",
+                        "status": "usable",
+                        "usable_count": 3,
+                        "source_domain_count": 2
+                    }
+                }
+            }
+        });
+
+        let card = response_tool_card(
+            "tool-direct-batch_query".to_string(),
+            "batch_query",
+            &json!({"query": "Research current evidence"}),
+            &payload,
+            false,
+            "ok",
+        );
+
+        assert_eq!(
+            card.pointer("/evidence_pack_quality/status")
+                .and_then(Value::as_str),
+            Some("usable")
+        );
+        assert_eq!(
+            card.pointer("/evidence_pack_quality/usable_count")
+                .and_then(Value::as_u64),
+            Some(3)
         );
     }
 
@@ -767,11 +830,13 @@ mod response_tool_card_tests {
         );
 
         assert_eq!(
-            card.pointer("/search_results/0/locator").and_then(Value::as_str),
+            card.pointer("/search_results/0/locator")
+                .and_then(Value::as_str),
             Some("https://mastra.ai/docs/overview")
         );
         assert_eq!(
-            card.pointer("/search_results/0/provider").and_then(Value::as_str),
+            card.pointer("/search_results/0/provider")
+                .and_then(Value::as_str),
             Some("bing_rss")
         );
         assert_eq!(
@@ -780,7 +845,8 @@ mod response_tool_card_tests {
             Some("bing_rss")
         );
         assert_eq!(
-            card.pointer("/provider_results/0/query").and_then(Value::as_str),
+            card.pointer("/provider_results/0/query")
+                .and_then(Value::as_str),
             Some("Research Mastra for TypeScript agent workflows")
         );
 
@@ -804,11 +870,15 @@ mod response_tool_card_tests {
             "ok",
         );
         assert_eq!(
-            quality_only.pointer("/search_results/0/locator").and_then(Value::as_str),
+            quality_only
+                .pointer("/search_results/0/locator")
+                .and_then(Value::as_str),
             Some("https://mastra.ai/")
         );
         assert_eq!(
-            quality_only.pointer("/evidence_refs/0/locator").and_then(Value::as_str),
+            quality_only
+                .pointer("/evidence_refs/0/locator")
+                .and_then(Value::as_str),
             Some("https://mastra.ai/")
         );
     }
@@ -847,7 +917,8 @@ mod response_tool_card_tests {
             Some("direct_http")
         );
         assert_eq!(
-            card.pointer("/evidence_refs/0/locator").and_then(Value::as_str),
+            card.pointer("/evidence_refs/0/locator")
+                .and_then(Value::as_str),
             Some("https://api.duckduckgo.com/?q=agent%20framework%20benchmark")
         );
     }
@@ -878,7 +949,8 @@ mod response_tool_card_tests {
         );
 
         assert_eq!(
-            card.pointer("/evidence_refs/0/locator").and_then(Value::as_str),
+            card.pointer("/evidence_refs/0/locator")
+                .and_then(Value::as_str),
             Some("https://api.duckduckgo.com/?q=agent%20framework%20benchmark")
         );
     }
@@ -901,9 +973,21 @@ mod response_tool_card_tests {
         );
 
         assert_eq!(card.pointer("/provider_results/0/query").and_then(Value::as_str), Some("Summarize recent changes in LangGraph, CrewAI, and AutoGen and assess their impact on production agent systems."));
-        assert_eq!(card.pointer("/provider_results/0/provider").and_then(Value::as_str), Some("web"));
-        assert_eq!(card.pointer("/provider_results/0/status").and_then(Value::as_str), Some("error"));
-        assert_eq!(card.pointer("/provider_results/0/failure_detail").and_then(Value::as_str), Some("primary:search_failed"));
+        assert_eq!(
+            card.pointer("/provider_results/0/provider")
+                .and_then(Value::as_str),
+            Some("web")
+        );
+        assert_eq!(
+            card.pointer("/provider_results/0/status")
+                .and_then(Value::as_str),
+            Some("error")
+        );
+        assert_eq!(
+            card.pointer("/provider_results/0/failure_detail")
+                .and_then(Value::as_str),
+            Some("primary:search_failed")
+        );
     }
 
     #[test]
@@ -931,15 +1015,18 @@ mod response_tool_card_tests {
             Some("Compare current agent frameworks on reliability and deployment.")
         );
         assert_eq!(
-            card.pointer("/provider_results/0/status").and_then(Value::as_str),
+            card.pointer("/provider_results/0/status")
+                .and_then(Value::as_str),
             Some("error")
         );
         assert_eq!(
-            card.pointer("/provider_results/0/error").and_then(Value::as_str),
+            card.pointer("/provider_results/0/error")
+                .and_then(Value::as_str),
             Some("tool_execution_failed")
         );
         assert_eq!(
-            card.pointer("/evidence_refs/0/provider").and_then(Value::as_str),
+            card.pointer("/evidence_refs/0/provider")
+                .and_then(Value::as_str),
             Some("web")
         );
     }

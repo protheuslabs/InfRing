@@ -1065,15 +1065,120 @@ fn evidence_packet_first_string(value: Option<&Value>, max_len: usize) -> String
 }
 
 fn evidence_packet_claim_text(row: &Value) -> String {
-    let claim = evidence_packet_first_string(row.get("claim_hints"), 260);
+    let claim = evidence_packet_first_answer_claim(row.get("claim_hints"), 260);
     if !claim.is_empty() {
         return claim;
     }
-    let claim = evidence_packet_first_string(row.get("evidence_claims"), 260);
+    let claim = evidence_packet_first_answer_claim(row.get("evidence_claims"), 260);
     if !claim.is_empty() {
         return claim;
     }
-    evidence_packet_text_field(row, &["claim", "finding", "summary"], 260)
+    for field in ["claim", "finding"] {
+        let claim = evidence_packet_text_field(row, &[field], 260);
+        if evidence_packet_text_is_answer_claim(&claim) {
+            return claim;
+        }
+    }
+    String::new()
+}
+
+fn evidence_packet_first_answer_claim(value: Option<&Value>, max_len: usize) -> String {
+    match value {
+        Some(Value::String(raw)) => {
+            let cleaned = clean_text(raw, max_len);
+            if evidence_packet_text_is_answer_claim(&cleaned) {
+                cleaned
+            } else {
+                String::new()
+            }
+        }
+        Some(Value::Array(rows)) => rows
+            .iter()
+            .find_map(|row| {
+                let value = evidence_packet_first_answer_claim(Some(row), max_len);
+                (!value.is_empty()).then_some(value)
+            })
+            .unwrap_or_default(),
+        Some(Value::Object(map)) => {
+            for key in ["claim", "text", "finding", "relevant_extract", "snippet"] {
+                let value = evidence_packet_first_answer_claim(map.get(key), max_len);
+                if !value.is_empty() {
+                    return value;
+                }
+            }
+            String::new()
+        }
+        _ => String::new(),
+    }
+}
+
+fn evidence_packet_text_is_answer_claim(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 420);
+    if cleaned.is_empty() {
+        return false;
+    }
+    let normalized = cleaned.to_ascii_lowercase();
+    if normalized.starts_with("web result from ")
+        || normalized.starts_with("source:")
+        || normalized.starts_with("articles /")
+        || normalized.starts_with("article /")
+        || normalized.starts_with("blog /")
+        || normalized.starts_with("user guide")
+        || normalized.starts_with("description summary")
+        || normalized.contains(" / menu ")
+        || normalized.contains(" shop ")
+        || normalized.contains("©")
+    {
+        return false;
+    }
+    let word_count = normalized
+        .split_whitespace()
+        .filter(|word| word.chars().any(|ch| ch.is_ascii_alphanumeric()))
+        .count();
+    if word_count < 7 {
+        return false;
+    }
+    let title_or_question_heading = (normalized.contains(" / ") && normalized.contains(':'))
+        || (normalized.contains("what does") && normalized.contains("show"));
+    if title_or_question_heading && !normalized.contains('.') {
+        return false;
+    }
+    let has_sentence_verb = [
+        " is ",
+        " are ",
+        " was ",
+        " were ",
+        " can ",
+        " could ",
+        " should ",
+        " has ",
+        " have ",
+        " had ",
+        " does ",
+        " do ",
+        " did ",
+        " focuses ",
+        " supports ",
+        " emphasizes ",
+        " provides ",
+        " offers ",
+        " requires ",
+        " involves ",
+        " differs ",
+        " reported ",
+        " published ",
+        " found ",
+        " shows ",
+        " suggests ",
+        " improved ",
+        " continued ",
+        " extends ",
+        " limits ",
+        " allows ",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(*needle));
+    has_sentence_verb
 }
 
 fn evidence_packet_source_label(row: &Value) -> String {
@@ -1115,21 +1220,22 @@ fn evidence_packet_answer_unit(row: &Value) -> Option<String> {
         return None;
     }
     let claim = evidence_packet_claim_text(row);
-    let extract = evidence_packet_text_field(
-        row,
-        &[
-            "relevant_extract",
-            "support_snippet",
-            "snippet",
-            "summary",
-            "content",
-        ],
-        360,
-    );
     let answer_text = if !claim.is_empty() {
         claim
     } else {
-        first_sentence(&extract, 260)
+        [
+            "relevant_extract",
+            "support_snippet",
+            "snippet",
+            "content",
+        ]
+        .iter()
+        .find_map(|field| {
+            let extract = evidence_packet_text_field(row, &[*field], 360);
+            let sentence = first_sentence(&extract, 260);
+            evidence_packet_text_is_answer_claim(&sentence).then_some(sentence)
+        })
+        .unwrap_or_default()
     };
     if answer_text.is_empty() {
         return None;
@@ -1710,6 +1816,34 @@ fn response_tools_have_answer_ready_evidence_packets(response_tools: &[Value]) -
     !evidence_packet_answer_units(response_tools, 1).is_empty()
 }
 
+fn fallback_answer_unit_text_and_source(unit: &str) -> (String, String) {
+    if let Some((answer, source)) = unit.split_once(" Source: ") {
+        (
+            clean_text(answer, 520),
+            clean_text(source.trim_end_matches('.'), 220),
+        )
+    } else {
+        (clean_text(unit, 520), String::new())
+    }
+}
+
+fn fallback_user_visible_coverage_note(response_tools: &[Value]) -> String {
+    let coverage = clean_text(
+        &first_sentence(&fallback_coverage_lane_sentence(response_tools), 280),
+        320,
+    );
+    if coverage.is_empty() {
+        return String::new();
+    }
+    let lower = coverage.to_ascii_lowercase();
+    if lower.contains("usable evidence is present") && !lower.contains("weak or missing") {
+        return String::new();
+    }
+    coverage
+        .replace("Coverage state: ", "")
+        .replace("Coverage gaps still matter for:", "coverage gaps remain for")
+}
+
 fn annotate_final_evidence_outcome_posture(workflow: &mut Value, response_tools: &[Value]) {
     let posture = tool_evidence_outcome_posture(response_tools);
     workflow["final_llm_response"]["evidence_outcome_posture"] = Value::String(posture.to_string());
@@ -1719,17 +1853,39 @@ fn annotate_final_evidence_outcome_posture(workflow: &mut Value, response_tools:
 fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[Value]) -> String {
     let answer_units = evidence_packet_answer_units_for_goal(message, response_tools, 4);
     if !answer_units.is_empty() {
-        let coverage_note = clean_text(
-            &first_sentence(&fallback_coverage_lane_sentence(response_tools), 280),
-            320,
-        );
-        let mut parts =
-            vec!["Based on the retrieved evidence, the strongest supported answer is:".to_string()];
+        let mut answer_parts = Vec::<String>::new();
+        let mut sources = Vec::<String>::new();
         for unit in answer_units {
-            parts.push(format!("- {unit}"));
+            let (answer, source) = fallback_answer_unit_text_and_source(&unit);
+            if !answer.is_empty() && !answer_parts.iter().any(|existing| existing == &answer) {
+                answer_parts.push(answer);
+            }
+            if !source.is_empty() && !sources.iter().any(|existing| existing == &source) {
+                sources.push(source);
+            }
         }
+        let Some(first_answer) = answer_parts.first() else {
+            return String::new();
+        };
+        let mut parts = vec![format!(
+            "The current evidence supports this answer: {first_answer}"
+        )];
+        if answer_parts.len() > 1 {
+            let additional = answer_parts[1..]
+                .iter()
+                .map(|part| part.trim_end_matches('.'))
+                .collect::<Vec<_>>()
+                .join(". ");
+            parts.push(format!(
+                "Additional supported points: {additional}."
+            ));
+        }
+        let coverage_note = fallback_user_visible_coverage_note(response_tools);
         if !coverage_note.is_empty() {
-            parts.push(format!("Limit: {coverage_note}"));
+            parts.push(format!("Important limitation: {coverage_note}"));
+        }
+        if !sources.is_empty() {
+            parts.push(format!("Sources: {}.", sources.join("; ")));
         }
         return clean_text(&parts.join("\n"), 2_400);
     }
@@ -5543,12 +5699,12 @@ mod workflow_fallback_tests {
             })],
         );
         assert!(
-            response.starts_with("Based on the retrieved evidence"),
+            response.starts_with("The current evidence supports this answer"),
             "{response}"
         );
         assert!(response.contains("LangGraph focuses on"), "{response}");
         assert!(
-            response.contains("Source: LangGraph overview."),
+            response.contains("Sources: LangGraph overview"),
             "{response}"
         );
         assert!(!response.contains("tool_evidence_runtime_fallback_suppressed"));
@@ -5580,7 +5736,7 @@ mod workflow_fallback_tests {
             })],
         );
         assert!(
-            response.starts_with("Based on the retrieved evidence"),
+            response.starts_with("The current evidence supports this answer"),
             "{response}"
         );
         assert!(
@@ -5588,9 +5744,10 @@ mod workflow_fallback_tests {
             "{response}"
         );
         assert!(
-            response.contains("Source: Battery milestone report, example.test."),
+            response.contains("Sources: Battery milestone report, example.test."),
             "{response}"
         );
+        assert!(!response.contains("strongest supported answer"), "{response}");
         assert!(!response.contains("Here's what I found"), "{response}");
         assert!(!response.contains("Recorded evidence so far"), "{response}");
         assert!(!response.contains("From web retrieval"), "{response}");
@@ -5632,6 +5789,59 @@ mod workflow_fallback_tests {
             !response.contains("Nobel Prize announcements are scheduled"),
             "{response}"
         );
+    }
+
+    #[test]
+    fn tool_evidence_fallback_filters_source_inventory_fragments() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research home backup options versus portable power stations for outage resilience.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "evidence_pack": [
+                    {
+                        "title": "User Guide - Portable Power Shop",
+                        "source_domain": "example.test",
+                        "summary": "User Guide / Shop Solar Generators Portable Power Stations Accessories Gift Card",
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "Backup comparison",
+                        "source_domain": "example.test",
+                        "relevant_extract": "Whole-home batteries can keep hardwired circuits running during outages, while portable power stations are easier to move but usually cover fewer loads.",
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(
+            response.contains("Whole-home batteries can keep hardwired circuits running"),
+            "{response}"
+        );
+        assert!(!response.contains("User Guide / Shop"), "{response}");
+        assert!(!response.contains("Gift Card"), "{response}");
+    }
+
+    #[test]
+    fn tool_evidence_fallback_filters_article_title_fragments() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research the current evidence on creatine supplementation for women.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "evidence_pack": [{
+                    "title": "Web result from evidentianutrition.org",
+                    "source_domain": "evidentianutrition.org",
+                    "relevant_extract": "Articles / Creatine and women: what does the evidence actually show",
+                    "claim_hints": ["Articles / Creatine and women: what does the evidence actually show"],
+                    "counts_as_usable_evidence": true
+                }]
+            })],
+        );
+        assert!(!response.contains("Articles / Creatine"), "{response}");
+        assert!(!response.contains("what does the evidence actually show"), "{response}");
     }
 
     #[test]
@@ -5984,7 +6194,7 @@ mod workflow_fallback_tests {
             .and_then(Value::as_str)
             .unwrap_or("");
         assert!(
-            response.starts_with("Based on the retrieved evidence"),
+            response.starts_with("The current evidence supports this answer"),
             "{response}"
         );
         assert!(
@@ -5992,7 +6202,7 @@ mod workflow_fallback_tests {
             "{response}"
         );
         assert!(
-            response.contains("Source: Framework comparison."),
+            response.contains("Sources: Framework comparison."),
             "{response}"
         );
         assert_eq!(

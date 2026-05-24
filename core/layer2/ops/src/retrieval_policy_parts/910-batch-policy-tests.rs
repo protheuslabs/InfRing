@@ -320,9 +320,7 @@ mod quality_tests {
         assert!(
             out.pointer("/second_pass_recovery/queries")
                 .and_then(Value::as_array)
-                .map(|rows| rows
-                    .iter()
-                    .any(|row| row.as_str() == Some(deferred_good)))
+                .map(|rows| rows.iter().any(|row| row.as_str() == Some(deferred_good)))
                 .unwrap_or(false),
             "{out:#?}"
         );
@@ -563,7 +561,9 @@ mod quality_tests {
             .queries
             .iter()
             .position(|row| {
-                row.contains("\"Alpha Runtime\" deployment readiness observability release notes official")
+                row.contains(
+                    "\"Alpha Runtime\" deployment readiness observability release notes official",
+                )
             })
             .expect("Alpha Runtime keyword lane");
         let alpha_facet_lane = plan
@@ -711,10 +711,7 @@ mod quality_tests {
         let budget = aperture_budget("medium").expect("budget");
         let plan = resolve_query_plan(&json!({}), &request, query, budget);
 
-        assert_eq!(
-            plan.query_plan_source,
-            "policy_general_research_recovery"
-        );
+        assert_eq!(plan.query_plan_source, "policy_general_research_recovery");
         assert_eq!(plan.queries.first().map(String::as_str), Some(query));
         assert_eq!(plan.query_metadata.entities, vec!["LangGraph", "CrewAI"]);
         assert_eq!(
@@ -755,10 +752,7 @@ mod quality_tests {
         let budget = aperture_budget("medium").expect("budget");
         let plan = resolve_query_plan(&json!({}), &request, query, budget);
 
-        assert_eq!(
-            plan.query_plan_source,
-            "policy_general_research_recovery"
-        );
+        assert_eq!(plan.query_plan_source, "policy_general_research_recovery");
         assert!(
             plan.query_metadata
                 .entities
@@ -937,10 +931,7 @@ mod quality_tests {
 
         assert_eq!(budget.max_evidence, 2);
         assert_eq!(
-            facets
-                .iter()
-                .filter(|facet| facet.kind == "entity")
-                .count(),
+            facets.iter().filter(|facet| facet.kind == "entity").count(),
             3,
             "{:#?}",
             facets
@@ -1174,10 +1165,7 @@ mod quality_tests {
         let budget = aperture_budget("medium").expect("budget");
         let plan = resolve_query_plan(&json!({}), &request, query, budget);
 
-        assert_eq!(
-            plan.query_plan_source,
-            "policy_general_research_recovery"
-        );
+        assert_eq!(plan.query_plan_source, "policy_general_research_recovery");
         for unexpected in ["should", "we", "use"] {
             assert!(
                 !plan
@@ -1303,14 +1291,21 @@ mod quality_tests {
         );
         for unexpected in ["give", "me", "this"] {
             assert!(
-                !plan.query_metadata.keywords.iter().any(|row| row == unexpected),
+                !plan
+                    .query_metadata
+                    .keywords
+                    .iter()
+                    .any(|row| row == unexpected),
                 "{:#?}",
                 plan.query_metadata
             );
         }
         for expected in ["biggest", "world", "news", "week"] {
             assert!(
-                plan.query_metadata.keywords.iter().any(|row| row == expected),
+                plan.query_metadata
+                    .keywords
+                    .iter()
+                    .any(|row| row == expected),
                 "{:#?}",
                 plan.query_metadata
             );
@@ -1577,9 +1572,7 @@ mod quality_tests {
             plan.queries
         );
         assert!(
-            plan.queries
-                .iter()
-                .all(|row| !row.starts_with("May 2026 ")),
+            plan.queries.iter().all(|row| !row.starts_with("May 2026 ")),
             "{:#?}",
             plan.queries
         );
@@ -1689,9 +1682,7 @@ mod quality_tests {
         let comparison_pos = plan
             .queries
             .iter()
-            .position(|row| {
-                row.contains("Dyson Roborock iRobot pet hair apartments comparison")
-            })
+            .position(|row| row.contains("Dyson Roborock iRobot pet hair apartments comparison"))
             .expect("combined comparison lane should be present");
         let first_individual_official = plan
             .queries
@@ -2400,17 +2391,20 @@ mod quality_tests {
                 .map(|value| value == "scientific breakthroughs 2026 source-backed evidence")
                 .unwrap_or(false)
         }));
-        assert!(query_plan.iter().all(|row| {
-            row.as_str()
-                .map(|value| {
-                    !value.contains("primary sources")
-                        && !value.contains("official sources")
-                        && !value.contains("institution announcements")
-                        && !value.contains("research publications")
-                        && !value.contains("official announcements")
-                })
-                .unwrap_or(true)
-        }), "{query_plan:?}");
+        assert!(
+            query_plan.iter().all(|row| {
+                row.as_str()
+                    .map(|value| {
+                        !value.contains("primary sources")
+                            && !value.contains("official sources")
+                            && !value.contains("institution announcements")
+                            && !value.contains("research publications")
+                            && !value.contains("official announcements")
+                    })
+                    .unwrap_or(true)
+            }),
+            "{query_plan:?}"
+        );
         assert!(query_plan.iter().all(|row| {
             row.as_str()
                 .map(|value| value != "scientific breakthroughs 2026 2026")
@@ -2777,7 +2771,9 @@ mod quality_tests {
         );
         assert!(
             candidates.iter().any(|candidate| {
-                candidate.locator.contains("nature.com/articles/example-2026-materials")
+                candidate
+                    .locator
+                    .contains("nature.com/articles/example-2026-materials")
                     && candidate.source_kind == "exa_api_search_result"
             }),
             "{candidates:#?}"
@@ -3241,9 +3237,7 @@ mod quality_tests {
             permissions: None,
             status_code: 200,
         };
-        assert!(official_lane_direct_subject_source_signal(
-            query, &official
-        ));
+        assert!(official_lane_direct_subject_source_signal(query, &official));
         assert!(!official_lane_direct_subject_source_signal(
             query,
             &boilerplate
@@ -3312,10 +3306,7 @@ mod quality_tests {
         );
         assert!(!fragment.contains("####"), "{fragment}");
         assert!(!fragment.contains("[...]"), "{fragment}");
-        assert!(
-            !fragment.starts_with("iRobot Roomba j9+"),
-            "{fragment}"
-        );
+        assert!(!fragment.starts_with("iRobot Roomba j9+"), "{fragment}");
     }
 
     #[test]
@@ -3508,7 +3499,9 @@ mod quality_tests {
             Some(true)
         );
         assert!(
-            !chain.iter().any(|row| row.as_str() == Some("google_news_rss")),
+            !chain
+                .iter()
+                .any(|row| row.as_str() == Some("google_news_rss")),
             "{chain:#?}"
         );
         assert!(
@@ -4546,8 +4539,7 @@ mod quality_tests {
             .unwrap_or_default();
         assert!(
             evidence_pack.iter().any(|row| {
-                row.get("source_domain").and_then(Value::as_str)
-                    == Some("analysis.example.org")
+                row.get("source_domain").and_then(Value::as_str) == Some("analysis.example.org")
             }),
             "{evidence_pack:#?}"
         );
@@ -4564,7 +4556,9 @@ mod quality_tests {
             "{providers:#?}"
         );
         assert!(
-            !providers.iter().any(|provider| matches!(provider.as_str(), "google_news_rss" | "bing_rss")),
+            !providers
+                .iter()
+                .any(|provider| matches!(provider.as_str(), "google_news_rss" | "bing_rss")),
             "{providers:#?}"
         );
 
@@ -5161,8 +5155,7 @@ mod quality_tests {
 
     #[test]
     fn trusted_primary_lane_candidates_covering_missing_entity_survive_low_score_rerank() {
-        let query =
-            "Research browser-use, Playwright, and OpenHands for browser task automation.";
+        let query = "Research browser-use, Playwright, and OpenHands for browser task automation.";
         let mut facets = vec![
             research_facet_from_metadata_text("browser-use", 0, "entity").unwrap(),
             research_facet_from_metadata_text("OpenHands", 1, "entity").unwrap(),
@@ -5321,6 +5314,77 @@ mod quality_tests {
         assert_eq!(
             coverage,
             vec!["facet_01".to_string(), "facet_02".to_string()]
+        );
+    }
+
+    #[test]
+    fn pack_ready_selection_prefers_stronger_facet_evidence_over_earlier_weaker_rows() {
+        let query = "Compare Alpha Runtime and Beta Search for enterprise agent orchestration";
+        let mut facets = vec![
+            research_facet_from_metadata_text("Alpha Runtime", 0, "entity").unwrap(),
+            research_facet_from_metadata_text("Beta Search", 1, "entity").unwrap(),
+        ];
+        assign_distinctive_facet_terms(&mut facets);
+        let alpha_weaker = Candidate {
+            source_kind: "web".to_string(),
+            title: "Alpha Runtime quick note".to_string(),
+            locator: "https://alpha.example.com/quick-note".to_string(),
+            snippet:
+                "Alpha Runtime note mentions orchestration in passing but gives limited detail."
+                    .to_string(),
+            excerpt_hash: "alpha-weaker".to_string(),
+            timestamp: None,
+            permissions: None,
+            status_code: 200,
+        };
+        let beta_strong = Candidate {
+            source_kind: "web".to_string(),
+            title: "Beta Search enterprise orchestration guide".to_string(),
+            locator: "https://beta.example.com/enterprise-guide".to_string(),
+            snippet: "Beta Search enterprise orchestration guide explains workflow control, deployment constraints, maintenance tradeoffs, and enterprise integration patterns.".to_string(),
+            excerpt_hash: "beta-strong".to_string(),
+            timestamp: None,
+            permissions: None,
+            status_code: 200,
+        };
+        let alpha_strong = Candidate {
+            source_kind: "web".to_string(),
+            title: "Alpha Runtime enterprise orchestration guide".to_string(),
+            locator: "https://alpha.example.com/enterprise-guide".to_string(),
+            snippet: "Alpha Runtime enterprise orchestration guide explains workflow control, deployment constraints, maintenance tradeoffs, and enterprise integration patterns.".to_string(),
+            excerpt_hash: "alpha-strong".to_string(),
+            timestamp: None,
+            permissions: None,
+            status_code: 200,
+        };
+
+        let selected = select_pack_ready_ranked_candidates(
+            query,
+            vec![
+                (alpha_weaker.clone(), 0.62),
+                (beta_strong.clone(), 0.86),
+                (alpha_strong.clone(), 0.92),
+            ],
+            &facets,
+            2,
+            1,
+        );
+        let locators = selected
+            .iter()
+            .map(|(candidate, _)| candidate.locator.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            locators.contains(&"https://alpha.example.com/enterprise-guide"),
+            "{selected:#?}"
+        );
+        assert!(
+            !locators.contains(&"https://alpha.example.com/quick-note"),
+            "{selected:#?}"
+        );
+        assert!(
+            locators.contains(&"https://beta.example.com/enterprise-guide"),
+            "{selected:#?}"
         );
     }
 

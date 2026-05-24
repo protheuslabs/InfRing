@@ -246,6 +246,7 @@
       "enabled": true,
       "min_usable_items": 2,
       "min_source_domains": 2,
+      "min_covered_facet_ratio_for_usable": 0.6,
       "purpose": "report whether the hidden evidence pack is absent, thin, low-confidence-only, or usable before final synthesis",
       "non_goals": [
         "do_not_use_quality_metadata_as_citable_evidence",

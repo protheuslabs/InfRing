@@ -399,6 +399,52 @@ fn source_dump_retry_template_is_not_a_good_user_answer() {
 }
 
 #[test]
+fn source_fragment_fallback_template_is_not_a_good_user_answer() {
+    let normalized = normalize_for_compare(
+        "Based on the retrieved evidence, the strongest supported answer is:
+        - User Guide - Example / Shop Solar Generators Portable Power Stations Accessories Gift Card Source: Web result from example.test.
+        - Description Summary Tour starts Reykjavik, Iceland Duration 5 days Source: Web result from travel.example.
+        Limit: Coverage state: usable evidence is present for Iceland, Reykjavik.",
+    );
+
+    assert!(source_summary_without_answer_signal(&normalized));
+}
+
+#[test]
+fn single_source_fragment_fallback_template_is_not_a_good_user_answer() {
+    let normalized = normalize_for_compare(
+        "Based on the retrieved evidence, the strongest supported answer is:
+        - Your accountant, clients, or existing workflow already leans QuickBooks and reducing friction matters more than squeezing out the strongest long-term fit Source: QuickBooks vs Xero 2026: Default Ecosystem or Better Long-Term Fit.
+        Limit: Coverage state: usable evidence is present for QuickBooks, Xero, Pilot, Puzzle.",
+    );
+
+    assert!(source_summary_without_answer_signal(&normalized));
+}
+
+#[test]
+fn answer_unit_alignment_handles_decimal_and_compound_tokens() {
+    let units = answer_text_units(
+        "Pricing starts around $29/seat/month with a usage-based component ($0.99 per Fin outcome). OpenTelemetry v1.56.0 is current for tracing. Freshdesk/Freshworks are compared with Salesforce-native workflows.",
+    );
+    assert!(
+        units
+            .iter()
+            .any(|unit| unit.contains("$0.99 per Fin outcome")),
+        "{units:?}"
+    );
+    assert!(
+        units
+            .iter()
+            .any(|unit| unit.contains("OpenTelemetry v1.56.0")),
+        "{units:?}"
+    );
+    let terms = answer_unit_specific_terms(&units.join(" "));
+    assert!(terms.contains(&"freshdesk".to_string()), "{terms:?}");
+    assert!(terms.contains(&"freshworks".to_string()), "{terms:?}");
+    assert!(terms.contains(&"salesforce".to_string()), "{terms:?}");
+}
+
+#[test]
 fn retrieval_limitation_report_without_answer_is_not_successful_research_output() {
     let case = json!({
         "prompt": "Give me news from this week.",
