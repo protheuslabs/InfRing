@@ -1,13 +1,13 @@
 // Layer ownership: Core Layer 2 (Scheduling + Execution) - agent runtime surface coordination.
 pub mod agent;
-mod native_evidence;
-mod native_prompt_policy;
-mod native_synthetic_artifact;
-mod native_workflow_artifact;
 pub mod capability_pack;
 pub mod mcp;
 pub mod merkle_receipt;
+mod native_evidence;
+mod native_prompt_policy;
+mod native_synthetic_artifact;
 pub mod native_tools;
+mod native_workflow_artifact;
 pub mod provider;
 pub mod rbac_memory;
 pub mod realtime_voice;
@@ -32,8 +32,8 @@ pub use merkle_receipt::{
     merkle_receipt_options_from_value, merkle_receipt_payload, MerkleReceiptOptions,
 };
 pub use native_tools::{
-    native_tool_observation_prompt, parse_native_tool_calls, NativeToolCall,
-    NativeToolDispatcher, NativeToolReceipt,
+    native_tool_observation_prompt, parse_native_tool_calls, NativeToolCall, NativeToolDispatcher,
+    NativeToolReceipt,
 };
 pub use provider::{
     LocalEchoProvider, ProviderClient, ProviderClientRegistry, ProviderError, ProviderErrorCode,

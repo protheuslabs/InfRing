@@ -12,29 +12,24 @@ use crate::native_evidence::{
     native_tool_prompt_project_root, native_tool_prompt_required_changed_paths,
     native_tool_prompt_requires_memory_write, native_tool_prompt_requires_product_mutation,
     native_tool_prompt_requires_test_changes, native_tool_prompt_requires_validation_command,
-    native_tool_should_synthesize_micro_final,
-    native_tool_unique_code_path_mentions,
-};
-use crate::native_synthetic_artifact::{
-    native_tool_synthetic_completion_evidence_response,
-    native_tool_synthetic_micro_final_response,
-};
-use crate::native_workflow_artifact::{
-    native_tool_auto_workflow_artifact_receipts,
+    native_tool_should_synthesize_micro_final, native_tool_unique_code_path_mentions,
 };
 use crate::native_prompt_policy::{
-    native_tool_completion_repair_action_brief,
-    native_tool_completion_evidence_repair_prompt, native_tool_context_to_mutation_retry_prompt,
-    native_tool_empty_retry_prompt, native_tool_initial_prompt,
-    native_tool_failed_validation_repair_hint,
-    native_tool_missing_test_change_repair_hint,
-    native_tool_orchestration_prompt_text, native_tool_public_reasoning_finalization_prompt,
-    native_tool_public_reasoning_metadata, native_tool_recovery_prompt,
+    native_tool_completion_evidence_repair_prompt, native_tool_completion_repair_action_brief,
+    native_tool_context_to_mutation_retry_prompt, native_tool_empty_retry_prompt,
+    native_tool_failed_validation_repair_hint, native_tool_initial_prompt,
+    native_tool_missing_test_change_repair_hint, native_tool_orchestration_prompt_text,
+    native_tool_public_reasoning_finalization_prompt, native_tool_public_reasoning_metadata,
+    native_tool_recovery_prompt,
+};
+use crate::native_synthetic_artifact::{
+    native_tool_synthetic_completion_evidence_response, native_tool_synthetic_micro_final_response,
 };
 use crate::native_tools::{
     native_tool_observation_prompt, parse_native_tool_calls, NativeToolCall, NativeToolDispatcher,
     NativeToolReceipt,
 };
+use crate::native_workflow_artifact::native_tool_auto_workflow_artifact_receipts;
 use crate::provider::{
     ProviderClientRegistry, ProviderError, ProviderErrorCode, ProviderRequest, ProviderResponse,
 };
@@ -377,6 +372,7 @@ impl AgentContract {
         let micro_direct_write_task = coding_task_lane == "new_file_fast_path";
         let bounded_direct_edit_task = !micro_direct_write_task
             && native_tool_bounded_direct_edit_lane_active(&self.metadata, &self.initial_prompt);
+        let mut next_provider_timeout_seconds: Option<u64> = None;
         if bounded_direct_edit_task {
             prompt = native_tool_bounded_direct_edit_initial_prompt(
                 &self.metadata,
@@ -399,7 +395,7 @@ impl AgentContract {
                 let default_bootstrap_rule = if native_tool_prompt_requires_pre_mutation_validation(
                     &self.initial_prompt,
                 ) {
-                    "Runtime has already loaded the bounded local context for this direct edit. If a pre-mutation validation receipt is present, do not rerun the same failing command before repair; use its output to return only JSON tool calls for the smallest source/test file_write or file_patch repair, then rerun validation."
+                    "Runtime has already loaded the bounded local context for this direct edit. If a pre-mutation validation receipt is present, do not rerun the same failing command before repair; use its output to return the smallest source/test file_write or file_patch repair next, then rerun validation/probe commands."
                 } else {
                     "Runtime has already loaded the bounded local context for this direct edit. Do not repeat file_list/file_read unless validation names a new missing file. Return only JSON tool calls for the smallest source/test file_write or file_patch mutation next, then run requested validation."
                 };
@@ -408,7 +404,9 @@ impl AgentContract {
                     "bounded_direct_edit_bootstrap_rule",
                     default_bootstrap_rule,
                 );
-                prompt = format!("{prompt}\n\n{bootstrap_rule}\n\nNative tool observations:\n{observation}");
+                prompt = format!(
+                    "{prompt}\n\n{bootstrap_rule}\n\nNative tool observations:\n{observation}"
+                );
             }
         }
         if !micro_direct_write_task && native_tool_requires_successful_mutation(&self.metadata) {
@@ -436,9 +434,7 @@ impl AgentContract {
                     );
                     prompt = format!(
                         "{}\n\n{}\n\nNative tool observations:\n{}",
-                        self.initial_prompt,
-                        bounded_patch_fallback_rule,
-                        observation
+                        self.initial_prompt, bounded_patch_fallback_rule, observation
                     );
                 }
                 if let Some((response, terminal_receipts, provider_call_count, provider_id)) =
@@ -508,9 +504,7 @@ impl AgentContract {
                 };
                 prompt = format!(
                     "{}\n\n{}\n\nNative tool observations:\n{}",
-                    self.initial_prompt,
-                    bootstrap_rule,
-                    observation
+                    self.initial_prompt, bootstrap_rule, observation
                 );
             }
         }
@@ -544,12 +538,21 @@ impl AgentContract {
                 }
             }
             provider_call_count += 1;
+            let mut request_metadata = self.metadata.clone();
+            if let Some(timeout_seconds) = next_provider_timeout_seconds.take() {
+                if let Value::Object(object) = &mut request_metadata {
+                    object.insert(
+                        "provider_timeout_seconds".to_string(),
+                        json!(timeout_seconds),
+                    );
+                }
+            }
             let request = ProviderRequest {
                 prompt: prompt.clone(),
                 system: Some(system.clone()),
                 tools: tools.to_vec(),
                 model: self.model.clone(),
-                metadata: self.metadata.clone(),
+                metadata: request_metadata,
             };
             let response = match provider.complete(&request) {
                 Ok(response) => response,
@@ -579,8 +582,10 @@ impl AgentContract {
                         && native_tool_first_turn_timeout_recovery_enabled(&self.metadata) =>
                 {
                     if all_receipts.is_empty() {
-                        let bootstrap_receipts =
-                            native_tool_bootstrap_context_receipts(&dispatcher, &self.initial_prompt);
+                        let bootstrap_receipts = native_tool_bootstrap_context_receipts(
+                            &dispatcher,
+                            &self.initial_prompt,
+                        );
                         if !bootstrap_receipts.is_empty() {
                             all_receipts.extend(bootstrap_receipts);
                             native_tool_persist_run_journal(
@@ -604,6 +609,17 @@ impl AgentContract {
                             error.message.as_str(),
                             &observation,
                         );
+                        if bounded_direct_edit_task
+                            && native_tool_prompt_requires_pre_mutation_validation(
+                                &self.initial_prompt,
+                            )
+                            && native_tool_has_any_validation_command(&all_receipts)
+                        {
+                            next_provider_timeout_seconds =
+                                Some(native_tool_bounded_patch_artifact_provider_timeout_seconds(
+                                    &self.metadata,
+                                ));
+                        }
                         native_tool_persist_run_journal(
                             &self.metadata,
                             &self.initial_prompt,
@@ -618,7 +634,8 @@ impl AgentContract {
                     if let Some(bootstrap_receipt) =
                         native_tool_bootstrap_discovery_receipt(&dispatcher, &self.initial_prompt)
                     {
-                        let observation = native_tool_observation_prompt(&[bootstrap_receipt.clone()]);
+                        let observation =
+                            native_tool_observation_prompt(&[bootstrap_receipt.clone()]);
                         all_receipts.push(bootstrap_receipt);
                         native_tool_persist_run_journal(
                             &self.metadata,
@@ -636,9 +653,7 @@ impl AgentContract {
                         );
                         prompt = format!(
                             "{}\n\n{}\n\nNative tool observations:\n{}",
-                            self.initial_prompt,
-                            bootstrap_rule,
-                            observation
+                            self.initial_prompt, bootstrap_rule, observation
                         );
                         continue;
                     }
@@ -691,9 +706,7 @@ impl AgentContract {
                         );
                         prompt = format!(
                             "{}\n\n{}\n\nNative tool observations:\n{}",
-                            self.initial_prompt,
-                            bootstrap_rule,
-                            observation
+                            self.initial_prompt, bootstrap_rule, observation
                         );
                         continue;
                     }
@@ -747,9 +760,7 @@ impl AgentContract {
                         );
                         prompt = format!(
                             "{}\n\n{}\n\nNative tool observations:\n{}",
-                            self.initial_prompt,
-                            bootstrap_rule,
-                            observation
+                            self.initial_prompt, bootstrap_rule, observation
                         );
                         last_response = Some(response);
                         continue;
@@ -798,9 +809,10 @@ impl AgentContract {
                     native_tool_preserved_api_write_blocked_receipt(&self.initial_prompt, &call)
                 {
                     blocked
-                } else if let Some(blocked) =
-                    native_tool_python_src_prefix_import_blocked_receipt(&self.initial_prompt, &call)
-                {
+                } else if let Some(blocked) = native_tool_python_src_prefix_import_blocked_receipt(
+                    &self.initial_prompt,
+                    &call,
+                ) {
                     blocked
                 } else if context_blocked {
                     native_tool_product_repair_context_blocked_receipt(call, &[], &all_receipts)
@@ -824,8 +836,7 @@ impl AgentContract {
                 &self.initial_prompt,
                 &all_receipts,
             ) {
-                let mut response =
-                    native_tool_synthetic_micro_final_response(
+                let mut response = native_tool_synthetic_micro_final_response(
                     &response,
                     &self.metadata,
                     &self.initial_prompt,
@@ -844,7 +855,12 @@ impl AgentContract {
                         "synthetic_micro_final": true,
                     }
                 });
-                return Ok((response, all_receipts, provider_call_count, "ok".to_string()));
+                return Ok((
+                    response,
+                    all_receipts,
+                    provider_call_count,
+                    "ok".to_string(),
+                ));
             }
             if native_tool_synthesize_final_after_successful_validation(&self.metadata)
                 && native_tool_has_successful_mutation(&all_receipts)
@@ -885,7 +901,12 @@ impl AgentContract {
                         "early_success_after_validation": true,
                     }
                 });
-                return Ok((response, all_receipts, provider_call_count, "ok".to_string()));
+                return Ok((
+                    response,
+                    all_receipts,
+                    provider_call_count,
+                    "ok".to_string(),
+                ));
             }
             if native_tool_requires_successful_mutation(&self.metadata)
                 && !native_tool_has_successful_mutation(&all_receipts)
@@ -985,7 +1006,12 @@ impl AgentContract {
                         "executed_pending_terminal_tool_calls": terminal_receipts.len(),
                     }
                 });
-                return Ok((response, all_receipts, provider_call_count, "ok".to_string()));
+                return Ok((
+                    response,
+                    all_receipts,
+                    provider_call_count,
+                    "ok".to_string(),
+                ));
             }
         }
         if let Some(validation_receipt) =
@@ -1072,11 +1098,11 @@ impl AgentContract {
             || completion_evidence_finalization
         {
             provider_call_count += 1;
-                let mut finalization_prompt = native_tool_public_reasoning_finalization_prompt(
-                    &self.metadata,
-                    &self.initial_prompt,
-                    &all_receipts,
-                    &response.output,
+            let mut finalization_prompt = native_tool_public_reasoning_finalization_prompt(
+                &self.metadata,
+                &self.initial_prompt,
+                &all_receipts,
+                &response.output,
             );
             if completion_evidence_finalization {
                 finalization_prompt.push_str("\n\n");
@@ -1177,6 +1203,39 @@ impl AgentContract {
         {
             all_receipts.push(validation_receipt);
         }
+        let post_validation_repair_reasons = native_tool_runtime_repair_reasons(
+            &self.metadata,
+            &self.initial_prompt,
+            &response.output,
+            &all_receipts,
+        );
+        if native_tool_repair_reasons_include_failed_validation(&post_validation_repair_reasons)
+            && native_tool_completion_evidence_repair_enabled(&self.metadata)
+        {
+            let repaired = native_tool_completion_evidence_repair_loop(
+                &provider,
+                &dispatcher,
+                tools,
+                self.model.clone(),
+                &self.metadata,
+                &self.initial_prompt,
+                &system,
+                response,
+                all_receipts,
+                provider_call_count,
+                post_validation_repair_reasons,
+            )?;
+            response = repaired.0;
+            all_receipts = repaired.1;
+            provider_call_count = repaired.2;
+            if let Some(validation_receipt) = native_tool_auto_validation_receipt(
+                &dispatcher,
+                &self.initial_prompt,
+                &all_receipts,
+            ) {
+                all_receipts.push(validation_receipt);
+            }
+        }
         if !parse_native_tool_calls(&response.output).is_empty()
             && native_tool_has_successful_mutation(&all_receipts)
             && native_tool_completion_evidence_timeout_synthesis_enabled(&self.metadata)
@@ -1189,8 +1248,12 @@ impl AgentContract {
                 "terminal_native_requests_after_evidence_repair",
             );
         }
-        let auto_handoff_receipts =
-            native_tool_auto_workflow_artifact_receipts(&dispatcher, &self.metadata, &self.initial_prompt, &all_receipts);
+        let auto_handoff_receipts = native_tool_auto_workflow_artifact_receipts(
+            &dispatcher,
+            &self.metadata,
+            &self.initial_prompt,
+            &all_receipts,
+        );
         if !auto_handoff_receipts.is_empty() {
             all_receipts.extend(auto_handoff_receipts);
             if native_tool_prompt_evidence_gaps(&self.initial_prompt, &all_receipts).is_empty() {
@@ -1273,10 +1336,9 @@ impl AgentContract {
                     .take(native_tool_max_calls_per_turn(&self.metadata))
                 {
                     let call = native_tool_call_with_prompt_defaults(call, &self.initial_prompt);
-                    let context_blocked =
-                        native_tool_has_successful_context_receipt(&all_receipts)
-                            && !native_tool_has_successful_mutation(&all_receipts)
-                            && native_tool_call_is_context_only(&call);
+                    let context_blocked = native_tool_has_successful_context_receipt(&all_receipts)
+                        && !native_tool_has_successful_mutation(&all_receipts)
+                        && native_tool_call_is_context_only(&call);
                     let receipt = if context_blocked {
                         native_tool_product_repair_context_blocked_receipt(call, &[], &all_receipts)
                     } else if let Some(blocked) =
@@ -1284,7 +1346,10 @@ impl AgentContract {
                     {
                         blocked
                     } else if let Some(blocked) =
-                        native_tool_python_src_prefix_import_blocked_receipt(&self.initial_prompt, &call)
+                        native_tool_python_src_prefix_import_blocked_receipt(
+                            &self.initial_prompt,
+                            &call,
+                        )
                     {
                         blocked
                     } else {
@@ -1443,7 +1508,12 @@ impl AgentContract {
                     "unresolved_completion_evidence": bounded_direct_edit_hard_evidence_gaps,
                 }
             });
-            return Ok((response, all_receipts, provider_call_count, "partial_blocked".to_string()));
+            return Ok((
+                response,
+                all_receipts,
+                provider_call_count,
+                "partial_blocked".to_string(),
+            ));
         }
         if !unresolved_final_reasons.is_empty()
             && native_tool_artifact_contract_enabled(&self.metadata)
@@ -1486,7 +1556,12 @@ impl AgentContract {
                     "unresolved_completion_evidence": unresolved_final_reasons,
                 }
             });
-            return Ok((response, all_receipts, provider_call_count, "partial_blocked".to_string()));
+            return Ok((
+                response,
+                all_receipts,
+                provider_call_count,
+                "partial_blocked".to_string(),
+            ));
         }
         if bounded_direct_edit_task {
             let direct_tool_call_count = all_receipts.len();
@@ -1522,7 +1597,12 @@ impl AgentContract {
             Some(&response.output),
             Some("ok"),
         );
-        Ok((response, all_receipts, provider_call_count, "ok".to_string()))
+        Ok((
+            response,
+            all_receipts,
+            provider_call_count,
+            "ok".to_string(),
+        ))
     }
 }
 
@@ -1636,21 +1716,6 @@ fn native_tool_max_calls_per_turn(metadata: &Value) -> usize {
         .unwrap_or(8)
         .clamp(1, 16) as usize
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 fn native_tool_wall_timeout(metadata: &Value) -> Option<Duration> {
     let seconds = metadata
@@ -1806,7 +1871,10 @@ fn native_tool_bounded_direct_edit_lane_active(metadata: &Value, original_prompt
     !paths.is_empty() && paths.len() <= native_tool_bounded_direct_edit_max_files(metadata)
 }
 
-fn native_tool_bounded_direct_edit_initial_prompt(metadata: &Value, original_prompt: &str) -> String {
+fn native_tool_bounded_direct_edit_initial_prompt(
+    metadata: &Value,
+    original_prompt: &str,
+) -> String {
     let rule = native_tool_orchestration_prompt_text(
         metadata,
         "bounded_direct_edit_lane_rule",
@@ -1920,9 +1988,7 @@ enum NativeToolBoundedPatchArtifactProfile {
 impl NativeToolBoundedPatchArtifactProfile {
     fn as_str(self) -> &'static str {
         match self {
-            NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact => {
-                "bounded_patch_artifact"
-            }
+            NativeToolBoundedPatchArtifactProfile::GeneralPatchArtifact => "bounded_patch_artifact",
             NativeToolBoundedPatchArtifactProfile::SmallScopedEditArtifact => {
                 "small_scoped_edit_artifact"
             }
@@ -2074,7 +2140,10 @@ fn native_tool_bounded_patch_artifact_lane(
                     native_tool_small_scoped_edit_provider_timeout_seconds(metadata),
             }),
         );
-        object.insert("native_bounded_patch_artifact_lane".to_string(), json!(true));
+        object.insert(
+            "native_bounded_patch_artifact_lane".to_string(),
+            json!(true),
+        );
         object.insert(
             "native_patch_artifact_profile".to_string(),
             json!(artifact_profile.as_str()),
@@ -2111,9 +2180,14 @@ fn native_tool_bounded_patch_artifact_lane(
             if let Some(object) = retry_metadata.as_object_mut() {
                 object.insert(
                     "provider_timeout_seconds".to_string(),
-                    json!(native_tool_bounded_patch_artifact_provider_timeout_seconds(metadata)),
+                    json!(native_tool_bounded_patch_artifact_provider_timeout_seconds(
+                        metadata
+                    )),
                 );
-                object.insert("native_bounded_patch_artifact_lane".to_string(), json!(true));
+                object.insert(
+                    "native_bounded_patch_artifact_lane".to_string(),
+                    json!(true),
+                );
                 object.insert(
                     "native_patch_artifact_profile".to_string(),
                     json!(artifact_profile.as_str()),
@@ -2176,21 +2250,31 @@ fn native_tool_bounded_patch_artifact_lane(
                 && native_tool_bounded_patch_artifact_timeout_strict_retry_enabled(metadata)
                 && provider_call_count < 2
             {
-                attempted_artifact_profiles
-                    .push(format!("{}_timeout_strict_retry", artifact_profile.as_str()));
+                attempted_artifact_profiles.push(format!(
+                    "{}_timeout_strict_retry",
+                    artifact_profile.as_str()
+                ));
                 provider_call_count += 1;
                 let mut retry_metadata = metadata.clone();
                 if let Some(object) = retry_metadata.as_object_mut() {
                     object.insert(
                         "provider_timeout_seconds".to_string(),
-                        json!(native_tool_bounded_patch_artifact_retry_provider_timeout_seconds(
-                            metadata
-                        )),
+                        json!(
+                            native_tool_bounded_patch_artifact_retry_provider_timeout_seconds(
+                                metadata
+                            )
+                        ),
                     );
-                    object.insert("native_bounded_patch_artifact_lane".to_string(), json!(true));
+                    object.insert(
+                        "native_bounded_patch_artifact_lane".to_string(),
+                        json!(true),
+                    );
                     object.insert(
                         "native_patch_artifact_profile".to_string(),
-                        json!(format!("{}_timeout_strict_retry", artifact_profile.as_str())),
+                        json!(format!(
+                            "{}_timeout_strict_retry",
+                            artifact_profile.as_str()
+                        )),
                     );
                 }
                 let retry_request = ProviderRequest {
@@ -2325,9 +2409,14 @@ fn native_tool_bounded_patch_artifact_lane(
         if let Some(object) = retry_metadata.as_object_mut() {
             object.insert(
                 "provider_timeout_seconds".to_string(),
-                json!(native_tool_bounded_patch_artifact_provider_timeout_seconds(metadata)),
+                json!(native_tool_bounded_patch_artifact_provider_timeout_seconds(
+                    metadata
+                )),
             );
-            object.insert("native_bounded_patch_artifact_lane".to_string(), json!(true));
+            object.insert(
+                "native_bounded_patch_artifact_lane".to_string(),
+                json!(true),
+            );
             object.insert(
                 "native_patch_artifact_profile".to_string(),
                 json!(artifact_profile.as_str()),
@@ -2401,7 +2490,10 @@ fn native_tool_bounded_patch_artifact_lane(
                 "provider_timeout_seconds".to_string(),
                 json!(native_tool_bounded_patch_artifact_retry_provider_timeout_seconds(metadata)),
             );
-            object.insert("native_bounded_patch_artifact_lane".to_string(), json!(true));
+            object.insert(
+                "native_bounded_patch_artifact_lane".to_string(),
+                json!(true),
+            );
             object.insert(
                 "native_patch_artifact_profile".to_string(),
                 json!(format!("{}_strict_retry", artifact_profile.as_str())),
@@ -2775,8 +2867,9 @@ impl NativeToolBoundedPatchLaneOutcome {
                 .and_then(Value::as_str)
                 .unwrap_or("terminal_failure")
                 .to_string();
-            observability_receipts
-                .push(native_tool_bounded_patch_artifact_marker_receipt(&reason, details));
+            observability_receipts.push(native_tool_bounded_patch_artifact_marker_receipt(
+                &reason, details,
+            ));
         }
         Self {
             terminal: Some(terminal),
@@ -2947,8 +3040,7 @@ fn native_tool_bounded_patch_context_paths(
         .collect::<Vec<_>>();
     if paths.len() < 2 {
         for path in native_tool_bootstrap_likely_context_paths(project_root, &[]) {
-            if let Some(path) =
-                native_tool_resolve_bounded_patch_context_path(project_root, &path)
+            if let Some(path) = native_tool_resolve_bounded_patch_context_path(project_root, &path)
             {
                 paths.push(path);
             }
@@ -3167,9 +3259,7 @@ fn native_tool_bounded_patch_artifact_search_replace_patches(
         let old = output[old_start..separator_start]
             .trim_matches('\n')
             .to_string();
-        let new = output[new_start..end_start]
-            .trim_matches('\n')
-            .to_string();
+        let new = output[new_start..end_start].trim_matches('\n').to_string();
         if !old.is_empty() && old != new {
             patches.push(NativeToolBoundedPatch { path, old, new });
         }
@@ -3409,10 +3499,8 @@ fn native_tool_recovery_or_partial_progress(
             .into_iter()
             .take(native_tool_max_calls_per_turn(metadata))
         {
-            let receipt = dispatcher.dispatch(native_tool_call_with_prompt_defaults(
-                call,
-                original_prompt,
-            ));
+            let receipt =
+                dispatcher.dispatch(native_tool_call_with_prompt_defaults(call, original_prompt));
             turn_receipts.push(receipt.clone());
             receipts.push(receipt);
         }
@@ -3424,7 +3512,13 @@ fn native_tool_recovery_or_partial_progress(
         );
         prompt = format!(
             "{}\n\nRecovery tool request turn {}:\n{}\n\nNative tool observations:\n{}\n\n{}",
-            native_tool_recovery_prompt(metadata, original_prompt, reason, &changed_paths, &receipts),
+            native_tool_recovery_prompt(
+                metadata,
+                original_prompt,
+                reason,
+                &changed_paths,
+                &receipts
+            ),
             turn_idx + 1,
             response.output,
             observation,
@@ -3437,8 +3531,12 @@ fn native_tool_recovery_or_partial_progress(
     {
         receipts.push(validation_receipt);
     }
-    let auto_handoff_receipts =
-        native_tool_auto_workflow_artifact_receipts(dispatcher, metadata, original_prompt, &receipts);
+    let auto_handoff_receipts = native_tool_auto_workflow_artifact_receipts(
+        dispatcher,
+        metadata,
+        original_prompt,
+        &receipts,
+    );
     if !auto_handoff_receipts.is_empty() {
         receipts.extend(auto_handoff_receipts);
     }
@@ -3469,8 +3567,6 @@ fn native_tool_recovery_or_partial_progress(
     Ok((response, receipts, provider_call_count, terminal_status))
 }
 
-
-
 fn native_tool_completion_evidence_repair_enabled(metadata: &Value) -> bool {
     metadata
         .get("native_success_criteria")
@@ -3496,7 +3592,8 @@ fn native_tool_runtime_repair_reasons(
     output: &str,
     receipts: &[NativeToolReceipt],
 ) -> Vec<String> {
-    let mut reasons = native_tool_artifact_repair_reasons(metadata, original_prompt, output, receipts);
+    let mut reasons =
+        native_tool_artifact_repair_reasons(metadata, original_prompt, output, receipts);
     if native_tool_requires_successful_mutation(metadata)
         && native_tool_prompt_requires_product_mutation(&original_prompt.to_ascii_lowercase())
         && !native_tool_has_successful_mutation(receipts)
@@ -3551,10 +3648,13 @@ fn native_tool_has_successful_read_context_receipt(receipts: &[NativeToolReceipt
 }
 
 fn native_tool_successful_read_context_count(receipts: &[NativeToolReceipt]) -> usize {
-    receipts.iter().filter(|receipt| {
-        receipt.status == "ok"
-            && matches!(receipt.tool_name.as_str(), "file_read" | "file_read_many")
-    }).count()
+    receipts
+        .iter()
+        .filter(|receipt| {
+            receipt.status == "ok"
+                && matches!(receipt.tool_name.as_str(), "file_read" | "file_read_many")
+        })
+        .count()
 }
 
 fn native_tool_successful_read_context_count_after_first_mutation(
@@ -3754,6 +3854,16 @@ fn native_tool_bounded_direct_edit_required_evidence_gaps(
             .any(|reason| reason == "missing_test_change_receipt")
     {
         gaps.push("missing_test_change_receipt".to_string());
+    }
+    if native_tool_prompt_requires_validation_command(&prompt_lower)
+        && !native_tool_has_successful_validation_command(receipts)
+    {
+        let failed_validation_refs = native_tool_failed_validation_command_refs(receipts);
+        if failed_validation_refs.is_empty() {
+            gaps.push("missing_validation_command_receipt".to_string());
+        } else {
+            gaps.extend(failed_validation_refs);
+        }
     }
     gaps.sort();
     gaps.dedup();
@@ -4103,8 +4213,14 @@ fn native_tool_command_args_have_cwd(args: &Value) -> bool {
 fn native_tool_call_targets_handoff_artifact(call: &NativeToolCall) -> bool {
     if !matches!(
         call.name.trim().to_ascii_lowercase().as_str(),
-        "file_write" | "write_file" | "workspace.write" | "workspace_write" | "file_patch"
-            | "patch_file" | "workspace.patch" | "workspace_patch"
+        "file_write"
+            | "write_file"
+            | "workspace.write"
+            | "workspace_write"
+            | "file_patch"
+            | "patch_file"
+            | "workspace.patch"
+            | "workspace_patch"
     ) {
         return false;
     }
@@ -4148,16 +4264,15 @@ fn native_tool_live_stage_blocked_receipt(
     }
     let stage = native_tool_current_live_stage(original_prompt, receipts)?;
     let live_repair_reasons = native_tool_live_stage_repair_reasons(original_prompt, receipts);
-    native_tool_stage_block_reason(metadata, original_prompt, stage, receipts, call)
-        .map(|reason| {
-            native_tool_stage_blocked_repair_receipt(
-                call,
-                stage,
-                reason,
-                &live_repair_reasons,
-                receipts,
-            )
-        })
+    native_tool_stage_block_reason(metadata, original_prompt, stage, receipts, call).map(|reason| {
+        native_tool_stage_blocked_repair_receipt(
+            call,
+            stage,
+            reason,
+            &live_repair_reasons,
+            receipts,
+        )
+    })
 }
 
 fn native_tool_current_live_stage(
@@ -4219,16 +4334,9 @@ fn native_tool_staged_repair_blocked_receipt(
         return None;
     }
     let stage = native_tool_current_repair_stage(repair_reasons, receipts)?;
-    native_tool_stage_block_reason(metadata, original_prompt, stage, receipts, call)
-        .map(|reason| {
-            native_tool_stage_blocked_repair_receipt(
-                call,
-                stage,
-                reason,
-                repair_reasons,
-                receipts,
-            )
-        })
+    native_tool_stage_block_reason(metadata, original_prompt, stage, receipts, call).map(|reason| {
+        native_tool_stage_blocked_repair_receipt(call, stage, reason, repair_reasons, receipts)
+    })
 }
 
 fn native_tool_staged_execution_controller_enabled(metadata: &Value) -> bool {
@@ -4290,7 +4398,9 @@ fn native_tool_stage_block_reason(
             } else if native_tool_call_is_command_run(call) {
                 Some("staged_controller_requires_test_file_write_or_patch_before_validation")
             } else if native_tool_call_targets_handoff_artifact(call) {
-                Some("staged_controller_requires_test_file_write_or_patch_before_checkpoint_handoff")
+                Some(
+                    "staged_controller_requires_test_file_write_or_patch_before_checkpoint_handoff",
+                )
             } else if native_tool_call_is_memory_closure(call) {
                 Some("staged_controller_requires_test_file_write_or_patch_before_memory_closure")
             } else if native_tool_call_is_mutation(call) {
@@ -4305,7 +4415,8 @@ fn native_tool_stage_block_reason(
             }
         }
         "validation" => {
-            let has_failed_validation = !native_tool_failed_validation_command_refs(receipts).is_empty();
+            let has_failed_validation =
+                !native_tool_failed_validation_command_refs(receipts).is_empty();
             let failed_validation_read_count =
                 native_tool_successful_read_context_count_after_first_failed_validation(receipts);
             if native_tool_call_targets_handoff_artifact(call) {
@@ -4388,7 +4499,9 @@ fn native_tool_current_repair_stage(
         .filter_map(|reason| reason.strip_prefix("missing_changed_path:"))
         .any(|path| {
             let lower = path.to_ascii_lowercase();
-            lower.contains("checkpoint_") || lower.contains("handoff") || lower.contains("/receipts/")
+            lower.contains("checkpoint_")
+                || lower.contains("handoff")
+                || lower.contains("/receipts/")
         })
     {
         return Some("checkpoint_handoff");
@@ -4524,8 +4637,14 @@ fn native_tool_call_targets_unrelated_repair_path(
 ) -> bool {
     if !matches!(
         call.name.trim().to_ascii_lowercase().as_str(),
-        "file_write" | "write_file" | "workspace.write" | "workspace_write" | "file_patch"
-            | "patch_file" | "workspace.patch" | "workspace_patch"
+        "file_write"
+            | "write_file"
+            | "workspace.write"
+            | "workspace_write"
+            | "file_patch"
+            | "patch_file"
+            | "workspace.patch"
+            | "workspace_patch"
     ) || native_tool_call_targets_handoff_artifact(call)
     {
         return false;
@@ -4626,11 +4745,25 @@ fn native_tool_proposed_python_content_after_call(
         "file_patch" | "patch_file" | "workspace.patch" | "workspace_patch" => {
             let old = native_tool_call_text_arg(
                 call,
-                &["old", "old_text", "search", "search_text", "before", "target_text"],
+                &[
+                    "old",
+                    "old_text",
+                    "search",
+                    "search_text",
+                    "before",
+                    "target_text",
+                ],
             )?;
             let new = native_tool_call_text_arg(
                 call,
-                &["new", "new_text", "replace", "replace_text", "after", "replacement"],
+                &[
+                    "new",
+                    "new_text",
+                    "replace",
+                    "replace_text",
+                    "after",
+                    "replacement",
+                ],
             )?;
             if old.is_empty() || existing.matches(old).count() != 1 {
                 return None;
@@ -4784,7 +4917,14 @@ fn native_tool_prompt_preserved_api_names(original_prompt: &str) -> Vec<String> 
             let lower_token = token.to_ascii_lowercase();
             if matches!(
                 lower_token.as_str(),
-                "and" | "api" | "behavior" | "behaviour" | "current" | "existing" | "public" | "the"
+                "and"
+                    | "api"
+                    | "behavior"
+                    | "behaviour"
+                    | "current"
+                    | "existing"
+                    | "public"
+                    | "the"
             ) {
                 continue;
             }
@@ -4834,14 +4974,6 @@ fn native_tool_python_api_block(text: &str, name: &str) -> Option<String> {
     Some(lines[start..end].join("\n"))
 }
 
-fn native_tool_numeric_tokens(block: &str) -> Vec<String> {
-    block
-        .split(|ch: char| !(ch.is_ascii_digit() || ch == '.'))
-        .filter(|token| token.chars().any(|ch| ch.is_ascii_digit()))
-        .map(str::to_string)
-        .collect()
-}
-
 fn native_tool_unrelated_repair_path_receipt(call: NativeToolCall) -> NativeToolReceipt {
     NativeToolReceipt {
         call_id: call.id,
@@ -4887,10 +5019,7 @@ fn native_tool_compact_text(text: &str) -> String {
     }
 }
 
-fn native_tool_prioritize_repair_calls(
-    calls: &mut [NativeToolCall],
-    repair_reasons: &[String],
-) {
+fn native_tool_prioritize_repair_calls(calls: &mut [NativeToolCall], repair_reasons: &[String]) {
     let needs_test_change = repair_reasons
         .iter()
         .any(|reason| reason == "missing_test_change_receipt");
@@ -4915,10 +5044,7 @@ fn native_tool_prioritize_repair_calls(
     });
 }
 
-fn native_tool_completion_repair_tools(
-    tools: &[String],
-    repair_reasons: &[String],
-) -> Vec<String> {
+fn native_tool_completion_repair_tools(tools: &[String], repair_reasons: &[String]) -> Vec<String> {
     let missing_test_only = repair_reasons
         .iter()
         .any(|reason| reason == "missing_test_change_receipt")
@@ -4946,33 +5072,6 @@ fn native_tool_completion_repair_tools(
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 fn native_tool_completion_evidence_repair_loop(
     provider: &Arc<dyn crate::provider::ProviderClient>,
     dispatcher: &NativeToolDispatcher,
@@ -4987,13 +5086,12 @@ fn native_tool_completion_evidence_repair_loop(
     mut repair_reasons: Vec<String>,
 ) -> Result<(ProviderResponse, Vec<NativeToolReceipt>, u64), ProviderError> {
     let max_turns = native_tool_completion_evidence_repair_max_turns(metadata);
-    let mut prompt =
-        native_tool_completion_evidence_repair_prompt(
-            metadata,
-            original_prompt,
-            &response.output,
-            &receipts,
-            &repair_reasons,
+    let mut prompt = native_tool_completion_evidence_repair_prompt(
+        metadata,
+        original_prompt,
+        &response.output,
+        &receipts,
+        &repair_reasons,
     );
     for turn_idx in 0..max_turns {
         provider_call_count += 1;
@@ -5079,9 +5177,8 @@ fn native_tool_completion_evidence_repair_loop(
             native_tool_repair_reasons_require_product_work(&repair_reasons);
         let has_successful_mutation = native_tool_has_successful_mutation(&receipts);
         let has_successful_test_mutation = native_tool_has_successful_test_mutation(&receipts);
-        let has_exhausted_repair_read_budget =
-            native_tool_successful_read_context_count(&receipts)
-                >= native_tool_pre_mutation_read_budget(metadata);
+        let has_exhausted_repair_read_budget = native_tool_successful_read_context_count(&receipts)
+            >= native_tool_pre_mutation_read_budget(metadata);
         let has_exhausted_post_mutation_test_read_budget =
             native_tool_successful_read_context_count_after_first_mutation(&receipts) >= 4;
         let has_unmutated_required_repair_path =
@@ -5091,52 +5188,47 @@ fn native_tool_completion_evidence_repair_loop(
             .take(native_tool_max_calls_per_turn(metadata))
         {
             let call = native_tool_call_with_prompt_defaults(call, original_prompt);
-            let receipt =
-                if let Some(blocked) = native_tool_staged_repair_blocked_receipt(
-                    metadata,
-                    original_prompt,
-                    &repair_reasons,
-                    &receipts,
+            let receipt = if let Some(blocked) = native_tool_staged_repair_blocked_receipt(
+                metadata,
+                original_prompt,
+                &repair_reasons,
+                &receipts,
+                &call,
+            ) {
+                blocked
+            } else if product_work_required
+                && has_exhausted_repair_read_budget
+                && ((!has_successful_mutation)
+                    || (has_successful_mutation
+                        && (((test_change_missing && !has_successful_test_mutation)
+                            && has_exhausted_post_mutation_test_read_budget)
+                            || has_unmutated_required_repair_path)))
+                && native_tool_call_is_context_only(&call)
+            {
+                native_tool_product_repair_context_blocked_receipt(call, &repair_reasons, &receipts)
+            } else if (product_mutation_missing || product_slice_incomplete || test_change_missing)
+                && native_tool_call_targets_handoff_artifact(&call)
+            {
+                native_tool_handoff_blocked_repair_receipt(call)
+            } else if product_work_required
+                && native_tool_call_targets_unrelated_repair_path(
                     &call,
-                ) {
-                    blocked
-                } else if product_work_required
-                    && has_exhausted_repair_read_budget
-                    && ((!has_successful_mutation)
-                        || (has_successful_mutation
-                            && (((test_change_missing && !has_successful_test_mutation)
-                                && has_exhausted_post_mutation_test_read_budget)
-                                || has_unmutated_required_repair_path)))
-                    && native_tool_call_is_context_only(&call)
-                {
-                    native_tool_product_repair_context_blocked_receipt(
-                        call,
-                        &repair_reasons,
-                        &receipts,
-                    )
-                } else if (product_mutation_missing || product_slice_incomplete || test_change_missing)
-                    && native_tool_call_targets_handoff_artifact(&call)
-                {
-                    native_tool_handoff_blocked_repair_receipt(call)
-                } else if product_work_required
-                    && native_tool_call_targets_unrelated_repair_path(
-                        &call,
-                        &repair_reasons,
-                        original_prompt,
-                    )
-                {
-                    native_tool_unrelated_repair_path_receipt(call)
-                } else if let Some(blocked) =
-                    native_tool_preserved_api_write_blocked_receipt(original_prompt, &call)
-                {
-                    blocked
-                } else if let Some(blocked) =
-                    native_tool_python_src_prefix_import_blocked_receipt(original_prompt, &call)
-                {
-                    blocked
-                } else {
-                    dispatcher.dispatch(call)
-                };
+                    &repair_reasons,
+                    original_prompt,
+                )
+            {
+                native_tool_unrelated_repair_path_receipt(call)
+            } else if let Some(blocked) =
+                native_tool_preserved_api_write_blocked_receipt(original_prompt, &call)
+            {
+                blocked
+            } else if let Some(blocked) =
+                native_tool_python_src_prefix_import_blocked_receipt(original_prompt, &call)
+            {
+                blocked
+            } else {
+                dispatcher.dispatch(call)
+            };
             turn_receipts.push(receipt.clone());
             receipts.push(receipt);
         }
@@ -5181,10 +5273,6 @@ fn native_tool_completion_evidence_repair_loop(
     Ok((response, receipts, provider_call_count))
 }
 
-
-
-
-
 fn native_tool_completion_evidence_timeout_synthesis_enabled(metadata: &Value) -> bool {
     metadata
         .get("native_success_criteria")
@@ -5212,7 +5300,10 @@ fn native_tool_recovery_timeout_metadata(metadata: &Value) -> Value {
         .and_then(Value::as_u64)
         .unwrap_or(120);
     if let Some(object) = out.as_object_mut() {
-        object.insert("provider_timeout_seconds".to_string(), json!(timeout_seconds));
+        object.insert(
+            "provider_timeout_seconds".to_string(),
+            json!(timeout_seconds),
+        );
     }
     out
 }
@@ -5225,10 +5316,6 @@ fn native_tool_bootstrap_context_before_first_provider(metadata: &Value) -> bool
         .and_then(Value::as_bool)
         .unwrap_or(false)
 }
-
-
-
-
 
 fn native_tool_bootstrap_discovery_receipt(
     dispatcher: &NativeToolDispatcher,
@@ -5302,7 +5389,10 @@ fn native_tool_bootstrap_context_receipts(
         .collect()
 }
 
-fn native_tool_bootstrap_likely_context_paths(root: &Path, existing_paths: &[String]) -> Vec<String> {
+fn native_tool_bootstrap_likely_context_paths(
+    root: &Path,
+    existing_paths: &[String],
+) -> Vec<String> {
     let mut candidates = Vec::<PathBuf>::new();
     native_tool_collect_bootstrap_context_candidates(root, 0, &mut candidates);
     let max_project_candidates = 24usize;
@@ -5311,7 +5401,11 @@ fn native_tool_bootstrap_likely_context_paths(root: &Path, existing_paths: &[Str
     }
 
     candidates.sort_by_key(|path| {
-        let normalized = path.display().to_string().replace('\\', "/").to_ascii_lowercase();
+        let normalized = path
+            .display()
+            .to_string()
+            .replace('\\', "/")
+            .to_ascii_lowercase();
         let is_test = native_tool_bootstrap_path_looks_like_test(&normalized);
         let depth = path
             .strip_prefix(root)
@@ -5561,8 +5655,6 @@ fn native_tool_recovery_provider_timeout_seconds(metadata: &Value) -> u64 {
         .unwrap_or(120)
         .clamp(1, 600)
 }
-
-
 
 fn sanitize_token(raw: &str, max_len: usize) -> String {
     let mut out = String::new();

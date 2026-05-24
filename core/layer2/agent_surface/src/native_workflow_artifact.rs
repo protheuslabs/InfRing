@@ -2,10 +2,10 @@
 use crate::native_evidence::{
     native_tool_changed_paths, native_tool_has_successful_mutation,
     native_tool_has_successful_validation_command, native_tool_is_handoff_artifact_path,
-    native_tool_prompt_checkpoint_name, native_tool_prompt_evidence_gaps,
-    native_tool_prompt_expected_memory_row_id, native_tool_prompt_memory_cli_pattern,
-    native_tool_prompt_next_checkpoint_name, native_tool_prompt_project_root,
-    native_tool_product_slice_ready, native_tool_successful_validation_summary,
+    native_tool_product_slice_ready, native_tool_prompt_checkpoint_name,
+    native_tool_prompt_evidence_gaps, native_tool_prompt_expected_memory_row_id,
+    native_tool_prompt_memory_cli_pattern, native_tool_prompt_next_checkpoint_name,
+    native_tool_prompt_project_root, native_tool_successful_validation_summary,
 };
 use crate::native_tools::{NativeToolCall, NativeToolDispatcher, NativeToolReceipt};
 use serde_json::{json, Map, Value};
@@ -35,7 +35,8 @@ pub(crate) fn native_tool_auto_workflow_artifact_receipts(
     let known_risks = native_tool_workflow_artifact_known_risks(metadata);
     let schema_version = native_tool_workflow_artifact_schema_version(metadata);
     let redaction_policy = native_tool_workflow_artifact_redaction_policy(metadata);
-    let completed_checkpoint_field = native_tool_workflow_artifact_completed_checkpoint_field(metadata);
+    let completed_checkpoint_field =
+        native_tool_workflow_artifact_completed_checkpoint_field(metadata);
     let alias_checkpoint_field = native_tool_workflow_artifact_alias_checkpoint_field(metadata);
     let next_checkpoint_field = native_tool_workflow_artifact_next_checkpoint_field(metadata);
     let mut payload_map = Map::new();
@@ -83,9 +84,12 @@ pub(crate) fn native_tool_auto_workflow_artifact_receipts(
             native_tool_prompt_project_root(original_prompt),
             native_tool_prompt_expected_memory_row_id(original_prompt),
         ) {
-            let Some(memory_command) =
-                native_tool_workflow_artifact_memory_ingest_command(metadata, original_prompt, &expected_row_id, &payload)
-            else {
+            let Some(memory_command) = native_tool_workflow_artifact_memory_ingest_command(
+                metadata,
+                original_prompt,
+                &expected_row_id,
+                &payload,
+            ) else {
                 return out;
             };
             out.push(dispatcher.dispatch(NativeToolCall {

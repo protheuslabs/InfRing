@@ -1,4 +1,7 @@
-use crate::native_tools::export_guard::{ensure_no_export_removal, preserve_removed_python_exports};
+// Layer ownership: Core Layer 2 (Scheduling + Execution) - agent runtime native tool file mutation.
+use crate::native_tools::export_guard::{
+    ensure_no_export_removal, preserve_removed_python_exports,
+};
 use crate::native_tools::hashing::sha256_hex;
 use crate::native_tools::paths::required_abs_path;
 use serde_json::{json, Value};

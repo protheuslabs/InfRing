@@ -13,11 +13,7 @@ fn native_tool_synthetic_artifact_policy(metadata: &Value) -> Option<&Value> {
         .or_else(|| metadata.pointer("/workflow/native_synthetic_final_artifact_policy"))
 }
 
-fn native_tool_synthetic_artifact_string(
-    metadata: &Value,
-    key: &str,
-    fallback: &str,
-) -> String {
+fn native_tool_synthetic_artifact_string(metadata: &Value, key: &str, fallback: &str) -> String {
     native_tool_synthetic_artifact_policy(metadata)
         .and_then(|value| value.get(key))
         .and_then(Value::as_str)
@@ -67,20 +63,39 @@ pub(crate) fn native_tool_synthetic_micro_final_response(
         })
         .collect::<Vec<_>>();
 
-    let workflow_id = native_tool_synthetic_artifact_string(metadata, "workflow_id", "native_tool_runtime");
-    let heading = native_tool_synthetic_artifact_string(metadata, "micro_heading", "Task completed.");
-    let status_field = native_tool_synthetic_artifact_string(metadata, "completion_status_field", "status");
-    let changed_files_field = native_tool_synthetic_artifact_string(metadata, "changed_files_field", "changed_files");
-    let validation_field = native_tool_synthetic_artifact_string(metadata, "validation_summary_field", "validation");
-    let checkpoint_field = native_tool_synthetic_artifact_string(metadata, "checkpoint_field", "checkpoint");
-    let trace_field = native_tool_synthetic_artifact_string(metadata, "public_trace_field", "trace");
-    let trace_protocol = native_tool_synthetic_artifact_string(metadata, "public_trace_protocol", "trace_v1");
+    let workflow_id =
+        native_tool_synthetic_artifact_string(metadata, "workflow_id", "native_tool_runtime");
+    let heading =
+        native_tool_synthetic_artifact_string(metadata, "micro_heading", "Task completed.");
+    let status_field =
+        native_tool_synthetic_artifact_string(metadata, "completion_status_field", "status");
+    let changed_files_field =
+        native_tool_synthetic_artifact_string(metadata, "changed_files_field", "changed_files");
+    let validation_field =
+        native_tool_synthetic_artifact_string(metadata, "validation_summary_field", "validation");
+    let checkpoint_field =
+        native_tool_synthetic_artifact_string(metadata, "checkpoint_field", "checkpoint");
+    let trace_field =
+        native_tool_synthetic_artifact_string(metadata, "public_trace_field", "trace");
+    let trace_protocol =
+        native_tool_synthetic_artifact_string(metadata, "public_trace_protocol", "trace_v1");
     let rollup_field = native_tool_synthetic_artifact_string(metadata, "rollup_field", "rollup");
-    let rollup_protocol = native_tool_synthetic_artifact_string(metadata, "rollup_protocol", "rollup_v1");
-    let child_refs_field = native_tool_synthetic_artifact_string(metadata, "child_trace_refs_field", "child_trace_refs");
-    let redaction_field = native_tool_synthetic_artifact_string(metadata, "redaction_field", "redaction");
-    let redaction_value = native_tool_synthetic_artifact_string(metadata, "redaction_policy", "public_summary_only");
-    let validation_note = native_tool_synthetic_artifact_string(metadata, "micro_validation_note", "Successful native mutation receipt observed.");
+    let rollup_protocol =
+        native_tool_synthetic_artifact_string(metadata, "rollup_protocol", "rollup_v1");
+    let child_refs_field = native_tool_synthetic_artifact_string(
+        metadata,
+        "child_trace_refs_field",
+        "child_trace_refs",
+    );
+    let redaction_field =
+        native_tool_synthetic_artifact_string(metadata, "redaction_field", "redaction");
+    let redaction_value =
+        native_tool_synthetic_artifact_string(metadata, "redaction_policy", "public_summary_only");
+    let validation_note = native_tool_synthetic_artifact_string(
+        metadata,
+        "micro_validation_note",
+        "Successful native mutation receipt observed.",
+    );
 
     let mut validation = Map::new();
     validation.insert("status".to_string(), json!("receipt_verified"));
@@ -103,19 +118,35 @@ pub(crate) fn native_tool_synthetic_micro_final_response(
     trace.insert("protocol".to_string(), json!(trace_protocol));
     trace.insert(
         "task_summary".to_string(),
-        json!(native_tool_synthetic_artifact_string(metadata, "micro_task_summary", "Task completed with native file mutation.")),
+        json!(native_tool_synthetic_artifact_string(
+            metadata,
+            "micro_task_summary",
+            "Task completed with native file mutation."
+        )),
     );
     trace.insert(
         "plan_summary".to_string(),
-        json!(native_tool_synthetic_artifact_string(metadata, "micro_plan_summary", "Use the explicit target from the prompt and report receipt-backed completion.")),
+        json!(native_tool_synthetic_artifact_string(
+            metadata,
+            "micro_plan_summary",
+            "Use the explicit target from the prompt and report receipt-backed completion."
+        )),
     );
     trace.insert(
         "decisions".to_string(),
-        json!(native_tool_synthetic_artifact_array(metadata, "micro_decisions", &["Selected the direct mutation path for the local task."])),
+        json!(native_tool_synthetic_artifact_array(
+            metadata,
+            "micro_decisions",
+            &["Selected the direct mutation path for the local task."]
+        )),
     );
     trace.insert(
         "actions".to_string(),
-        json!(native_tool_synthetic_artifact_array(metadata, "micro_actions", &["Executed native file mutation."])),
+        json!(native_tool_synthetic_artifact_array(
+            metadata,
+            "micro_actions",
+            &["Executed native file mutation."]
+        )),
     );
     trace.insert(changed_files_field.clone(), json!(changed_paths.clone()));
     trace.insert("validation_summary".to_string(), json!(validation_note));
@@ -132,7 +163,11 @@ pub(crate) fn native_tool_synthetic_micro_final_response(
     rollup.insert("status".to_string(), json!("complete"));
     rollup.insert(
         "summary".to_string(),
-        json!(native_tool_synthetic_artifact_string(metadata, "micro_rollup_summary", "The requested local change was completed through native tooling.")),
+        json!(native_tool_synthetic_artifact_string(
+            metadata,
+            "micro_rollup_summary",
+            "The requested local change was completed through native tooling."
+        )),
     );
     rollup.insert(changed_files_field.clone(), json!(changed_paths.clone()));
     rollup.insert("evidence_refs".to_string(), json!(receipt_refs.clone()));
@@ -179,7 +214,11 @@ pub(crate) fn native_tool_synthetic_completion_evidence_response(
         requirements.push("Complete the requested task.".to_string());
     }
     let has_unresolved_gaps = changed_paths.is_empty() || !evidence_gaps.is_empty();
-    let item_status = if has_unresolved_gaps { "blocked" } else { "covered" };
+    let item_status = if has_unresolved_gaps {
+        "blocked"
+    } else {
+        "covered"
+    };
     let blockers = if has_unresolved_gaps {
         vec![format!(
             "{}; unresolved_evidence_gaps={}",
@@ -210,21 +249,47 @@ pub(crate) fn native_tool_synthetic_completion_evidence_response(
         "success_receipt_backed_runtime_synthesized"
     };
 
-    let workflow_id = native_tool_synthetic_artifact_string(metadata, "workflow_id", "native_tool_runtime");
-    let heading = native_tool_synthetic_artifact_string(metadata, "completion_heading", "Runtime synthesized finalization.");
-    let status_field = native_tool_synthetic_artifact_string(metadata, "completion_status_field", "status");
-    let changed_files_field = native_tool_synthetic_artifact_string(metadata, "changed_files_field", "changed_files");
-    let validation_field = native_tool_synthetic_artifact_string(metadata, "validation_summary_field", "validation");
-    let checkpoint_field = native_tool_synthetic_artifact_string(metadata, "checkpoint_field", "checkpoint");
-    let trace_field = native_tool_synthetic_artifact_string(metadata, "public_trace_field", "trace");
-    let trace_protocol = native_tool_synthetic_artifact_string(metadata, "public_trace_protocol", "trace_v1");
+    let workflow_id =
+        native_tool_synthetic_artifact_string(metadata, "workflow_id", "native_tool_runtime");
+    let heading = native_tool_synthetic_artifact_string(
+        metadata,
+        "completion_heading",
+        "Runtime synthesized finalization.",
+    );
+    let status_field =
+        native_tool_synthetic_artifact_string(metadata, "completion_status_field", "status");
+    let changed_files_field =
+        native_tool_synthetic_artifact_string(metadata, "changed_files_field", "changed_files");
+    let validation_field =
+        native_tool_synthetic_artifact_string(metadata, "validation_summary_field", "validation");
+    let checkpoint_field =
+        native_tool_synthetic_artifact_string(metadata, "checkpoint_field", "checkpoint");
+    let trace_field =
+        native_tool_synthetic_artifact_string(metadata, "public_trace_field", "trace");
+    let trace_protocol =
+        native_tool_synthetic_artifact_string(metadata, "public_trace_protocol", "trace_v1");
     let rollup_field = native_tool_synthetic_artifact_string(metadata, "rollup_field", "rollup");
-    let rollup_protocol = native_tool_synthetic_artifact_string(metadata, "rollup_protocol", "rollup_v1");
-    let child_refs_field = native_tool_synthetic_artifact_string(metadata, "child_trace_refs_field", "child_trace_refs");
-    let checklist_field = native_tool_synthetic_artifact_string(metadata, "task_checklist_field", "requirement_checklist");
-    let redaction_field = native_tool_synthetic_artifact_string(metadata, "redaction_field", "redaction");
-    let redaction_value = native_tool_synthetic_artifact_string(metadata, "redaction_policy", "public_summary_only");
-    let validation_note = native_tool_synthetic_artifact_string(metadata, "completion_validation_note", "Receipt-backed runtime synthesis.");
+    let rollup_protocol =
+        native_tool_synthetic_artifact_string(metadata, "rollup_protocol", "rollup_v1");
+    let child_refs_field = native_tool_synthetic_artifact_string(
+        metadata,
+        "child_trace_refs_field",
+        "child_trace_refs",
+    );
+    let checklist_field = native_tool_synthetic_artifact_string(
+        metadata,
+        "task_checklist_field",
+        "requirement_checklist",
+    );
+    let redaction_field =
+        native_tool_synthetic_artifact_string(metadata, "redaction_field", "redaction");
+    let redaction_value =
+        native_tool_synthetic_artifact_string(metadata, "redaction_policy", "public_summary_only");
+    let validation_note = native_tool_synthetic_artifact_string(
+        metadata,
+        "completion_validation_note",
+        "Receipt-backed runtime synthesis.",
+    );
 
     let mut validation = Map::new();
     validation.insert("status".to_string(), json!("receipt_backed"));
@@ -234,7 +299,11 @@ pub(crate) fn native_tool_synthetic_completion_evidence_response(
     let mut checkpoint = Map::new();
     checkpoint.insert(
         "kind".to_string(),
-        json!(if has_unresolved_gaps { "structured_blocker" } else { "completed_checkpoint" }),
+        json!(if has_unresolved_gaps {
+            "structured_blocker"
+        } else {
+            "completed_checkpoint"
+        }),
     );
     checkpoint.insert("summary".to_string(), json!(reason));
 
@@ -242,25 +311,45 @@ pub(crate) fn native_tool_synthetic_completion_evidence_response(
     trace.insert("protocol".to_string(), json!(trace_protocol));
     trace.insert(
         "task_summary".to_string(),
-        json!(native_tool_synthetic_artifact_string(metadata, "completion_task_summary", "Task summarized from native receipts.")),
+        json!(native_tool_synthetic_artifact_string(
+            metadata,
+            "completion_task_summary",
+            "Task summarized from native receipts."
+        )),
     );
     trace.insert(
         "plan_summary".to_string(),
-        json!(native_tool_synthetic_artifact_string(metadata, "completion_plan_summary", "Map requested work to receipt-backed evidence.")),
+        json!(native_tool_synthetic_artifact_string(
+            metadata,
+            "completion_plan_summary",
+            "Map requested work to receipt-backed evidence."
+        )),
     );
     trace.insert(
         "decisions".to_string(),
-        json!(native_tool_synthetic_artifact_array(metadata, "completion_decisions", &["Used runtime synthesis because finalization evidence was missing."])),
+        json!(native_tool_synthetic_artifact_array(
+            metadata,
+            "completion_decisions",
+            &["Used runtime synthesis because finalization evidence was missing."]
+        )),
     );
     trace.insert(
         "actions".to_string(),
-        json!(native_tool_synthetic_artifact_array(metadata, "completion_actions", &["Collected changed-file paths from successful receipts."])),
+        json!(native_tool_synthetic_artifact_array(
+            metadata,
+            "completion_actions",
+            &["Collected changed-file paths from successful receipts."]
+        )),
     );
     trace.insert(changed_files_field.clone(), json!(changed_paths.clone()));
     trace.insert("validation_summary".to_string(), json!(validation_note));
     trace.insert(
         "risks".to_string(),
-        json!(native_tool_synthetic_artifact_array(metadata, "completion_risks", &["Runtime synthesis is limited to available receipts."])),
+        json!(native_tool_synthetic_artifact_array(
+            metadata,
+            "completion_risks",
+            &["Runtime synthesis is limited to available receipts."]
+        )),
     );
     trace.insert("blockers".to_string(), json!(blockers.clone()));
     trace.insert(
@@ -278,7 +367,11 @@ pub(crate) fn native_tool_synthetic_completion_evidence_response(
     rollup.insert("status".to_string(), json!(completion_status));
     rollup.insert(
         "summary".to_string(),
-        json!(native_tool_synthetic_artifact_string(metadata, "completion_rollup_summary", "Runtime produced a receipt-backed evidence map.")),
+        json!(native_tool_synthetic_artifact_string(
+            metadata,
+            "completion_rollup_summary",
+            "Runtime produced a receipt-backed evidence map."
+        )),
     );
     rollup.insert(changed_files_field.clone(), json!(changed_paths.clone()));
     rollup.insert("evidence_refs".to_string(), json!(receipt_refs));

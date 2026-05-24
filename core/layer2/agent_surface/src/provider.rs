@@ -144,13 +144,8 @@ impl ProviderClient for OllamaCliProvider {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let timeout = provider_timeout_from_request(request);
-        let mut output = run_ollama_cli_completion(
-            &binary,
-            &model,
-            &full_prompt,
-            omit_thinking_flags,
-            timeout,
-        )?;
+        let mut output =
+            run_ollama_cli_completion(&binary, &model, &full_prompt, omit_thinking_flags, timeout)?;
         let mut stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if !omit_thinking_flags
             && !output.status.success()
@@ -294,7 +289,10 @@ fn wait_for_ollama_output(
 
 fn terminate_process(pid: u32, force: bool) {
     let signal = if force { "-KILL" } else { "-TERM" };
-    let _ = Command::new("kill").arg(signal).arg(pid.to_string()).status();
+    let _ = Command::new("kill")
+        .arg(signal)
+        .arg(pid.to_string())
+        .status();
 }
 
 #[derive(Default)]

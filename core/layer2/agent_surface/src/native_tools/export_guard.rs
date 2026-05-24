@@ -1,3 +1,4 @@
+// Layer ownership: Core Layer 2 (Scheduling + Execution) - agent runtime native tool safety guard.
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -49,11 +50,7 @@ pub fn preserve_removed_python_exports(
     {
         return next.to_string();
     }
-    if args
-        .get("preserve_exports")
-        .and_then(Value::as_bool)
-        == Some(false)
-    {
+    if args.get("preserve_exports").and_then(Value::as_bool) == Some(false) {
         return next.to_string();
     }
     if path.extension().and_then(|value| value.to_str()) != Some("py") {

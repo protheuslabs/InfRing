@@ -136,7 +136,10 @@ fn runtime_lane_direct_mutation_skips_provider_for_explicit_file_content() {
     .expect("runtime lane");
 
     assert!(response.ok);
-    assert_eq!(fs::read_to_string(target).expect("read target"), "print(\"tier0\")\n");
+    assert_eq!(
+        fs::read_to_string(target).expect("read target"),
+        "print(\"tier0\")\n"
+    );
     assert_eq!(
         response
             .contract
@@ -153,7 +156,9 @@ fn runtime_lane_direct_mutation_skips_provider_for_explicit_file_content() {
             .and_then(Value::as_u64),
         Some(0)
     );
-    assert!(response.output.contains("Receipt: single_mutation_execution_1"));
+    assert!(response
+        .output
+        .contains("Receipt: single_mutation_execution_1"));
 }
 
 #[test]

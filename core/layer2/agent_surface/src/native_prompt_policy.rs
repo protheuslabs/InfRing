@@ -1,9 +1,9 @@
 // Layer ownership: Core Layer 2 (Scheduling + Execution) - native prompt policy bridge.
 use crate::native_evidence::{
     native_tool_changed_paths, native_tool_coding_task_lane, native_tool_evidence_target_brief,
-    native_tool_failed_validation_receipt_details, native_tool_prompt_checkpoint_name,
-    native_tool_prompt_expected_memory_row_id, native_tool_prompt_memory_cli_pattern,
-    native_tool_is_probable_micro_direct_write_task, native_tool_successful_receipt_refs,
+    native_tool_failed_validation_receipt_details, native_tool_is_probable_micro_direct_write_task,
+    native_tool_prompt_checkpoint_name, native_tool_prompt_expected_memory_row_id,
+    native_tool_prompt_memory_cli_pattern, native_tool_successful_receipt_refs,
     native_tool_unique_code_path_mentions,
 };
 use crate::native_tools::NativeToolReceipt;
@@ -204,8 +204,7 @@ fn native_tool_observed_test_paths(receipts: &[NativeToolReceipt]) -> Vec<String
         let Some(path) = receipt.result.get("path").and_then(Value::as_str) else {
             continue;
         };
-        if native_tool_path_looks_like_test(path)
-            && !paths.iter().any(|existing| existing == path)
+        if native_tool_path_looks_like_test(path) && !paths.iter().any(|existing| existing == path)
         {
             paths.push(path.to_string());
         }
@@ -226,9 +225,7 @@ fn native_tool_path_looks_like_test(path: &str) -> bool {
         || lower.ends_with(".spec.ts")
 }
 
-pub(crate) fn native_tool_failed_validation_repair_hint(
-    receipts: &[NativeToolReceipt],
-) -> String {
+pub(crate) fn native_tool_failed_validation_repair_hint(receipts: &[NativeToolReceipt]) -> String {
     let failed_validation_details = native_tool_failed_validation_receipt_details(receipts);
     if failed_validation_details == "<none>" {
         return "<none>".to_string();
@@ -372,7 +369,10 @@ pub(crate) fn native_tool_public_reasoning_metadata(metadata: &Value) -> Value {
     let mut out = metadata.clone();
     if let Some(object) = out.as_object_mut() {
         object.insert("provider_timeout_seconds".to_string(), json!(90));
-        object.insert("native_public_reasoning_finalization".to_string(), json!(true));
+        object.insert(
+            "native_public_reasoning_finalization".to_string(),
+            json!(true),
+        );
     }
     out
 }
@@ -451,12 +451,15 @@ pub(crate) fn native_tool_empty_retry_prompt(
         "This run requires native tool receipts before completion. Return only JSON with a tool_calls array now, or return a structured blocker only if local files, permissions, or missing user information genuinely prevent mutation.",
     );
     let task_lane = native_tool_coding_task_lane(metadata, original_prompt);
-    let fast_lane_rule = if native_tool_is_probable_micro_direct_write_task(metadata, original_prompt)
-    {
-        format!("\n\n{}", native_tool_micro_direct_write_rule(original_prompt))
-    } else {
-        String::new()
-    };
+    let fast_lane_rule =
+        if native_tool_is_probable_micro_direct_write_task(metadata, original_prompt) {
+            format!(
+                "\n\n{}",
+                native_tool_micro_direct_write_rule(original_prompt)
+            )
+        } else {
+            String::new()
+        };
     format!(
         "{original_prompt}\n\nNative coding task lane: {task_lane}.\nNative tool retry {retry}: {rule}{fast_lane_rule}\n\n{previous}{evidence_target_brief}"
     )

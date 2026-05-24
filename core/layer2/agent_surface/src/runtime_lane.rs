@@ -62,6 +62,16 @@ pub struct RuntimeLaneResponse {
     pub error: Option<String>,
 }
 
+fn runtime_lane_response_is_provider_timeout(response: &RuntimeLaneResponse) -> bool {
+    !response.ok
+        && response
+            .receipt
+            .get("details")
+            .and_then(|details| details.get("failure_code"))
+            .and_then(Value::as_str)
+            == Some("provider_timeout")
+}
+
 #[derive(Debug)]
 pub enum RuntimeLaneError {
     Build(AgentBuildError),
@@ -378,7 +388,9 @@ pub fn run_runtime_lane_with_registry(
         &mut durable_state,
         providers,
     ) {
-        return Ok(response);
+        if !runtime_lane_response_is_provider_timeout(&response) {
+            return Ok(response);
+        }
     }
 
     if let Some(response) = runtime_lane_try_model_manifest_planner(
@@ -708,6 +720,7 @@ fn runtime_lane_fail_closed_with_state(
             "wasm_sandbox": wasm_policy_snapshot(&wasm_policy_from_value(wasm_sandbox)),
             "voice_session_requested": voice_session.is_some(),
             "state_path": state_path.display().to_string(),
+            "failure_details": details.clone(),
         }),
         receipt: json!({
             "type": "runtime_lane_receipt",
@@ -804,7 +817,8 @@ fn runtime_lane_try_direct_mutation(
     let total_started = Instant::now();
     let gate_started = Instant::now();
     let gate = runtime_lane_direct_mutation_candidate(prompt, tools, capability_packs, permissions);
-    let execution_shape_gate_ms = gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let execution_shape_gate_ms =
+        gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     match gate {
         DirectMutationGate::NotCandidate => None,
         DirectMutationGate::Blocked {
@@ -857,8 +871,10 @@ fn runtime_lane_try_direct_mutation(
                     "content_source": candidate.content_source,
                 }),
             });
-            let tool_dispatch_ms =
-                dispatch_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+            let tool_dispatch_ms = dispatch_started
+                .elapsed()
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64;
             Some(runtime_lane_direct_mutation_response(
                 name,
                 metadata,
@@ -899,9 +915,14 @@ fn runtime_lane_try_deterministic_local_loop(
 ) -> Option<RuntimeLaneResponse> {
     let total_started = Instant::now();
     let gate_started = Instant::now();
-    let gate =
-        runtime_lane_deterministic_local_loop_candidate(prompt, tools, capability_packs, permissions);
-    let execution_shape_gate_ms = gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let gate = runtime_lane_deterministic_local_loop_candidate(
+        prompt,
+        tools,
+        capability_packs,
+        permissions,
+    );
+    let execution_shape_gate_ms =
+        gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     match gate {
         DeterministicLocalLoopGate::NotCandidate => None,
         DeterministicLocalLoopGate::Blocked {
@@ -1008,8 +1029,10 @@ fn runtime_lane_try_deterministic_local_loop(
                     break;
                 }
             }
-            let tool_dispatch_ms =
-                dispatch_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+            let tool_dispatch_ms = dispatch_started
+                .elapsed()
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64;
             Some(runtime_lane_deterministic_local_loop_response(
                 name,
                 metadata,
@@ -1051,6 +1074,17 @@ fn runtime_lane_try_public_api_extension_lane(
     durable_state: &mut RuntimeLaneDurableState,
     providers: &ProviderClientRegistry,
 ) -> Option<RuntimeLaneResponse> {
+    let enabled = runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/public_api_extension_lane_enabled",
+            "/workflow/native_success_criteria/public_api_extension_lane_enabled",
+        ],
+    )
+    .unwrap_or(false);
+    if !enabled {
+        return None;
+    }
     let workspace_root = runtime_lane_extract_workspace_root(prompt)?;
     let context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
     if context_pack.trim().is_empty() {
@@ -1100,6 +1134,9 @@ fn runtime_lane_try_public_api_extension_lane(
         durable_state,
         providers,
     )?;
+    if runtime_lane_response_is_provider_timeout(&response) {
+        return None;
+    }
     runtime_lane_relabel_generated_manifest_response(
         &mut response,
         "public_api_extension_lane",
@@ -1127,6 +1164,17 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
     durable_state: &mut RuntimeLaneDurableState,
     providers: &ProviderClientRegistry,
 ) -> Option<RuntimeLaneResponse> {
+    let enabled = runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/bounded_existing_project_edit_loop_enabled",
+            "/workflow/native_success_criteria/bounded_existing_project_edit_loop_enabled",
+        ],
+    )
+    .unwrap_or(true);
+    if !enabled {
+        return None;
+    }
     let workspace_root = runtime_lane_extract_workspace_root(prompt)?;
     if !runtime_lane_bounded_existing_project_edit_loop_eligible(
         prompt,
@@ -1391,8 +1439,11 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
             }
         }
     };
-    let mut public_api_violations =
-        runtime_lane_public_api_manifest_violations(&candidate, &public_api_bindings, &workspace_root);
+    let mut public_api_violations = runtime_lane_public_api_manifest_violations(
+        &candidate,
+        &public_api_bindings,
+        &workspace_root,
+    );
     if !public_api_violations.is_empty() {
         if let Some(retargeted_candidate) = runtime_lane_public_api_owner_retarget_candidate(
             &candidate,
@@ -1604,16 +1655,22 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
         "bounded_existing_project_edit_loop",
         &mut semantic_probe_call_id,
     );
-    let model_call_ms = model_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let model_call_ms = model_started
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
     let dispatch_started = Instant::now();
-    let mut receipts =
-        runtime_lane_dispatch_model_manifest_actions(&candidate, "bounded_existing_project_edit_loop");
+    let mut receipts = runtime_lane_dispatch_model_manifest_actions(
+        &candidate,
+        "bounded_existing_project_edit_loop",
+    );
     if !receipts
         .iter()
         .any(runtime_lane_receipt_is_successful_mutation)
     {
         if let Some(failure_summary) = runtime_lane_first_receipt_failure_summary(&receipts) {
-            let repair_context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
+            let repair_context_pack =
+                runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
             let repair_prompt = runtime_lane_model_manifest_planner_retry_prompt(
                 prompt,
                 &workspace_root,
@@ -1705,6 +1762,9 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                             candidate = repair_candidate;
                             receipts = repair_receipts;
                             provider_response = repair_response;
+                            if repair_probe_call_id.is_some() {
+                                semantic_probe_call_id = repair_probe_call_id;
+                            }
                         }
                     }
                 }
@@ -1712,7 +1772,8 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
         }
     }
     if runtime_lane_receipts_need_repair(&receipts, candidate.requires_validation) {
-        if let Some(initial_failure_summary) = runtime_lane_first_receipt_failure_summary(&receipts) {
+        if let Some(initial_failure_summary) = runtime_lane_first_receipt_failure_summary(&receipts)
+        {
             let mut repair_failure_summary = initial_failure_summary;
             let max_validation_repair_attempts = 2;
             for repair_attempt_index in 0..max_validation_repair_attempts {
@@ -1784,8 +1845,7 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                     Err(repair_failure) => {
                         let failure_message = format!(
                             "{}: {}",
-                            repair_failure.failure_code,
-                            repair_failure.failure_message
+                            repair_failure.failure_code, repair_failure.failure_message
                         );
                         receipts.push(runtime_lane_validation_repair_failure_receipt(
                             &format!(
@@ -1817,11 +1877,13 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                     &workspace_root,
                 );
                 if !repair_public_api_violations.is_empty() {
-                    if let Some(retargeted_candidate) = runtime_lane_public_api_owner_retarget_candidate(
-                        &repair_candidate,
-                        &public_api_bindings,
-                        &workspace_root,
-                    ) {
+                    if let Some(retargeted_candidate) =
+                        runtime_lane_public_api_owner_retarget_candidate(
+                            &repair_candidate,
+                            &public_api_bindings,
+                            &workspace_root,
+                        )
+                    {
                         let retargeted_violations = runtime_lane_public_api_manifest_violations(
                             &retargeted_candidate,
                             &public_api_bindings,
@@ -1884,14 +1946,21 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                         &repair_receipts,
                         repair_candidate.requires_validation,
                     );
-                if repair_success
-                {
+                if repair_success {
                     candidate = repair_candidate;
                     receipts = repair_receipts;
                     provider_response = repair_response;
+                    if repair_probe_call_id.is_some() {
+                        semantic_probe_call_id = repair_probe_call_id;
+                    }
                     break;
                 }
-                if let Some(next_failure_summary) = runtime_lane_first_receipt_failure_summary(&repair_receipts) {
+                if repair_probe_call_id.is_some() {
+                    semantic_probe_call_id = repair_probe_call_id;
+                }
+                if let Some(next_failure_summary) =
+                    runtime_lane_first_receipt_failure_summary(&repair_receipts)
+                {
                     repair_failure_summary = next_failure_summary;
                 } else {
                     repair_failure_summary = format!(
@@ -2003,7 +2072,10 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
             }
         }
     }
-    let tool_dispatch_ms = dispatch_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let tool_dispatch_ms = dispatch_started
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
     let mut response = runtime_lane_model_manifest_planner_response(
         name,
         metadata,
@@ -2059,7 +2131,8 @@ fn runtime_lane_try_model_manifest_planner(
     let total_started = Instant::now();
     let gate_started = Instant::now();
     let workspace_root = runtime_lane_extract_workspace_root(prompt)?;
-    let execution_shape_gate_ms = gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let execution_shape_gate_ms =
+        gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
     let provider_id = provider.unwrap_or_else(|| providers.default_provider_id());
     let provider_client = match providers.from_provider_id(provider_id) {
@@ -2093,7 +2166,19 @@ fn runtime_lane_try_model_manifest_planner(
         }
     };
     let model_started = Instant::now();
-    let planner_system = runtime_lane_model_manifest_planner_system(preamble);
+    let planner_system = if runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/model_manifest_compact_system",
+            "/workflow/native_success_criteria/model_manifest_compact_system",
+        ],
+    )
+    .unwrap_or(false)
+    {
+        runtime_lane_model_manifest_planner_system_compact(preamble)
+    } else {
+        runtime_lane_model_manifest_planner_system(preamble)
+    };
     let mut provider_response = match provider_client.complete(&ProviderRequest {
         prompt: runtime_lane_model_manifest_planner_prompt(prompt, &workspace_root, &context_pack),
         system: Some(planner_system.clone()),
@@ -2267,7 +2352,7 @@ fn runtime_lane_try_model_manifest_planner(
             );
             let retry_response = match provider_client.complete(&ProviderRequest {
                 prompt: retry_prompt,
-                system: Some(planner_system),
+                system: Some(planner_system.clone()),
                 tools: Vec::new(),
                 model: model.cloned(),
                 metadata: json!({
@@ -2370,14 +2455,30 @@ fn runtime_lane_try_model_manifest_planner(
     };
     let validation_command = runtime_lane_extract_validation_command(prompt, &workspace_root);
     let mut validation_call_id = None;
-    runtime_lane_attach_semantic_probe_action(&mut candidate, validation_command.as_ref(), "model_manifest_planner_validation", &mut validation_call_id);
+    runtime_lane_attach_semantic_probe_action(
+        &mut candidate,
+        validation_command.as_ref(),
+        "model_manifest_planner_validation",
+        &mut validation_call_id,
+    );
     let semantic_probe = runtime_lane_extract_semantic_probe_command(prompt, &workspace_root);
     let mut semantic_probe_call_id = None;
-    runtime_lane_attach_semantic_probe_action(&mut candidate, semantic_probe.as_ref(), "model_manifest_planner", &mut semantic_probe_call_id);
-    let model_call_ms = model_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    runtime_lane_attach_semantic_probe_action(
+        &mut candidate,
+        semantic_probe.as_ref(),
+        "model_manifest_planner",
+        &mut semantic_probe_call_id,
+    );
+    let model_call_ms = model_started
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
     let dispatch_started = Instant::now();
-    let mut receipts = runtime_lane_dispatch_model_manifest_actions(&candidate, "model_manifest_planner");
-    if let Some(failure) = runtime_lane_semantic_probe_failure(&receipts, semantic_probe_call_id.as_deref()) {
+    let mut receipts =
+        runtime_lane_dispatch_model_manifest_actions(&candidate, "model_manifest_planner");
+    if let Some(failure) =
+        runtime_lane_semantic_probe_failure(&receipts, semantic_probe_call_id.as_deref())
+    {
         let repair_context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
         let semantic_repair_prompt = runtime_lane_model_manifest_semantic_repair_prompt(
             prompt,
@@ -2387,7 +2488,7 @@ fn runtime_lane_try_model_manifest_planner(
         );
         match provider_client.complete(&ProviderRequest {
             prompt: semantic_repair_prompt,
-            system: Some(runtime_lane_model_manifest_planner_system(preamble)),
+            system: Some(planner_system.clone()),
             tools: Vec::new(),
             model: model.cloned(),
             metadata: json!({
@@ -2416,6 +2517,9 @@ fn runtime_lane_try_model_manifest_planner(
                         "model_manifest_planner_semantic_repair_validation",
                         &mut repair_validation_call_id,
                     );
+                    if validation_command.is_some() {
+                        repair_candidate.requires_validation = true;
+                    }
                     runtime_lane_attach_semantic_probe_action(
                         &mut repair_candidate,
                         semantic_probe.as_ref(),
@@ -2426,7 +2530,28 @@ fn runtime_lane_try_model_manifest_planner(
                         &repair_candidate,
                         "model_manifest_planner_semantic_repair",
                     );
-                    receipts.append(&mut repair_receipts);
+                    let repair_success = repair_receipts
+                        .iter()
+                        .all(|receipt| receipt.status == "ok")
+                        && repair_receipts
+                            .iter()
+                            .any(runtime_lane_receipt_is_successful_mutation)
+                        && runtime_lane_receipts_validation_ok(
+                            &repair_receipts,
+                            repair_candidate.requires_validation,
+                        )
+                        && runtime_lane_semantic_probe_failure(
+                            &repair_receipts,
+                            repair_probe_call_id.as_deref(),
+                        )
+                        .is_none();
+                    if repair_success {
+                        candidate = repair_candidate;
+                        receipts = repair_receipts;
+                        provider_response = repair_response;
+                    } else {
+                        receipts.append(&mut repair_receipts);
+                    }
                 }
                 Err(repair_failure) => receipts.push(runtime_lane_semantic_repair_failure_receipt(
                     "model_manifest_planner_semantic_repair_manifest_failed",
@@ -2459,7 +2584,10 @@ fn runtime_lane_try_model_manifest_planner(
             )),
         }
     }
-    let tool_dispatch_ms = dispatch_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let tool_dispatch_ms = dispatch_started
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
     Some(runtime_lane_model_manifest_planner_response(
         name,
         metadata,
@@ -2506,7 +2634,8 @@ fn runtime_lane_deterministic_local_loop_response(
         .iter()
         .filter(|receipt| runtime_lane_receipt_is_successful_mutation(receipt))
         .count();
-    let validation_ok = runtime_lane_receipts_validation_ok(&receipts, candidate.requires_validation);
+    let validation_ok =
+        runtime_lane_receipts_validation_ok(&receipts, candidate.requires_validation);
     let ok = !receipts.is_empty()
         && receipts.iter().all(|receipt| receipt.status == "ok")
         && mutation_count > 0
@@ -2557,10 +2686,16 @@ fn runtime_lane_deterministic_local_loop_response(
         "deterministic_local_loop_completed",
         &receipts,
         &output,
-        if ok { "ok" } else { "deterministic_local_loop_failed" },
+        if ok {
+            "ok"
+        } else {
+            "deterministic_local_loop_failed"
+        },
     );
-    let final_synthesis_ms =
-        final_synthesis_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let final_synthesis_ms = final_synthesis_started
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
     let phase_latency_ms = json!({
         "workflow_load": 0,
         "execution_shape_gate": execution_shape_gate_ms,
@@ -2690,7 +2825,8 @@ fn runtime_lane_model_manifest_planner_response(
         .iter()
         .filter(|receipt| runtime_lane_receipt_is_successful_mutation(receipt))
         .count();
-    let validation_ok = runtime_lane_receipts_validation_ok(&receipts, candidate.requires_validation);
+    let validation_ok =
+        runtime_lane_receipts_validation_ok(&receipts, candidate.requires_validation);
     let ok = !receipts.is_empty()
         && receipts.iter().all(|receipt| receipt.status == "ok")
         && mutation_count > 0
@@ -2741,10 +2877,16 @@ fn runtime_lane_model_manifest_planner_response(
         "model_manifest_planner_completed",
         &receipts,
         &output,
-        if ok { "ok" } else { "model_manifest_planner_failed" },
+        if ok {
+            "ok"
+        } else {
+            "model_manifest_planner_failed"
+        },
     );
-    let final_synthesis_ms =
-        final_synthesis_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let final_synthesis_ms = final_synthesis_started
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
     let phase_latency_ms = json!({
         "workflow_load": 0,
         "execution_shape_gate": execution_shape_gate_ms,
@@ -2893,8 +3035,10 @@ fn runtime_lane_direct_mutation_response(
             receipt.error.clone().unwrap_or_else(|| "unknown_error".to_string())
         )
     };
-    let final_synthesis_ms =
-        final_synthesis_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let final_synthesis_ms = final_synthesis_started
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
     let phase_latency_ms = json!({
         "workflow_load": 0,
         "execution_shape_gate": execution_shape_gate_ms,
@@ -3034,7 +3178,9 @@ fn runtime_lane_direct_mutation_candidate(
             return DirectMutationGate::Blocked {
                 failure_code: "unsafe_or_unresolved_target_path",
                 failure_message: error,
-                needed_input: Some("Provide an explicit safe target path inside the workspace.".to_string()),
+                needed_input: Some(
+                    "Provide an explicit safe target path inside the workspace.".to_string(),
+                ),
                 target_path: Some(raw_target),
             };
         }
@@ -3043,7 +3189,8 @@ fn runtime_lane_direct_mutation_candidate(
     if target_path.exists() && !overwrite {
         return DirectMutationGate::Blocked {
             failure_code: "unsafe_overwrite",
-            failure_message: "Target already exists and overwrite was not explicitly requested.".to_string(),
+            failure_message: "Target already exists and overwrite was not explicitly requested."
+                .to_string(),
             needed_input: Some("Confirm overwrite or choose a new target path.".to_string()),
             target_path: Some(target_path.display().to_string()),
         };
@@ -3072,8 +3219,9 @@ fn runtime_lane_deterministic_local_loop_candidate(
     if permission_for(permissions, "file.write") != PermissionTrit::Allow {
         return DeterministicLocalLoopGate::Blocked {
             failure_code: "permission_denied",
-            failure_message: "file.write permission is required for deterministic local loop mutations."
-                .to_string(),
+            failure_message:
+                "file.write permission is required for deterministic local loop mutations."
+                    .to_string(),
             needed_input: Some("Grant file.write or use a non-mutating workflow.".to_string()),
         };
     }
@@ -3089,7 +3237,9 @@ fn runtime_lane_deterministic_local_loop_candidate(
             failure_code: "workspace_root_required",
             failure_message: "Deterministic local loop manifests require workspace_root."
                 .to_string(),
-            needed_input: Some("Add workspace_root to the deterministic local action manifest.".to_string()),
+            needed_input: Some(
+                "Add workspace_root to the deterministic local action manifest.".to_string(),
+            ),
         };
     };
     let workspace_root = PathBuf::from(root_value);
@@ -3109,7 +3259,9 @@ fn runtime_lane_deterministic_local_loop_candidate(
             failure_code: "actions_required",
             failure_message: "Deterministic local loop manifests require actions or files."
                 .to_string(),
-            needed_input: Some("Add at least one write_file action with path and content.".to_string()),
+            needed_input: Some(
+                "Add at least one write_file action with path and content.".to_string(),
+            ),
         };
     };
     let mut actions = Vec::<DeterministicLocalAction>::new();
@@ -3299,8 +3451,8 @@ fn runtime_lane_deterministic_local_loop_candidate(
                 if permission_for(permissions, "command.run") != PermissionTrit::Allow {
                     return DeterministicLocalLoopGate::Blocked {
                         failure_code: "permission_denied",
-                        failure_message: "command.run permission is required for validation actions."
-                            .to_string(),
+                        failure_message:
+                            "command.run permission is required for validation actions.".to_string(),
                         needed_input: Some(
                             "Grant command.run or remove validation actions.".to_string(),
                         ),
@@ -3328,7 +3480,9 @@ fn runtime_lane_deterministic_local_loop_candidate(
                     return DeterministicLocalLoopGate::Blocked {
                         failure_code: "command_required",
                         failure_message: "command_run actions require cmd or command.".to_string(),
-                        needed_input: Some("Add cmd as a string array or shell command string.".to_string()),
+                        needed_input: Some(
+                            "Add cmd as a string array or shell command string.".to_string(),
+                        ),
                     };
                 };
                 actions.push(DeterministicLocalAction::CommandRun {
@@ -3347,7 +3501,9 @@ fn runtime_lane_deterministic_local_loop_candidate(
             other => {
                 return DeterministicLocalLoopGate::Blocked {
                     failure_code: "unsupported_action_type",
-                    failure_message: format!("Unsupported deterministic local loop action: {other}"),
+                    failure_message: format!(
+                        "Unsupported deterministic local loop action: {other}"
+                    ),
                     needed_input: Some(
                         "Use write_file/create_file or command_run/validation actions.".to_string(),
                     ),
@@ -3368,7 +3524,9 @@ fn runtime_lane_deterministic_local_loop_candidate(
             return DeterministicLocalLoopGate::Blocked {
                 failure_code: "command_required",
                 failure_message: "validation requires cmd or command.".to_string(),
-                needed_input: Some("Add validation.cmd as a string array or shell command string.".to_string()),
+                needed_input: Some(
+                    "Add validation.cmd as a string array or shell command string.".to_string(),
+                ),
             };
         };
         actions.push(DeterministicLocalAction::CommandRun {
@@ -3458,7 +3616,14 @@ fn runtime_lane_bounded_existing_project_edit_loop_eligible(
     }
     let lower = prompt.to_ascii_lowercase();
     let has_mutation_intent = [
-        "create", "write", "build", "implement", "add", "generate", "make", "extend",
+        "create",
+        "write",
+        "build",
+        "implement",
+        "add",
+        "generate",
+        "make",
+        "extend",
     ]
     .iter()
     .any(|token| lower.contains(token));
@@ -3508,10 +3673,8 @@ fn runtime_lane_bounded_existing_project_edit_loop_prompt(
     public_api_bindings: &[RuntimeLanePublicApiBinding],
 ) -> String {
     let compact_context = runtime_lane_compact_context_pack(context_pack);
-    let public_api_section = runtime_lane_public_api_bindings_prompt_section(
-        public_api_bindings,
-        workspace_root,
-    );
+    let public_api_section =
+        runtime_lane_public_api_bindings_prompt_section(public_api_bindings, workspace_root);
     let public_api_write_strategy = if public_api_bindings.is_empty() {
         "No public API owner binding strategy is active.".to_string()
     } else {
@@ -3549,7 +3712,13 @@ fn runtime_lane_model_manifest_planner_eligible(
     }
     let lower = prompt.to_ascii_lowercase();
     let has_mutation_intent = [
-        "create", "write", "build", "implement", "add", "generate", "make",
+        "create",
+        "write",
+        "build",
+        "implement",
+        "add",
+        "generate",
+        "make",
     ]
     .iter()
     .any(|token| lower.contains(token));
@@ -3593,6 +3762,25 @@ For resolution/override helpers, higher-priority maps named by the task should t
 Prefer the smallest complete manifest that satisfies the task; do not invent broad schemas, extra concepts, or extra validation beyond the local command and faithful regression tests.\n\
 Prefer small source plus faithful tests when tests are requested. Include validation only when a standard local command is obvious.\n\
 For Python validation, use python3 commands such as python3 -m unittest rather than python.{prior}"
+    )
+}
+
+fn runtime_lane_model_manifest_planner_system_compact(preamble: Option<&str>) -> String {
+    let prior = preamble
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("\n\nWorkflow context:\n{value}"))
+        .unwrap_or_default();
+    format!(
+        "You are a compact local coding manifest planner.\n\
+Return only valid JSON. No markdown, no prose.\n\
+Use this shape: {{\"deterministic_local_loop\":{{\"workspace_root\":\"/absolute/path\",\"actions\":[...]}}}}.\n\
+Allowed actions: write_file with path/content/overwrite, file_patch with path/old/new/allow_multiple, command_run with cmd.\n\
+Use the provided local context as authoritative. Preserve existing public imports and behavior.\n\
+For existing files, prefer full corrected write_file when the file is small; otherwise use exact file_patch.\n\
+When tests or regression evidence are requested, update or add focused tests.\n\
+Always include the supplied validation command and semantic probe command after edits.\n\
+Return structured_blocker only for missing local context, secrets, external services, or user decisions.{prior}"
     )
 }
 
@@ -3724,17 +3912,16 @@ fn runtime_lane_public_api_probe_texts(prompt: &str, workspace_root: &Path) -> V
             continue;
         }
         for token in line.split_whitespace() {
-            let token = token
-                .trim_matches(|ch: char| {
-                    ch == '\''
-                        || ch == '"'
-                        || ch == '`'
-                        || ch == ','
-                        || ch == ';'
-                        || ch == ':'
-                        || ch == '('
-                        || ch == ')'
-                });
+            let token = token.trim_matches(|ch: char| {
+                ch == '\''
+                    || ch == '"'
+                    || ch == '`'
+                    || ch == ','
+                    || ch == ';'
+                    || ch == ':'
+                    || ch == '('
+                    || ch == ')'
+            });
             if !token.ends_with(".py") {
                 continue;
             }
@@ -3761,11 +3948,7 @@ fn runtime_lane_collect_python_public_api_bindings(
     bindings: &mut Vec<RuntimeLanePublicApiBinding>,
 ) {
     for raw_line in text.lines() {
-        let line = raw_line
-            .split('#')
-            .next()
-            .unwrap_or_default()
-            .trim();
+        let line = raw_line.split('#').next().unwrap_or_default().trim();
         let import_start = line
             .strip_prefix("from ")
             .map(|_| 0)
@@ -3868,10 +4051,7 @@ fn runtime_lane_python_import_symbols(imports: &str) -> Vec<String> {
     symbols
 }
 
-fn runtime_lane_python_module_owner_path(
-    workspace_root: &Path,
-    module: &str,
-) -> Option<PathBuf> {
+fn runtime_lane_python_module_owner_path(workspace_root: &Path, module: &str) -> Option<PathBuf> {
     let relative_module = module.replace('.', "/");
     let file_candidate = format!("{relative_module}.py");
     let candidates = [
@@ -3955,12 +4135,16 @@ fn runtime_lane_public_api_manifest_violations(
         let symbols_missing_from_existing_owner = binding
             .symbols
             .iter()
-            .filter(|symbol| !runtime_lane_text_mentions_identifier(&existing_owner_content, symbol))
+            .filter(|symbol| {
+                !runtime_lane_text_mentions_identifier(&existing_owner_content, symbol)
+            })
             .cloned()
             .collect::<Vec<_>>();
         let mut non_owner_symbol_targets = Vec::<String>::new();
         for action in &candidate.actions {
-            let Some((target_path, content)) = runtime_lane_mutation_action_target_and_content(action) else {
+            let Some((target_path, content)) =
+                runtime_lane_mutation_action_target_and_content(action)
+            else {
                 continue;
             };
             if !runtime_lane_python_source_path(target_path) {
@@ -4038,7 +4222,9 @@ fn runtime_lane_public_api_owner_retarget_candidate(
         }
         let mut extracted_blocks = Vec::<String>::new();
         for action in &retargeted.actions {
-            let Some((target_path, content)) = runtime_lane_mutation_action_target_and_content(action) else {
+            let Some((target_path, content)) =
+                runtime_lane_mutation_action_target_and_content(action)
+            else {
                 continue;
             };
             if runtime_lane_paths_equal(target_path, &binding.owner_path)
@@ -4158,7 +4344,11 @@ fn runtime_lane_python_public_block_import_preamble(lines: &[&str]) -> String {
             continue;
         }
         if (trimmed.starts_with("from ") || trimmed.starts_with("import "))
-            && line.chars().next().map(|ch| !ch.is_whitespace()).unwrap_or(false)
+            && line
+                .chars()
+                .next()
+                .map(|ch| !ch.is_whitespace())
+                .unwrap_or(false)
             && !imports.iter().any(|existing| existing == trimmed)
         {
             imports.push(trimmed.to_string());
@@ -4168,7 +4358,12 @@ fn runtime_lane_python_public_block_import_preamble(lines: &[&str]) -> String {
 }
 
 fn runtime_lane_python_top_level_declared_symbol(line: &str) -> Option<&str> {
-    if line.chars().next().map(|ch| ch.is_whitespace()).unwrap_or(false) {
+    if line
+        .chars()
+        .next()
+        .map(|ch| ch.is_whitespace())
+        .unwrap_or(false)
+    {
         return None;
     }
     let trimmed = line.trim_start();
@@ -4206,9 +4401,7 @@ fn runtime_lane_mutation_action_target_and_content(
             ..
         } => Some((target_path.as_path(), content.as_str())),
         DeterministicLocalAction::PatchFile {
-            target_path,
-            new,
-            ..
+            target_path, new, ..
         } => Some((target_path.as_path(), new.as_str())),
         DeterministicLocalAction::CommandRun { .. } => None,
     }
@@ -4317,7 +4510,10 @@ fn runtime_lane_model_manifest_context_pack(prompt: &str, workspace_root: &Path)
             continue;
         }
         total_bytes = total_bytes.saturating_add(content_len);
-        selected.push(RuntimeLaneContextCandidate { content, ..candidate });
+        selected.push(RuntimeLaneContextCandidate {
+            content,
+            ..candidate
+        });
     }
     if selected.is_empty() {
         return String::new();
@@ -4409,8 +4605,7 @@ fn runtime_lane_paths_mentioned_by_failure(
 fn runtime_lane_failure_tail_to_relative_path(tail: &str) -> Option<String> {
     let tail = tail.strip_prefix('/')?;
     let extensions = [
-        ".py", ".rs", ".ts", ".tsx", ".js", ".jsx", ".json", ".toml", ".yaml", ".yml",
-        ".md",
+        ".py", ".rs", ".ts", ".tsx", ".js", ".jsx", ".json", ".toml", ".yaml", ".yml", ".md",
     ];
     let end = extensions
         .iter()
@@ -4513,12 +4708,14 @@ fn runtime_lane_attach_semantic_probe_action(
     let index = match existing_index {
         Some(index) => index,
         None => {
-            candidate.actions.push(DeterministicLocalAction::CommandRun {
-                cwd: semantic_probe.cwd.clone(),
-                cmd: semantic_probe.cmd.clone(),
-                timeout_seconds: 30,
-                max_output_bytes: 12000,
-            });
+            candidate
+                .actions
+                .push(DeterministicLocalAction::CommandRun {
+                    cwd: semantic_probe.cwd.clone(),
+                    cmd: semantic_probe.cmd.clone(),
+                    timeout_seconds: 30,
+                    max_output_bytes: 12000,
+                });
             candidate.requires_validation = true;
             candidate.actions.len() - 1
         }
@@ -4630,10 +4827,19 @@ fn runtime_lane_semantic_probe_failure(
     receipts: &[NativeToolReceipt],
     semantic_probe_call_id: Option<&str>,
 ) -> Option<RuntimeLaneSemanticProbeFailure> {
-    let semantic_probe_call_id = semantic_probe_call_id?;
-    let receipt = receipts
-        .iter()
-        .find(|receipt| receipt.call_id == semantic_probe_call_id)?;
+    let receipt = semantic_probe_call_id
+        .and_then(|call_id| receipts.iter().find(|receipt| receipt.call_id == call_id))
+        .or_else(|| {
+            receipts.iter().rev().find(|receipt| {
+                receipt.tool_name == "command_run"
+                    && (receipt.status != "ok"
+                        || !receipt
+                            .result
+                            .get("success")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true))
+            })
+        })?;
     let success = receipt.status == "ok"
         && receipt
             .result
@@ -4647,7 +4853,7 @@ fn runtime_lane_semantic_probe_failure(
         .result
         .get("cmd")
         .map(Value::to_string)
-        .unwrap_or_else(|| semantic_probe_call_id.to_string());
+        .unwrap_or_else(|| receipt.call_id.clone());
     Some(RuntimeLaneSemanticProbeFailure {
         command,
         exit_code: receipt.result.get("exit_code").and_then(Value::as_i64),
@@ -4765,7 +4971,10 @@ fn runtime_lane_first_receipt_failure_summary(receipts: &[NativeToolReceipt]) ->
                 receipt.tool_name,
                 receipt.call_id,
                 receipt.status,
-                receipt.error.clone().unwrap_or_else(|| "unknown".to_string())
+                receipt
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string())
             ));
         }
         if receipt.tool_name == "command_run"
@@ -4967,7 +5176,9 @@ fn runtime_lane_model_manifest_candidate_from_output(
         }),
         DeterministicLocalLoopGate::NotCandidate => Err(RuntimeLaneModelManifestFailure {
             failure_code: "manifest_not_candidate".to_string(),
-            failure_message: "The returned JSON was not accepted as a deterministic local action manifest.".to_string(),
+            failure_message:
+                "The returned JSON was not accepted as a deterministic local action manifest."
+                    .to_string(),
             needed_input: Some(
                 "Return deterministic_local_loop JSON with workspace_root and write actions."
                     .to_string(),
@@ -5005,7 +5216,9 @@ fn runtime_lane_normalize_model_manifest_action(action: &mut Value) {
     };
     for key in ["write_file", "file_write", "write"] {
         if let Some(payload) = object.get_mut(key).and_then(Value::as_object_mut) {
-            payload.entry("overwrite".to_string()).or_insert(json!(true));
+            payload
+                .entry("overwrite".to_string())
+                .or_insert(json!(true));
             return;
         }
     }
@@ -5061,7 +5274,13 @@ fn runtime_lane_collect_context_candidates(
             continue;
         }
         if path.is_dir() {
-            runtime_lane_collect_context_candidates(root, &path, depth + 1, lower_prompt, candidates);
+            runtime_lane_collect_context_candidates(
+                root,
+                &path,
+                depth + 1,
+                lower_prompt,
+                candidates,
+            );
             continue;
         }
         if !runtime_lane_context_file_is_supported(&path) {
@@ -5126,8 +5345,23 @@ fn runtime_lane_context_file_is_supported(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|value| value.to_str()),
         Some(
-            "py" | "js" | "ts" | "tsx" | "jsx" | "rs" | "go" | "java" | "rb" | "php" | "cs"
-                | "swift" | "kt" | "toml" | "json" | "yaml" | "yml" | "md"
+            "py" | "js"
+                | "ts"
+                | "tsx"
+                | "jsx"
+                | "rs"
+                | "go"
+                | "java"
+                | "rb"
+                | "php"
+                | "cs"
+                | "swift"
+                | "kt"
+                | "toml"
+                | "json"
+                | "yaml"
+                | "yml"
+                | "md"
         )
     )
 }
@@ -5140,22 +5374,41 @@ fn runtime_lane_context_file_role(relative_path: &str) -> (&'static str, &'stati
         || lower.contains(".test.")
         || lower.contains(".spec.")
     {
-        return ("test", "existing tests define expected behavior and style", 90);
+        return (
+            "test",
+            "existing tests define expected behavior and style",
+            90,
+        );
     }
     if lower.starts_with("src/")
         || lower.contains("/src/")
         || matches!(
-            Path::new(relative_path).extension().and_then(|value| value.to_str()),
+            Path::new(relative_path)
+                .extension()
+                .and_then(|value| value.to_str()),
             Some("py" | "js" | "ts" | "tsx" | "jsx" | "rs" | "go" | "java" | "rb" | "php" | "cs")
         )
     {
         return ("source", "existing source owns adjacent behavior", 80);
     }
     if matches!(
-        Path::new(relative_path).file_name().and_then(|value| value.to_str()),
-        Some("Cargo.toml" | "package.json" | "pyproject.toml" | "setup.py" | "go.mod" | "requirements.txt")
+        Path::new(relative_path)
+            .file_name()
+            .and_then(|value| value.to_str()),
+        Some(
+            "Cargo.toml"
+                | "package.json"
+                | "pyproject.toml"
+                | "setup.py"
+                | "go.mod"
+                | "requirements.txt"
+        )
     ) {
-        return ("config", "project manifest suggests validation and package shape", 70);
+        return (
+            "config",
+            "project manifest suggests validation and package shape",
+            70,
+        );
     }
     if lower.ends_with(".md") || lower.starts_with("readme") {
         return ("docs", "documentation may describe project conventions", 30);
@@ -5194,7 +5447,9 @@ fn runtime_lane_context_validation_hint(
         return Some("go test ./...");
     }
     if paths.iter().any(|path| path.ends_with(".py"))
-        && paths.iter().any(|path| path.starts_with("tests/") || path.contains("/tests/"))
+        && paths
+            .iter()
+            .any(|path| path.starts_with("tests/") || path.contains("/tests/"))
     {
         return Some("PYTHONPATH=src python3 -m unittest discover -s tests");
     }
@@ -5215,7 +5470,11 @@ fn runtime_lane_persist_native_run_journal(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| workspace_root.join(".infring").join("native_run_journal.json"));
+        .unwrap_or_else(|| {
+            workspace_root
+                .join(".infring")
+                .join("native_run_journal.json")
+        });
     if let Some(parent) = path.parent() {
         if std::fs::create_dir_all(parent).is_err() {
             return;
@@ -5468,9 +5727,9 @@ fn runtime_lane_normalize_shell_command(command: &str) -> String {
     if tokens.is_empty() {
         return command.to_string();
     }
-    let script_index = tokens
-        .iter()
-        .position(|token| !token.contains('=') || token.starts_with("./") || token.starts_with('/'));
+    let script_index = tokens.iter().position(|token| {
+        !token.contains('=') || token.starts_with("./") || token.starts_with('/')
+    });
     let Some(script_index) = script_index else {
         return command.to_string();
     };
@@ -5488,7 +5747,10 @@ fn runtime_lane_normalize_shell_command(command: &str) -> String {
     normalized.join(" ")
 }
 
-fn runtime_lane_direct_mutation_surface_enabled(tools: &[String], capability_packs: &[String]) -> bool {
+fn runtime_lane_direct_mutation_surface_enabled(
+    tools: &[String],
+    capability_packs: &[String],
+) -> bool {
     capability_packs
         .iter()
         .any(|pack| pack.trim().eq_ignore_ascii_case("local-coding-files"))
@@ -5510,8 +5772,8 @@ fn runtime_lane_extract_explicit_file_content(prompt: &str) -> Option<String> {
         .or_else(|| lower.find("contents:"))
         .or_else(|| lower.find("file text:"))?;
     let marker_end = prompt[marker_index..].find(':')? + marker_index + 1;
-    let content = prompt[marker_end..]
-        .trim_start_matches(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n'));
+    let content =
+        prompt[marker_end..].trim_start_matches(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n'));
     if content.trim().is_empty() {
         None
     } else {
@@ -5700,7 +5962,8 @@ fn runtime_lane_is_file_like_path(value: &str) -> bool {
     if path.extension().is_some() {
         return true;
     }
-    value.starts_with("./") || value.starts_with('/') && value.rsplit('/').next().unwrap_or("").contains('.')
+    value.starts_with("./")
+        || value.starts_with('/') && value.rsplit('/').next().unwrap_or("").contains('.')
 }
 
 fn runtime_lane_resolve_target_path(
@@ -5769,14 +6032,16 @@ fn permission_trit_code(value: PermissionTrit) -> i8 {
 fn file_tool_permission(tool: &str) -> Option<&'static str> {
     match tool.trim().to_ascii_lowercase().as_str() {
         "file_list" | "list_files" | "workspace.list" | "workspace_list" | "file_stat"
-        | "stat_file" | "file_exists" | "workspace.stat" | "workspace_stat" => {
-            Some("file.read")
-        }
-        "file_read" | "file_read_many" | "read_file" | "read_many_files" | "workspace.read"
-        | "workspace.read_many" | "workspace_read" | "workspace_read_many" => Some("file.read"),
-        "file_write" | "write_file" | "workspace.write" | "workspace_write" => {
-            Some("file.write")
-        }
+        | "stat_file" | "file_exists" | "workspace.stat" | "workspace_stat" => Some("file.read"),
+        "file_read"
+        | "file_read_many"
+        | "read_file"
+        | "read_many_files"
+        | "workspace.read"
+        | "workspace.read_many"
+        | "workspace_read"
+        | "workspace_read_many" => Some("file.read"),
+        "file_write" | "write_file" | "workspace.write" | "workspace_write" => Some("file.write"),
         "file_patch" | "patch_file" | "apply_patch" | "workspace.patch" | "workspace_patch" => {
             Some("file.patch")
         }
@@ -5866,7 +6131,11 @@ fn native_success_contract_violation(
                 .get("tool_name")
                 .and_then(Value::as_str)
                 .map(normalize_native_tool_name)
-                .map(|tool| successful_discovery_tools.iter().any(|allowed| allowed == &tool))
+                .map(|tool| {
+                    successful_discovery_tools
+                        .iter()
+                        .any(|allowed| allowed == &tool)
+                })
                 .unwrap_or(false)
         })
         .count() as u64;
@@ -5878,7 +6147,11 @@ fn native_success_contract_violation(
                 .get("tool_name")
                 .and_then(Value::as_str)
                 .map(normalize_native_tool_name)
-                .map(|tool| successful_mutation_tools.iter().any(|allowed| allowed == &tool))
+                .map(|tool| {
+                    successful_mutation_tools
+                        .iter()
+                        .any(|allowed| allowed == &tool)
+                })
                 .unwrap_or(false)
         })
         .count() as u64;
@@ -5911,7 +6184,8 @@ fn native_success_contract_violation(
             details(),
         ));
     }
-    if min_successful_tool_receipts > 0 && successful_tool_receipt_count < min_successful_tool_receipts
+    if min_successful_tool_receipts > 0
+        && successful_tool_receipt_count < min_successful_tool_receipts
     {
         return Some((
             "runtime_lane_required_native_tool_receipt_missing".to_string(),
@@ -6009,7 +6283,8 @@ fn public_reasoning_contract_violation(
         output.contains("public_reasoning_trace") && output.contains("public_reasoning_trace_v1");
     let has_rollup =
         output.contains("reasoning_rollup") && output.contains("public_reasoning_rollup_v1");
-    let still_requests_tools = output.contains("\"tool_calls\"") || output.contains("{\"tool_calls\"");
+    let still_requests_tools =
+        output.contains("\"tool_calls\"") || output.contains("{\"tool_calls\"");
     let redaction_policy = contract
         .get("redaction_policy")
         .and_then(Value::as_str)

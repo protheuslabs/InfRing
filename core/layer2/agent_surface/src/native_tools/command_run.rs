@@ -1,3 +1,4 @@
+// Layer ownership: Core Layer 2 (Scheduling + Execution) - agent runtime native tool execution.
 use crate::native_tools::paths::required_abs_path;
 use serde_json::{json, Value};
 use std::fs::{self, File};
@@ -110,7 +111,9 @@ pub fn command_run(args: &Value) -> Result<Value, String> {
     }))
 }
 
-fn split_leading_env_assignments(cmd: Vec<String>) -> Result<(Vec<(String, String)>, Vec<String>), String> {
+fn split_leading_env_assignments(
+    cmd: Vec<String>,
+) -> Result<(Vec<(String, String)>, Vec<String>), String> {
     let mut env = Vec::new();
     let mut command = Vec::new();
     let mut still_reading_env = true;

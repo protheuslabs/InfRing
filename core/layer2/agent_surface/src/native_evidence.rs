@@ -6,12 +6,13 @@ use std::path::PathBuf;
 
 pub(crate) fn native_tool_has_successful_mutation(receipts: &[NativeToolReceipt]) -> bool {
     receipts.iter().any(|receipt| {
-        receipt.status == "ok"
-            && matches!(receipt.tool_name.as_str(), "file_write" | "file_patch")
+        receipt.status == "ok" && matches!(receipt.tool_name.as_str(), "file_write" | "file_patch")
     })
 }
 
-pub(crate) fn native_tool_has_successful_validation_command(receipts: &[NativeToolReceipt]) -> bool {
+pub(crate) fn native_tool_has_successful_validation_command(
+    receipts: &[NativeToolReceipt],
+) -> bool {
     receipts.iter().any(|receipt| {
         receipt.status == "ok"
             && receipt.tool_name == "command_run"
@@ -23,7 +24,9 @@ pub(crate) fn native_tool_has_successful_validation_command(receipts: &[NativeTo
     })
 }
 
-pub(crate) fn native_tool_failed_validation_command_refs(receipts: &[NativeToolReceipt]) -> Vec<String> {
+pub(crate) fn native_tool_failed_validation_command_refs(
+    receipts: &[NativeToolReceipt],
+) -> Vec<String> {
     receipts
         .iter()
         .filter(|receipt| {
@@ -39,7 +42,9 @@ pub(crate) fn native_tool_failed_validation_command_refs(receipts: &[NativeToolR
         .collect()
 }
 
-pub(crate) fn native_tool_failed_validation_receipt_details(receipts: &[NativeToolReceipt]) -> String {
+pub(crate) fn native_tool_failed_validation_receipt_details(
+    receipts: &[NativeToolReceipt],
+) -> String {
     let details = receipts
         .iter()
         .filter(|receipt| {
@@ -125,7 +130,10 @@ pub(crate) fn native_tool_should_synthesize_micro_final(
         && native_tool_is_probable_micro_direct_write_task(metadata, original_prompt)
 }
 
-pub(crate) fn native_tool_is_probable_micro_direct_write_task(metadata: &Value, original_prompt: &str) -> bool {
+pub(crate) fn native_tool_is_probable_micro_direct_write_task(
+    metadata: &Value,
+    original_prompt: &str,
+) -> bool {
     let criteria = metadata
         .get("native_success_criteria")
         .or_else(|| metadata.pointer("/workflow/native_success_criteria"));
@@ -180,7 +188,10 @@ pub(crate) fn native_tool_is_probable_micro_direct_write_task(metadata: &Value, 
     target_count > 0 && target_count <= max_targets
 }
 
-pub(crate) fn native_tool_coding_task_lane(metadata: &Value, original_prompt: &str) -> &'static str {
+pub(crate) fn native_tool_coding_task_lane(
+    metadata: &Value,
+    original_prompt: &str,
+) -> &'static str {
     if native_tool_is_probable_micro_direct_write_task(metadata, original_prompt) {
         return "new_file_fast_path";
     }
@@ -227,7 +238,10 @@ pub(crate) fn native_tool_coding_task_lane(metadata: &Value, original_prompt: &s
         "service",
         "web app",
     ];
-    if multi_file_markers.iter().any(|marker| lower.contains(marker)) {
+    if multi_file_markers
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
         return "multi_file_slice";
     }
     let existing_project_markers = [
@@ -267,8 +281,8 @@ pub(crate) fn native_tool_coding_task_lane(metadata: &Value, original_prompt: &s
 
 pub(crate) fn native_tool_unique_code_path_mentions(raw: &str) -> Vec<String> {
     let extensions = [
-        ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".rs", ".go", ".java", ".rb",
-        ".php", ".swift", ".kt", ".c", ".cpp", ".h", ".hpp", ".md", ".json",
+        ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".rs", ".go", ".java", ".rb", ".php",
+        ".swift", ".kt", ".c", ".cpp", ".h", ".hpp", ".md", ".json",
     ];
     let mut out = Vec::<String>::new();
     for token in raw.split_whitespace() {
@@ -279,7 +293,9 @@ pub(crate) fn native_tool_unique_code_path_mentions(raw: &str) -> Vec<String> {
             )
         });
         let lower = cleaned.to_ascii_lowercase();
-        if extensions.iter().any(|extension| lower.ends_with(extension))
+        if extensions
+            .iter()
+            .any(|extension| lower.ends_with(extension))
             && !out.iter().any(|path| path == cleaned)
         {
             out.push(cleaned.to_string());
@@ -303,12 +319,7 @@ pub(crate) fn native_tool_needs_public_report_finalization(metadata: &Value, out
     let emits = contract
         .get("emits")
         .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()
-        })
+        .map(|items| items.iter().filter_map(Value::as_str).collect::<Vec<_>>())
         .unwrap_or_default();
     let trace_protocol = ["public_", "reasoning_trace_v1"].concat();
     let requires_trace = emits.iter().any(|emit| *emit == trace_protocol)
@@ -319,9 +330,11 @@ pub(crate) fn native_tool_needs_public_report_finalization(metadata: &Value, out
     let rollup_protocol = ["public_", "reasoning_", "rollup_v1"].concat();
     let requires_rollup = emits.iter().any(|emit| *emit == rollup_protocol);
     let trace_field = ["public_", "reasoning_trace"].concat();
-    let has_trace = output.contains(trace_field.as_str()) && output.contains(trace_protocol.as_str());
+    let has_trace =
+        output.contains(trace_field.as_str()) && output.contains(trace_protocol.as_str());
     let rollup_field = ["reasoning_", "rollup"].concat();
-    let has_rollup = output.contains(rollup_field.as_str()) && output.contains(rollup_protocol.as_str());
+    let has_rollup =
+        output.contains(rollup_field.as_str()) && output.contains(rollup_protocol.as_str());
     (requires_trace && !has_trace) || (requires_rollup && !has_rollup)
 }
 
@@ -986,10 +999,16 @@ pub(crate) fn native_tool_evidence_target_brief(original_prompt: &str) -> String
         items.push("- implementation work was requested; include a successful file_write/file_patch receipt for source, tests, docs, or a checkpoint artifact before treating validation as completion".to_string());
     }
     if native_tool_prompt_requires_test_changes(&prompt_lower) {
-        items.push("- tests were explicitly requested; include a test-file mutation receipt or a blocker".to_string());
+        items.push(
+            "- tests were explicitly requested; include a test-file mutation receipt or a blocker"
+                .to_string(),
+        );
     }
     if native_tool_prompt_requires_doc_changes(&prompt_lower) {
-        items.push("- docs/README were explicitly requested; include a docs mutation receipt or a blocker".to_string());
+        items.push(
+            "- docs/README were explicitly requested; include a docs mutation receipt or a blocker"
+                .to_string(),
+        );
     }
     if native_tool_prompt_requires_validation_command(&prompt_lower) {
         items.push("- validation/test status was requested; include a successful command_run validation receipt or a blocker".to_string());
@@ -1085,7 +1104,14 @@ fn native_tool_prompt_preserved_public_api_names(original_prompt: &str) -> Vec<S
             let lower_token = token.to_ascii_lowercase();
             if matches!(
                 lower_token.as_str(),
-                "and" | "api" | "behavior" | "behaviour" | "current" | "existing" | "public" | "the"
+                "and"
+                    | "api"
+                    | "behavior"
+                    | "behaviour"
+                    | "current"
+                    | "existing"
+                    | "public"
+                    | "the"
             ) {
                 continue;
             }
@@ -1309,7 +1335,8 @@ pub(crate) fn native_tool_prompt_requires_doc_changes(prompt_lower: &str) -> boo
 }
 
 pub(crate) fn native_tool_prompt_requires_memory_write(prompt_lower: &str) -> bool {
-    (prompt_lower.contains("memory row") || prompt_lower.contains(["checkpoint ", "memory"].concat().as_str()))
+    (prompt_lower.contains("memory row")
+        || prompt_lower.contains(["checkpoint ", "memory"].concat().as_str()))
         && (prompt_lower.contains("write") || prompt_lower.contains("ingest"))
 }
 
@@ -1332,9 +1359,8 @@ pub(crate) fn native_tool_has_successful_memory_write_command(
     original_prompt: &str,
 ) -> bool {
     let checkpoint_name = native_tool_prompt_checkpoint_name(original_prompt);
-    let validation_status_required = native_tool_prompt_requires_validation_command(
-        &original_prompt.to_ascii_lowercase(),
-    );
+    let validation_status_required =
+        native_tool_prompt_requires_validation_command(&original_prompt.to_ascii_lowercase());
     receipts.iter().any(|receipt| {
         if receipt.status != "ok" || receipt.tool_name != "command_run" {
             return false;
@@ -1381,7 +1407,10 @@ pub(crate) fn native_tool_is_handoff_artifact_path(path: &str) -> bool {
         && (lower.contains("receipt") || lower.contains("handoff") || lower.contains("checkpoint"))
 }
 
-pub(crate) fn native_tool_checkpoint_receipt_file_valid(path: &str, checkpoint: Option<&str>) -> bool {
+pub(crate) fn native_tool_checkpoint_receipt_file_valid(
+    path: &str,
+    checkpoint: Option<&str>,
+) -> bool {
     let Ok(content) = std::fs::read_to_string(path) else {
         return false;
     };
@@ -1411,8 +1440,8 @@ pub(crate) fn native_tool_successful_validation_summary(receipts: &[NativeToolRe
             let command_text = serde_json::to_string(&command).unwrap_or_default();
             if !command_text.contains("memory-cli")
                 && (command_text.contains("test")
-                || command_text.contains("unittest")
-                || command_text.contains("pytest")
+                    || command_text.contains("unittest")
+                    || command_text.contains("pytest")
                     || command_text.contains("cargo test"))
             {
                 return json!({
@@ -1450,7 +1479,10 @@ pub(crate) fn native_tool_prompt_next_checkpoint_name(original_prompt: &str) -> 
     None
 }
 
-pub(crate) fn native_tool_changed_paths_include(receipts: &[NativeToolReceipt], expected: &str) -> bool {
+pub(crate) fn native_tool_changed_paths_include(
+    receipts: &[NativeToolReceipt],
+    expected: &str,
+) -> bool {
     native_tool_changed_path_for_expected(receipts, expected).is_some()
 }
 
@@ -1459,13 +1491,18 @@ fn native_tool_changed_path_for_expected(
     expected: &str,
 ) -> Option<String> {
     let expected = expected.trim().trim_start_matches("./");
-    native_tool_changed_paths(receipts).into_iter().find(|path| {
-        let normalized = path.replace('\\', "/");
-        normalized.ends_with(expected) || normalized.contains(&format!("/{expected}"))
-    })
+    native_tool_changed_paths(receipts)
+        .into_iter()
+        .find(|path| {
+            let normalized = path.replace('\\', "/");
+            normalized.ends_with(expected) || normalized.contains(&format!("/{expected}"))
+        })
 }
 
-pub(crate) fn native_tool_changed_path_matches<F>(receipts: &[NativeToolReceipt], mut predicate: F) -> bool
+pub(crate) fn native_tool_changed_path_matches<F>(
+    receipts: &[NativeToolReceipt],
+    mut predicate: F,
+) -> bool
 where
     F: FnMut(&str) -> bool,
 {
@@ -1540,7 +1577,11 @@ fn sanitize_token(raw: &str, max_len: usize) -> String {
 pub(crate) fn native_tool_artifact_contract_enabled(metadata: &Value) -> bool {
     let contract_key = ["completion_", "evidence_contract"].concat();
     let workflow_contract_pointer = ["/workflow/", contract_key.as_str()].concat();
-    let required_key = ["completion_", "evidence_required_for_multi_requirement_tasks"].concat();
+    let required_key = [
+        "completion_",
+        "evidence_required_for_multi_requirement_tasks",
+    ]
+    .concat();
     metadata
         .get(contract_key.as_str())
         .or_else(|| metadata.pointer(workflow_contract_pointer.as_str()))
