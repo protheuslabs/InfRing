@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Layer ownership: core/layer2/ops (retrieval policy authority).
 
-include!("../../../layer0/ops/src/batch_query_primitive_parts/010-core.combined.rs");
-include!("../../../layer0/ops/src/batch_query_primitive_parts/015-intent-and-quality.rs");
-include!("../../../layer0/ops/src/batch_query_primitive_parts/018-request-and-cache.rs");
+include!("retrieval_policy_support/010-core.combined.rs");
+include!("retrieval_policy_support/015-intent-and-quality.rs");
+include!("retrieval_policy_support/018-request-and-cache.rs");
 include!("retrieval_policy_parts/010-freshness-and-relevance.rs");
 include!("retrieval_policy_parts/020-candidate-rows.rs");
 
