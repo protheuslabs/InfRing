@@ -952,3 +952,42 @@ Non-goals:
 - infer broad test commands from vague requests
 - run validation without user/workflow permission
 - hardcode eval level names or fixture files
+
+## Primitive candidate: `completion_evidence_repair_routing`
+
+Status: `v2_patch_applied`
+
+Evidence source:
+
+- Infring Level 3 twenty-run reliability batch from May 23, 2026.
+
+Observed failure mode:
+
+- Product source mutation succeeded.
+- The requested test mutation was missing.
+- Existing validation still passed because the old test suite did not cover the
+  new behavior.
+- Repair routing drifted toward generic product/source repair instead of the
+  missing test mutation.
+- Terminal synthesis could still emit a success marker despite unresolved test
+  evidence.
+
+Primitive definition:
+
+`completion_evidence_repair_routing` maps unresolved completion evidence to the
+most specific repair stage before generic product repair.
+
+Rules:
+
+- if product mutation already exists and test evidence is missing, route repair
+  to `test_mutation`
+- live staged execution must use the same priority, so a product mutation
+  followed by missing test evidence routes to test mutation before generic
+  product repair
+- passing validation does not satisfy an explicit test-change requirement unless
+  a test mutation receipt exists
+- bounded direct edit must emit `partial_blocked`, not success, while required
+  changed-path or test-change evidence remains unresolved
+- final success must recompute required changed-path and test-change evidence
+  from prompt plus receipts, not only from transient repair-reason state
+- no eval level names or fixture file names may appear in runtime logic

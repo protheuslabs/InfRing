@@ -1396,6 +1396,55 @@ impl AgentContract {
                 }
             }
         }
+        let bounded_direct_edit_hard_evidence_gaps = if bounded_direct_edit_task {
+            native_tool_bounded_direct_edit_required_evidence_gaps(
+                &self.initial_prompt,
+                &all_receipts,
+            )
+        } else {
+            Vec::new()
+        };
+        if !bounded_direct_edit_hard_evidence_gaps.is_empty() {
+            let direct_tool_call_count = all_receipts.len();
+            let bounded_direct_edit_hard_evidence_gap_summary =
+                bounded_direct_edit_hard_evidence_gaps.join(",");
+            native_tool_push_bounded_direct_edit_marker_once(
+                &mut all_receipts,
+                "partial_blocked",
+                json!({
+                    "terminal_status": "partial_blocked",
+                    "provider_call_count": provider_call_count,
+                    "tool_call_count": direct_tool_call_count,
+                    "unresolved_completion_evidence": bounded_direct_edit_hard_evidence_gaps.clone(),
+                }),
+            );
+            let reason = format!(
+                "bounded_direct_edit_unresolved_required_evidence:{};receipt_summary={}",
+                bounded_direct_edit_hard_evidence_gap_summary,
+                native_tool_receipt_error_summary(&all_receipts)
+            );
+            response = native_tool_partial_progress_response(
+                provider.provider_id(),
+                self.model.as_deref(),
+                &reason,
+                provider_call_count,
+                &all_receipts,
+            );
+            response.raw = json!({
+                "provider_raw": response.raw,
+                "native_tool_loop": {
+                    "enabled": true,
+                    "provider_call_count": provider_call_count,
+                    "tool_call_count": all_receipts.len(),
+                    "empty_tool_retry_count": empty_tool_retry_count,
+                    "coding_task_lane": coding_task_lane,
+                    "tool_receipts": all_receipts.clone(),
+                    "terminal_status": "partial_blocked",
+                    "unresolved_completion_evidence": bounded_direct_edit_hard_evidence_gaps,
+                }
+            });
+            return Ok((response, all_receipts, provider_call_count, "partial_blocked".to_string()));
+        }
         if !unresolved_final_reasons.is_empty()
             && native_tool_artifact_contract_enabled(&self.metadata)
         {
@@ -3687,6 +3736,30 @@ fn native_tool_live_stage_repair_reasons(
     reasons
 }
 
+fn native_tool_bounded_direct_edit_required_evidence_gaps(
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> Vec<String> {
+    let prompt_lower = original_prompt.to_ascii_lowercase();
+    let mut gaps = native_tool_prompt_evidence_gaps(original_prompt, receipts)
+        .into_iter()
+        .filter(|reason| {
+            reason == "missing_test_change_receipt" || reason.starts_with("missing_changed_path:")
+        })
+        .collect::<Vec<_>>();
+    if native_tool_prompt_requires_test_changes(&prompt_lower)
+        && !native_tool_has_successful_test_mutation(receipts)
+        && !gaps
+            .iter()
+            .any(|reason| reason == "missing_test_change_receipt")
+    {
+        gaps.push("missing_test_change_receipt".to_string());
+    }
+    gaps.sort();
+    gaps.dedup();
+    gaps
+}
+
 fn native_tool_preserved_api_source_paths_from_workspace(original_prompt: &str) -> Vec<String> {
     let names = native_tool_prompt_preserved_api_names(original_prompt);
     let Some(project_root) = native_tool_prompt_project_root(original_prompt) else {
@@ -4092,6 +4165,12 @@ fn native_tool_current_live_stage(
     receipts: &[NativeToolReceipt],
 ) -> Option<&'static str> {
     let prompt_lower = original_prompt.to_ascii_lowercase();
+    if native_tool_has_successful_product_mutation(receipts)
+        && native_tool_prompt_requires_test_changes(&prompt_lower)
+        && !native_tool_has_successful_test_mutation(receipts)
+    {
+        return Some("test_mutation");
+    }
     if native_tool_prompt_requires_product_mutation(&prompt_lower)
         && !native_tool_product_source_stage_satisfied(original_prompt, receipts)
     {
@@ -4280,6 +4359,12 @@ fn native_tool_current_repair_stage(
     repair_reasons: &[String],
     receipts: &[NativeToolReceipt],
 ) -> Option<&'static str> {
+    if native_tool_has_successful_product_mutation(receipts)
+        && native_tool_repair_reasons_include_test_change(repair_reasons)
+        && !native_tool_has_successful_test_mutation(receipts)
+    {
+        return Some("test_mutation");
+    }
     if native_tool_repair_reasons_include_product_mutation(repair_reasons)
         || native_tool_repair_reasons_include_product_slice(repair_reasons)
     {
@@ -4315,6 +4400,16 @@ fn native_tool_current_repair_stage(
         return Some("memory_closure");
     }
     None
+}
+
+fn native_tool_repair_reasons_include_test_change(repair_reasons: &[String]) -> bool {
+    repair_reasons.iter().any(|reason| {
+        reason == "missing_test_change_receipt"
+            || reason
+                .strip_prefix("missing_changed_path:")
+                .map(native_tool_bootstrap_path_looks_like_test)
+                .unwrap_or(false)
+    })
 }
 
 fn native_tool_repair_reasons_include_validation(repair_reasons: &[String]) -> bool {
