@@ -194,6 +194,8 @@ jobs:
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch --force --tags origin
           if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
             TAG_SHA="$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")"
