@@ -420,6 +420,39 @@ def classify_failure(failures: list[str], run_result: dict[str, Any]) -> str | N
     return "agent_run_failed"
 
 
+def summarize_native_provider_turn_timing(project_root: Path) -> dict[str, Any] | None:
+    path = project_root / ".infring" / "native_provider_turn_timing.jsonl"
+    if not path.exists():
+        return None
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            rows.append(value)
+    if not rows:
+        return None
+    latencies = [
+        row.get("provider_latency_ms")
+        for row in rows
+        if isinstance(row.get("provider_latency_ms"), int)
+    ]
+    return {
+        "source": "native_provider_turn_timing_probe_v1",
+        "path": str(path),
+        "turn_count": len(rows),
+        "total_provider_latency_ms": sum(latencies),
+        "first_turn": rows[0],
+        "last_turn": rows[-1],
+        "turns": rows[-8:],
+    }
+
+
 def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
     started = time.monotonic()
     resolution = resolve_xtask_command(REPO_ROOT, policy=command_execution_policy())
@@ -465,8 +498,21 @@ def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
             except json.JSONDecodeError:
                 parsed = {}
     receipt = parsed.get("receipt") if isinstance(parsed.get("receipt"), dict) else {}
+    trace_summary = parsed.get("trace_summary") if isinstance(parsed.get("trace_summary"), dict) else {}
     xtask_outer_timing_ms = parsed.get("xtask_outer_timing_ms") if isinstance(parsed.get("xtask_outer_timing_ms"), dict) else None
     agent_runtime_phase_latency_ms = receipt.get("agent_runtime_phase_latency_ms") if isinstance(receipt.get("agent_runtime_phase_latency_ms"), dict) else None
+    coding_runtime_probe = receipt.get("coding_runtime_probe") if isinstance(receipt.get("coding_runtime_probe"), dict) else None
+    if coding_runtime_probe is None and isinstance(trace_summary.get("coding_runtime_probe"), dict):
+        coding_runtime_probe = trace_summary["coding_runtime_probe"]
+    native_provider_turn_timing_probe = summarize_native_provider_turn_timing(job["project_root"])
+    if native_provider_turn_timing_probe is not None:
+        if coding_runtime_probe is None:
+            coding_runtime_probe = native_provider_turn_timing_probe
+        else:
+            coding_runtime_probe = {
+                "runtime_probe": coding_runtime_probe,
+                "native_provider_turn_timing": native_provider_turn_timing_probe,
+            }
     native_receipts = receipt.get("native_tool_receipts") if isinstance(receipt.get("native_tool_receipts"), list) else []
     response = parsed.get("response") if isinstance(parsed.get("response"), dict) else {}
     response_raw = response.get("raw") if isinstance(response.get("raw"), dict) else {}
@@ -505,6 +551,7 @@ def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
         "native_patch_artifact_profile": lane_artifact_profile,
         "native_patch_lane_phase_latency_ms": lane_phase_latency_ms,
         "agent_runtime_phase_latency_ms": agent_runtime_phase_latency_ms,
+        "coding_runtime_probe": coding_runtime_probe,
         "xtask_outer_timing_ms": xtask_outer_timing_ms,
         "command_resolution": resolution["receipt"],
         "execution_mode": resolution["receipt"]["execution_mode"],
@@ -826,7 +873,7 @@ def run_claude_code(job: dict[str, Any], model: str) -> dict[str, Any]:
         job["prompt"]
         + "\n\nUse the existing project files in the current working directory."
         + f"\nRun this validation command before final response: {job['validation_command']}"
-        + "\nRun the semantic probe too. Do not commit.",
+        + "\nRun the semantic probe too. After validation and semantic probe pass, print a concise final summary and stop immediately. Do not commit.",
         encoding="utf-8",
     )
     bridge_mode = os.environ.get("INFRING_CLAUDE_CODE_BRIDGE", "ollama-launch").strip().lower()
@@ -937,6 +984,231 @@ def run_claude_code(job: dict[str, Any], model: str) -> dict[str, Any]:
         "stream_json_parse_error_count": stream_summary["json_parse_error_count"],
         "stream_result_is_error": stream_summary["result_is_error"],
         "stream_api_error_status": stream_summary["api_error_status"],
+    }
+
+
+def _collect_grok_tool_names(value: Any) -> list[str]:
+    names: list[str] = []
+    if isinstance(value, dict):
+        for key in ("tool_name", "tool", "name"):
+            raw = value.get(key)
+            if isinstance(raw, str) and raw:
+                if raw in {"Read", "Edit", "MultiEdit", "Write", "Bash", "Glob", "Grep"}:
+                    names.append(raw)
+                elif "tool" in raw.lower() or "bash" in raw.lower() or "edit" in raw.lower():
+                    names.append(raw)
+        event_type = value.get("type") or value.get("event")
+        if isinstance(event_type, str) and ("tool" in event_type.lower() or "bash" in event_type.lower()):
+            names.append(event_type)
+        for child in value.values():
+            names.extend(_collect_grok_tool_names(child))
+    elif isinstance(value, list):
+        for child in value:
+            names.extend(_collect_grok_tool_names(child))
+    return names
+
+
+def _collect_grok_session_ids(value: Any) -> list[str]:
+    ids: list[str] = []
+    if isinstance(value, dict):
+        for key in ("session_id", "sessionId", "conversation_id", "conversationId"):
+            raw = value.get(key)
+            if isinstance(raw, str) and raw:
+                ids.append(raw)
+        for child in value.values():
+            ids.extend(_collect_grok_session_ids(child))
+    elif isinstance(value, list):
+        for child in value:
+            ids.extend(_collect_grok_session_ids(child))
+    return ids
+
+
+def _summarize_grok_stream(stdout: str) -> dict[str, Any]:
+    event_types: dict[str, int] = {}
+    tool_names: list[str] = []
+    session_ids: list[str] = []
+    parse_errors = 0
+    event_count = 0
+    result_text = ""
+    result_is_error = False
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            parse_errors += 1
+            continue
+        event_count += 1
+        event_type = str(event.get("type") or event.get("event") or "unknown")
+        event_types[event_type] = event_types.get(event_type, 0) + 1
+        tool_names.extend(_collect_grok_tool_names(event))
+        session_ids.extend(_collect_grok_session_ids(event))
+        if isinstance(event.get("result"), str):
+            result_text = event["result"]
+        if isinstance(event.get("message"), str):
+            result_text = event["message"]
+        if event.get("is_error") is True or event.get("error"):
+            result_is_error = True
+    if event_count == 0 and stdout.strip():
+        result_text = stdout[-4000:]
+        lower = result_text.lower()
+        result_is_error = "error" in lower or "not authenticated" in lower
+    return {
+        "event_count": event_count,
+        "event_types": event_types,
+        "tool_use_names": tool_names,
+        "tool_use_count": len(tool_names),
+        "session_ids": sorted(set(session_ids)),
+        "json_parse_error_count": parse_errors,
+        "result_is_error": result_is_error,
+        "result_text": result_text,
+    }
+
+
+def run_grok(job: dict[str, Any], model: str) -> dict[str, Any]:
+    default_grok_bin = Path("/Users/jay/.grok/bin/grok")
+    grok_bin = os.environ.get("INFRING_GROK_BIN") or (
+        str(default_grok_bin) if default_grok_bin.exists() else shutil.which("grok")
+    )
+    if not grok_bin or not Path(grok_bin).exists():
+        return {"ok": False, "blocked": "cli_missing:grok", "wall_time_ms": None}
+    requested_model = model
+    grok_model = os.environ.get("INFRING_GROK_MODEL", model)
+    use_default_model = os.environ.get("INFRING_GROK_USE_DEFAULT_MODEL", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if grok_model != requested_model and not use_default_model:
+        return {
+            "ok": False,
+            "blocked": "grok_control_model_mismatch",
+            "wall_time_ms": None,
+            "model": grok_model,
+            "requested_model": requested_model,
+            "model_controlled": False,
+            "model_routing_note": "Grok comparison requires the requested harness model. Set INFRING_GROK_MODEL equal to --model or unset it.",
+        }
+    unsupported_bridge = {
+        "INFRING_GROK_CLI_CHAT_PROXY_BASE_URL": os.environ.get("INFRING_GROK_CLI_CHAT_PROXY_BASE_URL", "").strip(),
+        "INFRING_GROK_XAI_API_BASE_URL": os.environ.get("INFRING_GROK_XAI_API_BASE_URL", "").strip(),
+    }
+    requested_bridge_keys = [key for key, value in unsupported_bridge.items() if value]
+    if requested_bridge_keys:
+        return {
+            "ok": False,
+            "blocked": "grok_single_turn_base_url_bridge_unsupported",
+            "wall_time_ms": None,
+            "model": grok_model,
+            "requested_model": requested_model,
+            "model_controlled": False,
+            "model_routing_note": "Grok exposes base-url overrides on the agent subcommand, but the harness uses top-level --single for deterministic fixture runs; an agent stdio/headless bridge is needed before these env vars can be used.",
+            "unsupported_bridge_env": requested_bridge_keys,
+        }
+
+    level2.ensure_temp_git_repo(job["project_root"])
+    outputs = job["project_root"] / ".infring" / "system_outputs" / "grok"
+    outputs.mkdir(parents=True, exist_ok=True)
+    prompt_path = outputs / "prompt.txt"
+    stdout_path = outputs / "stdout.streaming-jsonl"
+    stderr_path = outputs / "stderr.txt"
+    trace_export_path = outputs / "trace.tar.gz"
+    prompt_path.write_text(
+        job["prompt"]
+        + "\n\nUse the existing project files in the current working directory."
+        + f"\nRun this validation command before final response: {job['validation_command']}"
+        + "\nRun the semantic probe too. Do not commit.",
+        encoding="utf-8",
+    )
+    command = [
+        grok_bin,
+        "--cwd",
+        str(job["project_root"]),
+        "--output-format",
+        "streaming-json",
+        "--always-approve",
+        "--permission-mode",
+        "bypassPermissions",
+        "--max-turns",
+        os.environ.get("INFRING_GROK_MAX_TURNS", "128"),
+        "--no-memory",
+        "--no-plan",
+        "--disable-web-search",
+    ]
+    if not use_default_model:
+        command.extend(["--model", grok_model])
+    sandbox = os.environ.get("INFRING_GROK_SANDBOX", "").strip()
+    if sandbox:
+        command.extend(["--sandbox", sandbox])
+    command.extend(["--single", prompt_path.read_text(encoding="utf-8")])
+
+    result = run_cmd(command, cwd=job["project_root"], timeout=300, env=os.environ | {"PYTHONPATH": "."})
+    stdout_path.write_text(result.get("stdout") or "", encoding="utf-8")
+    stderr_path.write_text(result.get("stderr") or "", encoding="utf-8")
+    stream_summary = _summarize_grok_stream(result.get("stdout") or "")
+    combined_tail = ((result.get("stdout_tail") or "") + "\n" + (result.get("stderr_tail") or "")).lower()
+    auth_blocked = "not authenticated" in combined_tail or "sign in" in combined_tail
+    model_unavailable = "unknown model" in combined_tail or (
+        "model" in combined_tail and "not found" in combined_tail
+    )
+    blocked = None
+    if auth_blocked and model_unavailable:
+        blocked = "grok_not_authenticated_and_control_model_unavailable"
+    elif auth_blocked:
+        blocked = "grok_not_authenticated"
+    elif model_unavailable:
+        blocked = "grok_control_model_unavailable"
+
+    trace_export_result: dict[str, Any] | None = None
+    session_ids = stream_summary["session_ids"]
+    if session_ids:
+        trace_export_result = run_cmd(
+            [
+                grok_bin,
+                "trace",
+                "--local",
+                "--json",
+                "--output",
+                str(trace_export_path),
+                session_ids[-1],
+            ],
+            cwd=job["project_root"],
+            timeout=60,
+            env=os.environ,
+        )
+
+    return {
+        "ok": result["ok"] and blocked is None and not stream_summary["result_is_error"],
+        "blocked": blocked,
+        "wall_time_ms": result["wall_time_ms"],
+        "model": "grok-default" if use_default_model else grok_model,
+        "requested_model": requested_model,
+        "model_controlled": (grok_model == requested_model) and not use_default_model,
+        "model_routing_note": "Grok was invoked without --model and used its configured default model; this is useful for runtime behavior tracing but not model-controlled."
+        if use_default_model
+        else "Grok was invoked with the requested harness control model through top-level --model. The top-level --single path does not accept Grok's agent-subcommand base-url overrides.",
+        "auth_blocked": auth_blocked,
+        "control_model_unavailable": model_unavailable,
+        "cli_path": grok_bin,
+        "error": stream_summary["result_text"]
+        if stream_summary["result_is_error"]
+        else result.get("stderr_tail")
+        if not result["ok"]
+        else None,
+        "stdout_path": str(stdout_path),
+        "stderr_path": str(stderr_path),
+        "trace_export_path": str(trace_export_path) if trace_export_result and trace_export_path.exists() else None,
+        "trace_export_result": trace_export_result,
+        "timed_out": result.get("timed_out"),
+        "stream_event_count": stream_summary["event_count"],
+        "stream_event_types": stream_summary["event_types"],
+        "tool_use_names": stream_summary["tool_use_names"],
+        "tool_use_count": stream_summary["tool_use_count"],
+        "stream_session_ids": session_ids,
+        "stream_json_parse_error_count": stream_summary["json_parse_error_count"],
+        "stream_result_is_error": stream_summary["result_is_error"],
     }
 
 
@@ -1099,6 +1371,8 @@ RUNNERS = {
     "claude": run_claude_code,
     "codex": run_codex,
     "codex-cli": run_codex,
+    "grok": run_grok,
+    "grok-build": run_grok,
 }
 
 

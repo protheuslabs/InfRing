@@ -384,6 +384,7 @@ pub fn run_runtime_lane_with_registry(
         return Ok(response);
     }
 
+    let mut bounded_existing_project_fallback_probe = None;
     if let Some(response) = runtime_lane_try_bounded_existing_project_edit_loop(
         &name,
         &initial_prompt,
@@ -405,9 +406,16 @@ pub fn run_runtime_lane_with_registry(
         if !runtime_lane_response_allows_bounded_existing_project_fallback(&response) {
             return Ok(response);
         }
+        bounded_existing_project_fallback_probe = Some(json!({
+            "fallback_source": "bounded_existing_project_edit_loop",
+            "discarded_error": response.error,
+            "discarded_receipt_status": response.receipt.get("status").cloned().unwrap_or(Value::Null),
+            "discarded_receipt_details": response.receipt.get("details").cloned().unwrap_or(Value::Null),
+            "discarded_coding_runtime_probe": response.receipt.get("coding_runtime_probe").cloned().unwrap_or(Value::Null),
+        }));
     }
 
-    if let Some(response) = runtime_lane_try_model_manifest_planner(
+    if let Some(mut response) = runtime_lane_try_model_manifest_planner(
         &name,
         &initial_prompt,
         preamble.as_deref(),
@@ -426,6 +434,9 @@ pub fn run_runtime_lane_with_registry(
         &mut durable_state,
         providers,
     ) {
+        if let Some(probe) = bounded_existing_project_fallback_probe {
+            runtime_lane_attach_coding_runtime_probe(&mut response, probe);
+        }
         return Ok(response);
     }
 
@@ -1298,26 +1309,42 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
     )
     .unwrap_or(true);
     let planning_depth = runtime_lane_planning_depth_selector(prompt, metadata);
+    let manifest_prompt = runtime_lane_apply_planning_depth_prompt(
+        runtime_lane_bounded_existing_project_edit_loop_prompt(
+            prompt,
+            &workspace_root,
+            &context_pack,
+            &public_api_bindings,
+        ),
+        &planning_depth,
+    );
+    let manifest_system = runtime_lane_bounded_existing_project_edit_loop_system();
+    let manifest_provider_timeout_seconds = metadata
+        .pointer("/native_success_criteria/fast_lane_provider_timeout_seconds")
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            metadata
+                .pointer("/workflow/native_success_criteria/fast_lane_provider_timeout_seconds")
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(60);
+    let manifest_repair_provider_timeout_seconds = metadata
+        .pointer("/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            metadata
+                .pointer("/workflow/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(45);
     let model_started = Instant::now();
     let mut provider_response = match provider_client.complete(&ProviderRequest {
-            prompt: runtime_lane_apply_planning_depth_prompt(
-                runtime_lane_bounded_existing_project_edit_loop_prompt(
-                    prompt,
-                    &workspace_root,
-                    &context_pack,
-                    &public_api_bindings,
-                ),
-                &planning_depth,
-            ),
-            system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
+            prompt: manifest_prompt.clone(),
+            system: Some(manifest_system.clone()),
             tools: Vec::new(),
             model: fast_lane_model.clone(),
             metadata: json!({
-                "provider_timeout_seconds": metadata
-                    .pointer("/native_success_criteria/fast_lane_provider_timeout_seconds")
-                    .and_then(Value::as_u64)
-                    .or_else(|| metadata.pointer("/workflow/native_success_criteria/fast_lane_provider_timeout_seconds").and_then(Value::as_u64))
-                    .unwrap_or(60),
+                "provider_timeout_seconds": manifest_provider_timeout_seconds,
                 "omit_ollama_thinking_flags": fast_lane_omit_ollama_thinking_flags,
                 "lane": "bounded_existing_project_edit_loop",
                 "planning_depth_selector": planning_depth.to_json(),
@@ -1335,6 +1362,17 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                     "failure_code": error.code.as_str(),
                     "failure_message": error.message,
                     "planner_model": fast_lane_model.clone(),
+                    "coding_runtime_probe": {
+                        "selected_planning_depth": planning_depth.to_json(),
+                        "manifest_provider_timeout_seconds": manifest_provider_timeout_seconds,
+                        "repair_provider_timeout_seconds": manifest_repair_provider_timeout_seconds,
+                        "prompt_chars": manifest_prompt.chars().count(),
+                        "system_chars": manifest_system.chars().count(),
+                        "context_pack_file_count": runtime_lane_context_pack_file_count(&context_pack),
+                        "context_pack_chars": context_pack.chars().count(),
+                        "provider_latency_ms": model_call_ms,
+                        "time_to_first_tool_ms": Value::Null,
+                    },
                     "phase_latency_ms": {
                         "workflow_load": 0,
                         "execution_shape_gate": execution_shape_gate_ms,
@@ -1379,11 +1417,7 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                 tools: Vec::new(),
                 model: fast_lane_repair_model.clone(),
                 metadata: json!({
-                    "provider_timeout_seconds": metadata
-                        .pointer("/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
-                        .and_then(Value::as_u64)
-                        .or_else(|| metadata.pointer("/workflow/native_success_criteria/fast_lane_repair_provider_timeout_seconds").and_then(Value::as_u64))
-                        .unwrap_or(45),
+                    "provider_timeout_seconds": manifest_repair_provider_timeout_seconds,
                     "omit_ollama_thinking_flags": runtime_lane_metadata_bool(
                         metadata,
                         &[
@@ -1423,6 +1457,17 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                                     "provider_output_preview": repair_failure.provider_output_preview,
                                     "previous_failure_code": failure.failure_code,
                                     "planner_model": fast_lane_repair_model.clone(),
+                                    "coding_runtime_probe": {
+                                        "selected_planning_depth": planning_depth.to_json(),
+                                        "manifest_provider_timeout_seconds": manifest_provider_timeout_seconds,
+                                        "repair_provider_timeout_seconds": manifest_repair_provider_timeout_seconds,
+                                        "prompt_chars": manifest_prompt.chars().count(),
+                                        "system_chars": manifest_system.chars().count(),
+                                        "context_pack_file_count": runtime_lane_context_pack_file_count(&context_pack),
+                                        "context_pack_chars": context_pack.chars().count(),
+                                        "provider_latency_ms": model_call_ms,
+                                        "time_to_first_tool_ms": Value::Null,
+                                    },
                                     "phase_latency_ms": {
                                         "workflow_load": 0,
                                         "execution_shape_gate": execution_shape_gate_ms,
@@ -1455,6 +1500,17 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                             "failure_message": error.message,
                             "previous_failure_code": failure.failure_code,
                             "planner_model": fast_lane_repair_model.clone(),
+                            "coding_runtime_probe": {
+                                "selected_planning_depth": planning_depth.to_json(),
+                                "manifest_provider_timeout_seconds": manifest_provider_timeout_seconds,
+                                "repair_provider_timeout_seconds": manifest_repair_provider_timeout_seconds,
+                                "prompt_chars": manifest_prompt.chars().count(),
+                                "system_chars": manifest_system.chars().count(),
+                                "context_pack_file_count": runtime_lane_context_pack_file_count(&context_pack),
+                                "context_pack_chars": context_pack.chars().count(),
+                                "provider_latency_ms": model_call_ms,
+                                "time_to_first_tool_ms": Value::Null,
+                            },
                             "phase_latency_ms": {
                                 "workflow_load": 0,
                                 "execution_shape_gate": execution_shape_gate_ms,
@@ -2181,6 +2237,20 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
         model_call_ms,
         tool_dispatch_ms,
         total_started,
+    );
+    runtime_lane_attach_coding_runtime_probe(
+        &mut response,
+        json!({
+            "selected_planning_depth": planning_depth.to_json(),
+            "manifest_provider_timeout_seconds": manifest_provider_timeout_seconds,
+            "repair_provider_timeout_seconds": manifest_repair_provider_timeout_seconds,
+            "prompt_chars": manifest_prompt.chars().count(),
+            "system_chars": manifest_system.chars().count(),
+            "context_pack_file_count": runtime_lane_context_pack_file_count(&context_pack),
+            "context_pack_chars": context_pack.chars().count(),
+            "provider_latency_ms": model_call_ms,
+            "time_to_first_tool_ms": execution_shape_gate_ms.saturating_add(model_call_ms),
+        }),
     );
     runtime_lane_relabel_generated_manifest_response(
         &mut response,
@@ -3926,6 +3996,25 @@ fn runtime_lane_planning_depth_u64(
         }
     }
     fallback
+}
+
+fn runtime_lane_context_pack_file_count(context_pack: &str) -> usize {
+    context_pack
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("selected_files:")
+                .and_then(|value| value.trim().parse::<usize>().ok())
+        })
+        .unwrap_or(0)
+}
+
+fn runtime_lane_attach_coding_runtime_probe(response: &mut RuntimeLaneResponse, probe: Value) {
+    if let Some(object) = response.receipt.as_object_mut() {
+        object.insert("coding_runtime_probe".to_string(), probe.clone());
+    }
+    if let Some(object) = response.trace_summary.as_object_mut() {
+        object.insert("coding_runtime_probe".to_string(), probe);
+    }
 }
 
 fn runtime_lane_apply_planning_depth_prompt(
