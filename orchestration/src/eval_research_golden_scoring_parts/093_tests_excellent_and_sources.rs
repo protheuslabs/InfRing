@@ -411,6 +411,15 @@ fn source_fragment_fallback_template_is_not_a_good_user_answer() {
 }
 
 #[test]
+fn thin_source_inventory_after_answer_frame_counts_as_process_metadata() {
+    let normalized = normalize_for_compare(
+        "Here's what I found: - web search: Web benchmark synthesis: arxiv.",
+    );
+
+    assert!(answer_unit_is_process_or_metadata_fact(&normalized));
+}
+
+#[test]
 fn single_source_fragment_fallback_template_is_not_a_good_user_answer() {
     let normalized = normalize_for_compare(
         "Based on the retrieved evidence, the strongest supported answer is:
@@ -869,5 +878,67 @@ fn user_facing_answer_quality_flags_source_recap_as_not_good() {
         string_array_at(&grade.user_facing_answer_quality, &["blockers"])
             .iter()
             .any(|blocker| blocker == "source_or_process_recap_visible")
+    );
+}
+
+#[test]
+fn thin_source_inventory_answer_frame_fails_user_facing_quality() {
+    let case = json!({
+        "prompt": "Find recent benchmarks comparing agent frameworks. If the benchmark evidence is weak, explain why and suggest a practical evaluation plan.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["source", "query", "aperture"]
+        }
+    });
+    let payload = json!({
+        "response": "The practical answer is that the current evidence supports only a partial conclusion. Here's what I found: - web search: Web benchmark synthesis: arxiv.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "source": "web",
+                "query": "Find recent benchmarks comparing agent frameworks.",
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 4,
+            "content_rich_candidate_count": 2,
+            "claim_hint_count": 1,
+            "evidence_refs": [{
+                "title": "Agentic Frameworks for Reasoning Tasks",
+                "locator": "https://arxiv.org/abs/2604.16646",
+                "source_kind": "paper",
+                "snippet": "A benchmark-style paper comparing agentic frameworks for reasoning tasks."
+            }]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| {
+                blocker == "source_or_process_recap_visible"
+                    || blocker == "answer_units_not_prompt_useful"
+                    || blocker == "substantive_user_value_missing"
+            }),
+        "{:#?}",
+        grade.user_facing_answer_quality
     );
 }

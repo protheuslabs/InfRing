@@ -425,12 +425,46 @@ fn source_summary_without_answer_signal(normalized_response: &str) -> bool {
     if normalized_response.is_empty() {
         return false;
     }
+    let synthesis_marker_present = contains_any(
+        normalized_response,
+        &[
+            "my recommendation",
+            "i recommend",
+            "the practical takeaway",
+            "the tradeoff",
+            "the trade-off",
+            "what this means",
+            "so the best",
+            "so i would",
+            "practical evaluation plan",
+            "evaluation plan",
+            "next step",
+            "next steps",
+        ],
+    );
     let generic_bounded_template = normalized_response.contains("the safest bounded answer")
         && normalized_response.contains("recorded evidence so far");
     let raw_retrieval_summary = normalized_response.contains("recorded evidence so far")
         && normalized_response.contains("from web retrieval")
         && (normalized_response.contains("here s what i found")
             || normalized_response.contains("heres what i found"));
+    let thin_source_inventory_after_answer_frame =
+        (normalized_response.contains("here s what i found")
+            || normalized_response.contains("heres what i found"))
+            && contains_any(
+                normalized_response,
+                &[
+                    "web search",
+                    "web search:",
+                    "web search returned",
+                    "from web retrieval",
+                    "source:",
+                    " source ",
+                    "source web result",
+                    "description summary",
+                ],
+            )
+            && !synthesis_marker_present;
     let unanswered_retry_template = normalized_response
         .contains("current turn does not yet support a complete answer")
         && (normalized_response.contains("current tradeoff is breadth versus confidence")
@@ -470,22 +504,11 @@ fn source_summary_without_answer_signal(normalized_response: &str) -> bool {
                 || normalized_response.contains("coverage state usable evidence is present")
                 || normalized_response.contains("description summary")
                 || normalized_response.contains("user guide"))
-            && !contains_any(
-                normalized_response,
-                &[
-                    "my recommendation",
-                    "i recommend",
-                    "the practical takeaway",
-                    "the tradeoff",
-                    "the trade-off",
-                    "what this means",
-                    "so the best",
-                    "so i would",
-                ],
-            );
+            && !synthesis_marker_present;
     let broken_prompt_echo = normalized_response.contains("complete answer to ?");
     generic_bounded_template
         || raw_retrieval_summary
+        || thin_source_inventory_after_answer_frame
         || unanswered_retry_template
         || retrieval_status_dump
         || fallback_source_fragment_dump

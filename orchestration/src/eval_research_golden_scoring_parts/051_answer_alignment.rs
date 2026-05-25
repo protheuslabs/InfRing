@@ -145,7 +145,7 @@ fn answer_unit_usefulness_for_prompt(
     let evaluated = substantive_units > 0;
     let process_overrepresented = process_metadata_units >= 2
         || (process_metadata_units > 0 && process_metadata_units * 2 >= substantive_units.max(1));
-    let direct_answer_units_missing = evaluated && usable_evidence && direct_useful_units == 0;
+    let direct_answer_units_missing = evaluated && direct_useful_units == 0;
     let mut blockers = Vec::<String>::new();
     if process_overrepresented {
         blockers.push("process_metadata_units_overrepresented".to_string());
@@ -230,6 +230,14 @@ fn answer_unit_is_process_or_metadata_fact(normalized_unit: &str) -> bool {
     contains_any(
         normalized_unit,
         &[
+            "here s what i found",
+            "heres what i found",
+            "web search",
+            "web search:",
+            "web search returned",
+            "search returned",
+            "search surfaced",
+            "from web retrieval",
             "announcements are scheduled",
             "announcement is scheduled",
             "is scheduled for",

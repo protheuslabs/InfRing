@@ -432,6 +432,34 @@
     }
 
     #[test]
+    fn answer_unit_usefulness_flags_transport_fallback_without_prompt_useful_units() {
+        let retrieval_quality = json!({
+            "usable_evidence": false,
+            "status": "transport_failure"
+        });
+        let usefulness = answer_unit_usefulness_for_prompt(
+            &normalize_for_compare(
+                "Find recent benchmarks comparing agent frameworks. If the benchmark evidence is weak, explain why and suggest a practical evaluation plan.",
+            ),
+            "The live dashboard request timed out before the workflow produced a final answer. This is a transport failure, not a research result.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(usefulness.get("evaluated").and_then(Value::as_bool), Some(true));
+        assert_eq!(usefulness.get("pass").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            usefulness.get("top_blocker").and_then(Value::as_str),
+            Some("direct_answer_units_missing")
+        );
+        assert_eq!(
+            usefulness
+                .get("direct_useful_units")
+                .and_then(Value::as_u64),
+            Some(0)
+        );
+    }
+
+    #[test]
     fn response_truncation_detector_flags_incomplete_table_tail() {
         assert!(response_looks_truncated_or_incomplete(
             "Comparison:\n| Dimension | Best signal |\n| SDK ecosystem | Tavily (AWS"
