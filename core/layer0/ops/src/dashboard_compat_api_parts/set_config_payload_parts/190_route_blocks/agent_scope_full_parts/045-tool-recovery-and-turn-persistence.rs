@@ -268,6 +268,20 @@ fn synthesis_answer_shape(message: &str) -> &'static str {
     }
 }
 
+fn synthesis_answer_shape_lead_instruction(message: &str) -> &'static str {
+    match synthesis_answer_shape(message) {
+        "comparison" => {
+            "Lead with the comparison, recommendation, or decision boundary itself, naming the requested entities directly when the evidence supports that."
+        }
+        "update" => {
+            "Lead with the current-state takeaway itself, not with a retrieval recap, tool status, or source inventory."
+        }
+        _ => {
+            "Lead with the main answer or strongest finding itself, not with tool status, provider status, or a recap of what was searched."
+        }
+    }
+}
+
 fn synthesis_source_preferences(message: &str, metadata: Option<&Value>) -> Vec<String> {
     let mut out = Vec::<String>::new();
     let mut seen = HashSet::<String>::new();
@@ -1007,6 +1021,115 @@ fn synthesis_coverage_gaps(response_tools: &[Value]) -> Value {
     Value::Array(gaps.into_iter().take(12).collect())
 }
 
+fn synthesis_response_plan_for_tools(message: &str, response_tools: &[Value]) -> Value {
+    let primary_answer_units = evidence_packet_answer_units_for_goal(message, response_tools, 4);
+    let named_entity_lanes = hard_required_entity_lanes_for_tools(response_tools, 8);
+    let weak_or_missing_lanes = synthesis_coverage_lanes_for_tools(response_tools, 16)
+        .into_iter()
+        .filter(|row| {
+            !matches!(
+                row.get("status").and_then(Value::as_str),
+                Some("covered") | Some("usable")
+            )
+        })
+        .filter_map(|row| {
+            let requested = clean_text(
+                row.get("requested_text")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                180,
+            );
+            (!requested.is_empty()).then_some(requested)
+        })
+        .take(8)
+        .map(Value::String)
+        .collect::<Vec<_>>();
+    json!({
+        "schema_version": "synthesis_response_plan_v1",
+        "answer_shape": synthesis_answer_shape(message),
+        "lead_instruction": synthesis_answer_shape_lead_instruction(message),
+        "first_sentence_goal": "direct_answer_before_process",
+        "primary_answer_units": primary_answer_units,
+        "named_entity_lanes": named_entity_lanes,
+        "weak_or_missing_lanes": weak_or_missing_lanes,
+        "style_rules": [
+            "lead_with_answer",
+            "answer_before_status",
+            "compact_source_grounding",
+            "gaps_after_supported_answer"
+        ]
+    })
+}
+
+fn workflow_answer_unit_synthesis_prompt_context(
+    message: &str,
+    response_tools: &[Value],
+) -> String {
+    if response_tools.is_empty() {
+        return String::new();
+    }
+    let plan = synthesis_response_plan_for_tools(message, response_tools);
+    let primary_units = plan
+        .get("primary_answer_units")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|row| row.as_str().map(|value| clean_text(value, 420)))
+        .filter(|row| !row.is_empty())
+        .collect::<Vec<_>>();
+    let named_entities = plan
+        .get("named_entity_lanes")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|row| row.as_str().map(|value| clean_text(value, 120)))
+        .filter(|row| !row.is_empty())
+        .collect::<Vec<_>>();
+    let weak_lanes = plan
+        .get("weak_or_missing_lanes")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|row| row.as_str().map(|value| clean_text(value, 160)))
+        .filter(|row| !row.is_empty())
+        .collect::<Vec<_>>();
+    let mut lines = vec![
+        "Direct synthesis brief:".to_string(),
+        format!("- {}", synthesis_answer_shape_lead_instruction(message)),
+        "- Use the primary answer units below as the first-pass substrate instead of opening with tool/search/retrieval status or a source inventory.".to_string(),
+        "- Keep the first two sentences directly responsive to the user's semantic object. If evidence is partial, answer the supported part first and name remaining gaps after that.".to_string(),
+        "- Avoid generic lead-ins like `Here's what I found`, `The retrieved evidence shows`, or `Based on search/retrieval` when a direct answer unit exists.".to_string(),
+        "- Prefer compact natural prose. Usually 2-4 sentences are enough unless the user clearly asked for more detail.".to_string(),
+    ];
+    if !named_entities.is_empty() {
+        lines.push(format!(
+            "- Name these requested entities explicitly when they are covered: {}.",
+            named_entities.join(", ")
+        ));
+    }
+    if primary_units.is_empty() {
+        lines.push(
+            "Primary answer units:\n- none extracted; rely on recorded claim_hints, relevant_extract, and compact source refs before falling back to status language."
+                .to_string(),
+        );
+    } else {
+        lines.push(format!(
+            "Primary answer units:\n- {}",
+            primary_units.join("\n- ")
+        ));
+    }
+    if !weak_lanes.is_empty() {
+        lines.push(format!(
+            "Coverage gaps to mention only after the supported answer: {}.",
+            weak_lanes.join(", ")
+        ));
+    }
+    clean_text(&lines.join("\n"), 3_200)
+}
+
 fn workflow_synthesis_input_for_final_response(
     message: &str,
     response_tools: &[Value],
@@ -1027,6 +1150,7 @@ fn workflow_synthesis_input_for_final_response(
         "evidence_pack": synthesis_evidence_pack_for_tools(response_tools, 8),
         "evidence_claims": synthesis_evidence_claims_for_tools(response_tools, 12),
         "answer_units": synthesis_answer_units_for_tools(message, response_tools, 8),
+        "response_plan": synthesis_response_plan_for_tools(message, response_tools),
         "coverage_gaps": synthesis_coverage_gaps(response_tools),
         "final_output_contract": final_output_contract
     })
@@ -1699,7 +1823,31 @@ mod tool_turn_response_text_tests {
         );
         assert_eq!(
             input.pointer("/answer_units/0").and_then(Value::as_str),
-            Some("battery chemistry milestone Source: Battery milestone, example.test.")
+            Some("A lab reported a battery chemistry milestone that may matter for a 2026 breakthroughs briefing. Source: Battery milestone, example.test.")
+        );
+        assert_eq!(
+            input
+                .pointer("/response_plan/schema_version")
+                .and_then(Value::as_str),
+            Some("synthesis_response_plan_v1")
+        );
+        assert_eq!(
+            input
+                .pointer("/response_plan/answer_shape")
+                .and_then(Value::as_str),
+            Some("briefing")
+        );
+        assert_eq!(
+            input
+                .pointer("/response_plan/first_sentence_goal")
+                .and_then(Value::as_str),
+            Some("direct_answer_before_process")
+        );
+        assert_eq!(
+            input
+                .pointer("/response_plan/primary_answer_units/0")
+                .and_then(Value::as_str),
+            Some("A lab reported a battery chemistry milestone that may matter for a 2026 breakthroughs briefing. Source: Battery milestone, example.test.")
         );
         assert_eq!(
             input
@@ -1845,6 +1993,12 @@ mod tool_turn_response_text_tests {
         );
         assert_eq!(
             input
+                .pointer("/response_plan/answer_shape")
+                .and_then(Value::as_str),
+            Some("update")
+        );
+        assert_eq!(
+            input
                 .pointer("/evidence_needs/schema_version")
                 .and_then(Value::as_str),
             Some("evidence_needs_v1")
@@ -1861,6 +2015,60 @@ mod tool_turn_response_text_tests {
                 .and_then(Value::as_str),
             Some("claim_backed_source_refs")
         );
+    }
+
+    #[test]
+    fn workflow_answer_unit_synthesis_prompt_context_surfaces_direct_answer_guidance() {
+        let prompt = workflow_answer_unit_synthesis_prompt_context(
+            "Compare Microsoft Copilot and Google Workspace Gemini for AI productivity assistants.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["Microsoft Copilot", "Google Workspace Gemini"],
+                        "facets": ["AI productivity assistants"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "pack_version": "evidence_pack_v1",
+                        "source_kind": "official_docs",
+                        "source_class": "official_or_primary",
+                        "title": "Microsoft Copilot overview",
+                        "locator": "https://example.test/copilot",
+                        "source_domain": "example.test",
+                        "relevant_extract": "Microsoft Copilot emphasizes productivity workflows across Microsoft 365.",
+                        "why_relevant_to_query": "It directly covers Microsoft Copilot for AI productivity assistants.",
+                        "claim_hints": [
+                            "Microsoft Copilot emphasizes productivity workflows across Microsoft 365."
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "pack_version": "evidence_pack_v1",
+                        "source_kind": "official_docs",
+                        "source_class": "official_or_primary",
+                        "title": "Google Workspace Gemini overview",
+                        "locator": "https://example.test/gemini",
+                        "source_domain": "example.test",
+                        "relevant_extract": "Google Workspace Gemini focuses on drafting, summarization, and in-workflow assistance across Workspace apps.",
+                        "why_relevant_to_query": "It directly covers Google Workspace Gemini for AI productivity assistants.",
+                        "claim_hints": [
+                            "Google Workspace Gemini focuses on drafting, summarization, and in-workflow assistance across Workspace apps."
+                        ],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+
+        assert!(prompt.contains("Direct synthesis brief:"), "{prompt}");
+        assert!(prompt.contains("Lead with the comparison"), "{prompt}");
+        assert!(prompt.contains("Primary answer units:"), "{prompt}");
+        assert!(prompt.contains("Microsoft Copilot"), "{prompt}");
+        assert!(prompt.contains("Google Workspace Gemini"), "{prompt}");
+        assert!(prompt.contains("Avoid generic lead-ins"), "{prompt}");
     }
 
     #[test]

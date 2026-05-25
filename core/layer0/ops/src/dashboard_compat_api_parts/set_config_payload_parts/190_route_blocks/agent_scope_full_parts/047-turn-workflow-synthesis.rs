@@ -3295,6 +3295,15 @@ fn run_turn_workflow_final_response(
         serde_json::to_string(workflow.get("synthesis_input").unwrap_or(&Value::Null))
             .unwrap_or_else(|_| "{}".to_string());
     let tool_state_summary = workflow_tool_state_prompt_context(response_tools);
+    let answer_unit_synthesis_brief = workflow_answer_unit_synthesis_prompt_context(
+        message,
+        response_tools,
+    );
+    let answer_unit_synthesis_block = if answer_unit_synthesis_brief.is_empty() {
+        String::new()
+    } else {
+        format!("\n\n{answer_unit_synthesis_brief}")
+    };
     let missing_turn_tool_context_block = if missing_turn_tool_context_prompt.is_empty() {
         String::new()
     } else {
@@ -3342,7 +3351,7 @@ fn run_turn_workflow_final_response(
         };
         let direct_gate_system_prompt = format!("{temporal_context} {direct_gate_system_prompt}");
         let direct_gate_user_prompt = format!(
-            "User message:\n{message}\n\n{tool_state_summary}{missing_turn_tool_context_block}"
+            "User message:\n{message}\n\n{tool_state_summary}{answer_unit_synthesis_block}{missing_turn_tool_context_block}"
         );
         (
             clean_text(&direct_gate_system_prompt, 2_000),
@@ -3362,14 +3371,14 @@ fn run_turn_workflow_final_response(
             if response_tools.is_empty() {
                 clean_text(
                     &format!(
-                        "User message:\n{message}\n\n{tool_state_summary}{missing_turn_tool_context_block}"
+                        "User message:\n{message}\n\n{tool_state_summary}{answer_unit_synthesis_block}{missing_turn_tool_context_block}"
                     ),
                     20_000,
                 )
             } else {
                 clean_text(
                     &format!(
-                        "User message:\n{message}\n\n{tool_state_summary}{missing_turn_tool_context_block}\n\nSynthesis input envelope:\n{synthesis_input_json}\n\nRecorded tool outcomes:\n{tool_rows_json}"
+                        "User message:\n{message}\n\n{tool_state_summary}{answer_unit_synthesis_block}{missing_turn_tool_context_block}\n\nSynthesis input envelope:\n{synthesis_input_json}\n\nRecorded tool outcomes:\n{tool_rows_json}"
                     ),
                     20_000,
                 )
@@ -3609,14 +3618,14 @@ fn run_turn_workflow_final_response(
         } else if manual_toolbox_no_selected {
             clean_text(
                 &format!(
-                    "User message:\n{message}\n\n{tool_state_summary}{missing_turn_tool_context_block}"
+                    "User message:\n{message}\n\n{tool_state_summary}{answer_unit_synthesis_block}{missing_turn_tool_context_block}"
                 ),
                 8_000,
             )
         } else if compact_tool_retry {
             clean_text(
                 &format!(
-                    "User message:\n{message}\n\n{tool_state_summary}{missing_turn_tool_context_block}\n\nSynthesis input envelope:\n{synthesis_input_json}\n\nRecorded tool outcomes:\n{tool_rows_json}"
+                    "User message:\n{message}\n\n{tool_state_summary}{answer_unit_synthesis_block}{missing_turn_tool_context_block}\n\nSynthesis input envelope:\n{synthesis_input_json}\n\nRecorded tool outcomes:\n{tool_rows_json}"
                 ),
                 8_000,
             )
