@@ -100,9 +100,13 @@ pub(super) fn synthesis_uses_evidence_or_low_evidence_fallback(
             == Some("bounded_partial_answer")
             && response_has_low_evidence_signal(&normalized)
             && response_has_bounded_partial_shortform(&normalized);
+        let direct_evidence_backed_answer =
+            response_has_direct_evidence_backed_answer_shape(&response, &normalized);
         return (response_has_source_signal(&normalized)
             || payload_has_final_citation_signal(payload))
-            && (response_has_research_shape(&normalized) || bounded_partial_shortform)
+            && (response_has_research_shape(&normalized)
+                || bounded_partial_shortform
+                || direct_evidence_backed_answer)
             && !response_overleads_with_tool_status(&normalized)
             && !response_uses_internal_runtime_context_as_evidence(&normalized)
             && !response_requests_more_scope_without_substance(&normalized);
@@ -612,6 +616,21 @@ fn response_has_bounded_partial_shortform(normalized: &str) -> bool {
         .any(|needle| normalized.contains(*needle))
 }
 
+fn response_has_direct_evidence_backed_answer_shape(response_text: &str, normalized: &str) -> bool {
+    if normalized.split_whitespace().count() < 24 {
+        return false;
+    }
+    if response_has_low_evidence_signal(normalized) {
+        return false;
+    }
+    if response_has_source_title_fragment_contamination(response_text) {
+        return false;
+    }
+    response_text_units(response_text)
+        .iter()
+        .any(|unit| unit.split_whitespace().count() >= 8)
+}
+
 fn response_overleads_with_tool_status(normalized: &str) -> bool {
     let first = normalized.split(['.', '\n']).next().unwrap_or("").trim();
     if first.is_empty() {
@@ -787,6 +806,183 @@ fn response_uses_internal_runtime_context_as_evidence(normalized: &str) -> bool 
     .any(|needle| normalized.contains(*needle))
 }
 
+fn response_text_units(response_text: &str) -> Vec<String> {
+    response_text
+        .split(['\n', '\r'])
+        .flat_map(|line| line.split(". "))
+        .map(|unit| clean_text(unit, 400))
+        .filter(|unit| !unit.is_empty())
+        .collect()
+}
+
+fn response_has_source_title_fragment_contamination(response_text: &str) -> bool {
+    let normalized_response = normalize_for_compare(response_text);
+    let title_list_marker = [
+        "other supported points",
+        "supported points",
+        "related sources",
+        "source titles",
+        "titles include",
+        "headlines include",
+        "additional sources",
+    ]
+    .iter()
+    .any(|needle| normalized_response.contains(*needle));
+    let suspicious_units = response_text_units(response_text)
+        .iter()
+        .filter(|unit| answer_unit_looks_like_source_title_fragment(unit))
+        .count();
+    suspicious_units >= 2 || (title_list_marker && suspicious_units >= 1)
+}
+
+fn answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
+    let cleaned = unit
+        .trim()
+        .trim_matches(|ch: char| ch == '"' || ch == '\'' || ch == '[' || ch == ']')
+        .trim();
+    let word_count = cleaned.split_whitespace().count();
+    if !(5..=24).contains(&word_count) {
+        return false;
+    }
+    let normalized = normalize_for_compare(cleaned);
+    let tokens = cleaned
+        .split_whitespace()
+        .map(|token| {
+            token.trim_matches(|ch: char| {
+                !ch.is_ascii_alphanumeric() && ch != '-' && ch != '.' && ch != '/'
+            })
+        })
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    let alpha_tokens = tokens
+        .iter()
+        .copied()
+        .filter(|token| token.chars().any(|ch| ch.is_ascii_alphabetic()))
+        .collect::<Vec<_>>();
+    if alpha_tokens.len() < 4 {
+        return false;
+    }
+    let title_like_words = alpha_tokens
+        .iter()
+        .filter(|token| token_looks_title_like(token))
+        .count();
+    let lowercase_content_words = alpha_tokens
+        .iter()
+        .filter(|token| token_is_lowercase_content_word(token))
+        .count();
+    let contains_vs = normalized.contains(" vs ") || normalized.contains(" versus ");
+    let headline_punctuation = cleaned.contains(':') || cleaned.contains(" - ");
+    let question_like = cleaned.ends_with('?');
+    let title_ratio = title_like_words as f64 / alpha_tokens.len() as f64;
+    let title_like_prefix = cleaned
+        .split_once(':')
+        .map(|(prefix, _)| {
+            let prefix_tokens = prefix
+                .split_whitespace()
+                .map(|token| {
+                    token.trim_matches(|ch: char| {
+                        !ch.is_ascii_alphanumeric() && ch != '-' && ch != '.' && ch != '/'
+                    })
+                })
+                .filter(|token| !token.is_empty())
+                .collect::<Vec<_>>();
+            let prefix_alpha_tokens = prefix_tokens
+                .iter()
+                .copied()
+                .filter(|token| token.chars().any(|ch| ch.is_ascii_alphabetic()))
+                .collect::<Vec<_>>();
+            if prefix_alpha_tokens.len() < 4 {
+                return false;
+            }
+            let prefix_title_like_words = prefix_alpha_tokens
+                .iter()
+                .filter(|token| token_looks_title_like(token))
+                .count();
+            let prefix_lowercase_content_words = prefix_alpha_tokens
+                .iter()
+                .filter(|token| token_is_lowercase_content_word(token))
+                .count();
+            let prefix_title_ratio =
+                prefix_title_like_words as f64 / prefix_alpha_tokens.len() as f64;
+            prefix_alpha_tokens.len() >= 4
+                && prefix_title_like_words >= 3
+                && prefix_lowercase_content_words <= 3
+                && prefix_title_ratio >= 0.55
+        })
+        .unwrap_or(false);
+
+    (contains_vs && title_like_words >= 3 && lowercase_content_words <= 4)
+        || (question_like && title_ratio >= 0.45 && lowercase_content_words <= 4)
+        || (headline_punctuation && title_ratio >= 0.50 && lowercase_content_words <= 3)
+        || (title_ratio >= 0.65 && lowercase_content_words <= 2)
+        || title_like_prefix
+        || (normalized.starts_with("comparison ")
+            && headline_punctuation
+            && (contains_vs || normalized.contains(" which is better ")))
+        || (cleaned
+            .chars()
+            .take_while(|ch| ch.is_ascii_digit())
+            .count()
+            >= 4
+            && headline_punctuation
+            && alpha_tokens.len() >= 6)
+}
+
+fn token_looks_title_like(token: &str) -> bool {
+    let letters = token
+        .chars()
+        .filter(|ch| ch.is_ascii_alphabetic())
+        .collect::<Vec<_>>();
+    if letters.is_empty() {
+        return false;
+    }
+    let uppercase_letters = letters.iter().filter(|ch| ch.is_ascii_uppercase()).count();
+    if uppercase_letters == letters.len() {
+        return true;
+    }
+    let first_is_uppercase = token
+        .chars()
+        .next()
+        .map(|ch| ch.is_ascii_uppercase())
+        .unwrap_or(false);
+    let has_internal_capital = letters.iter().skip(1).any(|ch| ch.is_ascii_uppercase());
+    first_is_uppercase || has_internal_capital
+}
+
+fn token_is_lowercase_content_word(token: &str) -> bool {
+    let normalized = token
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '/')
+        .collect::<String>()
+        .to_ascii_lowercase();
+    !normalized.is_empty()
+        && normalized
+            .chars()
+            .all(|ch| !ch.is_ascii_alphabetic() || ch.is_ascii_lowercase())
+        && !matches!(
+            normalized.as_str(),
+            "a"
+                | "an"
+                | "and"
+                | "as"
+                | "at"
+                | "by"
+                | "for"
+                | "from"
+                | "in"
+                | "into"
+                | "is"
+                | "of"
+                | "on"
+                | "or"
+                | "the"
+                | "to"
+                | "vs"
+                | "versus"
+                | "with"
+        )
+}
+
 fn post_tool_paths(payload: &Value, keys: &[&str], predicate: fn(&Value) -> bool) -> Vec<String> {
     let mut paths = Vec::new();
     for (prefix, rows) in [
@@ -932,6 +1128,66 @@ mod tests {
             }
         });
         assert!(synthesis_uses_evidence_or_low_evidence_fallback(
+            &json!({}),
+            &payload,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn synthesis_gate_accepts_direct_evidence_backed_answer_without_research_framing() {
+        let payload = json!({
+            "response": "Quebec City is a strong winter weekend choice when you want atmosphere, walkable historic streets, and food-centered planning. Old Quebec delivers the most distinctive setting, while the elevation and winter footing mean travelers should keep their walking radius realistic and prioritize a compact itinerary.",
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "result": "Quebec City winter travel findings",
+                "evidence_refs": [{
+                    "title": "Old Quebec winter guide",
+                    "locator": "https://example.com/quebec-winter",
+                    "snippet": "Old Quebec is elevated above Saint-Roch and is best handled with a compact winter itinerary."
+                }]
+            }],
+            "response_finalization": {
+                "citations": [{
+                    "citation_id": "source_1",
+                    "title": "Old Quebec winter guide",
+                    "locator": "https://example.com/quebec-winter"
+                }]
+            }
+        });
+        assert!(synthesis_uses_evidence_or_low_evidence_fallback(
+            &json!({}),
+            &payload,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn synthesis_gate_rejects_title_fragment_disguised_as_direct_answer() {
+        let payload = json!({
+            "response": "Comparison 2026-05-20 Playwright vs Selenium 2026: Which Is Better for Your Team. Other supported points: Traditional browser automation works when the page is predictable.",
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "result": "Browser automation comparison",
+                "evidence_refs": [{
+                    "title": "Playwright vs Selenium",
+                    "locator": "https://example.com/browser-compare",
+                    "snippet": "Traditional browser automation works when the page is predictable."
+                }]
+            }],
+            "response_finalization": {
+                "citations": [{
+                    "citation_id": "source_1",
+                    "title": "Playwright vs Selenium",
+                    "locator": "https://example.com/browser-compare"
+                }]
+            }
+        });
+        assert!(!synthesis_uses_evidence_or_low_evidence_fallback(
             &json!({}),
             &payload,
             true,
