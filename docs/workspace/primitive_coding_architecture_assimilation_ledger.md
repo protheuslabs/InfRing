@@ -1226,3 +1226,48 @@ Expected effect:
 - preserve receipt-backed safety
 - keep public interface edits as generic placement/validation work rather than
   case-specific synthesis
+
+## Primitive candidate: `planning_depth_selector`
+
+Status: `v1_wired_into_bounded_existing_project_lane`
+
+Primitive definition:
+
+`planning_depth_selector` chooses the minimum setup/planning ceiling before a
+coding runtime asks a model for an edit manifest. Planning depth is a ceiling,
+not a mandatory phase: lower-depth tasks must not inherit architecture,
+checkpoint, memory, or broad discovery overhead unless a generic escalation
+trigger proves the task requires it.
+
+Depth ladder:
+
+- `direct_bounded_edit`: prompt and obvious target are enough; mutate first
+- `local_slice`: read bounded relevant files, make the smallest safe slice plan,
+  then mutate
+- `context_pack_implementation_plan`: build a local context pack for multi-file
+  existing-project work
+- `architecture_bootstrap`: define architecture, stack, interfaces, and project
+  layout before implementation
+- `checkpointed_project_operator`: use long-horizon checkpoint planning,
+  handoff, validation loops, and stop conditions
+
+Rules:
+
+- default bounded existing-project work to `local_slice`
+- use the selected depth as a maximum allowed setup layer, not as a target to
+  consume
+- escalate only for missing required source/test context, unsafe requirement
+  ambiguity, cross-module dependency evidence, architecture/stack decisions, or
+  checkpoint-boundary requirements
+- keep eval levels, fixture names, expected symbols, and test-case-specific
+  logic outside the selector
+- expose budgets through workflow CD so composites can tune timing without
+  changing runtime code
+
+Expected effect:
+
+- prevent Level 6-style tasks from paying architecture/project-operator planning
+  tax before the first mutation
+- preserve deeper planning for genuinely broad or long-horizon coding work
+- make setup latency visible and tunable as a primitive contract instead of a
+  pile of case-specific prompt patches

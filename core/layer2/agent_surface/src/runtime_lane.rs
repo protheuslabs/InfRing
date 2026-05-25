@@ -1297,13 +1297,17 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
         ],
     )
     .unwrap_or(true);
+    let planning_depth = runtime_lane_planning_depth_selector(prompt, metadata);
     let model_started = Instant::now();
     let mut provider_response = match provider_client.complete(&ProviderRequest {
-            prompt: runtime_lane_bounded_existing_project_edit_loop_prompt(
-                prompt,
-                &workspace_root,
-                &context_pack,
-                &public_api_bindings,
+            prompt: runtime_lane_apply_planning_depth_prompt(
+                runtime_lane_bounded_existing_project_edit_loop_prompt(
+                    prompt,
+                    &workspace_root,
+                    &context_pack,
+                    &public_api_bindings,
+                ),
+                &planning_depth,
             ),
             system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
             tools: Vec::new(),
@@ -1316,6 +1320,7 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                     .unwrap_or(60),
                 "omit_ollama_thinking_flags": fast_lane_omit_ollama_thinking_flags,
                 "lane": "bounded_existing_project_edit_loop",
+                "planning_depth_selector": planning_depth.to_json(),
                 "attempt": "fast_manifest_first_pass",
                 "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
             }),
@@ -3737,12 +3742,231 @@ fn runtime_lane_bounded_existing_project_edit_loop_eligible(
     has_mutation_intent && existing_project_signal && !broad_architecture_signal
 }
 
+#[derive(Debug, Clone, Copy)]
+struct RuntimeLanePlanningDepthProfile {
+    depth: u8,
+    name: &'static str,
+    setup_scope: &'static str,
+    planning_budget_ms: u64,
+    first_mutation_target_ms: u64,
+    pre_mutation_read_budget: u64,
+    escalation_policy: &'static str,
+}
+
+impl RuntimeLanePlanningDepthProfile {
+    fn to_json(self) -> Value {
+        json!({
+            "depth": self.depth,
+            "name": self.name,
+            "setup_scope": self.setup_scope,
+            "planning_budget_ms": self.planning_budget_ms,
+            "first_mutation_target_ms": self.first_mutation_target_ms,
+            "pre_mutation_read_budget": self.pre_mutation_read_budget,
+            "escalation_policy": self.escalation_policy,
+        })
+    }
+}
+
+fn runtime_lane_planning_depth_selector(
+    prompt: &str,
+    metadata: &Value,
+) -> RuntimeLanePlanningDepthProfile {
+    let requested_depth = runtime_lane_planning_depth_requested_name(metadata)
+        .unwrap_or_else(|| runtime_lane_infer_planning_depth_name(prompt));
+    let mut profile = runtime_lane_planning_depth_profile(requested_depth)
+        .unwrap_or_else(|| runtime_lane_planning_depth_profile("local_slice").unwrap());
+    profile.planning_budget_ms = runtime_lane_planning_depth_u64(
+        metadata,
+        "planning_budget_ms",
+        profile.name,
+        profile.planning_budget_ms,
+    );
+    profile.first_mutation_target_ms = runtime_lane_planning_depth_u64(
+        metadata,
+        "first_mutation_target_ms",
+        profile.name,
+        profile.first_mutation_target_ms,
+    );
+    profile.pre_mutation_read_budget = runtime_lane_planning_depth_u64(
+        metadata,
+        "pre_mutation_read_budget",
+        profile.name,
+        profile.pre_mutation_read_budget,
+    );
+    profile
+}
+
+fn runtime_lane_planning_depth_requested_name(metadata: &Value) -> Option<&str> {
+    for path in [
+        "/native_success_criteria/planning_depth",
+        "/workflow/native_success_criteria/planning_depth",
+        "/native_success_criteria/planning_depth_selector/default_depth",
+        "/workflow/native_success_criteria/planning_depth_selector/default_depth",
+    ] {
+        if let Some(value) = metadata.pointer(path).and_then(Value::as_str) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn runtime_lane_infer_planning_depth_name(prompt: &str) -> &'static str {
+    let lower = prompt.to_lowercase();
+    let direct_edit_signal = [
+        "hello world",
+        "single file",
+        "one file",
+        "small edit",
+        "simple file",
+        "create a file",
+    ]
+    .iter()
+    .any(|token| lower.contains(token));
+    if direct_edit_signal {
+        return "direct_bounded_edit";
+    }
+    let architecture_signal = [
+        "architecture",
+        "stack",
+        "scaffold",
+        "new project",
+        "from scratch",
+        "bootstrap",
+        "system design",
+    ]
+    .iter()
+    .any(|token| lower.contains(token));
+    if architecture_signal {
+        return "architecture_bootstrap";
+    }
+    let context_pack_signal = [
+        "multiple files",
+        "multi-file",
+        "integration",
+        "database",
+        "persistence",
+        "public api",
+        "existing project",
+    ]
+    .iter()
+    .any(|token| lower.contains(token));
+    if context_pack_signal {
+        return "context_pack_implementation_plan";
+    }
+    "local_slice"
+}
+
+fn runtime_lane_planning_depth_profile(name: &str) -> Option<RuntimeLanePlanningDepthProfile> {
+    match name {
+        "0" | "depth0" | "direct_bounded_edit" => Some(RuntimeLanePlanningDepthProfile {
+            depth: 0,
+            name: "direct_bounded_edit",
+            setup_scope: "use supplied prompt and obvious local target only",
+            planning_budget_ms: 2_000,
+            first_mutation_target_ms: 5_000,
+            pre_mutation_read_budget: 0,
+            escalation_policy:
+                "escalate only when no safe target path or required content can be inferred",
+        }),
+        "1" | "depth1" | "local_slice" => Some(RuntimeLanePlanningDepthProfile {
+            depth: 1,
+            name: "local_slice",
+            setup_scope: "read bounded relevant files, make the smallest safe slice plan, then mutate",
+            planning_budget_ms: 8_000,
+            first_mutation_target_ms: 15_000,
+            pre_mutation_read_budget: 4,
+            escalation_policy: "escalate only for missing relevant files, unsafe ambiguity, or cross-module dependency evidence",
+        }),
+        "2" | "depth2" | "context_pack_implementation_plan" => Some(RuntimeLanePlanningDepthProfile {
+            depth: 2,
+            name: "context_pack_implementation_plan",
+            setup_scope: "build a local context pack and implementation plan for multi-file existing-project work",
+            planning_budget_ms: 20_000,
+            first_mutation_target_ms: 30_000,
+            pre_mutation_read_budget: 12,
+            escalation_policy: "escalate only when architecture, stack, or checkpoint scope must be decided before editing",
+        }),
+        "3" | "depth3" | "architecture_bootstrap" => Some(RuntimeLanePlanningDepthProfile {
+            depth: 3,
+            name: "architecture_bootstrap",
+            setup_scope: "define architecture, stack, interfaces, and project layout before implementation",
+            planning_budget_ms: 45_000,
+            first_mutation_target_ms: 60_000,
+            pre_mutation_read_budget: 24,
+            escalation_policy:
+                "escalate to checkpointed operation when the task cannot be completed in one coherent slice",
+        }),
+        "4" | "depth4" | "checkpointed_project_operator" => Some(RuntimeLanePlanningDepthProfile {
+            depth: 4,
+            name: "checkpointed_project_operator",
+            setup_scope: "run long-horizon checkpoint planning, memory handoff, validation loops, and stop conditions",
+            planning_budget_ms: 90_000,
+            first_mutation_target_ms: 120_000,
+            pre_mutation_read_budget: 40,
+            escalation_policy: "stop or ask for user input when the checkpoint boundary, requirements, or blocker state is unclear",
+        }),
+        _ => None,
+    }
+}
+
+fn runtime_lane_planning_depth_u64(
+    metadata: &Value,
+    key: &str,
+    depth_name: &str,
+    fallback: u64,
+) -> u64 {
+    for path in [
+        format!("/native_success_criteria/planning_depth_selector/{key}/{depth_name}"),
+        format!("/workflow/native_success_criteria/planning_depth_selector/{key}/{depth_name}"),
+        format!("/native_success_criteria/{key}"),
+        format!("/workflow/native_success_criteria/{key}"),
+    ] {
+        if let Some(value) = metadata.pointer(&path).and_then(Value::as_u64) {
+            return value;
+        }
+    }
+    fallback
+}
+
+fn runtime_lane_apply_planning_depth_prompt(
+    mut prompt: String,
+    profile: &RuntimeLanePlanningDepthProfile,
+) -> String {
+    prompt.push_str("\n\nPlanning depth selector:\n");
+    prompt.push_str(&format!(
+        "- selected_depth: {} ({})\n",
+        profile.depth, profile.name
+    ));
+    prompt.push_str(&format!("- setup_scope: {}\n", profile.setup_scope));
+    prompt.push_str(&format!(
+        "- planning_budget_ms: {}\n",
+        profile.planning_budget_ms
+    ));
+    prompt.push_str(&format!(
+        "- first_mutation_target_ms: {}\n",
+        profile.first_mutation_target_ms
+    ));
+    prompt.push_str(&format!(
+        "- pre_mutation_read_budget: {}\n",
+        profile.pre_mutation_read_budget
+    ));
+    prompt.push_str(&format!(
+        "- escalation_policy: {}\n",
+        profile.escalation_policy
+    ));
+    prompt.push_str(
+        "Use this depth as a ceiling. Do not perform deeper planning unless the escalation policy is met. Prefer the first safe source/test mutation over broad analysis.\n",
+    );
+    prompt
+}
+
 fn runtime_lane_bounded_existing_project_edit_loop_system() -> String {
     "You are the bounded_existing_project_edit_loop fast lane for a primitive-first local coding runtime.\n\
 Return only valid JSON. No markdown. No prose.\n\
 Use this exact shape: {\"deterministic_local_loop\":{\"workspace_root\":\"/absolute/path\",\"actions\":[...]}}.\n\
 Allowed actions: file_patch with path, old, new, allow_multiple; write_file with path, content, overwrite; command_run with cmd.\n\
 Order source/test file_patch or write_file actions before command_run actions. Baseline validation output is setup context for the first edit; validation repair is only legal after a mutation receipt exists.\n\
+Respect the planning depth profile supplied in the prompt as a ceiling. Depth 0/1 must not perform architecture or stack planning; mutate from supplied local context or return a structured blocker.\n\
 Prefer file_patch for existing-file localized edits. Use write_file only for new files or broad replacements.\n\
 Keep the action list small. Use exact old text from the context pack for patches. Preserve existing behavior.\n\
 Preserve existing public import paths and owner modules. If tests, probes, or callers import a symbol from a module, make that module provide the symbol directly; a package __init__ re-export alone is not enough.\n\

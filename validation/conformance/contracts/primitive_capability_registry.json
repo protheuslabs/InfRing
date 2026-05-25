@@ -258,6 +258,17 @@
       "promotion_status": "seed"
     },
     {
+      "id": "runtime.planning_depth_selector",
+      "name": "Planning Depth Selector",
+      "kind": "primitive",
+      "owner_domain": "core",
+      "layer": "2",
+      "path": "core/layer2/agent_surface/src/runtime_lane.rs",
+      "contract_surface": "native_runtime_planning_depth_contract",
+      "extension_surface": "workflow_cd_planning_depth_ladder_and_budgets",
+      "promotion_status": "seed"
+    },
+    {
       "id": "runtime.validation_repair_after_mutation_gate",
       "name": "Validation Repair After Mutation Gate",
       "kind": "primitive",

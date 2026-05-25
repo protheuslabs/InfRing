@@ -213,6 +213,45 @@
       "setup_depth": "validation_guided_repair",
       "edit_context_packet": false,
       "validation_repair_requires_mutation_receipt": true,
+      "planning_depth_selector": {
+        "enabled": true,
+        "default_depth": "local_slice",
+        "depth_ladder": [
+          "direct_bounded_edit",
+          "local_slice",
+          "context_pack_implementation_plan",
+          "architecture_bootstrap",
+          "checkpointed_project_operator"
+        ],
+        "planning_budget_ms": {
+          "direct_bounded_edit": 2000,
+          "local_slice": 8000,
+          "context_pack_implementation_plan": 20000,
+          "architecture_bootstrap": 45000,
+          "checkpointed_project_operator": 90000
+        },
+        "first_mutation_target_ms": {
+          "direct_bounded_edit": 5000,
+          "local_slice": 15000,
+          "context_pack_implementation_plan": 30000,
+          "architecture_bootstrap": 60000,
+          "checkpointed_project_operator": 120000
+        },
+        "pre_mutation_read_budget": {
+          "direct_bounded_edit": 0,
+          "local_slice": 4,
+          "context_pack_implementation_plan": 12,
+          "architecture_bootstrap": 24,
+          "checkpointed_project_operator": 40
+        },
+        "escalation_triggers": [
+          "missing_required_source_or_test_context",
+          "unsafe_requirement_ambiguity",
+          "cross_module_dependency_evidence",
+          "architecture_or_stack_decision_required",
+          "checkpoint_boundary_required"
+        ]
+      },
       "bounded_direct_edit_max_files": 8,
       "bounded_direct_edit_repair_attempts": 1,
       "bounded_direct_edit_open_loop_after_failure": false,
@@ -468,6 +507,7 @@
   "stages": [
     "intake_normalization",
     "decomposition_planning",
+    "planning_depth_selection",
     "coordination_sequencing",
     "recovery_escalation",
     "result_packaging",
