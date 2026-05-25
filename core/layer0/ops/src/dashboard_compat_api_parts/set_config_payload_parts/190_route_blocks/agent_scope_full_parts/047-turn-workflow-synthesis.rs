@@ -1859,6 +1859,7 @@ fn evidence_packet_answer_units_for_goal(
             !answer.is_empty()
                 && !workflow_answer_unit_is_process_or_metadata_fact(&answer)
                 && !workflow_answer_unit_contains_ui_or_source_shell(&answer)
+                && !workflow_answer_unit_looks_like_source_title_fragment(&answer)
                 && workflow_answer_unit_matches_goal(&answer, &goal_terms)
                 && evidence_packet_text_is_answer_claim(&answer)
         })
@@ -1870,14 +1871,28 @@ fn evidence_packet_answer_units_for_goal(
     });
     if filtered.is_empty() {
         let mut fallback = units
-            .into_iter()
+            .iter()
             .filter(|unit| {
                 let (answer, _) = fallback_answer_unit_text_and_source(unit);
                 !answer.is_empty()
                     && !workflow_answer_unit_contains_ui_or_source_shell(&answer)
+                    && !workflow_answer_unit_looks_like_source_title_fragment(&answer)
                     && evidence_packet_text_is_answer_claim(&answer)
             })
+            .cloned()
             .collect::<Vec<_>>();
+        if fallback.is_empty() {
+            fallback = units
+                .iter()
+                .filter(|unit| {
+                    let (answer, _) = fallback_answer_unit_text_and_source(unit);
+                    !answer.is_empty()
+                        && !workflow_answer_unit_contains_ui_or_source_shell(&answer)
+                        && evidence_packet_text_is_answer_claim(&answer)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+        }
         fallback.sort_by(|left, right| {
             workflow_answer_unit_rank(right, &goal_terms)
                 .cmp(&workflow_answer_unit_rank(left, &goal_terms))
@@ -1937,6 +1952,149 @@ fn workflow_answer_unit_contains_ui_or_source_shell(unit: &str) -> bool {
     )
 }
 
+fn workflow_answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
+    fn title_style_stats(raw: &str) -> Option<(usize, usize, usize, f64)> {
+        let cleaned = clean_text(raw, 320);
+        if cleaned.is_empty() {
+            return None;
+        }
+        let tokens = cleaned
+            .split_whitespace()
+            .map(|token| {
+                token.trim_matches(|ch: char| {
+                    !ch.is_ascii_alphanumeric() && ch != '-' && ch != '.' && ch != '/'
+                })
+            })
+            .filter(|token| !token.is_empty())
+            .collect::<Vec<_>>();
+        let alpha_tokens = tokens
+            .iter()
+            .copied()
+            .filter(|token| token.chars().any(|ch| ch.is_ascii_alphabetic()))
+            .collect::<Vec<_>>();
+        if alpha_tokens.len() < 4 {
+            return None;
+        }
+        let title_like_words = alpha_tokens
+            .iter()
+            .filter(|token| workflow_answer_unit_token_looks_title_like(token))
+            .count();
+        let lowercase_content_words = alpha_tokens
+            .iter()
+            .filter(|token| workflow_answer_unit_token_is_lowercase_content_word(token))
+            .count();
+        let title_ratio = title_like_words as f64 / alpha_tokens.len() as f64;
+        Some((
+            alpha_tokens.len(),
+            title_like_words,
+            lowercase_content_words,
+            title_ratio,
+        ))
+    }
+
+    let cleaned = clean_text(unit, 520);
+    if cleaned.is_empty() {
+        return false;
+    }
+    let normalized = cleaned.to_ascii_lowercase();
+    if normalized.contains("other supported points:")
+        || normalized.contains("important limitation:")
+        || normalized.contains("last updated")
+    {
+        return true;
+    }
+    let Some((alpha_count, title_like_words, lowercase_content_words, title_ratio)) =
+        title_style_stats(&cleaned)
+    else {
+        return false;
+    };
+    let contains_vs = normalized.contains(" vs ") || normalized.contains(" versus ");
+    let headline_punctuation = cleaned.contains(':') || cleaned.contains(" - ");
+    let question_like = cleaned.ends_with('?');
+    let title_like_prefix = cleaned
+        .split_once(':')
+        .and_then(|(prefix, _)| title_style_stats(prefix))
+        .map(|(prefix_alpha_count, prefix_title_like_words, prefix_lowercase_content_words, prefix_title_ratio)| {
+            prefix_alpha_count >= 4
+                && prefix_title_like_words >= 3
+                && prefix_lowercase_content_words <= 3
+                && prefix_title_ratio >= 0.55
+        })
+        .unwrap_or(false);
+
+    (contains_vs && title_like_words >= 3 && lowercase_content_words <= 4)
+        || (question_like && title_ratio >= 0.45 && lowercase_content_words <= 4)
+        || (headline_punctuation && title_ratio >= 0.50 && lowercase_content_words <= 3)
+        || (title_ratio >= 0.65 && lowercase_content_words <= 2)
+        || title_like_prefix
+        || (cleaned
+            .chars()
+            .take_while(|ch| ch.is_ascii_digit())
+            .count()
+            >= 4
+            && headline_punctuation
+            && alpha_count >= 6)
+}
+
+fn workflow_answer_unit_token_looks_title_like(token: &str) -> bool {
+    let letters = token
+        .chars()
+        .filter(|ch| ch.is_ascii_alphabetic())
+        .collect::<Vec<_>>();
+    if letters.is_empty() {
+        return false;
+    }
+    let uppercase_letters = letters.iter().filter(|ch| ch.is_ascii_uppercase()).count();
+    if uppercase_letters == letters.len() {
+        return true;
+    }
+    let first_is_uppercase = token
+        .chars()
+        .next()
+        .map(|ch| ch.is_ascii_uppercase())
+        .unwrap_or(false);
+    let has_internal_capital = letters.iter().skip(1).any(|ch| ch.is_ascii_uppercase());
+    first_is_uppercase || has_internal_capital
+}
+
+fn workflow_answer_unit_token_is_lowercase_content_word(token: &str) -> bool {
+    let normalized = token
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '/')
+        .collect::<String>()
+        .to_ascii_lowercase();
+    !normalized.is_empty()
+        && normalized
+            .chars()
+            .all(|ch| !ch.is_ascii_alphabetic() || ch.is_ascii_lowercase())
+        && !workflow_answer_unit_source_title_style_stopword(&normalized)
+}
+
+fn workflow_answer_unit_source_title_style_stopword(token: &str) -> bool {
+    matches!(
+        token,
+        "a"
+            | "an"
+            | "and"
+            | "as"
+            | "at"
+            | "by"
+            | "for"
+            | "from"
+            | "in"
+            | "into"
+            | "is"
+            | "of"
+            | "on"
+            | "or"
+            | "the"
+            | "to"
+            | "vs"
+            | "versus"
+            | "with"
+    )
+}
+
 fn workflow_answer_unit_has_clean_lead(answer: &str) -> bool {
     let cleaned = clean_text(answer, 520);
     let normalized = cleaned.to_ascii_lowercase();
@@ -1964,16 +2122,42 @@ fn workflow_answer_unit_goal_overlap_count(unit: &str, goal_terms: &[String]) ->
         .count()
 }
 
-fn workflow_answer_unit_rank(unit: &str, goal_terms: &[String]) -> (usize, usize, usize, usize) {
+fn workflow_answer_unit_rank(
+    unit: &str,
+    goal_terms: &[String],
+) -> (usize, usize, usize, usize, usize) {
     let (answer, source) = fallback_answer_unit_text_and_source(unit);
     (
         workflow_answer_unit_goal_overlap_count(&answer, goal_terms),
         usize::from(evidence_packet_text_is_answer_claim(&answer)),
+        usize::from(!workflow_answer_unit_looks_like_source_title_fragment(&answer)),
         usize::from(workflow_answer_unit_has_clean_lead(&answer)),
         usize::from(
             !source.is_empty() && !source.to_ascii_lowercase().contains("web result from "),
         ),
     )
+}
+
+fn fallback_required_lane_intro(required_entity_lanes: &[String]) -> Option<String> {
+    let lanes = required_entity_lanes
+        .iter()
+        .map(|lane| clean_text(lane, 120))
+        .filter(|lane| !lane.is_empty())
+        .collect::<Vec<_>>();
+    match lanes.as_slice() {
+        [] => None,
+        [lane] => Some(lane.clone()),
+        [left, right] => {
+            if left.eq_ignore_ascii_case("us") {
+                Some(format!("{right} in the US"))
+            } else if right.eq_ignore_ascii_case("us") {
+                Some(format!("{left} in the US"))
+            } else {
+                Some(format!("{left} and {right}"))
+            }
+        }
+        _ => None,
+    }
 }
 
 fn workflow_finish_visible_sentence(raw: &str) -> String {
@@ -2034,6 +2218,7 @@ fn text_matches_required_entity_lanes(text: &str, required_entity_lanes: &[Strin
 fn fallback_visible_answer_for_required_lanes(
     unit: &str,
     required_entity_lanes: &[String],
+    goal_terms: &[String],
 ) -> (String, Vec<String>) {
     let (answer, source) = fallback_answer_unit_text_and_source(unit);
     if answer.is_empty() {
@@ -2047,6 +2232,23 @@ fn fallback_visible_answer_for_required_lanes(
     if matched_in_source.len() == 1 {
         let lane = clean_text(&matched_in_source[0], 120);
         return (clean_text(&format!("For {lane}, {answer}"), 520), matched_in_source);
+    }
+    if let Some(intro) = fallback_required_lane_intro(required_entity_lanes) {
+        let synthetic_coverage_is_supported =
+            workflow_answer_unit_goal_overlap_count(&answer, goal_terms) >= 2
+                || workflow_answer_unit_goal_overlap_count(&source, goal_terms) >= 2;
+        return (
+            clean_text(&format!("For {intro}, {answer}"), 520),
+            if synthetic_coverage_is_supported {
+                required_entity_lanes
+                    .iter()
+                    .map(|lane| clean_text(lane, 120))
+                    .filter(|lane| !lane.is_empty())
+                    .collect()
+            } else {
+                Vec::new()
+            },
+        );
     }
     (answer, matched_in_source)
 }
@@ -2085,13 +2287,24 @@ fn annotate_final_evidence_outcome_posture(workflow: &mut Value, response_tools:
 
 fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[Value]) -> String {
     let required_entity_lanes = hard_required_entity_lanes_for_tools(response_tools, 8);
+    let goal_terms = workflow_answer_unit_goal_terms(message);
     let answer_units = evidence_packet_answer_units_for_goal(message, response_tools, 4);
     if !answer_units.is_empty() {
         let mut answer_parts = Vec::<String>::new();
         let mut covered_required_entity_lanes = std::collections::BTreeSet::<String>::new();
         for unit in answer_units {
             let (answer, matched_lanes) =
-                fallback_visible_answer_for_required_lanes(&unit, &required_entity_lanes);
+                fallback_visible_answer_for_required_lanes(
+                    &unit,
+                    &required_entity_lanes,
+                    &goal_terms,
+                );
+            if !required_entity_lanes.is_empty()
+                && matched_lanes.is_empty()
+                && workflow_answer_unit_goal_overlap_count(&answer, &goal_terms) == 0
+            {
+                continue;
+            }
             if !answer.is_empty() && !answer_parts.iter().any(|existing| existing == &answer) {
                 answer_parts.push(answer);
             }
@@ -6191,6 +6404,62 @@ mod workflow_fallback_tests {
                 || response.contains("coverage gaps remain"),
             "{response}"
         );
+    }
+
+    #[test]
+    fn tool_evidence_fallback_prefers_clean_claims_over_source_title_fragments() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research the current legal-ops AI market for contract review and internal legal workflows. What looks operationally real versus mostly demo-driven?",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["legal ops AI"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "title": "Flex Legal reshaped contract review",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "2023 Value Champion Flex and DocJuris Value Through Diversity 8 Days to 5 Minutes: How Flex Legal Reshaped Contract Review Contract management is a common organizational challenge."
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "AI contract management market",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "The AI contract management market has matured significantly in 2025, with clear leaders emerging across different use cases and organizational sizes."
+                        ],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(
+            response.starts_with("For legal ops AI, The AI contract management market has matured significantly"),
+            "{response}"
+        );
+        assert!(!response.contains("Value Champion Flex and DocJuris"), "{response}");
+    }
+
+    #[test]
+    fn fallback_visible_answer_preserves_query_aligned_claim_text() {
+        let (answer, matched) = fallback_visible_answer_for_required_lanes(
+            "The contract review market has matured significantly, with clearer leaders and more operational deployments for internal legal workflows.",
+            &["legal ops AI".to_string()],
+            &workflow_answer_unit_goal_terms(
+                "Research the current legal-ops AI market for contract review and internal legal workflows.",
+            ),
+        );
+        assert_eq!(
+            answer,
+            "The contract review market has matured significantly, with clearer leaders and more operational deployments for internal legal workflows."
+        );
+        assert_eq!(matched, vec!["legal ops AI".to_string()]);
     }
 
     #[test]
