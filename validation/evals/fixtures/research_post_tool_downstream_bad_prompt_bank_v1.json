@@ -1,0 +1,336 @@
+{
+  "dataset_id": "research_post_tool_downstream_bad_prompt_bank_v1",
+  "purpose": "Offline downstream replay bank built from real bad live research prompts. These cases hold retrieval quality constant so answer-unit selection and final synthesis can be hardened against failures that previously surfaced in live runs.",
+  "reliability_thresholds": {
+    "min_cases_for_reliability_claim": 10,
+    "workflow_gate_pass_min": 0.95,
+    "research_success_min": 0.85,
+    "max_empty_responses": 0,
+    "max_raw_tool_leaks": 0,
+    "max_tool_choice_as_final_response": 0,
+    "max_unsupported_factual_claims": 0
+  },
+  "scoring_contract": {
+    "pass_score": 85,
+    "excellent_score": 95
+  },
+  "cases": [
+    {
+      "id": "post_tool_bad_browser_qa_automation",
+      "derived_from_live_case": "research_pool_004_browser_qa_automation",
+      "category": "post_tool_synthesis",
+      "tags": [
+        "comparison",
+        "software_technical",
+        "current",
+        "live_bad_case"
+      ],
+      "prompt": "Compare browser-use, Playwright, and Selenium for repeatable QA-style browser automation in 2026. Which is the best fit for stable scripted testing versus LLM-driven workflows?",
+      "required_entities": [
+        "browser-use",
+        "Playwright",
+        "Selenium"
+      ],
+      "required_facets": [
+        "stable scripted testing",
+        "llm-driven workflows"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      }
+    },
+    {
+      "id": "post_tool_bad_conversation_intelligence",
+      "derived_from_live_case": "research_pool_025_conversation_intelligence",
+      "category": "post_tool_synthesis",
+      "tags": [
+        "comparison",
+        "business_market",
+        "current",
+        "live_bad_case"
+      ],
+      "prompt": "Research the current conversation-intelligence market for B2B sales teams. Compare Gong, Chorus, Clari Copilot, and Avoma.",
+      "required_entities": [
+        "Gong",
+        "Chorus",
+        "Clari Copilot",
+        "Avoma"
+      ],
+      "required_facets": [
+        "coaching workflow",
+        "crm alignment",
+        "team-size fit"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      }
+    },
+    {
+      "id": "post_tool_bad_company_knowledge_tools",
+      "derived_from_live_case": "research_pool_027_company_knowledge_tools",
+      "category": "post_tool_synthesis",
+      "tags": [
+        "comparison",
+        "business_market",
+        "current",
+        "live_bad_case"
+      ],
+      "prompt": "Compare current internal knowledge tools for companies. I care about Notion AI, Glean, Guru, and Confluence AI for search quality, governance, and adoption friction.",
+      "required_entities": [
+        "Notion AI",
+        "Glean",
+        "Guru",
+        "Confluence AI"
+      ],
+      "required_facets": [
+        "search quality",
+        "governance",
+        "adoption friction"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      }
+    },
+    {
+      "id": "post_tool_bad_quebec_winter_weekend",
+      "derived_from_live_case": "research_pool_057_quebec_city_winter_weekend",
+      "category": "post_tool_synthesis",
+      "tags": [
+        "recommendation",
+        "local_travel",
+        "current",
+        "live_bad_case"
+      ],
+      "prompt": "Research a winter weekend in Quebec City for food, atmosphere, and manageable walking. What should a traveler realistically plan around weather and crowds?",
+      "required_entities": [
+        "Old Quebec",
+        "Dufferin Terrace",
+        "Petit Champlain"
+      ],
+      "required_facets": [
+        "food",
+        "manageable walking",
+        "weather and crowds"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      }
+    },
+    {
+      "id": "post_tool_bad_home_bp_monitor_accuracy",
+      "derived_from_live_case": "research_pool_078_home_bp_monitor_accuracy",
+      "category": "post_tool_synthesis",
+      "tags": [
+        "recommendation",
+        "health_medical",
+        "current",
+        "live_bad_case"
+      ],
+      "prompt": "Research home blood pressure monitors and what accuracy claims consumers should trust. How should a person choose and validate one?",
+      "required_entities": [],
+      "required_facets": [
+        "validation standard",
+        "cuff fit",
+        "home validation habits"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      }
+    },
+    {
+      "id": "post_tool_bad_online_mutual_aid",
+      "derived_from_live_case": "research_pool_091_online_mutual_aid",
+      "category": "post_tool_synthesis",
+      "tags": [
+        "landscape",
+        "general_other",
+        "current",
+        "live_bad_case"
+      ],
+      "prompt": "Research how online communities organize mutual aid after local disasters. What patterns seem to work, what breaks down, and what should organizers watch for?",
+      "required_entities": [],
+      "required_facets": [
+        "intake",
+        "verification",
+        "coordination breakdowns"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      }
+    },
+    {
+      "id": "post_tool_bad_rag_stack_choice",
+      "derived_from_live_case": "research_gold_005_rag_stack_choice",
+      "category": "post_tool_synthesis",
+      "tags": [
+        "comparison",
+        "software_technical",
+        "current",
+        "live_bad_case"
+      ],
+      "prompt": "Research current RAG stack options for a small team: LlamaIndex, LangChain, custom Postgres/pgvector, and managed vector databases. Give me a pragmatic recommendation.",
+      "required_entities": [
+        "LlamaIndex",
+        "LangChain",
+        "pgvector",
+        "vector database"
+      ],
+      "required_facets": [
+        "small-team simplicity",
+        "managed operational surface"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      }
+    },
+    {
+      "id": "post_tool_bad_semantic_kernel_enterprise",
+      "derived_from_live_case": "research_gold_013_semantic_kernel_enterprise",
+      "category": "post_tool_synthesis",
+      "tags": [
+        "overview",
+        "software_technical",
+        "current",
+        "live_bad_case"
+      ],
+      "prompt": "Research Microsoft Semantic Kernel for enterprise agent orchestration. Where is it strong, where is it awkward, and what teams should consider it?",
+      "required_entities": [
+        "Semantic Kernel",
+        "Microsoft"
+      ],
+      "required_facets": [
+        "enterprise fit",
+        "awkward edges",
+        "team fit"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      }
+    },
+    {
+      "id": "post_tool_bad_infring_low_signal",
+      "derived_from_live_case": "research_gold_016_low_signal_infring_public",
+      "category": "post_tool_synthesis",
+      "tags": [
+        "comparison",
+        "software_technical",
+        "current",
+        "live_bad_case"
+      ],
+      "prompt": "Search the web for public evidence about Infring compared with agentic frameworks. If evidence is sparse, say that clearly and still give me a bounded comparison based on what can be verified.",
+      "required_entities": [
+        "Infring"
+      ],
+      "required_facets": [
+        "public evidence",
+        "bounded comparison"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      }
+    },
+    {
+      "id": "post_tool_bad_sparse_benchmarks",
+      "derived_from_live_case": "research_gold_018_sparse_benchmarks",
+      "category": "post_tool_synthesis",
+      "tags": [
+        "overview",
+        "software_technical",
+        "current",
+        "live_bad_case"
+      ],
+      "prompt": "Find recent benchmarks comparing agent frameworks. If the benchmark evidence is weak, explain why and suggest a practical evaluation plan.",
+      "required_entities": [
+        "benchmark",
+        "agent framework"
+      ],
+      "required_facets": [
+        "benchmark scarcity",
+        "evaluation plan"
+      ],
+      "expected_gate_path": {
+        "gate_1": "tool_required_or_pending_tool_result",
+        "gate_2": "web_research",
+        "gate_3": "batch_query",
+        "gate_4_required_fields": [
+          "source",
+          "query",
+          "aperture"
+        ],
+        "post_tool": "must_synthesize_from_evidence_refs"
+      }
+    }
+  ]
+}

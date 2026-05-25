@@ -2160,6 +2160,14 @@ fn fallback_required_lane_intro(required_entity_lanes: &[String]) -> Option<Stri
     }
 }
 
+fn minimum_required_entity_lane_coverage(required_entity_lanes: &[String]) -> usize {
+    match required_entity_lanes.len() {
+        0 => 0,
+        1 => 1,
+        _ => 2,
+    }
+}
+
 fn workflow_finish_visible_sentence(raw: &str) -> String {
     let cleaned = clean_text(raw, 900);
     if cleaned.is_empty() {
@@ -2233,22 +2241,24 @@ fn fallback_visible_answer_for_required_lanes(
         let lane = clean_text(&matched_in_source[0], 120);
         return (clean_text(&format!("For {lane}, {answer}"), 520), matched_in_source);
     }
-    if let Some(intro) = fallback_required_lane_intro(required_entity_lanes) {
-        let synthetic_coverage_is_supported =
-            workflow_answer_unit_goal_overlap_count(&answer, goal_terms) >= 2
-                || workflow_answer_unit_goal_overlap_count(&source, goal_terms) >= 2;
-        return (
-            clean_text(&format!("For {intro}, {answer}"), 520),
-            if synthetic_coverage_is_supported {
-                required_entity_lanes
-                    .iter()
-                    .map(|lane| clean_text(lane, 120))
-                    .filter(|lane| !lane.is_empty())
-                    .collect()
-            } else {
-                Vec::new()
-            },
-        );
+    if required_entity_lanes.len() == 1 {
+        if let Some(intro) = fallback_required_lane_intro(required_entity_lanes) {
+            let synthetic_coverage_is_supported =
+                workflow_answer_unit_goal_overlap_count(&answer, goal_terms) >= 2
+                    || workflow_answer_unit_goal_overlap_count(&source, goal_terms) >= 2;
+            return (
+                clean_text(&format!("For {intro}, {answer}"), 520),
+                if synthetic_coverage_is_supported {
+                    required_entity_lanes
+                        .iter()
+                        .map(|lane| clean_text(lane, 120))
+                        .filter(|lane| !lane.is_empty())
+                        .collect()
+                } else {
+                    Vec::new()
+                },
+            );
+        }
     }
     (answer, matched_in_source)
 }
@@ -2312,22 +2322,34 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
                 covered_required_entity_lanes.insert(normalize_coverage_lane_text(&lane));
             }
         }
-        if !required_entity_lanes.is_empty() && covered_required_entity_lanes.is_empty() {
+        let minimum_lane_coverage = minimum_required_entity_lane_coverage(&required_entity_lanes);
+        let coverage_note = fallback_user_visible_coverage_note(response_tools);
+        if minimum_lane_coverage > 0
+            && covered_required_entity_lanes.len() < minimum_lane_coverage
+        {
+            if let Some(first_answer) = answer_parts.first() {
+                let mut parts = vec![
+                    "The current evidence supports only a partial comparison.".to_string(),
+                    workflow_finish_visible_sentence(first_answer),
+                ];
+                if !coverage_note.is_empty() {
+                    parts.push(workflow_finish_visible_sentence(&coverage_note));
+                }
+                return clean_text(&parts.join(" "), 2_400);
+            }
             answer_parts.clear();
         }
         if let Some(first_answer) = answer_parts.first() {
             let mut parts = vec![workflow_finish_visible_sentence(first_answer)];
             if answer_parts.len() > 1 {
-                let additional = answer_parts[1..]
-                    .iter()
-                    .map(|part| part.trim_end_matches('.'))
-                    .collect::<Vec<_>>()
-                    .join(". ");
-                parts.push(format!("Other supported points: {additional}."));
+                parts.extend(
+                    answer_parts[1..]
+                        .iter()
+                        .map(|part| workflow_finish_visible_sentence(part)),
+                );
             }
-            let coverage_note = fallback_user_visible_coverage_note(response_tools);
             if !coverage_note.is_empty() {
-                parts.push(format!("Important limitation: {coverage_note}"));
+                parts.push(workflow_finish_visible_sentence(&coverage_note));
             }
             return clean_text(&parts.join("\n"), 2_400);
         }
@@ -6404,6 +6426,47 @@ mod workflow_fallback_tests {
                 || response.contains("coverage gaps remain"),
             "{response}"
         );
+    }
+
+    #[test]
+    fn tool_evidence_fallback_requires_multiple_required_entities_for_comparison_answers() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research the current conversation-intelligence market for B2B sales teams. Compare Gong, Chorus, Clari Copilot, and Avoma.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["Gong", "Chorus", "Clari Copilot", "Avoma"]
+                    }
+                },
+                "tool_result_quality": {
+                    "status": "low_signal",
+                    "flags": ["comparison_evidence_insufficient"]
+                },
+                "evidence_pack": [{
+                    "title": "Gong market overview",
+                    "source_domain": "example.test",
+                    "relevant_extract": "Gong is the deepest, most mature conversation-intelligence platform in the market.",
+                    "claim_hints": ["Gong is the deepest, most mature conversation-intelligence platform in the market."],
+                    "counts_as_usable_evidence": true
+                }]
+            })],
+        );
+        assert!(
+            response.contains("partial comparison"),
+            "{response}"
+        );
+        assert!(response.contains("Gong"), "{response}");
+        assert!(
+            response.contains("Chorus")
+                || response.contains("Clari Copilot")
+                || response.contains("Avoma")
+                || response.contains("coverage"),
+            "{response}"
+        );
+        assert!(!response.starts_with("For Gong, Chorus"), "{response}");
     }
 
     #[test]

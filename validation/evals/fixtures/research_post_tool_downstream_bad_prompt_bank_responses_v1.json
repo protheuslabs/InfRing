@@ -1,0 +1,2520 @@
+{
+  "responses": [
+    {
+      "case_id": "post_tool_bad_browser_qa_automation",
+      "response_payload": {
+        "response": "For stable scripted QA, Playwright is the strongest default because the recorded evidence points to deterministic execution, built-in waiting, tracing, and cross-browser coverage. browser-use is the better fit when the workflow depends on LLM-guided interaction with messy, changing pages rather than fixed test scripts. Selenium still makes sense for legacy ecosystems and large existing suites, but the evidence frames it as the least opinionated and most maintenance-heavy option of the three.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Compare browser-use, Playwright, and Selenium for repeatable QA-style browser automation in 2026. Which is the best fit for stable scripted testing versus LLM-driven workflows?",
+            "queries": [
+              "Playwright versus Selenium scripted browser testing",
+              "browser-use agent-driven browser automation"
+            ],
+            "keywords": [
+              "browser-use",
+              "Playwright",
+              "Selenium",
+              "stable scripted testing",
+              "llm-driven workflows"
+            ],
+            "required_coverage": {
+              "entities": [
+                "browser-use",
+                "Playwright",
+                "Selenium"
+              ],
+              "facets": [
+                "stable scripted testing",
+                "llm-driven workflows"
+              ]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence suitable for bounded synthesis.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": [
+                  "browser-use",
+                  "Playwright",
+                  "Selenium"
+                ],
+                "facets": [
+                  "stable scripted testing",
+                  "llm-driven workflows"
+                ]
+              }
+            },
+            "evidence_refs": [
+              {
+                "title": "Playwright docs",
+                "locator": "https://docs.example.test/playwright/qa",
+                "snippet": "Playwright emphasizes deterministic browser testing with auto-waiting, trace capture, and cross-browser execution.",
+                "score": 0.9
+              },
+              {
+                "title": "browser-use workflow guide",
+                "locator": "https://browser.example.test/browser-use/agent-workflows",
+                "snippet": "browser-use emphasizes agent-driven browser interaction for messy or changing web workflows where strict selectors are not enough.",
+                "score": 0.89
+              },
+              {
+                "title": "Selenium project docs",
+                "locator": "https://selenium.example.test/project/overview",
+                "snippet": "Selenium provides a broad browser-automation foundation and large ecosystem, but it leaves more waiting, abstraction, and framework conventions to the team.",
+                "score": 0.88
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Playwright docs",
+                "locator": "https://docs.example.test/playwright/qa",
+                "source_domain": "docs.example.test",
+                "relevant_extract": "Playwright emphasizes deterministic browser testing with auto-waiting, trace capture, and cross-browser execution.",
+                "why_relevant_to_query": "It supports the stable scripted testing part of the comparison.",
+                "claim_hints": [
+                  "Playwright is optimized for deterministic browser testing with auto-waiting, trace capture, and cross-browser execution."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "product_docs",
+                "source_class": "official_or_primary",
+                "title": "browser-use workflow guide",
+                "locator": "https://browser.example.test/browser-use/agent-workflows",
+                "source_domain": "browser.example.test",
+                "relevant_extract": "browser-use emphasizes agent-driven browser interaction for messy or changing web workflows where strict selectors are not enough.",
+                "why_relevant_to_query": "It supports the LLM-driven workflow side of the comparison.",
+                "claim_hints": [
+                  "browser-use is better suited to LLM-driven browser workflows where the page structure is messy or changes often."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Selenium project docs",
+                "locator": "https://selenium.example.test/project/overview",
+                "source_domain": "selenium.example.test",
+                "relevant_extract": "Selenium provides a broad browser-automation foundation and large ecosystem, but it leaves more waiting, abstraction, and framework conventions to the team.",
+                "why_relevant_to_query": "It supports the legacy and maintenance tradeoff in the comparison.",
+                "claim_hints": [
+                  "Selenium remains broadly compatible and extensible, but it usually demands more framework work and maintenance than Playwright."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 3,
+              "content_rich_candidate_count": 3,
+              "claim_hint_count": 3,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Playwright docs",
+                "snippet": "Playwright emphasizes deterministic browser testing with auto-waiting, trace capture, and cross-browser execution.",
+                "url": "https://docs.example.test/playwright/qa"
+              },
+              {
+                "title": "browser-use workflow guide",
+                "snippet": "browser-use emphasizes agent-driven browser interaction for messy or changing web workflows where strict selectors are not enough.",
+                "url": "https://browser.example.test/browser-use/agent-workflows"
+              },
+              {
+                "title": "Selenium project docs",
+                "snippet": "Selenium provides a broad browser-automation foundation and large ecosystem, but it leaves more waiting, abstraction, and framework conventions to the team.",
+                "url": "https://selenium.example.test/project/overview"
+              }
+            ],
+            "provider_results": [
+              {
+                "title": "Playwright docs",
+                "snippet": "Playwright emphasizes deterministic browser testing with auto-waiting, trace capture, and cross-browser execution.",
+                "url": "https://docs.example.test/playwright/qa"
+              },
+              {
+                "title": "browser-use workflow guide",
+                "snippet": "browser-use emphasizes agent-driven browser interaction for messy or changing web workflows where strict selectors are not enough.",
+                "url": "https://browser.example.test/browser-use/agent-workflows"
+              },
+              {
+                "title": "Selenium project docs",
+                "snippet": "Selenium provides a broad browser-automation foundation and large ecosystem, but it leaves more waiting, abstraction, and framework conventions to the team.",
+                "url": "https://selenium.example.test/project/overview"
+              }
+            ]
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": [
+            "evidence:post_tool_bad_browser_qa_automation:1",
+            "evidence:post_tool_bad_browser_qa_automation:2",
+            "evidence:post_tool_bad_browser_qa_automation:3"
+          ],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_browser_qa_automation:1",
+              "evidence:post_tool_bad_browser_qa_automation:2",
+              "evidence:post_tool_bad_browser_qa_automation:3"
+            ],
+            "source_refs": [
+              {
+                "title": "Playwright docs",
+                "locator": "https://docs.example.test/playwright/qa",
+                "source_domain": "docs.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "browser-use workflow guide",
+                "locator": "https://browser.example.test/browser-use/agent-workflows",
+                "source_domain": "browser.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Selenium project docs",
+                "locator": "https://selenium.example.test/project/overview",
+                "source_domain": "selenium.example.test",
+                "source_kind": "official_docs"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Playwright docs",
+                "locator": "https://docs.example.test/playwright/qa",
+                "source_domain": "docs.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "browser-use workflow guide",
+                "locator": "https://browser.example.test/browser-use/agent-workflows",
+                "source_domain": "browser.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Selenium project docs",
+                "locator": "https://selenium.example.test/project/overview",
+                "source_domain": "selenium.example.test",
+                "source_kind": "official_docs"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_browser_qa_automation:1",
+              "evidence:post_tool_bad_browser_qa_automation:2",
+              "evidence:post_tool_bad_browser_qa_automation:3"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_bad_conversation_intelligence",
+      "response_payload": {
+        "response": "The clearest bounded read is that Gong still looks like the deepest enterprise conversation-intelligence platform, Clari Copilot makes the most sense for teams already standardized on Clari, Avoma looks strongest for lighter-weight meeting and coaching workflows, and Chorus remains relevant mainly where ZoomInfo alignment matters. The evidence supports a market split by workflow fit rather than a single winner: Gong for depth and coaching rigor, Clari Copilot for revenue-stack alignment, Avoma for smaller-team usability, and Chorus for organizations already committed to the surrounding ZoomInfo environment.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Research the current conversation-intelligence market for B2B sales teams. Compare Gong, Chorus, Clari Copilot, and Avoma.",
+            "queries": [
+              "Research the current conversation-intelligence market for B2B sales teams. Compare Gong, Chorus, Clari Copilot, and Avoma."
+            ],
+            "keywords": [
+              "Gong",
+              "Chorus",
+              "Clari Copilot",
+              "Avoma",
+              "coaching workflow",
+              "crm alignment",
+              "team-size fit"
+            ],
+            "required_coverage": {
+              "entities": [
+                "Gong",
+                "Chorus",
+                "Clari Copilot",
+                "Avoma"
+              ],
+              "facets": [
+                "coaching workflow",
+                "crm alignment",
+                "team-size fit"
+              ]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence suitable for bounded synthesis.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": [
+                  "Gong",
+                  "Chorus",
+                  "Clari Copilot",
+                  "Avoma"
+                ],
+                "facets": [
+                  "coaching workflow",
+                  "crm alignment",
+                  "team-size fit"
+                ]
+              }
+            },
+            "evidence_refs": [
+              {
+                "title": "Gong platform overview",
+                "locator": "https://gong.example.test/platform-overview",
+                "snippet": "Gong emphasizes enterprise-grade call capture, coaching workflows, and revenue visibility across large sales organizations.",
+                "score": 0.9
+              },
+              {
+                "title": "Clari Copilot revenue platform guide",
+                "locator": "https://clari.example.test/copilot/revenue-platform",
+                "snippet": "Clari Copilot is framed as part of the broader Clari revenue platform, with close alignment to forecasting and revenue inspection workflows.",
+                "score": 0.89
+              },
+              {
+                "title": "Avoma product tour",
+                "locator": "https://avoma.example.test/product-tour",
+                "snippet": "Avoma emphasizes meeting capture, note automation, coaching support, and usability for smaller or mid-market teams.",
+                "score": 0.88
+              },
+              {
+                "title": "Chorus by ZoomInfo overview",
+                "locator": "https://zoominfo.example.test/chorus/overview",
+                "snippet": "Chorus is presented inside the ZoomInfo ecosystem, highlighting conversation capture tied to account intelligence and sales execution.",
+                "score": 0.87
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Gong platform overview",
+                "locator": "https://gong.example.test/platform-overview",
+                "source_domain": "gong.example.test",
+                "relevant_extract": "Gong emphasizes enterprise-grade call capture, coaching workflows, and revenue visibility across large sales organizations.",
+                "why_relevant_to_query": "It supports Gong on coaching depth and enterprise fit.",
+                "claim_hints": [
+                  "Gong is positioned around deep coaching workflows and enterprise revenue visibility."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Clari Copilot revenue platform guide",
+                "locator": "https://clari.example.test/copilot/revenue-platform",
+                "source_domain": "clari.example.test",
+                "relevant_extract": "Clari Copilot is framed as part of the broader Clari revenue platform, with close alignment to forecasting and revenue inspection workflows.",
+                "why_relevant_to_query": "It supports Clari Copilot on CRM and revenue-stack alignment.",
+                "claim_hints": [
+                  "Clari Copilot is strongest when a team already wants conversation intelligence tightly connected to the Clari revenue workflow."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "product_docs",
+                "source_class": "official_or_primary",
+                "title": "Avoma product tour",
+                "locator": "https://avoma.example.test/product-tour",
+                "source_domain": "avoma.example.test",
+                "relevant_extract": "Avoma emphasizes meeting capture, note automation, coaching support, and usability for smaller or mid-market teams.",
+                "why_relevant_to_query": "It supports Avoma on usability and team-size fit.",
+                "claim_hints": [
+                  "Avoma is geared toward lighter-weight meeting capture and coaching workflows with easier adoption for smaller teams."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "product_docs",
+                "source_class": "official_or_primary",
+                "title": "Chorus by ZoomInfo overview",
+                "locator": "https://zoominfo.example.test/chorus/overview",
+                "source_domain": "zoominfo.example.test",
+                "relevant_extract": "Chorus is presented inside the ZoomInfo ecosystem, highlighting conversation capture tied to account intelligence and sales execution.",
+                "why_relevant_to_query": "It supports Chorus on ecosystem fit.",
+                "claim_hints": [
+                  "Chorus remains most compelling for teams that already rely on the surrounding ZoomInfo sales environment."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 4,
+              "content_rich_candidate_count": 4,
+              "claim_hint_count": 4,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Gong platform overview",
+                "snippet": "Gong emphasizes enterprise-grade call capture, coaching workflows, and revenue visibility across large sales organizations.",
+                "url": "https://gong.example.test/platform-overview"
+              },
+              {
+                "title": "Clari Copilot revenue platform guide",
+                "snippet": "Clari Copilot is framed as part of the broader Clari revenue platform, with close alignment to forecasting and revenue inspection workflows.",
+                "url": "https://clari.example.test/copilot/revenue-platform"
+              },
+              {
+                "title": "Avoma product tour",
+                "snippet": "Avoma emphasizes meeting capture, note automation, coaching support, and usability for smaller or mid-market teams.",
+                "url": "https://avoma.example.test/product-tour"
+              },
+              {
+                "title": "Chorus by ZoomInfo overview",
+                "snippet": "Chorus is presented inside the ZoomInfo ecosystem, highlighting conversation capture tied to account intelligence and sales execution.",
+                "url": "https://zoominfo.example.test/chorus/overview"
+              }
+            ],
+            "provider_results": [
+              {
+                "title": "Gong platform overview",
+                "snippet": "Gong emphasizes enterprise-grade call capture, coaching workflows, and revenue visibility across large sales organizations.",
+                "url": "https://gong.example.test/platform-overview"
+              },
+              {
+                "title": "Clari Copilot revenue platform guide",
+                "snippet": "Clari Copilot is framed as part of the broader Clari revenue platform, with close alignment to forecasting and revenue inspection workflows.",
+                "url": "https://clari.example.test/copilot/revenue-platform"
+              },
+              {
+                "title": "Avoma product tour",
+                "snippet": "Avoma emphasizes meeting capture, note automation, coaching support, and usability for smaller or mid-market teams.",
+                "url": "https://avoma.example.test/product-tour"
+              },
+              {
+                "title": "Chorus by ZoomInfo overview",
+                "snippet": "Chorus is presented inside the ZoomInfo ecosystem, highlighting conversation capture tied to account intelligence and sales execution.",
+                "url": "https://zoominfo.example.test/chorus/overview"
+              }
+            ]
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": [
+            "evidence:post_tool_bad_conversation_intelligence:1",
+            "evidence:post_tool_bad_conversation_intelligence:2",
+            "evidence:post_tool_bad_conversation_intelligence:3",
+            "evidence:post_tool_bad_conversation_intelligence:4"
+          ],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_conversation_intelligence:1",
+              "evidence:post_tool_bad_conversation_intelligence:2",
+              "evidence:post_tool_bad_conversation_intelligence:3",
+              "evidence:post_tool_bad_conversation_intelligence:4"
+            ],
+            "source_refs": [
+              {
+                "title": "Gong platform overview",
+                "locator": "https://gong.example.test/platform-overview",
+                "source_domain": "gong.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Clari Copilot revenue platform guide",
+                "locator": "https://clari.example.test/copilot/revenue-platform",
+                "source_domain": "clari.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Avoma product tour",
+                "locator": "https://avoma.example.test/product-tour",
+                "source_domain": "avoma.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Chorus by ZoomInfo overview",
+                "locator": "https://zoominfo.example.test/chorus/overview",
+                "source_domain": "zoominfo.example.test",
+                "source_kind": "product_docs"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Gong platform overview",
+                "locator": "https://gong.example.test/platform-overview",
+                "source_domain": "gong.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Clari Copilot revenue platform guide",
+                "locator": "https://clari.example.test/copilot/revenue-platform",
+                "source_domain": "clari.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Avoma product tour",
+                "locator": "https://avoma.example.test/product-tour",
+                "source_domain": "avoma.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Chorus by ZoomInfo overview",
+                "locator": "https://zoominfo.example.test/chorus/overview",
+                "source_domain": "zoominfo.example.test",
+                "source_kind": "product_docs"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_conversation_intelligence:1",
+              "evidence:post_tool_bad_conversation_intelligence:2",
+              "evidence:post_tool_bad_conversation_intelligence:3",
+              "evidence:post_tool_bad_conversation_intelligence:4"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_bad_company_knowledge_tools",
+      "response_payload": {
+        "response": "For broad internal search quality, Glean looks strongest because the evidence points to cross-system search and retrieval across many enterprise tools. Guru looks strongest on governance and content verification because its core positioning is verified knowledge with ownership and freshness controls. Notion AI is most attractive when the company already lives inside Notion, while Confluence AI is the natural fit for Atlassian-heavy teams but depends more on existing wiki discipline and admin hygiene for adoption to feel smooth.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Compare current internal knowledge tools for companies. I care about Notion AI, Glean, Guru, and Confluence AI for search quality, governance, and adoption friction.",
+            "queries": [
+              "Compare current internal knowledge tools for companies. I care about Notion AI, Glean, Guru, and Confluence AI for search quality, governance, and adoption friction."
+            ],
+            "keywords": [
+              "Notion AI",
+              "Glean",
+              "Guru",
+              "Confluence AI",
+              "search quality",
+              "governance",
+              "adoption friction"
+            ],
+            "required_coverage": {
+              "entities": [
+                "Notion AI",
+                "Glean",
+                "Guru",
+                "Confluence AI"
+              ],
+              "facets": [
+                "search quality",
+                "governance",
+                "adoption friction"
+              ]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence suitable for bounded synthesis.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": [
+                  "Notion AI",
+                  "Glean",
+                  "Guru",
+                  "Confluence AI"
+                ],
+                "facets": [
+                  "search quality",
+                  "governance",
+                  "adoption friction"
+                ]
+              }
+            },
+            "evidence_refs": [
+              {
+                "title": "Glean product overview",
+                "locator": "https://glean.example.test/search/overview",
+                "snippet": "Glean emphasizes enterprise search across many workplace systems, with retrieval spanning documents, chat, tickets, and applications.",
+                "score": 0.9
+              },
+              {
+                "title": "Guru verified knowledge docs",
+                "locator": "https://guru.example.test/verified-knowledge",
+                "snippet": "Guru emphasizes verified answers, ownership, and workflows that keep knowledge fresh inside daily work.",
+                "score": 0.89
+              },
+              {
+                "title": "Notion AI workspace guide",
+                "locator": "https://notion.example.test/ai/workspace",
+                "snippet": "Notion AI is framed as a layer inside the Notion workspace, where drafting, summarization, and retrieval work best when teams already keep work in Notion.",
+                "score": 0.88
+              },
+              {
+                "title": "Confluence AI admin overview",
+                "locator": "https://atlassian.example.test/confluence/ai-admin",
+                "snippet": "Confluence AI is presented as part of the Atlassian knowledge stack, with admin controls and governance benefits that depend on existing wiki hygiene.",
+                "score": 0.87
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Glean product overview",
+                "locator": "https://glean.example.test/search/overview",
+                "source_domain": "glean.example.test",
+                "relevant_extract": "Glean emphasizes enterprise search across many workplace systems, with retrieval spanning documents, chat, tickets, and applications.",
+                "why_relevant_to_query": "It supports Glean on search breadth and search quality.",
+                "claim_hints": [
+                  "Glean is strongest when the priority is broad cross-system enterprise search."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "product_docs",
+                "source_class": "official_or_primary",
+                "title": "Guru verified knowledge docs",
+                "locator": "https://guru.example.test/verified-knowledge",
+                "source_domain": "guru.example.test",
+                "relevant_extract": "Guru emphasizes verified answers, ownership, and workflows that keep knowledge fresh inside daily work.",
+                "why_relevant_to_query": "It supports Guru on governance and knowledge verification.",
+                "claim_hints": [
+                  "Guru is strongest on governance because it centers verified knowledge, ownership, and freshness controls."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "product_docs",
+                "source_class": "official_or_primary",
+                "title": "Notion AI workspace guide",
+                "locator": "https://notion.example.test/ai/workspace",
+                "source_domain": "notion.example.test",
+                "relevant_extract": "Notion AI is framed as a layer inside the Notion workspace, where drafting, summarization, and retrieval work best when teams already keep work in Notion.",
+                "why_relevant_to_query": "It supports Notion AI on adoption fit.",
+                "claim_hints": [
+                  "Notion AI works best when teams already run much of their collaboration and documentation inside Notion."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "product_docs",
+                "source_class": "official_or_primary",
+                "title": "Confluence AI admin overview",
+                "locator": "https://atlassian.example.test/confluence/ai-admin",
+                "source_domain": "atlassian.example.test",
+                "relevant_extract": "Confluence AI is presented as part of the Atlassian knowledge stack, with admin controls and governance benefits that depend on existing wiki hygiene.",
+                "why_relevant_to_query": "It supports Confluence AI on governance and adoption friction.",
+                "claim_hints": [
+                  "Confluence AI fits Atlassian-heavy organizations, but adoption quality depends on the underlying state of the wiki."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 4,
+              "content_rich_candidate_count": 4,
+              "claim_hint_count": 4,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Glean product overview",
+                "snippet": "Glean emphasizes enterprise search across many workplace systems, with retrieval spanning documents, chat, tickets, and applications.",
+                "url": "https://glean.example.test/search/overview"
+              },
+              {
+                "title": "Guru verified knowledge docs",
+                "snippet": "Guru emphasizes verified answers, ownership, and workflows that keep knowledge fresh inside daily work.",
+                "url": "https://guru.example.test/verified-knowledge"
+              },
+              {
+                "title": "Notion AI workspace guide",
+                "snippet": "Notion AI is framed as a layer inside the Notion workspace, where drafting, summarization, and retrieval work best when teams already keep work in Notion.",
+                "url": "https://notion.example.test/ai/workspace"
+              },
+              {
+                "title": "Confluence AI admin overview",
+                "snippet": "Confluence AI is presented as part of the Atlassian knowledge stack, with admin controls and governance benefits that depend on existing wiki hygiene.",
+                "url": "https://atlassian.example.test/confluence/ai-admin"
+              }
+            ],
+            "provider_results": [
+              {
+                "title": "Glean product overview",
+                "snippet": "Glean emphasizes enterprise search across many workplace systems, with retrieval spanning documents, chat, tickets, and applications.",
+                "url": "https://glean.example.test/search/overview"
+              },
+              {
+                "title": "Guru verified knowledge docs",
+                "snippet": "Guru emphasizes verified answers, ownership, and workflows that keep knowledge fresh inside daily work.",
+                "url": "https://guru.example.test/verified-knowledge"
+              },
+              {
+                "title": "Notion AI workspace guide",
+                "snippet": "Notion AI is framed as a layer inside the Notion workspace, where drafting, summarization, and retrieval work best when teams already keep work in Notion.",
+                "url": "https://notion.example.test/ai/workspace"
+              },
+              {
+                "title": "Confluence AI admin overview",
+                "snippet": "Confluence AI is presented as part of the Atlassian knowledge stack, with admin controls and governance benefits that depend on existing wiki hygiene.",
+                "url": "https://atlassian.example.test/confluence/ai-admin"
+              }
+            ]
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": [
+            "evidence:post_tool_bad_company_knowledge_tools:1",
+            "evidence:post_tool_bad_company_knowledge_tools:2",
+            "evidence:post_tool_bad_company_knowledge_tools:3",
+            "evidence:post_tool_bad_company_knowledge_tools:4"
+          ],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_company_knowledge_tools:1",
+              "evidence:post_tool_bad_company_knowledge_tools:2",
+              "evidence:post_tool_bad_company_knowledge_tools:3",
+              "evidence:post_tool_bad_company_knowledge_tools:4"
+            ],
+            "source_refs": [
+              {
+                "title": "Glean product overview",
+                "locator": "https://glean.example.test/search/overview",
+                "source_domain": "glean.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Guru verified knowledge docs",
+                "locator": "https://guru.example.test/verified-knowledge",
+                "source_domain": "guru.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Notion AI workspace guide",
+                "locator": "https://notion.example.test/ai/workspace",
+                "source_domain": "notion.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Confluence AI admin overview",
+                "locator": "https://atlassian.example.test/confluence/ai-admin",
+                "source_domain": "atlassian.example.test",
+                "source_kind": "product_docs"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Glean product overview",
+                "locator": "https://glean.example.test/search/overview",
+                "source_domain": "glean.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Guru verified knowledge docs",
+                "locator": "https://guru.example.test/verified-knowledge",
+                "source_domain": "guru.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Notion AI workspace guide",
+                "locator": "https://notion.example.test/ai/workspace",
+                "source_domain": "notion.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Confluence AI admin overview",
+                "locator": "https://atlassian.example.test/confluence/ai-admin",
+                "source_domain": "atlassian.example.test",
+                "source_kind": "product_docs"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_company_knowledge_tools:1",
+              "evidence:post_tool_bad_company_knowledge_tools:2",
+              "evidence:post_tool_bad_company_knowledge_tools:3",
+              "evidence:post_tool_bad_company_knowledge_tools:4"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_bad_quebec_winter_weekend",
+      "response_payload": {
+        "response": "For a winter weekend focused on food, atmosphere, and manageable walking, the safest base is Old Quebec around Dufferin Terrace and Petit Champlain rather than a sprawling cross-city itinerary. The recorded evidence supports that corridor as the most atmospheric and walkable concentration of winter sights, while also warning that elevation changes and winter footing make long walking loops less comfortable than they look on a map. Practically, that means booking a compact dining plan near the historic core, treating weather and wind as real constraints, and reserving restaurants early instead of assuming you will wander into the best options at peak winter times.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Research a winter weekend in Quebec City for food, atmosphere, and manageable walking. What should a traveler realistically plan around weather and crowds?",
+            "queries": [
+              "Research a winter weekend in Quebec City for food, atmosphere, and manageable walking. What should a traveler realistically plan around weather and crowds?"
+            ],
+            "keywords": [
+              "Old Quebec",
+              "Dufferin Terrace",
+              "Petit Champlain",
+              "food",
+              "manageable walking",
+              "weather and crowds"
+            ],
+            "required_coverage": {
+              "entities": [
+                "Old Quebec",
+                "Dufferin Terrace",
+                "Petit Champlain"
+              ],
+              "facets": [
+                "food",
+                "manageable walking",
+                "weather and crowds"
+              ]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence suitable for bounded synthesis.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": [
+                  "Old Quebec",
+                  "Dufferin Terrace",
+                  "Petit Champlain"
+                ],
+                "facets": [
+                  "food",
+                  "manageable walking",
+                  "weather and crowds"
+                ]
+              }
+            },
+            "evidence_refs": [
+              {
+                "title": "Old Quebec winter visitors guide",
+                "locator": "https://quebec.example.test/old-quebec-winter",
+                "snippet": "Old Quebec concentrates heritage streets, winter scenery, and the main atmospheric walking corridor around Dufferin Terrace and Petit Champlain.",
+                "score": 0.9
+              },
+              {
+                "title": "Quebec winter walking note",
+                "locator": "https://travel.example.test/quebec/winter-walking",
+                "snippet": "Upper and lower town transitions create more elevation and winter-footing friction than visitors often expect, so compact routing matters.",
+                "score": 0.89
+              },
+              {
+                "title": "Quebec dining reservations guide",
+                "locator": "https://food.example.test/quebec/winter-dining",
+                "snippet": "Winter demand concentrates heavily in the historic core, making advance reservations important for sought-after dining rooms.",
+                "score": 0.88
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Old Quebec winter visitors guide",
+                "locator": "https://quebec.example.test/old-quebec-winter",
+                "source_domain": "quebec.example.test",
+                "relevant_extract": "Old Quebec concentrates heritage streets, winter scenery, and the main atmospheric walking corridor around Dufferin Terrace and Petit Champlain.",
+                "why_relevant_to_query": "It supports the atmosphere and base-neighborhood recommendation.",
+                "claim_hints": [
+                  "Old Quebec around Dufferin Terrace and Petit Champlain is the strongest concentration of winter atmosphere and manageable sightseeing."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Quebec winter walking note",
+                "locator": "https://travel.example.test/quebec/winter-walking",
+                "source_domain": "travel.example.test",
+                "relevant_extract": "Upper and lower town transitions create more elevation and winter-footing friction than visitors often expect, so compact routing matters.",
+                "why_relevant_to_query": "It supports the manageable walking tradeoff.",
+                "claim_hints": [
+                  "Quebec City winter walking is most realistic when the itinerary stays compact because elevation and winter footing add friction."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "travel_guide",
+                "source_class": "secondary_analysis",
+                "title": "Quebec dining reservations guide",
+                "locator": "https://food.example.test/quebec/winter-dining",
+                "source_domain": "food.example.test",
+                "relevant_extract": "Winter demand concentrates heavily in the historic core, making advance reservations important for sought-after dining rooms.",
+                "why_relevant_to_query": "It supports the food and crowd-planning guidance.",
+                "claim_hints": [
+                  "A winter food weekend in Quebec City works better when dinner reservations are made ahead of time in the historic core."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 3,
+              "content_rich_candidate_count": 3,
+              "claim_hint_count": 3,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Old Quebec winter visitors guide",
+                "snippet": "Old Quebec concentrates heritage streets, winter scenery, and the main atmospheric walking corridor around Dufferin Terrace and Petit Champlain.",
+                "url": "https://quebec.example.test/old-quebec-winter"
+              },
+              {
+                "title": "Quebec winter walking note",
+                "snippet": "Upper and lower town transitions create more elevation and winter-footing friction than visitors often expect, so compact routing matters.",
+                "url": "https://travel.example.test/quebec/winter-walking"
+              },
+              {
+                "title": "Quebec dining reservations guide",
+                "snippet": "Winter demand concentrates heavily in the historic core, making advance reservations important for sought-after dining rooms.",
+                "url": "https://food.example.test/quebec/winter-dining"
+              }
+            ],
+            "provider_results": [
+              {
+                "title": "Old Quebec winter visitors guide",
+                "snippet": "Old Quebec concentrates heritage streets, winter scenery, and the main atmospheric walking corridor around Dufferin Terrace and Petit Champlain.",
+                "url": "https://quebec.example.test/old-quebec-winter"
+              },
+              {
+                "title": "Quebec winter walking note",
+                "snippet": "Upper and lower town transitions create more elevation and winter-footing friction than visitors often expect, so compact routing matters.",
+                "url": "https://travel.example.test/quebec/winter-walking"
+              },
+              {
+                "title": "Quebec dining reservations guide",
+                "snippet": "Winter demand concentrates heavily in the historic core, making advance reservations important for sought-after dining rooms.",
+                "url": "https://food.example.test/quebec/winter-dining"
+              }
+            ]
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": [
+            "evidence:post_tool_bad_quebec_winter_weekend:1",
+            "evidence:post_tool_bad_quebec_winter_weekend:2",
+            "evidence:post_tool_bad_quebec_winter_weekend:3"
+          ],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_quebec_winter_weekend:1",
+              "evidence:post_tool_bad_quebec_winter_weekend:2",
+              "evidence:post_tool_bad_quebec_winter_weekend:3"
+            ],
+            "source_refs": [
+              {
+                "title": "Old Quebec winter visitors guide",
+                "locator": "https://quebec.example.test/old-quebec-winter",
+                "source_domain": "quebec.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Quebec winter walking note",
+                "locator": "https://travel.example.test/quebec/winter-walking",
+                "source_domain": "travel.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Quebec dining reservations guide",
+                "locator": "https://food.example.test/quebec/winter-dining",
+                "source_domain": "food.example.test",
+                "source_kind": "travel_guide"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Old Quebec winter visitors guide",
+                "locator": "https://quebec.example.test/old-quebec-winter",
+                "source_domain": "quebec.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Quebec winter walking note",
+                "locator": "https://travel.example.test/quebec/winter-walking",
+                "source_domain": "travel.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Quebec dining reservations guide",
+                "locator": "https://food.example.test/quebec/winter-dining",
+                "source_domain": "food.example.test",
+                "source_kind": "travel_guide"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_quebec_winter_weekend:1",
+              "evidence:post_tool_bad_quebec_winter_weekend:2",
+              "evidence:post_tool_bad_quebec_winter_weekend:3"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_bad_home_bp_monitor_accuracy",
+      "response_payload": {
+        "response": "The most trustworthy consumer blood-pressure claims are the ones tied to independent validation standards rather than marketing language about smart features or app polish. The evidence supports three practical rules: default to an upper-arm monitor that appears on a recognized validated-device list, make cuff fit a first-order buying criterion, and validate your own technique by taking repeated home readings and checking them against a clinician visit. In other words, consumers should trust validation, cuff fit, and measurement habits more than brand-level promises about accuracy.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Research home blood pressure monitors and what accuracy claims consumers should trust. How should a person choose and validate one?",
+            "queries": [
+              "Research home blood pressure monitors and what accuracy claims consumers should trust. How should a person choose and validate one?"
+            ],
+            "keywords": [
+              "validation standard",
+              "cuff fit",
+              "home validation habits"
+            ],
+            "required_coverage": {
+              "entities": [],
+              "facets": [
+                "validation standard",
+                "cuff fit",
+                "home validation habits"
+              ]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence suitable for bounded synthesis.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": [],
+                "facets": [
+                  "validation standard",
+                  "cuff fit",
+                  "home validation habits"
+                ]
+              }
+            },
+            "evidence_refs": [
+              {
+                "title": "Validated monitor guidance",
+                "locator": "https://bp.example.test/validated-monitors",
+                "snippet": "Clinical guidance emphasizes using monitors that have passed formal validation testing rather than relying on general product marketing.",
+                "score": 0.9
+              },
+              {
+                "title": "Upper-arm cuff recommendation",
+                "locator": "https://bp.example.test/upper-arm-cuff-fit",
+                "snippet": "Guidance consistently treats upper-arm monitors and correct cuff sizing as more dependable than poorly fitted or convenience-driven alternatives.",
+                "score": 0.89
+              },
+              {
+                "title": "Home measurement technique guide",
+                "locator": "https://bp.example.test/home-technique",
+                "snippet": "Repeated readings, standardized home technique, and comparison with clinician measurement are highlighted as part of trustworthy home use.",
+                "score": 0.88
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Validated monitor guidance",
+                "locator": "https://bp.example.test/validated-monitors",
+                "source_domain": "bp.example.test",
+                "relevant_extract": "Clinical guidance emphasizes using monitors that have passed formal validation testing rather than relying on general product marketing.",
+                "why_relevant_to_query": "It supports the validation-standard rule.",
+                "claim_hints": [
+                  "Consumers should prefer blood-pressure monitors that have passed independent validation testing."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "clinical_guidance",
+                "source_class": "official_or_primary",
+                "title": "Upper-arm cuff recommendation",
+                "locator": "https://bp.example.test/upper-arm-cuff-fit",
+                "source_domain": "bp.example.test",
+                "relevant_extract": "Guidance consistently treats upper-arm monitors and correct cuff sizing as more dependable than poorly fitted or convenience-driven alternatives.",
+                "why_relevant_to_query": "It supports cuff-fit and device-type advice.",
+                "claim_hints": [
+                  "Upper-arm monitors with correct cuff fit are the safest default for home blood-pressure measurement."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "clinical_guidance",
+                "source_class": "official_or_primary",
+                "title": "Home measurement technique guide",
+                "locator": "https://bp.example.test/home-technique",
+                "source_domain": "bp.example.test",
+                "relevant_extract": "Repeated readings, standardized home technique, and comparison with clinician measurement are highlighted as part of trustworthy home use.",
+                "why_relevant_to_query": "It supports the home-validation habit advice.",
+                "claim_hints": [
+                  "A person should validate a home blood-pressure monitor by using repeat measurements and comparing technique and readings with a clinician."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 3,
+              "content_rich_candidate_count": 3,
+              "claim_hint_count": 3,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Validated monitor guidance",
+                "snippet": "Clinical guidance emphasizes using monitors that have passed formal validation testing rather than relying on general product marketing.",
+                "url": "https://bp.example.test/validated-monitors"
+              },
+              {
+                "title": "Upper-arm cuff recommendation",
+                "snippet": "Guidance consistently treats upper-arm monitors and correct cuff sizing as more dependable than poorly fitted or convenience-driven alternatives.",
+                "url": "https://bp.example.test/upper-arm-cuff-fit"
+              },
+              {
+                "title": "Home measurement technique guide",
+                "snippet": "Repeated readings, standardized home technique, and comparison with clinician measurement are highlighted as part of trustworthy home use.",
+                "url": "https://bp.example.test/home-technique"
+              }
+            ],
+            "provider_results": [
+              {
+                "title": "Validated monitor guidance",
+                "snippet": "Clinical guidance emphasizes using monitors that have passed formal validation testing rather than relying on general product marketing.",
+                "url": "https://bp.example.test/validated-monitors"
+              },
+              {
+                "title": "Upper-arm cuff recommendation",
+                "snippet": "Guidance consistently treats upper-arm monitors and correct cuff sizing as more dependable than poorly fitted or convenience-driven alternatives.",
+                "url": "https://bp.example.test/upper-arm-cuff-fit"
+              },
+              {
+                "title": "Home measurement technique guide",
+                "snippet": "Repeated readings, standardized home technique, and comparison with clinician measurement are highlighted as part of trustworthy home use.",
+                "url": "https://bp.example.test/home-technique"
+              }
+            ]
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": [
+            "evidence:post_tool_bad_home_bp_monitor_accuracy:1",
+            "evidence:post_tool_bad_home_bp_monitor_accuracy:2",
+            "evidence:post_tool_bad_home_bp_monitor_accuracy:3"
+          ],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_home_bp_monitor_accuracy:1",
+              "evidence:post_tool_bad_home_bp_monitor_accuracy:2",
+              "evidence:post_tool_bad_home_bp_monitor_accuracy:3"
+            ],
+            "source_refs": [
+              {
+                "title": "Validated monitor guidance",
+                "locator": "https://bp.example.test/validated-monitors",
+                "source_domain": "bp.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Upper-arm cuff recommendation",
+                "locator": "https://bp.example.test/upper-arm-cuff-fit",
+                "source_domain": "bp.example.test",
+                "source_kind": "clinical_guidance"
+              },
+              {
+                "title": "Home measurement technique guide",
+                "locator": "https://bp.example.test/home-technique",
+                "source_domain": "bp.example.test",
+                "source_kind": "clinical_guidance"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Validated monitor guidance",
+                "locator": "https://bp.example.test/validated-monitors",
+                "source_domain": "bp.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Upper-arm cuff recommendation",
+                "locator": "https://bp.example.test/upper-arm-cuff-fit",
+                "source_domain": "bp.example.test",
+                "source_kind": "clinical_guidance"
+              },
+              {
+                "title": "Home measurement technique guide",
+                "locator": "https://bp.example.test/home-technique",
+                "source_domain": "bp.example.test",
+                "source_kind": "clinical_guidance"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_home_bp_monitor_accuracy:1",
+              "evidence:post_tool_bad_home_bp_monitor_accuracy:2",
+              "evidence:post_tool_bad_home_bp_monitor_accuracy:3"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_bad_online_mutual_aid",
+      "response_payload": {
+        "response": "The strongest recurring pattern is that online mutual-aid efforts work when organizers keep intake lightweight, verification visible, and coordination ownership clear. The same evidence shows common failure modes: duplicated requests, stale spreadsheets, unclear decision rights, and volunteer burnout once no one is responsible for triage or follow-through. The practical watch-outs for organizers are to keep one source of truth, assign coordinators by geography or function, and distinguish urgent verified needs from general offers early rather than after the system is already overloaded.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Research how online communities organize mutual aid after local disasters. What patterns seem to work, what breaks down, and what should organizers watch for?",
+            "queries": [
+              "Research how online communities organize mutual aid after local disasters. What patterns seem to work, what breaks down, and what should organizers watch for?"
+            ],
+            "keywords": [
+              "intake",
+              "verification",
+              "coordination breakdowns"
+            ],
+            "required_coverage": {
+              "entities": [],
+              "facets": [
+                "intake",
+                "verification",
+                "coordination breakdowns"
+              ]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence suitable for bounded synthesis.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": [],
+                "facets": [
+                  "intake",
+                  "verification",
+                  "coordination breakdowns"
+                ]
+              }
+            },
+            "evidence_refs": [
+              {
+                "title": "Disaster mutual aid coordination study",
+                "locator": "https://mutualaid.example.test/disaster-coordination",
+                "snippet": "Case studies of disaster mutual aid emphasize lightweight intake, visible verification, and clear routing of requests to local coordinators.",
+                "score": 0.9
+              },
+              {
+                "title": "Volunteer operations breakdown note",
+                "locator": "https://mutualaid.example.test/operations-breakdowns",
+                "snippet": "Breakdowns repeatedly appear when requests and offers are duplicated across channels, spreadsheets go stale, and volunteers lack ownership for triage.",
+                "score": 0.89
+              },
+              {
+                "title": "Local coordination playbook",
+                "locator": "https://mutualaid.example.test/local-playbook",
+                "snippet": "Operational playbooks recommend a single source of truth and coordinator assignment by geography or function once demand spikes.",
+                "score": 0.88
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "official_docs",
+                "source_class": "official_or_primary",
+                "title": "Disaster mutual aid coordination study",
+                "locator": "https://mutualaid.example.test/disaster-coordination",
+                "source_domain": "mutualaid.example.test",
+                "relevant_extract": "Case studies of disaster mutual aid emphasize lightweight intake, visible verification, and clear routing of requests to local coordinators.",
+                "why_relevant_to_query": "It supports the patterns that work.",
+                "claim_hints": [
+                  "Online mutual-aid systems work better when intake is lightweight, verification is visible, and coordinators own routing."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "field_report",
+                "source_class": "secondary_analysis",
+                "title": "Volunteer operations breakdown note",
+                "locator": "https://mutualaid.example.test/operations-breakdowns",
+                "source_domain": "mutualaid.example.test",
+                "relevant_extract": "Breakdowns repeatedly appear when requests and offers are duplicated across channels, spreadsheets go stale, and volunteers lack ownership for triage.",
+                "why_relevant_to_query": "It supports the failure-mode analysis.",
+                "claim_hints": [
+                  "Duplicated requests, stale spreadsheets, and unclear ownership are recurring breakdown points in online mutual aid."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "playbook",
+                "source_class": "secondary_analysis",
+                "title": "Local coordination playbook",
+                "locator": "https://mutualaid.example.test/local-playbook",
+                "source_domain": "mutualaid.example.test",
+                "relevant_extract": "Operational playbooks recommend a single source of truth and coordinator assignment by geography or function once demand spikes.",
+                "why_relevant_to_query": "It supports the organizer watch-outs.",
+                "claim_hints": [
+                  "Organizers should maintain one source of truth and explicit coordinator ownership once mutual-aid demand spikes."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 3,
+              "content_rich_candidate_count": 3,
+              "claim_hint_count": 3,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Disaster mutual aid coordination study",
+                "snippet": "Case studies of disaster mutual aid emphasize lightweight intake, visible verification, and clear routing of requests to local coordinators.",
+                "url": "https://mutualaid.example.test/disaster-coordination"
+              },
+              {
+                "title": "Volunteer operations breakdown note",
+                "snippet": "Breakdowns repeatedly appear when requests and offers are duplicated across channels, spreadsheets go stale, and volunteers lack ownership for triage.",
+                "url": "https://mutualaid.example.test/operations-breakdowns"
+              },
+              {
+                "title": "Local coordination playbook",
+                "snippet": "Operational playbooks recommend a single source of truth and coordinator assignment by geography or function once demand spikes.",
+                "url": "https://mutualaid.example.test/local-playbook"
+              }
+            ],
+            "provider_results": [
+              {
+                "title": "Disaster mutual aid coordination study",
+                "snippet": "Case studies of disaster mutual aid emphasize lightweight intake, visible verification, and clear routing of requests to local coordinators.",
+                "url": "https://mutualaid.example.test/disaster-coordination"
+              },
+              {
+                "title": "Volunteer operations breakdown note",
+                "snippet": "Breakdowns repeatedly appear when requests and offers are duplicated across channels, spreadsheets go stale, and volunteers lack ownership for triage.",
+                "url": "https://mutualaid.example.test/operations-breakdowns"
+              },
+              {
+                "title": "Local coordination playbook",
+                "snippet": "Operational playbooks recommend a single source of truth and coordinator assignment by geography or function once demand spikes.",
+                "url": "https://mutualaid.example.test/local-playbook"
+              }
+            ]
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": [
+            "evidence:post_tool_bad_online_mutual_aid:1",
+            "evidence:post_tool_bad_online_mutual_aid:2",
+            "evidence:post_tool_bad_online_mutual_aid:3"
+          ],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_online_mutual_aid:1",
+              "evidence:post_tool_bad_online_mutual_aid:2",
+              "evidence:post_tool_bad_online_mutual_aid:3"
+            ],
+            "source_refs": [
+              {
+                "title": "Disaster mutual aid coordination study",
+                "locator": "https://mutualaid.example.test/disaster-coordination",
+                "source_domain": "mutualaid.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Volunteer operations breakdown note",
+                "locator": "https://mutualaid.example.test/operations-breakdowns",
+                "source_domain": "mutualaid.example.test",
+                "source_kind": "field_report"
+              },
+              {
+                "title": "Local coordination playbook",
+                "locator": "https://mutualaid.example.test/local-playbook",
+                "source_domain": "mutualaid.example.test",
+                "source_kind": "playbook"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Disaster mutual aid coordination study",
+                "locator": "https://mutualaid.example.test/disaster-coordination",
+                "source_domain": "mutualaid.example.test",
+                "source_kind": "official_docs"
+              },
+              {
+                "title": "Volunteer operations breakdown note",
+                "locator": "https://mutualaid.example.test/operations-breakdowns",
+                "source_domain": "mutualaid.example.test",
+                "source_kind": "field_report"
+              },
+              {
+                "title": "Local coordination playbook",
+                "locator": "https://mutualaid.example.test/local-playbook",
+                "source_domain": "mutualaid.example.test",
+                "source_kind": "playbook"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_online_mutual_aid:1",
+              "evidence:post_tool_bad_online_mutual_aid:2",
+              "evidence:post_tool_bad_online_mutual_aid:3"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_bad_rag_stack_choice",
+      "response_payload": {
+        "response": "For a small team, the pragmatic default is usually Postgres with pgvector plus a thin application layer, then add LlamaIndex if document ingestion and retrieval composition become the hard part. The recorded evidence treats pgvector as the simplest operational starting point, LlamaIndex as the strongest helper for document-centric ingestion and retrieval workflows, and managed vector databases as something to adopt when scale, multi-tenant operations, or managed reliability matter enough to justify extra surface area. LangChain remains useful as a broad ecosystem, but the evidence makes it look easier to sprawl with than a narrower small-team stack.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Research current RAG stack options for a small team: LlamaIndex, LangChain, custom Postgres/pgvector, and managed vector databases. Give me a pragmatic recommendation.",
+            "queries": [
+              "Research current RAG stack options for a small team: LlamaIndex, LangChain, custom Postgres/pgvector, and managed vector databases. Give me a pragmatic recommendation."
+            ],
+            "keywords": [
+              "LlamaIndex",
+              "LangChain",
+              "pgvector",
+              "vector database",
+              "small-team simplicity",
+              "managed operational surface"
+            ],
+            "required_coverage": {
+              "entities": [
+                "LlamaIndex",
+                "LangChain",
+                "pgvector",
+                "vector database"
+              ],
+              "facets": [
+                "small-team simplicity",
+                "managed operational surface"
+              ]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence suitable for bounded synthesis.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": [
+                  "LlamaIndex",
+                  "LangChain",
+                  "pgvector",
+                  "vector database"
+                ],
+                "facets": [
+                  "small-team simplicity",
+                  "managed operational surface"
+                ]
+              }
+            },
+            "evidence_refs": [
+              {
+                "title": "pgvector operator guide",
+                "locator": "https://rag.example.test/pgvector/small-team",
+                "snippet": "pgvector is framed as a simple way to keep retrieval close to the existing Postgres operational model for small teams.",
+                "score": 0.9
+              },
+              {
+                "title": "LlamaIndex ingestion docs",
+                "locator": "https://rag.example.test/llamaindex/ingestion",
+                "snippet": "LlamaIndex emphasizes document ingestion, indexing, and retrieval composition when document handling is the core challenge.",
+                "score": 0.89
+              },
+              {
+                "title": "Managed vector database guide",
+                "locator": "https://rag.example.test/managed-vector/ops",
+                "snippet": "Managed vector databases trade simplicity for more managed reliability, scale, and operational surface.",
+                "score": 0.88
+              },
+              {
+                "title": "LangChain ecosystem overview",
+                "locator": "https://rag.example.test/langchain/ecosystem",
+                "snippet": "LangChain is presented as a broad framework ecosystem with many integration paths and abstraction layers.",
+                "score": 0.87
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "technical_guide",
+                "source_class": "official_or_primary",
+                "title": "pgvector operator guide",
+                "locator": "https://rag.example.test/pgvector/small-team",
+                "source_domain": "rag.example.test",
+                "relevant_extract": "pgvector is framed as a simple way to keep retrieval close to the existing Postgres operational model for small teams.",
+                "why_relevant_to_query": "It supports the small-team default recommendation.",
+                "claim_hints": [
+                  "pgvector is the simplest small-team default when a team already operates Postgres."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "product_docs",
+                "source_class": "official_or_primary",
+                "title": "LlamaIndex ingestion docs",
+                "locator": "https://rag.example.test/llamaindex/ingestion",
+                "source_domain": "rag.example.test",
+                "relevant_extract": "LlamaIndex emphasizes document ingestion, indexing, and retrieval composition when document handling is the core challenge.",
+                "why_relevant_to_query": "It supports LlamaIndex on document-centric workflows.",
+                "claim_hints": [
+                  "LlamaIndex is most useful when document ingestion and retrieval composition are the main bottlenecks."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "technical_guide",
+                "source_class": "official_or_primary",
+                "title": "Managed vector database guide",
+                "locator": "https://rag.example.test/managed-vector/ops",
+                "source_domain": "rag.example.test",
+                "relevant_extract": "Managed vector databases trade simplicity for more managed reliability, scale, and operational surface.",
+                "why_relevant_to_query": "It supports the tradeoff around managed vector databases.",
+                "claim_hints": [
+                  "Managed vector databases make more sense once a team needs managed scale or reliability enough to justify extra operational surface."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "product_docs",
+                "source_class": "official_or_primary",
+                "title": "LangChain ecosystem overview",
+                "locator": "https://rag.example.test/langchain/ecosystem",
+                "source_domain": "rag.example.test",
+                "relevant_extract": "LangChain is presented as a broad framework ecosystem with many integration paths and abstraction layers.",
+                "why_relevant_to_query": "It supports the note about ecosystem breadth and sprawl risk.",
+                "claim_hints": [
+                  "LangChain offers broad ecosystem flexibility, but that same breadth can create more architectural sprawl for a small team."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 4,
+              "content_rich_candidate_count": 4,
+              "claim_hint_count": 4,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            },
+            "raw_results": [
+              {
+                "title": "pgvector operator guide",
+                "snippet": "pgvector is framed as a simple way to keep retrieval close to the existing Postgres operational model for small teams.",
+                "url": "https://rag.example.test/pgvector/small-team"
+              },
+              {
+                "title": "LlamaIndex ingestion docs",
+                "snippet": "LlamaIndex emphasizes document ingestion, indexing, and retrieval composition when document handling is the core challenge.",
+                "url": "https://rag.example.test/llamaindex/ingestion"
+              },
+              {
+                "title": "Managed vector database guide",
+                "snippet": "Managed vector databases trade simplicity for more managed reliability, scale, and operational surface.",
+                "url": "https://rag.example.test/managed-vector/ops"
+              },
+              {
+                "title": "LangChain ecosystem overview",
+                "snippet": "LangChain is presented as a broad framework ecosystem with many integration paths and abstraction layers.",
+                "url": "https://rag.example.test/langchain/ecosystem"
+              }
+            ],
+            "provider_results": [
+              {
+                "title": "pgvector operator guide",
+                "snippet": "pgvector is framed as a simple way to keep retrieval close to the existing Postgres operational model for small teams.",
+                "url": "https://rag.example.test/pgvector/small-team"
+              },
+              {
+                "title": "LlamaIndex ingestion docs",
+                "snippet": "LlamaIndex emphasizes document ingestion, indexing, and retrieval composition when document handling is the core challenge.",
+                "url": "https://rag.example.test/llamaindex/ingestion"
+              },
+              {
+                "title": "Managed vector database guide",
+                "snippet": "Managed vector databases trade simplicity for more managed reliability, scale, and operational surface.",
+                "url": "https://rag.example.test/managed-vector/ops"
+              },
+              {
+                "title": "LangChain ecosystem overview",
+                "snippet": "LangChain is presented as a broad framework ecosystem with many integration paths and abstraction layers.",
+                "url": "https://rag.example.test/langchain/ecosystem"
+              }
+            ]
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": [
+            "evidence:post_tool_bad_rag_stack_choice:1",
+            "evidence:post_tool_bad_rag_stack_choice:2",
+            "evidence:post_tool_bad_rag_stack_choice:3",
+            "evidence:post_tool_bad_rag_stack_choice:4"
+          ],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_rag_stack_choice:1",
+              "evidence:post_tool_bad_rag_stack_choice:2",
+              "evidence:post_tool_bad_rag_stack_choice:3",
+              "evidence:post_tool_bad_rag_stack_choice:4"
+            ],
+            "source_refs": [
+              {
+                "title": "pgvector operator guide",
+                "locator": "https://rag.example.test/pgvector/small-team",
+                "source_domain": "rag.example.test",
+                "source_kind": "technical_guide"
+              },
+              {
+                "title": "LlamaIndex ingestion docs",
+                "locator": "https://rag.example.test/llamaindex/ingestion",
+                "source_domain": "rag.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Managed vector database guide",
+                "locator": "https://rag.example.test/managed-vector/ops",
+                "source_domain": "rag.example.test",
+                "source_kind": "technical_guide"
+              },
+              {
+                "title": "LangChain ecosystem overview",
+                "locator": "https://rag.example.test/langchain/ecosystem",
+                "source_domain": "rag.example.test",
+                "source_kind": "product_docs"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "pgvector operator guide",
+                "locator": "https://rag.example.test/pgvector/small-team",
+                "source_domain": "rag.example.test",
+                "source_kind": "technical_guide"
+              },
+              {
+                "title": "LlamaIndex ingestion docs",
+                "locator": "https://rag.example.test/llamaindex/ingestion",
+                "source_domain": "rag.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Managed vector database guide",
+                "locator": "https://rag.example.test/managed-vector/ops",
+                "source_domain": "rag.example.test",
+                "source_kind": "technical_guide"
+              },
+              {
+                "title": "LangChain ecosystem overview",
+                "locator": "https://rag.example.test/langchain/ecosystem",
+                "source_domain": "rag.example.test",
+                "source_kind": "product_docs"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_rag_stack_choice:1",
+              "evidence:post_tool_bad_rag_stack_choice:2",
+              "evidence:post_tool_bad_rag_stack_choice:3",
+              "evidence:post_tool_bad_rag_stack_choice:4"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_bad_semantic_kernel_enterprise",
+      "response_payload": {
+        "response": "Semantic Kernel looks strongest for enterprise teams that already live inside Microsoft and Azure and want agent orchestration that fits that platform reality. The evidence supports it on SDK-level orchestration, connectors, and enterprise integration, while the awkward side is a fast-moving abstraction surface and a smaller public ecosystem than the most popular general-purpose agent stacks. In practice, it is a serious option for Microsoft-heavy platform teams, but a less obvious default for teams that want the widest community surface or the most neutral cross-vendor posture.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Research Microsoft Semantic Kernel for enterprise agent orchestration. Where is it strong, where is it awkward, and what teams should consider it?",
+            "queries": [
+              "Research Microsoft Semantic Kernel for enterprise agent orchestration. Where is it strong, where is it awkward, and what teams should consider it?"
+            ],
+            "keywords": [
+              "Semantic Kernel",
+              "Microsoft",
+              "enterprise fit",
+              "awkward edges",
+              "team fit"
+            ],
+            "required_coverage": {
+              "entities": [
+                "Semantic Kernel",
+                "Microsoft"
+              ],
+              "facets": [
+                "enterprise fit",
+                "awkward edges",
+                "team fit"
+              ]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence suitable for bounded synthesis.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": [
+                  "Semantic Kernel",
+                  "Microsoft"
+                ],
+                "facets": [
+                  "enterprise fit",
+                  "awkward edges",
+                  "team fit"
+                ]
+              }
+            },
+            "evidence_refs": [
+              {
+                "title": "Semantic Kernel enterprise guide",
+                "locator": "https://sk.example.test/enterprise-guide",
+                "snippet": "Semantic Kernel emphasizes SDK-level orchestration primitives, connectors, and enterprise integration inside the Microsoft and Azure ecosystem.",
+                "score": 0.9
+              },
+              {
+                "title": "Semantic Kernel roadmap note",
+                "locator": "https://sk.example.test/roadmap",
+                "snippet": "The platform is evolving quickly, which gives teams capability growth but also shifting abstractions and documentation churn.",
+                "score": 0.89
+              },
+              {
+                "title": "Agent framework ecosystem comparison",
+                "locator": "https://sk.example.test/ecosystem-compare",
+                "snippet": "Compared with broader framework ecosystems, Semantic Kernel shows a tighter enterprise posture but less community breadth.",
+                "score": 0.88
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "product_docs",
+                "source_class": "official_or_primary",
+                "title": "Semantic Kernel enterprise guide",
+                "locator": "https://sk.example.test/enterprise-guide",
+                "source_domain": "sk.example.test",
+                "relevant_extract": "Semantic Kernel emphasizes SDK-level orchestration primitives, connectors, and enterprise integration inside the Microsoft and Azure ecosystem.",
+                "why_relevant_to_query": "It supports the enterprise-strength claim, including SDK-level orchestration and Microsoft/Azure fit.",
+                "claim_hints": [
+                  "Semantic Kernel is strongest for SDK-level orchestration, connectors, and enterprise integration inside Microsoft and Azure environments."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "release_notes",
+                "source_class": "official_or_primary",
+                "title": "Semantic Kernel roadmap note",
+                "locator": "https://sk.example.test/roadmap",
+                "source_domain": "sk.example.test",
+                "relevant_extract": "The platform is evolving quickly, which gives teams capability growth but also shifting abstractions and documentation churn.",
+                "why_relevant_to_query": "It supports the awkward-edge claim.",
+                "claim_hints": [
+                  "Semantic Kernel can feel awkward because its abstractions and surrounding guidance are still moving quickly."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "comparison_article",
+                "source_class": "secondary_analysis",
+                "title": "Agent framework ecosystem comparison",
+                "locator": "https://sk.example.test/ecosystem-compare",
+                "source_domain": "sk.example.test",
+                "relevant_extract": "Compared with broader framework ecosystems, Semantic Kernel shows a tighter enterprise posture but less community breadth.",
+                "why_relevant_to_query": "It supports the team-fit recommendation.",
+                "claim_hints": [
+                  "Semantic Kernel is a stronger fit for Microsoft-heavy enterprise platform teams than for teams optimizing for maximum cross-vendor community breadth."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 3,
+              "content_rich_candidate_count": 3,
+              "claim_hint_count": 3,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Semantic Kernel enterprise guide",
+                "snippet": "Semantic Kernel emphasizes SDK-level orchestration primitives, connectors, and enterprise integration inside the Microsoft and Azure ecosystem.",
+                "url": "https://sk.example.test/enterprise-guide"
+              },
+              {
+                "title": "Semantic Kernel roadmap note",
+                "snippet": "The platform is evolving quickly, which gives teams capability growth but also shifting abstractions and documentation churn.",
+                "url": "https://sk.example.test/roadmap"
+              },
+              {
+                "title": "Agent framework ecosystem comparison",
+                "snippet": "Compared with broader framework ecosystems, Semantic Kernel shows a tighter enterprise posture but less community breadth.",
+                "url": "https://sk.example.test/ecosystem-compare"
+              }
+            ],
+            "provider_results": [
+              {
+                "title": "Semantic Kernel enterprise guide",
+                "snippet": "Semantic Kernel emphasizes SDK-level orchestration primitives, connectors, and enterprise integration inside the Microsoft and Azure ecosystem.",
+                "url": "https://sk.example.test/enterprise-guide"
+              },
+              {
+                "title": "Semantic Kernel roadmap note",
+                "snippet": "The platform is evolving quickly, which gives teams capability growth but also shifting abstractions and documentation churn.",
+                "url": "https://sk.example.test/roadmap"
+              },
+              {
+                "title": "Agent framework ecosystem comparison",
+                "snippet": "Compared with broader framework ecosystems, Semantic Kernel shows a tighter enterprise posture but less community breadth.",
+                "url": "https://sk.example.test/ecosystem-compare"
+              }
+            ]
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": [
+            "evidence:post_tool_bad_semantic_kernel_enterprise:1",
+            "evidence:post_tool_bad_semantic_kernel_enterprise:2",
+            "evidence:post_tool_bad_semantic_kernel_enterprise:3"
+          ],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_semantic_kernel_enterprise:1",
+              "evidence:post_tool_bad_semantic_kernel_enterprise:2",
+              "evidence:post_tool_bad_semantic_kernel_enterprise:3"
+            ],
+            "source_refs": [
+              {
+                "title": "Semantic Kernel enterprise guide",
+                "locator": "https://sk.example.test/enterprise-guide",
+                "source_domain": "sk.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Semantic Kernel roadmap note",
+                "locator": "https://sk.example.test/roadmap",
+                "source_domain": "sk.example.test",
+                "source_kind": "release_notes"
+              },
+              {
+                "title": "Agent framework ecosystem comparison",
+                "locator": "https://sk.example.test/ecosystem-compare",
+                "source_domain": "sk.example.test",
+                "source_kind": "comparison_article"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Semantic Kernel enterprise guide",
+                "locator": "https://sk.example.test/enterprise-guide",
+                "source_domain": "sk.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Semantic Kernel roadmap note",
+                "locator": "https://sk.example.test/roadmap",
+                "source_domain": "sk.example.test",
+                "source_kind": "release_notes"
+              },
+              {
+                "title": "Agent framework ecosystem comparison",
+                "locator": "https://sk.example.test/ecosystem-compare",
+                "source_domain": "sk.example.test",
+                "source_kind": "comparison_article"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_semantic_kernel_enterprise:1",
+              "evidence:post_tool_bad_semantic_kernel_enterprise:2",
+              "evidence:post_tool_bad_semantic_kernel_enterprise:3"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_bad_infring_low_signal",
+      "response_payload": {
+        "response": "The bounded answer is that public evidence about Infring is still sparse, so a strong head-to-head ranking against better-documented agent frameworks is not earned yet. What can be verified is narrower: the available public material presents Infring as an operating-system-style agent layer, while mainstream agent frameworks have much richer public docs, examples, and ecosystem evidence. So the practical comparison is less about feature leadership and more about evidence asymmetry: Infring may have a distinctive systems-level ambition, but the public record is still too thin to support a confident framework-vs-framework verdict.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Search the web for public evidence about Infring compared with agentic frameworks. If evidence is sparse, say that clearly and still give me a bounded comparison based on what can be verified.",
+            "queries": [
+              "Search the web for public evidence about Infring compared with agentic frameworks. If evidence is sparse, say that clearly and still give me a bounded comparison based on what can be verified."
+            ],
+            "keywords": [
+              "Infring",
+              "public evidence",
+              "bounded comparison"
+            ],
+            "required_coverage": {
+              "entities": [
+                "Infring"
+              ],
+              "facets": [
+                "public evidence",
+                "bounded comparison"
+              ]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence suitable for bounded synthesis.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": [
+                  "Infring"
+                ],
+                "facets": [
+                  "public evidence",
+                  "bounded comparison"
+                ]
+              }
+            },
+            "evidence_refs": [
+              {
+                "title": "Infring public overview",
+                "locator": "https://infring.example.test/public-overview",
+                "snippet": "The public description frames Infring as an operating-system-style agent layer with broad system ambitions.",
+                "score": 0.9
+              },
+              {
+                "title": "Framework documentation surface comparison",
+                "locator": "https://frameworks.example.test/public-surface",
+                "snippet": "Mainstream agent frameworks expose richer public documentation, examples, and ecosystem material than sparse newcomer surfaces.",
+                "score": 0.89
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "product_docs",
+                "source_class": "official_or_primary",
+                "title": "Infring public overview",
+                "locator": "https://infring.example.test/public-overview",
+                "source_domain": "infring.example.test",
+                "relevant_extract": "The public description frames Infring as an operating-system-style agent layer with broad system ambitions.",
+                "why_relevant_to_query": "It supports the narrow verified statement about Infring.",
+                "claim_hints": [
+                  "Public material presents Infring as an operating-system-style agent layer."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "comparison_article",
+                "source_class": "secondary_analysis",
+                "title": "Framework documentation surface comparison",
+                "locator": "https://frameworks.example.test/public-surface",
+                "source_domain": "frameworks.example.test",
+                "relevant_extract": "Mainstream agent frameworks expose richer public documentation, examples, and ecosystem material than sparse newcomer surfaces.",
+                "why_relevant_to_query": "It supports the bounded comparison based on evidence density.",
+                "claim_hints": [
+                  "Mainstream agent frameworks currently have a much richer public evidence surface than sparse newcomer projects."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 2,
+              "content_rich_candidate_count": 2,
+              "claim_hint_count": 2,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Infring public overview",
+                "snippet": "The public description frames Infring as an operating-system-style agent layer with broad system ambitions.",
+                "url": "https://infring.example.test/public-overview"
+              },
+              {
+                "title": "Framework documentation surface comparison",
+                "snippet": "Mainstream agent frameworks expose richer public documentation, examples, and ecosystem material than sparse newcomer surfaces.",
+                "url": "https://frameworks.example.test/public-surface"
+              }
+            ],
+            "provider_results": [
+              {
+                "title": "Infring public overview",
+                "snippet": "The public description frames Infring as an operating-system-style agent layer with broad system ambitions.",
+                "url": "https://infring.example.test/public-overview"
+              },
+              {
+                "title": "Framework documentation surface comparison",
+                "snippet": "Mainstream agent frameworks expose richer public documentation, examples, and ecosystem material than sparse newcomer surfaces.",
+                "url": "https://frameworks.example.test/public-surface"
+              }
+            ]
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": [
+            "evidence:post_tool_bad_infring_low_signal:1",
+            "evidence:post_tool_bad_infring_low_signal:2"
+          ],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_infring_low_signal:1",
+              "evidence:post_tool_bad_infring_low_signal:2"
+            ],
+            "source_refs": [
+              {
+                "title": "Infring public overview",
+                "locator": "https://infring.example.test/public-overview",
+                "source_domain": "infring.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Framework documentation surface comparison",
+                "locator": "https://frameworks.example.test/public-surface",
+                "source_domain": "frameworks.example.test",
+                "source_kind": "comparison_article"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Infring public overview",
+                "locator": "https://infring.example.test/public-overview",
+                "source_domain": "infring.example.test",
+                "source_kind": "product_docs"
+              },
+              {
+                "title": "Framework documentation surface comparison",
+                "locator": "https://frameworks.example.test/public-surface",
+                "source_domain": "frameworks.example.test",
+                "source_kind": "comparison_article"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_infring_low_signal:1",
+              "evidence:post_tool_bad_infring_low_signal:2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "post_tool_bad_sparse_benchmarks",
+      "response_payload": {
+        "response": "Recent benchmark evidence for agent frameworks is still patchy, and that weakness mostly comes from comparisons that change too many variables at once. The recorded evidence supports a cautious interpretation: public benchmark posts often mix framework behavior with model choice, tool setup, and task design, so they rarely produce a clean apples-to-apples ranking. The practical evaluation plan is to pick a small task set that resembles your real workflow, hold the model and tools fixed, record latency, recovery behavior, and cost, and then compare frameworks on repeated traces instead of on a single benchmark table.",
+        "pending_tool_request": {
+          "status": "executed",
+          "tool_name": "batch_query",
+          "tool_key": "batch_query",
+          "selected_tool_key": "batch_query",
+          "selected_tool_family": "web_research",
+          "input": {
+            "query": "Find recent benchmarks comparing agent frameworks. If the benchmark evidence is weak, explain why and suggest a practical evaluation plan.",
+            "queries": [
+              "Find recent benchmarks comparing agent frameworks. If the benchmark evidence is weak, explain why and suggest a practical evaluation plan."
+            ],
+            "keywords": [
+              "benchmark",
+              "agent framework",
+              "benchmark scarcity",
+              "evaluation plan"
+            ],
+            "required_coverage": {
+              "entities": [
+                "benchmark",
+                "agent framework"
+              ],
+              "facets": [
+                "benchmark scarcity",
+                "evaluation plan"
+              ]
+            },
+            "query_metadata_policy": {
+              "classification": "expanded_query_pack"
+            },
+            "aperture": "medium",
+            "source": "web"
+          }
+        },
+        "tools": [
+          {
+            "name": "batch_query",
+            "status": "done",
+            "result": "Returned source-backed evidence suitable for bounded synthesis.",
+            "query_metadata": {
+              "required_coverage": {
+                "entities": [
+                  "benchmark",
+                  "agent framework"
+                ],
+                "facets": [
+                  "benchmark scarcity",
+                  "evaluation plan"
+                ]
+              }
+            },
+            "evidence_refs": [
+              {
+                "title": "Agent benchmark survey",
+                "locator": "https://bench.example.test/agent-benchmark-survey",
+                "snippet": "Public framework benchmarks often vary the model, tool setup, and task design at the same time, which weakens comparability.",
+                "score": 0.9
+              },
+              {
+                "title": "Evaluation design note",
+                "locator": "https://bench.example.test/eval-design",
+                "snippet": "Repeatable framework evaluation guidance recommends fixing the model and tools first, then logging cost, latency, retries, and recovery behavior across repeated runs.",
+                "score": 0.89
+              },
+              {
+                "title": "Benchmark caution memo",
+                "locator": "https://bench.example.test/benchmark-caution",
+                "snippet": "Single benchmark tables frequently obscure whether the measured difference comes from orchestration quality or from surrounding setup choices.",
+                "score": 0.88
+              }
+            ],
+            "evidence_pack": [
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "survey",
+                "source_class": "secondary_analysis",
+                "title": "Agent benchmark survey",
+                "locator": "https://bench.example.test/agent-benchmark-survey",
+                "source_domain": "bench.example.test",
+                "relevant_extract": "Public framework benchmarks often vary the model, tool setup, and task design at the same time, which weakens comparability.",
+                "why_relevant_to_query": "It supports the claim that evidence is weak and mixed.",
+                "claim_hints": [
+                  "Recent public agent-framework benchmarks are hard to compare cleanly because they vary multiple experimental factors at once."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "technical_guide",
+                "source_class": "official_or_primary",
+                "title": "Evaluation design note",
+                "locator": "https://bench.example.test/eval-design",
+                "source_domain": "bench.example.test",
+                "relevant_extract": "Repeatable framework evaluation guidance recommends fixing the model and tools first, then logging cost, latency, retries, and recovery behavior across repeated runs.",
+                "why_relevant_to_query": "It supports the practical evaluation plan.",
+                "claim_hints": [
+                  "A practical framework evaluation should hold model and tools fixed, then compare latency, cost, and recovery behavior across repeated runs."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              },
+              {
+                "pack_version": "evidence_pack_v1",
+                "source_kind": "memo",
+                "source_class": "secondary_analysis",
+                "title": "Benchmark caution memo",
+                "locator": "https://bench.example.test/benchmark-caution",
+                "source_domain": "bench.example.test",
+                "relevant_extract": "Single benchmark tables frequently obscure whether the measured difference comes from orchestration quality or from surrounding setup choices.",
+                "why_relevant_to_query": "It supports the warning about over-reading benchmark tables.",
+                "claim_hints": [
+                  "Single benchmark tables are not enough to rank agent frameworks confidently because setup choices can dominate the result."
+                ],
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+              }
+            ],
+            "tool_result_quality": {
+              "status": "usable",
+              "usable_evidence": true,
+              "evidence_count": 3,
+              "content_rich_candidate_count": 3,
+              "claim_hint_count": 3,
+              "coverage": {
+                "bucket_status": "covered",
+                "missing_buckets": []
+              }
+            },
+            "raw_results": [
+              {
+                "title": "Agent benchmark survey",
+                "snippet": "Public framework benchmarks often vary the model, tool setup, and task design at the same time, which weakens comparability.",
+                "url": "https://bench.example.test/agent-benchmark-survey"
+              },
+              {
+                "title": "Evaluation design note",
+                "snippet": "Repeatable framework evaluation guidance recommends fixing the model and tools first, then logging cost, latency, retries, and recovery behavior across repeated runs.",
+                "url": "https://bench.example.test/eval-design"
+              },
+              {
+                "title": "Benchmark caution memo",
+                "snippet": "Single benchmark tables frequently obscure whether the measured difference comes from orchestration quality or from surrounding setup choices.",
+                "url": "https://bench.example.test/benchmark-caution"
+              }
+            ],
+            "provider_results": [
+              {
+                "title": "Agent benchmark survey",
+                "snippet": "Public framework benchmarks often vary the model, tool setup, and task design at the same time, which weakens comparability.",
+                "url": "https://bench.example.test/agent-benchmark-survey"
+              },
+              {
+                "title": "Evaluation design note",
+                "snippet": "Repeatable framework evaluation guidance recommends fixing the model and tools first, then logging cost, latency, retries, and recovery behavior across repeated runs.",
+                "url": "https://bench.example.test/eval-design"
+              },
+              {
+                "title": "Benchmark caution memo",
+                "snippet": "Single benchmark tables frequently obscure whether the measured difference comes from orchestration quality or from surrounding setup choices.",
+                "url": "https://bench.example.test/benchmark-caution"
+              }
+            ]
+          }
+        ],
+        "response_workflow": {
+          "evidence_refs": [
+            "evidence:post_tool_bad_sparse_benchmarks:1",
+            "evidence:post_tool_bad_sparse_benchmarks:2",
+            "evidence:post_tool_bad_sparse_benchmarks:3"
+          ],
+          "final_llm_response": {
+            "status": "synthesized",
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_sparse_benchmarks:1",
+              "evidence:post_tool_bad_sparse_benchmarks:2",
+              "evidence:post_tool_bad_sparse_benchmarks:3"
+            ],
+            "source_refs": [
+              {
+                "title": "Agent benchmark survey",
+                "locator": "https://bench.example.test/agent-benchmark-survey",
+                "source_domain": "bench.example.test",
+                "source_kind": "survey"
+              },
+              {
+                "title": "Evaluation design note",
+                "locator": "https://bench.example.test/eval-design",
+                "source_domain": "bench.example.test",
+                "source_kind": "technical_guide"
+              },
+              {
+                "title": "Benchmark caution memo",
+                "locator": "https://bench.example.test/benchmark-caution",
+                "source_domain": "bench.example.test",
+                "source_kind": "memo"
+              }
+            ]
+          }
+        },
+        "response_finalization": {
+          "outcome": "workflow_authored+tool_completion:synthesized",
+          "final_response": {
+            "source_refs": [
+              {
+                "title": "Agent benchmark survey",
+                "locator": "https://bench.example.test/agent-benchmark-survey",
+                "source_domain": "bench.example.test",
+                "source_kind": "survey"
+              },
+              {
+                "title": "Evaluation design note",
+                "locator": "https://bench.example.test/eval-design",
+                "source_domain": "bench.example.test",
+                "source_kind": "technical_guide"
+              },
+              {
+                "title": "Benchmark caution memo",
+                "locator": "https://bench.example.test/benchmark-caution",
+                "source_domain": "bench.example.test",
+                "source_kind": "memo"
+              }
+            ]
+          },
+          "tool_completion": {
+            "completion_state": "synthesized",
+            "findings_available": true,
+            "evidence_refs_used": [
+              "evidence:post_tool_bad_sparse_benchmarks:1",
+              "evidence:post_tool_bad_sparse_benchmarks:2",
+              "evidence:post_tool_bad_sparse_benchmarks:3"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

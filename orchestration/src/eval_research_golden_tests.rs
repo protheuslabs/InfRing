@@ -267,6 +267,32 @@ fn research_post_tool_downstream_fixture_replays_cleanly_offline() {
 }
 
 #[test]
+fn research_post_tool_bad_prompt_bank_replays_cleanly_offline() {
+    let root = temp_path("research_post_tool_downstream_bad_prompt_bank");
+    let cases = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../validation/evals/fixtures/research_post_tool_downstream_bad_prompt_bank_v1.json",
+    );
+    let responses = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../validation/evals/fixtures/research_post_tool_downstream_bad_prompt_bank_responses_v1.json",
+    );
+    let code = run_research_golden(&runner_args(&root, &cases, &responses, false));
+    assert_eq!(code, 0);
+    let report = read_json(root.join("out.json").to_str().unwrap());
+    let rows = report.get("cases").and_then(Value::as_array).expect("cases");
+    assert_eq!(rows.len(), 10);
+    for row in rows {
+        assert_eq!(row.get("pass"), Some(&Value::Bool(true)), "{row:#?}");
+        assert!(
+            row.get("response_full")
+                .and_then(Value::as_str)
+                .map(|value| value.split_whitespace().count() >= 20)
+                .unwrap_or(false),
+            "{row:#?}"
+        );
+    }
+}
+
+#[test]
 fn research_upstream_failure_localization_contract_declares_expected_layers() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
         "../validation/evals/fixtures/research_eval_upstream_failure_localization_contract.json",
