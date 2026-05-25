@@ -256,6 +256,28 @@
       "contract_surface": "native_runtime_timing_probe",
       "extension_surface": "provider_turn_prompt_size_and_latency_observation",
       "promotion_status": "seed"
+    },
+    {
+      "id": "runtime.validation_repair_after_mutation_gate",
+      "name": "Validation Repair After Mutation Gate",
+      "kind": "primitive",
+      "owner_domain": "core",
+      "layer": "2",
+      "path": "core/layer2/agent_surface/src/runtime_lane.rs",
+      "contract_surface": "runtime_stage_order_invariant",
+      "extension_surface": "validation_repair_stage_policy",
+      "promotion_status": "seed"
+    },
+    {
+      "id": "runtime.edit_context_packet",
+      "name": "Edit Context Packet",
+      "kind": "primitive",
+      "owner_domain": "core",
+      "layer": "2",
+      "path": "core/layer2/agent_surface/src/agent.rs",
+      "contract_surface": "native_runtime_setup_packet",
+      "extension_surface": "setup_depth_s4_model_context_projection",
+      "promotion_status": "seed"
     }
   ]
 }

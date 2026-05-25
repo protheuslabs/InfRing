@@ -1818,7 +1818,12 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
             "bounded_existing_project_edit_loop_validation_recheck",
         );
     }
-    if runtime_lane_receipts_need_repair(&receipts, candidate.requires_validation) {
+    let validation_repair_has_mutation = receipts
+        .iter()
+        .any(runtime_lane_receipt_is_successful_mutation);
+    if runtime_lane_receipts_need_repair(&receipts, candidate.requires_validation)
+        && validation_repair_has_mutation
+    {
         if let Some(initial_failure_summary) = runtime_lane_first_receipt_failure_summary(&receipts)
         {
             let mut repair_failure_summary = initial_failure_summary;
@@ -2034,6 +2039,19 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
                 receipts = repair_receipts;
             }
         }
+    } else if runtime_lane_receipts_need_repair(&receipts, candidate.requires_validation)
+        && !validation_repair_has_mutation
+    {
+        receipts.push(runtime_lane_validation_repair_failure_receipt(
+            "bounded_existing_project_edit_loop_pre_mutation_validation_repair_blocked",
+            "pre_mutation_validation_repair_blocked",
+            "Validation repair is blocked until at least one source or test mutation receipt exists. Baseline validation failure is context for the first edit, not a repair stage.",
+            json!({
+                "required_prior_receipt": "file_write_or_file_patch",
+                "blocked_stage": "validation_repair",
+                "reason": "baseline_validation_before_mutation"
+            }),
+        ));
     }
     if let Some(failure) =
         runtime_lane_semantic_probe_failure(&receipts, semantic_probe_call_id.as_deref())
@@ -3724,6 +3742,7 @@ fn runtime_lane_bounded_existing_project_edit_loop_system() -> String {
 Return only valid JSON. No markdown. No prose.\n\
 Use this exact shape: {\"deterministic_local_loop\":{\"workspace_root\":\"/absolute/path\",\"actions\":[...]}}.\n\
 Allowed actions: file_patch with path, old, new, allow_multiple; write_file with path, content, overwrite; command_run with cmd.\n\
+Order source/test file_patch or write_file actions before command_run actions. Baseline validation output is setup context for the first edit; validation repair is only legal after a mutation receipt exists.\n\
 Prefer file_patch for existing-file localized edits. Use write_file only for new files or broad replacements.\n\
 Keep the action list small. Use exact old text from the context pack for patches. Preserve existing behavior.\n\
 Preserve existing public import paths and owner modules. If tests, probes, or callers import a symbol from a module, make that module provide the symbol directly; a package __init__ re-export alone is not enough.\n\
@@ -4902,7 +4921,8 @@ fn runtime_lane_dispatch_model_manifest_actions(
         "command_run".to_string(),
     ]);
     let mut receipts = Vec::<NativeToolReceipt>::new();
-    for (index, action) in candidate.actions.iter().enumerate() {
+    let ordered_actions = runtime_lane_manifest_actions_mutation_before_command(&candidate.actions);
+    for (index, action) in ordered_actions.into_iter().enumerate() {
         let call = match action {
             DeterministicLocalAction::WriteFile {
                 target_path,
@@ -4965,6 +4985,28 @@ fn runtime_lane_dispatch_model_manifest_actions(
         }
     }
     receipts
+}
+
+fn runtime_lane_manifest_actions_mutation_before_command(
+    actions: &[DeterministicLocalAction],
+) -> Vec<&DeterministicLocalAction> {
+    let mut ordered = actions
+        .iter()
+        .filter(|action| runtime_lane_manifest_action_is_mutation(action))
+        .collect::<Vec<_>>();
+    ordered.extend(
+        actions
+            .iter()
+            .filter(|action| !runtime_lane_manifest_action_is_mutation(action)),
+    );
+    ordered
+}
+
+fn runtime_lane_manifest_action_is_mutation(action: &DeterministicLocalAction) -> bool {
+    matches!(
+        action,
+        DeterministicLocalAction::WriteFile { .. } | DeterministicLocalAction::PatchFile { .. }
+    )
 }
 
 fn runtime_lane_semantic_probe_failure(

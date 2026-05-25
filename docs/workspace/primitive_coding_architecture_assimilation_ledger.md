@@ -1154,6 +1154,72 @@ Expected effect:
 - make slow first-mutation runs diagnosable without adding prompt weight
 - compare Infring timing against reference-agent traces at the primitive level
 
+## Primitive candidate: `edit_context_packet`
+
+Status: `dormant_after_v1_latency_and_reliability_regression`
+
+Primitive definition:
+
+`edit_context_packet` is setup layer `S4`: it projects receipt-backed setup into
+a compact model-facing packet while keeping full native receipts in the run
+journal.
+
+Setup layer stack:
+
+- `S0 classify`
+- `S1 locate`
+- `S2 read`
+- `S3 baseline validation`
+- `S4 packetize`
+- `S5 slice plan`
+- `S6 deep project context`
+
+Rules:
+
+- full file/tool receipts remain sidecar audit evidence
+- model-facing setup uses concise located files, read file contents, and
+  validation stdout/stderr tails
+- existing failing tests are validation evidence, not an automatic instruction
+  to mutate tests
+- reopen discovery only when the packet proves required files are missing
+- configured by workflow CD through `setup_depth` and `edit_context_packet`
+
+Expected effect:
+
+- preserve Level 6 reliability while reducing first-mutation latency
+- make setup adaptive and layer-composable instead of one-size-fits-all
+
+V1 result:
+
+- kept as a dormant seed primitive after Level 6 regressed from 5/5 at about
+  58.8s average wall time to 3/5 at about 120.9s average wall time when enabled
+
+## Primitive candidate: `validation_repair_after_mutation_gate`
+
+Status: `v1_wired_after_level6_pre_mutation_repair_regression`
+
+Primitive definition:
+
+`validation_repair_after_mutation_gate` enforces that validation repair is a
+post-mutation stage. Baseline validation can be run as setup/context, but a
+failed baseline validation receipt cannot route directly to validation repair
+until at least one `file_write` or `file_patch` receipt exists.
+
+Rules:
+
+- deterministic coding manifests execute file mutations before command actions
+- baseline validation failure is context for the first edit, not repair input
+- validation-repair provider calls require a prior successful mutation receipt
+- if no mutation receipt exists, the runtime emits a structured blocked repair
+  receipt instead of spending repair turns
+- no task-specific fixture names, symbols, packages, or eval levels are encoded
+
+Evidence:
+
+- Infring Level 6 after setup/planning layering regressed to 3/5 because two
+  runs entered `command_run -> validation_repair -> validation_repair` without
+  any source mutation and timed out in the repair provider.
+
 Expected effect:
 
 - reduce first-mutation latency
