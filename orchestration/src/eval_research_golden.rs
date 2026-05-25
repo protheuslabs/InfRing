@@ -2,6 +2,8 @@
 
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::process;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::eval_research_gate_diagnostics::{
     failure_boundary, gate_transition_diagnostics, gate_transition_rate_rows,
@@ -26,7 +28,9 @@ use infring_orchestration_v1::observation_lifecycle::{
 use std::env;
 use std::time::Instant;
 
-const DEFAULT_CASES_PATH: &str = "validation/evals/fixtures/research_golden_dataset_v1.json";
+const DEFAULT_GOLDEN_CASES_PATH: &str = "validation/evals/fixtures/research_golden_dataset_v1.json";
+const DEFAULT_USER_PROMPT_POOL_CASES_PATH: &str =
+    "validation/evals/fixtures/research_user_prompt_pool_v1.json";
 const DEFAULT_OUT_PATH: &str = "core/local/artifacts/research_golden_current.json";
 const DEFAULT_OUT_LATEST_PATH: &str = "artifacts/research_golden_latest.json";
 const DEFAULT_MARKDOWN_PATH: &str = "local/workspace/reports/RESEARCH_GOLDEN_CURRENT.md";
@@ -78,6 +82,29 @@ fn case_selection_requested_seed(args: &[String]) -> Option<String> {
     parse_flag(args, "sample-seed")
         .map(|raw| clean_text(&raw, 120))
         .filter(|raw| !raw.is_empty())
+}
+
+fn default_cases_path(live: bool) -> &'static str {
+    if live {
+        DEFAULT_USER_PROMPT_POOL_CASES_PATH
+    } else {
+        DEFAULT_GOLDEN_CASES_PATH
+    }
+}
+
+fn runtime_random_sample_seed() -> String {
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let pid = process::id();
+    let raw = json!({
+        "kind": "runtime_random_recorded_sample",
+        "now_nanos": now_nanos,
+        "pid": pid
+    })
+    .to_string();
+    format!("random:{}", stable_hash_hex(&raw))
 }
 
 fn case_selection_hash(seed: &str, case_id: &str, ordinal: usize) -> String {
@@ -142,7 +169,7 @@ fn select_research_golden_cases(
     let effective_seed = selection_applied.then(|| {
         requested_seed
             .clone()
-            .unwrap_or_else(|| format!("auto:{}", now_iso_like()))
+            .unwrap_or_else(runtime_random_sample_seed)
     });
     let selected_cases = if let Some(seed) = effective_seed.as_deref() {
         let mut ranked = cases
@@ -177,7 +204,11 @@ fn select_research_golden_cases(
         json!({
             "selection_applied": selection_applied,
             "selection_mode": if selection_applied {
-                "deterministic_seeded_sample"
+                if requested_seed.is_some() {
+                    "deterministic_seeded_sample"
+                } else {
+                    "runtime_random_recorded_sample"
+                }
             } else {
                 "full_dataset_order"
             },
@@ -200,7 +231,8 @@ pub fn run_research_golden(args: &[String]) -> i32 {
     let live = parse_bool_flag(args, "live", false);
     let allow_remote = parse_bool_flag(args, "allow-remote", false);
     let confirm_pending_tool = parse_bool_flag(args, "confirm-pending-tool", false);
-    let cases_path = parse_flag(args, "cases").unwrap_or_else(|| DEFAULT_CASES_PATH.to_string());
+    let cases_path =
+        parse_flag(args, "cases").unwrap_or_else(|| default_cases_path(live).to_string());
     let responses_path = parse_flag(args, "responses");
     let out_path = parse_flag(args, "out").unwrap_or_else(|| DEFAULT_OUT_PATH.to_string());
     let out_latest_path =

@@ -342,6 +342,36 @@ fn research_golden_auto_sampling_uses_limit_for_pool_datasets() {
 }
 
 #[test]
+fn research_golden_seedless_sampling_records_runtime_random_seed() {
+    let dataset = sample_dataset(8);
+    let cases = dataset
+        .get("cases")
+        .and_then(Value::as_array)
+        .cloned()
+        .expect("cases");
+    let (selected, meta) = select_research_golden_cases(&cases, Some(3), None, usize::MAX);
+    assert_eq!(selected.len(), 3);
+    assert_eq!(
+        str_at(&meta, &["selection_mode"], ""),
+        "runtime_random_recorded_sample"
+    );
+    let seed = str_at(&meta, &["effective_sample_seed"], "");
+    assert!(seed.starts_with("random:"), "unexpected seed: {seed}");
+}
+
+#[test]
+fn research_golden_live_defaults_to_user_prompt_pool_cases() {
+    assert_eq!(
+        default_cases_path(true),
+        "validation/evals/fixtures/research_user_prompt_pool_v1.json"
+    );
+    assert_eq!(
+        default_cases_path(false),
+        "validation/evals/fixtures/research_golden_dataset_v1.json"
+    );
+}
+
+#[test]
 fn research_golden_scores_evidenced_final_answer() {
     let root = temp_path("research_golden_pass");
     let cases = root.join("cases.json");
