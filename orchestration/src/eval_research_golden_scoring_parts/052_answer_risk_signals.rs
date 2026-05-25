@@ -162,6 +162,153 @@ fn response_has_meta_process_talk(normalized_response: &str) -> bool {
     )
 }
 
+fn response_has_source_title_fragment_contamination(response_text: &str) -> bool {
+    let normalized_response = normalize_for_compare(response_text);
+    let title_list_marker = contains_any(
+        &normalized_response,
+        &[
+            "other supported points",
+            "supported points",
+            "related sources",
+            "source titles",
+            "titles include",
+            "headlines include",
+            "additional sources",
+        ],
+    );
+    let title_list_comparison_dump =
+        title_list_marker
+            && contains_any(&normalized_response, &[" vs ", " versus ", " which framework "]);
+    let suspicious_units = answer_text_units(response_text)
+        .iter()
+        .filter(|unit| answer_unit_looks_like_source_title_fragment(unit))
+        .count();
+    title_list_comparison_dump || suspicious_units >= 2 || (title_list_marker && suspicious_units >= 1)
+}
+
+fn answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
+    let stripped = strip_markdown_link_targets(unit);
+    let cleaned = stripped
+        .trim()
+        .trim_matches(|ch: char| ch == '"' || ch == '\'' || ch == '[' || ch == ']')
+        .trim();
+    let word_count = cleaned.split_whitespace().count();
+    if !(5..=24).contains(&word_count) {
+        return false;
+    }
+
+    let normalized = normalize_for_compare(cleaned);
+    if contains_any(
+        &normalized,
+        &[
+            "my recommendation",
+            "i recommend",
+            "the practical takeaway",
+            "the practical split",
+            "the tradeoff",
+            "the trade off",
+            "what this means",
+            "so i would",
+            "i would choose",
+            "choose alpha",
+            "choose beta",
+            "better for production",
+            "safer production default",
+        ],
+    ) {
+        return false;
+    }
+
+    let tokens = cleaned
+        .split_whitespace()
+        .map(|token| {
+            token.trim_matches(|ch: char| {
+                !ch.is_ascii_alphanumeric() && ch != '-' && ch != '.' && ch != '/'
+            })
+        })
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    let alpha_tokens = tokens
+        .iter()
+        .copied()
+        .filter(|token| token.chars().any(|ch| ch.is_ascii_alphabetic()))
+        .collect::<Vec<_>>();
+    if alpha_tokens.len() < 4 {
+        return false;
+    }
+
+    let title_like_words = alpha_tokens
+        .iter()
+        .filter(|token| token_looks_title_like(token))
+        .count();
+    let lowercase_content_words = alpha_tokens
+        .iter()
+        .filter(|token| token_is_lowercase_content_word(token))
+        .count();
+    let contains_vs = normalized.contains(" vs ") || normalized.contains(" versus ");
+    let headline_punctuation = cleaned.contains(':') || cleaned.contains(" - ");
+    let question_like = cleaned.ends_with('?');
+    let title_ratio = title_like_words as f64 / alpha_tokens.len() as f64;
+
+    (contains_vs && title_like_words >= 3 && lowercase_content_words <= 4)
+        || (question_like && title_ratio >= 0.45 && lowercase_content_words <= 4)
+        || (headline_punctuation && title_ratio >= 0.50 && lowercase_content_words <= 3)
+        || (title_ratio >= 0.65 && lowercase_content_words <= 2)
+}
+
+fn token_looks_title_like(token: &str) -> bool {
+    let letters = token
+        .chars()
+        .filter(|ch| ch.is_ascii_alphabetic())
+        .collect::<Vec<_>>();
+    if letters.is_empty() {
+        return false;
+    }
+    let uppercase_letters = letters.iter().filter(|ch| ch.is_ascii_uppercase()).count();
+    if uppercase_letters == letters.len() {
+        return true;
+    }
+    let first_is_uppercase = token
+        .chars()
+        .next()
+        .map(|ch| ch.is_ascii_uppercase())
+        .unwrap_or(false);
+    let has_internal_capital = letters.iter().skip(1).any(|ch| ch.is_ascii_uppercase());
+    first_is_uppercase || has_internal_capital
+}
+
+fn token_is_lowercase_content_word(token: &str) -> bool {
+    let normalized = normalize_research_token(token);
+    !normalized.is_empty()
+        && normalized.chars().all(|ch| !ch.is_ascii_alphabetic() || ch.is_ascii_lowercase())
+        && !source_title_style_stopword(&normalized)
+}
+
+fn source_title_style_stopword(token: &str) -> bool {
+    matches!(
+        token,
+        "a"
+            | "an"
+            | "and"
+            | "as"
+            | "at"
+            | "by"
+            | "for"
+            | "from"
+            | "in"
+            | "into"
+            | "is"
+            | "of"
+            | "on"
+            | "or"
+            | "the"
+            | "to"
+            | "vs"
+            | "versus"
+            | "with"
+    )
+}
+
 fn response_delegates_research_back_to_user(normalized_response: &str) -> bool {
     contains_any(
         normalized_response,

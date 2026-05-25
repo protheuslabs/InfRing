@@ -232,6 +232,11 @@ pub(super) fn grade_case(
     if answer_unit_usefulness_hard_failure(&answer_unit_usefulness) {
         failures.push("answer_units_not_useful_for_prompt".to_string());
     }
+    if user_facing_answer_hard_failure(&user_facing_answer_quality)
+        && !response_explicitly_cannot_answer_goal_from_current_evidence(&normalized)
+    {
+        failures.push("user_facing_answer_not_good_enough".to_string());
+    }
     if score < pass_score {
         failures.push(format!("research_score_below_pass:{score}<{pass_score}"));
     }
@@ -253,8 +258,13 @@ pub(super) fn grade_case(
         failures: &failures,
         answer_unit_evidence_alignment: &answer_unit_evidence_alignment,
         answer_unit_usefulness: &answer_unit_usefulness,
+        user_facing_answer_quality: &user_facing_answer_quality,
     });
     let excellent_blockers = string_array_at(&excellent_diagnostics, &["blockers"]);
+    let user_facing_quality_blocks_excellent = !user_facing_answer_quality
+        .get("pass")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
     CaseGrade {
         score,
         pass: score >= pass_score && failures.is_empty(),
@@ -262,7 +272,8 @@ pub(super) fn grade_case(
             && failures.is_empty()
             && excellent_blockers.is_empty()
             && !answer_unit_alignment_blocks_excellent
-            && !answer_unit_usefulness_blocks_excellent,
+            && !answer_unit_usefulness_blocks_excellent
+            && !user_facing_quality_blocks_excellent,
         gates,
         dimension_scores,
         failures,
@@ -313,4 +324,29 @@ fn answer_unit_usefulness_hard_failure(usefulness: &Value) -> bool {
         .and_then(Value::as_bool)
         .unwrap_or(false);
     process_metadata_units >= 2 || (usable_evidence && direct_useful_units == 0)
+}
+
+fn user_facing_answer_hard_failure(answer_quality: &Value) -> bool {
+    if answer_quality
+        .get("pass")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    let verdict = str_at(answer_quality, &["verdict"], "");
+    let blockers = string_array_at(answer_quality, &["blockers"]);
+    blockers.iter().any(|blocker| {
+        matches!(
+            blocker.as_str(),
+            "standalone_answer_missing"
+                | "source_or_process_recap_visible"
+                | "source_title_fragment_contamination"
+                | "readability_or_completion_issue"
+                | "projection_or_smoke_issue"
+        )
+    }) || (verdict == "sounds_bad"
+        && blockers
+            .iter()
+            .any(|blocker| blocker == "substantive_user_value_missing"))
 }

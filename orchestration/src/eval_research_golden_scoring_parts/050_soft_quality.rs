@@ -128,6 +128,11 @@ fn user_facing_answer_quality_check(
     let final_answer_present = !response_text.trim().is_empty()
         && response_text.split_whitespace().count() >= 20
         && normal_prose_signal(response_text);
+    let direct_user_help = final_answer_present
+        && query_satisfaction
+            .get("intent_answered")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
     let intent_answered = query_satisfaction
         .get("intent_answered")
         .and_then(Value::as_bool)
@@ -190,8 +195,20 @@ fn user_facing_answer_quality_check(
         .and_then(Value::as_u64)
         .unwrap_or(0);
     let limitation_heavy = limitation_heavy_for_excellent(normalized_response);
-    let meta_process_talk = response_has_meta_process_talk(normalized_response);
+    let explicit_recap_frame = contains_any(
+        normalized_response,
+        &[
+            "recorded evidence so far",
+            "here s what i found",
+            "heres what i found",
+            "the current turn does not yet support",
+        ],
+    );
+    let meta_process_talk = response_has_meta_process_talk(normalized_response)
+        && (!direct_user_help || source_summary_without_answer || explicit_recap_frame);
     let delegates_research = response_delegates_research_back_to_user(normalized_response);
+    let source_title_fragment_contamination =
+        response_has_source_title_fragment_contamination(response_text);
     let projection_clean = !raw_tool_leak && !internal_leak && !tool_choice_final_response;
     let enough_substance = substantive_units >= 2
         || response_text.split_whitespace().count() >= 55
@@ -208,6 +225,8 @@ fn user_facing_answer_quality_check(
     let specific_without_bad_overreach =
         unsupported_unit_count == 0 || (unsupported_unit_count <= 1 && term_support_rate >= 0.9);
     let direct_answer_signal = intent_answered || direct_useful_units > 0;
+    let source_or_process_recap_visible =
+        source_summary_without_answer || meta_process_talk || delegates_research;
 
     let mut subgates = serde_json::Map::new();
     subgates.insert(
@@ -220,7 +239,7 @@ fn user_facing_answer_quality_check(
     );
     subgates.insert(
         "user_3_not_source_or_process_recap".to_string(),
-        json!(!source_summary_without_answer && !meta_process_talk && !delegates_research),
+        json!(!source_or_process_recap_visible),
     );
     subgates.insert(
         "user_4_readable_complete_shape".to_string(),
@@ -249,6 +268,10 @@ fn user_facing_answer_quality_check(
     subgates.insert(
         "user_10_right_level_of_detail".to_string(),
         json!(right_granularity && enough_substance),
+    );
+    subgates.insert(
+        "user_11_not_source_title_fragment_contamination".to_string(),
+        json!(!source_title_fragment_contamination),
     );
 
     let ordered = [
@@ -280,6 +303,10 @@ fn user_facing_answer_quality_check(
         ),
         ("user_9_projection_clean", "projection_or_smoke_issue"),
         ("user_10_right_level_of_detail", "wrong_level_of_detail"),
+        (
+            "user_11_not_source_title_fragment_contamination",
+            "source_title_fragment_contamination",
+        ),
     ];
     let blockers = ordered
         .iter()
@@ -295,19 +322,20 @@ fn user_facing_answer_quality_check(
         .values()
         .filter(|value| value.as_bool().unwrap_or(false))
         .count() as u64;
-    let pass = score >= 8
+    let pass = score >= 9
         && !blockers.iter().any(|blocker| {
             matches!(
                 blocker.as_str(),
                 "standalone_answer_missing"
                     | "source_or_process_recap_visible"
+                    | "source_title_fragment_contamination"
                     | "readability_or_completion_issue"
                     | "projection_or_smoke_issue"
             )
         });
     let verdict = if pass {
         "sounds_good"
-    } else if score >= 6 {
+    } else if score >= 7 {
         "borderline"
     } else {
         "sounds_bad"
@@ -318,7 +346,7 @@ fn user_facing_answer_quality_check(
         "pass": pass,
         "verdict": verdict,
         "score": score,
-        "max_score": 10,
+        "max_score": 11,
         "subgates": Value::Object(subgates),
         "blockers": blockers,
         "top_blocker": blockers.first().cloned().unwrap_or_else(|| "none".to_string()),
@@ -332,8 +360,10 @@ fn user_facing_answer_quality_check(
             "soft_smoke_pass": soft_smoke_pass,
             "citable_evidence_available": citable_evidence_available,
             "citation_signal": citation_signal,
-            "response_source_signal": response_source_signal
+            "response_source_signal": response_source_signal,
+            "source_or_process_recap_visible": source_or_process_recap_visible,
+            "source_title_fragment_contamination": source_title_fragment_contamination
         },
-        "note": "Soft user-facing proxy. It asks whether the final visible text would feel useful and coherent to a real user if formatting and evaluator state were ignored. It is intentionally diagnostic and does not change pass/fail by itself."
+        "note": "Soft user-facing proxy. It asks whether the final visible text would feel useful and coherent to a real user if formatting and evaluator state were ignored. It remains diagnostic, but excellent should not outrun it and obviously bad visible answer shapes may be treated as grading failures."
     })
 }

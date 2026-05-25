@@ -674,6 +674,149 @@ fn user_facing_answer_quality_passes_coherent_useful_answer() {
 }
 
 #[test]
+fn user_facing_answer_quality_allows_light_source_framing_when_answer_is_direct() {
+    let case = json!({
+        "prompt": "Compare LangGraph and CrewAI for long-running production agents.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["LangGraph", "CrewAI"]
+    });
+    let payload = json!({
+        "response": "Based on the retrieved evidence, here's how LangGraph and CrewAI compare for long-running production agents: LangGraph is the safer default when you need explicit state handling, recovery, and control over execution graphs, while CrewAI is better when you want lighter team-style orchestration with less custom workflow wiring. The practical recommendation is LangGraph for durable, stateful production flows and CrewAI for faster multi-agent coordination where strict graph control matters less.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "LangGraph CrewAI long-running production agents",
+                "queries": ["LangGraph durable execution docs", "CrewAI orchestration docs"],
+                "keywords": ["LangGraph", "CrewAI", "long-running", "production agents"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 6,
+            "content_rich_candidate_count": 5,
+            "claim_hint_count": 4,
+            "evidence_refs": [
+                {
+                    "title": "LangGraph durable execution docs",
+                    "locator": "https://langgraph.example/durable",
+                    "source_kind": "official_docs",
+                    "snippet": "LangGraph emphasizes durable execution, recovery, state handling, and explicit control over execution graphs for long-running systems.",
+                    "claim_hints": ["LangGraph is suited to long-running stateful agents with durable execution and recovery."]
+                },
+                {
+                    "title": "CrewAI orchestration docs",
+                    "locator": "https://crewai.example/orchestration",
+                    "source_kind": "official_docs",
+                    "snippet": "CrewAI emphasizes lighter team-style orchestration and faster multi-agent coordination with less graph wiring.",
+                    "claim_hints": ["CrewAI is better for lighter orchestration and quicker multi-agent coordination."]
+                }
+            ]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        !string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| blocker == "source_or_process_recap_visible")
+    );
+}
+
+#[test]
+fn source_title_fragment_contamination_blocks_user_facing_and_excellent() {
+    let case = json!({
+        "prompt": "Compare PydanticAI with LangChain for production agent development.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["PydanticAI", "LangChain"]
+    });
+    let payload = json!({
+        "response": "PydanticAI looks stronger when typed validation and predictable model I/O are your main concerns, while LangChain is broader when you need a larger integration surface. Other supported points: Pydantic AI vs LangChain: Which Framework is Better for Production AI Agents. Choosing an agent framework: LangChain vs LangGraph for production teams. The practical split is PydanticAI for typed reliability and LangChain for ecosystem breadth.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "PydanticAI vs LangChain production agent development",
+                "queries": ["PydanticAI validation docs", "LangChain integration docs"],
+                "keywords": ["PydanticAI", "LangChain", "production agents", "typed validation"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 5,
+            "content_rich_candidate_count": 5,
+            "claim_hint_count": 4,
+            "evidence_refs": [
+                {
+                    "title": "PydanticAI validation docs",
+                    "locator": "https://pydanticai.example/docs",
+                    "source_kind": "official_docs",
+                    "snippet": "PydanticAI emphasizes typed validation and predictable model I/O for production agent development.",
+                    "claim_hints": ["PydanticAI is strong when typed validation and predictable model I/O are required."]
+                },
+                {
+                    "title": "LangChain integration docs",
+                    "locator": "https://langchain.example/docs",
+                    "source_kind": "official_docs",
+                    "snippet": "LangChain provides a broad integration surface for production agent systems.",
+                    "claim_hints": ["LangChain is broader when integration surface is the main concern."]
+                }
+            ]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| blocker == "source_title_fragment_contamination")
+    );
+    assert!(grade
+        .failures
+        .contains(&"user_facing_answer_not_good_enough".to_string()));
+    assert!(!grade.excellent);
+    assert!(grade
+        .excellent_blockers
+        .contains(&"user_facing_quality_not_excellent_ready".to_string()));
+}
+
+#[test]
 fn user_facing_answer_quality_flags_source_recap_as_not_good() {
     let case = json!({
         "prompt": "Give me news from this week.",
