@@ -100,6 +100,7 @@
       "planning_depth_selector": {
         "enabled": true,
         "default_depth": "local_slice",
+        "hot_path_prompt": "compact_depth_ceiling",
         "depth_ladder": [
           "direct_bounded_edit",
           "local_slice",

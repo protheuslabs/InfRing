@@ -1256,6 +1256,8 @@ Rules:
 - default bounded existing-project work to `local_slice`
 - use the selected depth as a maximum allowed setup layer, not as a target to
   consume
+- keep hot-path model instructions compact; full ladder/budget details belong
+  in runtime metadata and workflow CD, not in the first edit prompt
 - escalate only for missing required source/test context, unsafe requirement
   ambiguity, cross-module dependency evidence, architecture/stack decisions, or
   checkpoint-boundary requirements

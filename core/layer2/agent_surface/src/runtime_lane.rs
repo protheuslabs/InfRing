@@ -3932,31 +3932,10 @@ fn runtime_lane_apply_planning_depth_prompt(
     mut prompt: String,
     profile: &RuntimeLanePlanningDepthProfile,
 ) -> String {
-    prompt.push_str("\n\nPlanning depth selector:\n");
     prompt.push_str(&format!(
-        "- selected_depth: {} ({})\n",
-        profile.depth, profile.name
+        "\nPlanning: {}. Mutate first; escalate only if unsafe.\n",
+        profile.name
     ));
-    prompt.push_str(&format!("- setup_scope: {}\n", profile.setup_scope));
-    prompt.push_str(&format!(
-        "- planning_budget_ms: {}\n",
-        profile.planning_budget_ms
-    ));
-    prompt.push_str(&format!(
-        "- first_mutation_target_ms: {}\n",
-        profile.first_mutation_target_ms
-    ));
-    prompt.push_str(&format!(
-        "- pre_mutation_read_budget: {}\n",
-        profile.pre_mutation_read_budget
-    ));
-    prompt.push_str(&format!(
-        "- escalation_policy: {}\n",
-        profile.escalation_policy
-    ));
-    prompt.push_str(
-        "Use this depth as a ceiling. Do not perform deeper planning unless the escalation policy is met. Prefer the first safe source/test mutation over broad analysis.\n",
-    );
     prompt
 }
 
