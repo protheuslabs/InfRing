@@ -1278,11 +1278,21 @@ fn native_tool_prompt_marks_path_optional(original_prompt: &str, path: &str) -> 
 }
 
 pub(crate) fn native_tool_prompt_requires_test_changes(prompt_lower: &str) -> bool {
-    prompt_lower.contains("add tests")
-        || prompt_lower.contains("update tests")
-        || prompt_lower.contains("regression tests")
-        || prompt_lower.contains("test for")
-        || prompt_lower.contains("tests for")
+    [
+        "add tests",
+        "add a test",
+        "add unit tests",
+        "add a unittest",
+        "update tests",
+        "modify tests",
+        "write tests",
+        "write a test",
+        "create tests",
+        "create a test",
+        "regression tests",
+    ]
+    .iter()
+    .any(|marker| prompt_lower.contains(marker))
 }
 
 pub(crate) fn native_tool_prompt_requires_product_mutation(prompt_lower: &str) -> bool {

@@ -228,6 +228,95 @@ def cases() -> list[dict[str, Any]]:
             "expected_paths": ["calcpack/__init__.py", "calcpack/arithmetic.py", "tests/test_public_api.py"],
             "expected_markers": ["def multiply", "\"multiply\"", "test_multiply_exported_from_package"],
         },
+        {
+            "id": "level6_public_persistence_slice",
+            "level": 6,
+            "initial_files": {
+                "orderflow/__init__.py": (
+                    "from .attempts import DeliveryAttempt, normalize_status\n\n"
+                    "__all__ = [\"DeliveryAttempt\", \"normalize_status\"]\n"
+                ),
+                "orderflow/attempts.py": (
+                    "from dataclasses import dataclass\n\n"
+                    "@dataclass\n"
+                    "class DeliveryAttempt:\n"
+                    "    order_id: str\n"
+                    "    status: str\n\n"
+                    "def normalize_status(value: str) -> str:\n"
+                    "    return value.strip().lower().replace(\" \", \"_\")\n"
+                ),
+                "tests/test_delivery_attempt_ledger.py": (
+                    "import json\n"
+                    "import tempfile\n"
+                    "import unittest\n"
+                    "from pathlib import Path\n\n"
+                    "import orderflow\n"
+                    "from orderflow import DeliveryAttempt, DeliveryAttemptLedger, summarize_attempts\n\n"
+                    "class DeliveryAttemptLedgerTests(unittest.TestCase):\n"
+                    "    def test_public_exports_include_ledger_api(self):\n"
+                    "        self.assertIn(\"DeliveryAttemptLedger\", orderflow.__all__)\n"
+                    "        self.assertIn(\"summarize_attempts\", orderflow.__all__)\n\n"
+                    "    def test_records_and_summarizes_statuses(self):\n"
+                    "        ledger = DeliveryAttemptLedger()\n"
+                    "        ledger.record(DeliveryAttempt(\"A-1\", \"Delivered\"))\n"
+                    "        ledger.record(DeliveryAttempt(\"A-2\", \"failed delivery\"))\n"
+                    "        self.assertEqual(ledger.count_by_status(), {\"delivered\": 1, \"failed_delivery\": 1})\n"
+                    "        self.assertEqual(summarize_attempts(ledger.attempts), {\n"
+                    "            \"total\": 2,\n"
+                    "            \"by_status\": {\"delivered\": 1, \"failed_delivery\": 1},\n"
+                    "        })\n\n"
+                    "    def test_jsonl_round_trip(self):\n"
+                    "        ledger = DeliveryAttemptLedger()\n"
+                    "        ledger.record(DeliveryAttempt(\"A-3\", \"delivered\"))\n"
+                    "        with tempfile.TemporaryDirectory() as tmp:\n"
+                    "            path = Path(tmp) / \"attempts.jsonl\"\n"
+                    "            ledger.save(path)\n"
+                    "            raw = path.read_text(encoding=\"utf-8\").strip().splitlines()\n"
+                    "            self.assertEqual(json.loads(raw[0]), {\"order_id\": \"A-3\", \"status\": \"delivered\"})\n"
+                    "            restored = DeliveryAttemptLedger.load(path)\n"
+                    "        self.assertEqual(restored.count_by_status(), {\"delivered\": 1})\n\n"
+                    "if __name__ == \"__main__\":\n"
+                    "    unittest.main()\n"
+                ),
+            },
+            "validation_command": "PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_*.py'",
+            "semantic_probe": (
+                "from pathlib import Path\n"
+                "import tempfile\n"
+                "from orderflow import DeliveryAttempt, DeliveryAttemptLedger, summarize_attempts\n"
+                "ledger = DeliveryAttemptLedger()\n"
+                "ledger.record(DeliveryAttempt('B-1', 'Delivered'))\n"
+                "ledger.record(DeliveryAttempt('B-2', 'failed delivery'))\n"
+                "assert ledger.count_by_status() == {'delivered': 1, 'failed_delivery': 1}\n"
+                "assert summarize_attempts(ledger.attempts)['total'] == 2\n"
+                "with tempfile.TemporaryDirectory() as tmp:\n"
+                "    path = Path(tmp) / 'attempts.jsonl'\n"
+                "    ledger.save(path)\n"
+                "    restored = DeliveryAttemptLedger.load(path)\n"
+                "assert restored.count_by_status() == {'delivered': 1, 'failed_delivery': 1}\n"
+            ),
+            "prompt": lambda root: (
+                f"Project root: {root}\n"
+                "This is an existing Python package with failing tests for a delivery attempt ledger. "
+                "First run this validation command from project root to observe the failure: "
+                "PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_*.py'. "
+                "Then inspect the package files, implement DeliveryAttemptLedger with record(), attempts, "
+                "count_by_status(), save(path), and load(path), implement summarize_attempts(attempts), "
+                "store JSONL rows with order_id and normalized status, expose the new public API from orderflow, "
+                "preserve DeliveryAttempt and normalize_status behavior, rerun validation until it passes, and run "
+                "this semantic probe: PYTHONPATH=. python3 .infring/semantic_probe.py. Do not commit."
+            ),
+            "expected_paths": [
+                "orderflow/__init__.py",
+                "orderflow/attempts.py",
+                "tests/test_delivery_attempt_ledger.py",
+            ],
+            "expected_markers": [
+                "class DeliveryAttemptLedger",
+                "def summarize_attempts",
+                "test_jsonl_round_trip",
+            ],
+        },
     ]
 
 
