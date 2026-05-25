@@ -1118,6 +1118,7 @@ fn evidence_packet_text_is_answer_claim(raw: &str) -> bool {
         return false;
     }
     let normalized = cleaned.to_ascii_lowercase();
+    let normalized_shell = format!(" {} ", normalize_coverage_lane_text(&cleaned));
     if normalized.starts_with("web result from ")
         || normalized.starts_with("source:")
         || normalized.starts_with("articles /")
@@ -1128,6 +1129,13 @@ fn evidence_packet_text_is_answer_claim(raw: &str) -> bool {
         || normalized.contains(" / menu ")
         || normalized.contains(" shop ")
         || normalized.contains("©")
+        || cleaned.trim_end_matches('.').ends_with(':')
+        || normalized_shell.contains(" affiliate disclosure ")
+        || normalized_shell.contains(" reader supported ")
+        || normalized_shell.contains(" if youre from the future ")
+        || normalized_shell.contains(" if you re from the future ")
+        || normalized_shell.contains(" other supported points ")
+        || normalized_shell.contains(" important limitation ")
     {
         return false;
     }
@@ -1323,8 +1331,7 @@ fn persist_workflow_compact_source_refs(workflow: &mut Value, response_tools: &[
     workflow["source_refs"] = Value::Array(source_refs.clone());
     workflow["response_workflow"]["final_llm_response"]["source_refs"] =
         Value::Array(source_refs.clone());
-    workflow["response_finalization"]["final_response"]["source_refs"] =
-        Value::Array(source_refs);
+    workflow["response_finalization"]["final_response"]["source_refs"] = Value::Array(source_refs);
 }
 
 fn workflow_push_evidence_alignment_text(
@@ -1620,6 +1627,12 @@ fn workflow_answer_unit_is_hedged_or_gap(normalized_unit: &str) -> bool {
             " available evidence",
             " coverage gap",
             " verify ",
+            " need to verify ",
+            " tentative",
+            " unsettled",
+            " sparse result",
+            " critical limitation",
+            " what remains ",
             " unknown",
             " unverified",
             " inference",
@@ -1721,6 +1734,21 @@ fn workflow_answer_unit_contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(*needle))
 }
 
+fn workflow_answer_unit_contains_source_shell_boilerplate(unit: &str) -> bool {
+    let normalized = format!(" {} ", normalize_coverage_lane_text(unit));
+    workflow_answer_unit_contains_any(
+        &normalized,
+        &[
+            " affiliate disclosure ",
+            " reader supported ",
+            " if youre from the future ",
+            " if you re from the future ",
+            " other supported points ",
+            " important limitation ",
+        ],
+    )
+}
+
 fn workflow_answer_unit_prompt_asks_for_process_or_schedule(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
     workflow_answer_unit_contains_any(
@@ -1746,23 +1774,24 @@ fn workflow_answer_unit_prompt_asks_for_process_or_schedule(message: &str) -> bo
 
 fn workflow_answer_unit_is_process_or_metadata_fact(unit: &str) -> bool {
     let normalized = unit.to_ascii_lowercase();
-    workflow_answer_unit_contains_any(
-        &normalized,
-        &[
-            "announcements are scheduled",
-            "announcement is scheduled",
-            "is scheduled for",
-            "are scheduled for",
-            "nominations closed",
-            "nomination period",
-            "nominations are open",
-            "deadline",
-            "registration",
-            "application window",
-            "calendar",
-            "press release",
-        ],
-    )
+    workflow_answer_unit_contains_source_shell_boilerplate(unit)
+        || workflow_answer_unit_contains_any(
+            &normalized,
+            &[
+                "announcements are scheduled",
+                "announcement is scheduled",
+                "is scheduled for",
+                "are scheduled for",
+                "nominations closed",
+                "nomination period",
+                "nominations are open",
+                "deadline",
+                "registration",
+                "application window",
+                "calendar",
+                "press release",
+            ],
+        )
 }
 
 fn workflow_answer_unit_goal_terms(message: &str) -> Vec<String> {
@@ -1938,18 +1967,19 @@ fn fallback_answer_unit_text_and_source(unit: &str) -> (String, String) {
 
 fn workflow_answer_unit_contains_ui_or_source_shell(unit: &str) -> bool {
     let normalized = unit.to_ascii_lowercase();
-    workflow_answer_unit_contains_any(
-        &normalized,
-        &[
-            "copy markdown",
-            "copy as markdown",
-            "open in chatgpt",
-            "open in claude",
-            "open in cursor",
-            "view as markdown",
-            "web result from ",
-        ],
-    )
+    workflow_answer_unit_contains_source_shell_boilerplate(unit)
+        || workflow_answer_unit_contains_any(
+            &normalized,
+            &[
+                "copy markdown",
+                "copy as markdown",
+                "open in chatgpt",
+                "open in claude",
+                "open in cursor",
+                "view as markdown",
+                "web result from ",
+            ],
+        )
 }
 
 fn workflow_answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
@@ -1997,9 +2027,12 @@ fn workflow_answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
         return false;
     }
     let normalized = cleaned.to_ascii_lowercase();
-    if normalized.contains("other supported points:")
+    let normalized_shell = format!(" {} ", normalize_coverage_lane_text(&cleaned));
+    if workflow_answer_unit_contains_source_shell_boilerplate(&cleaned)
+        || normalized.contains("other supported points:")
         || normalized.contains("important limitation:")
         || normalized.contains("last updated")
+        || cleaned.trim_end_matches('.').ends_with(':')
     {
         return true;
     }
@@ -2011,15 +2044,25 @@ fn workflow_answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
     let contains_vs = normalized.contains(" vs ") || normalized.contains(" versus ");
     let headline_punctuation = cleaned.contains(':') || cleaned.contains(" - ");
     let question_like = cleaned.ends_with('?');
+    let preview_or_review_marker = normalized_shell.contains(" needs review ")
+        || normalized_shell.contains(" public preview ")
+        || normalized_shell.contains(" last updated ");
     let title_like_prefix = cleaned
         .split_once(':')
         .and_then(|(prefix, _)| title_style_stats(prefix))
-        .map(|(prefix_alpha_count, prefix_title_like_words, prefix_lowercase_content_words, prefix_title_ratio)| {
-            prefix_alpha_count >= 4
-                && prefix_title_like_words >= 3
-                && prefix_lowercase_content_words <= 3
-                && prefix_title_ratio >= 0.55
-        })
+        .map(
+            |(
+                prefix_alpha_count,
+                prefix_title_like_words,
+                prefix_lowercase_content_words,
+                prefix_title_ratio,
+            )| {
+                prefix_alpha_count >= 4
+                    && prefix_title_like_words >= 3
+                    && prefix_lowercase_content_words <= 3
+                    && prefix_title_ratio >= 0.55
+            },
+        )
         .unwrap_or(false);
 
     (contains_vs && title_like_words >= 3 && lowercase_content_words <= 4)
@@ -2027,11 +2070,8 @@ fn workflow_answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
         || (headline_punctuation && title_ratio >= 0.50 && lowercase_content_words <= 3)
         || (title_ratio >= 0.65 && lowercase_content_words <= 2)
         || title_like_prefix
-        || (cleaned
-            .chars()
-            .take_while(|ch| ch.is_ascii_digit())
-            .count()
-            >= 4
+        || (preview_or_review_marker && (headline_punctuation || title_ratio >= 0.40))
+        || (cleaned.chars().take_while(|ch| ch.is_ascii_digit()).count() >= 4
             && headline_punctuation
             && alpha_count >= 6)
 }
@@ -2073,8 +2113,7 @@ fn workflow_answer_unit_token_is_lowercase_content_word(token: &str) -> bool {
 fn workflow_answer_unit_source_title_style_stopword(token: &str) -> bool {
     matches!(
         token,
-        "a"
-            | "an"
+        "a" | "an"
             | "and"
             | "as"
             | "at"
@@ -2130,7 +2169,9 @@ fn workflow_answer_unit_rank(
     (
         workflow_answer_unit_goal_overlap_count(&answer, goal_terms),
         usize::from(evidence_packet_text_is_answer_claim(&answer)),
-        usize::from(!workflow_answer_unit_looks_like_source_title_fragment(&answer)),
+        usize::from(!workflow_answer_unit_looks_like_source_title_fragment(
+            &answer,
+        )),
         usize::from(workflow_answer_unit_has_clean_lead(&answer)),
         usize::from(
             !source.is_empty() && !source.to_ascii_lowercase().contains("web result from "),
@@ -2239,7 +2280,10 @@ fn fallback_visible_answer_for_required_lanes(
     let matched_in_source = text_matches_required_entity_lanes(&source, required_entity_lanes);
     if matched_in_source.len() == 1 {
         let lane = clean_text(&matched_in_source[0], 120);
-        return (clean_text(&format!("For {lane}, {answer}"), 520), matched_in_source);
+        return (
+            clean_text(&format!("For {lane}, {answer}"), 520),
+            matched_in_source,
+        );
     }
     if required_entity_lanes.len() == 1 {
         if let Some(intro) = fallback_required_lane_intro(required_entity_lanes) {
@@ -2301,14 +2345,14 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
     let answer_units = evidence_packet_answer_units_for_goal(message, response_tools, 4);
     if !answer_units.is_empty() {
         let mut answer_parts = Vec::<String>::new();
+        let mut lane_scoped_answer_parts = Vec::<String>::new();
         let mut covered_required_entity_lanes = std::collections::BTreeSet::<String>::new();
         for unit in answer_units {
-            let (answer, matched_lanes) =
-                fallback_visible_answer_for_required_lanes(
-                    &unit,
-                    &required_entity_lanes,
-                    &goal_terms,
-                );
+            let (answer, matched_lanes) = fallback_visible_answer_for_required_lanes(
+                &unit,
+                &required_entity_lanes,
+                &goal_terms,
+            );
             if !required_entity_lanes.is_empty()
                 && matched_lanes.is_empty()
                 && workflow_answer_unit_goal_overlap_count(&answer, &goal_terms) == 0
@@ -2316,7 +2360,15 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
                 continue;
             }
             if !answer.is_empty() && !answer_parts.iter().any(|existing| existing == &answer) {
-                answer_parts.push(answer);
+                answer_parts.push(answer.clone());
+            }
+            if !answer.is_empty()
+                && !matched_lanes.is_empty()
+                && !lane_scoped_answer_parts
+                    .iter()
+                    .any(|existing| existing == &answer)
+            {
+                lane_scoped_answer_parts.push(answer.clone());
             }
             for lane in matched_lanes {
                 covered_required_entity_lanes.insert(normalize_coverage_lane_text(&lane));
@@ -2324,17 +2376,23 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
         }
         let minimum_lane_coverage = minimum_required_entity_lane_coverage(&required_entity_lanes);
         let coverage_note = fallback_user_visible_coverage_note(response_tools);
-        if minimum_lane_coverage > 0
-            && covered_required_entity_lanes.len() < minimum_lane_coverage
+        if minimum_lane_coverage > 0 && covered_required_entity_lanes.len() < minimum_lane_coverage
         {
-            if let Some(first_answer) = answer_parts.first() {
-                let mut parts = vec![
-                    "The current evidence supports only a partial comparison.".to_string(),
-                    workflow_finish_visible_sentence(first_answer),
-                ];
-                if !coverage_note.is_empty() {
-                    parts.push(workflow_finish_visible_sentence(&coverage_note));
-                }
+            let mut parts = vec![if covered_required_entity_lanes.is_empty() {
+                "The current evidence does not yet support a reliable comparison across the requested entities.".to_string()
+            } else {
+                "The current evidence supports only a partial comparison across the requested entities.".to_string()
+            }];
+            parts.extend(
+                lane_scoped_answer_parts
+                    .iter()
+                    .take(2)
+                    .map(|part| workflow_finish_visible_sentence(part)),
+            );
+            if !coverage_note.is_empty() {
+                parts.push(workflow_finish_visible_sentence(&coverage_note));
+            }
+            if parts.len() > 1 {
                 return clean_text(&parts.join(" "), 2_400);
             }
             answer_parts.clear();
@@ -3530,10 +3588,8 @@ fn run_turn_workflow_final_response(
         serde_json::to_string(workflow.get("synthesis_input").unwrap_or(&Value::Null))
             .unwrap_or_else(|_| "{}".to_string());
     let tool_state_summary = workflow_tool_state_prompt_context(response_tools);
-    let answer_unit_synthesis_brief = workflow_answer_unit_synthesis_prompt_context(
-        message,
-        response_tools,
-    );
+    let answer_unit_synthesis_brief =
+        workflow_answer_unit_synthesis_prompt_context(message, response_tools);
     let answer_unit_synthesis_block = if answer_unit_synthesis_brief.is_empty() {
         String::new()
     } else {
@@ -6307,6 +6363,43 @@ mod workflow_fallback_tests {
     }
 
     #[test]
+    fn tool_evidence_fallback_filters_affiliate_disclosure_shell() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Compare current cordless vacuum options for a small apartment with pets across Dyson, Shark, Tineco, and Miele.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["Dyson", "Shark", "Tineco", "Miele"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "title": "Home Vacuum Zone review shell",
+                        "source_domain": "example.test",
+                        "claim_hints": ["Affiliate Disclosure: Home Vacuum Zone is reader-supported."],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "Generic cordless overview",
+                        "source_domain": "example.test",
+                        "claim_hints": ["Cordless vacuums have evolved dramatically in the last few years, offering stronger suction and longer battery life."],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(!response.contains("Affiliate Disclosure"), "{response}");
+        assert!(!response.contains("reader-supported"), "{response}");
+        assert!(
+            response.contains("reliable comparison") || response.contains("coverage gaps remain"),
+            "{response}"
+        );
+    }
+
+    #[test]
     fn tool_evidence_fallback_filters_article_title_fragments() {
         let response = fallback_final_response_from_tool_evidence(
             "Research the current evidence on creatine supplementation for women.",
@@ -6326,6 +6419,43 @@ mod workflow_fallback_tests {
         assert!(!response.contains("Articles / Creatine"), "{response}");
         assert!(
             !response.contains("what does the evidence actually show"),
+            "{response}"
+        );
+    }
+
+    #[test]
+    fn tool_evidence_fallback_filters_preview_title_shell() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research data-residency and sovereignty requirements that matter for SaaS buyers in 2026 for selling into Europe and the US public sector, with practical compliance picture.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["GDPR", "Schrems II", "FedRAMP", "StateRAMP", "CJIS", "ITAR", "DFARS"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "title": "FedRAMP consolidated rules",
+                        "source_domain": "example.test",
+                        "claim_hints": ["The Consolidated Rules will have Agency Use of FedRAMP Certified Cloud Services (Needs Review) - FedRAMP Consolidated Rules for 2026 Public Preview."],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "EDPB guidance",
+                        "source_domain": "example.test",
+                        "claim_hints": ["EDPB guidance emphasizes controllers cannot rely on SCCs alone when data flows to jurisdictions where public authorities may access data beyond necessary levels."],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(!response.contains("Needs Review"), "{response}");
+        assert!(!response.contains("Public Preview"), "{response}");
+        assert!(
+            response.contains("reliable comparison") || response.contains("coverage gaps remain"),
             "{response}"
         );
     }
@@ -6416,8 +6546,9 @@ mod workflow_fallback_tests {
         );
         assert!(!response.starts_with("Kura focuses on"), "{response}");
         assert!(
-            response.contains("insufficient for a direct source-backed conclusion")
-                || response.contains("partial conclusion"),
+            response.contains("reliable comparison")
+                || response.contains("partial comparison")
+                || response.contains("coverage gaps remain"),
             "{response}"
         );
         assert!(
@@ -6426,6 +6557,16 @@ mod workflow_fallback_tests {
                 || response.contains("coverage gaps remain"),
             "{response}"
         );
+    }
+
+    #[test]
+    fn workflow_hedge_detector_accepts_tentative_and_unsettled_language() {
+        assert!(workflow_answer_unit_is_hedged_or_gap(
+            "what remains unsettled causality and dose response are still tentative"
+        ));
+        assert!(workflow_answer_unit_is_hedged_or_gap(
+            "critical limitation my evidence this turn is thin and i would need to verify"
+        ));
     }
 
     #[test]
@@ -6454,10 +6595,7 @@ mod workflow_fallback_tests {
                 }]
             })],
         );
-        assert!(
-            response.contains("partial comparison"),
-            "{response}"
-        );
+        assert!(response.contains("partial comparison"), "{response}");
         assert!(response.contains("Gong"), "{response}");
         assert!(
             response.contains("Chorus")
@@ -6503,10 +6641,15 @@ mod workflow_fallback_tests {
             })],
         );
         assert!(
-            response.starts_with("For legal ops AI, The AI contract management market has matured significantly"),
+            response.starts_with(
+                "For legal ops AI, The AI contract management market has matured significantly"
+            ),
             "{response}"
         );
-        assert!(!response.contains("Value Champion Flex and DocJuris"), "{response}");
+        assert!(
+            !response.contains("Value Champion Flex and DocJuris"),
+            "{response}"
+        );
     }
 
     #[test]
@@ -6982,7 +7125,10 @@ mod workflow_fallback_tests {
             .get("response")
             .and_then(Value::as_str)
             .unwrap_or("");
-        assert!(!response.contains("answer grounding pipeline is more than RAG"), "{response}");
+        assert!(
+            !response.contains("answer grounding pipeline is more than RAG"),
+            "{response}"
+        );
         assert!(
             response.contains("LlamaIndex")
                 || response.contains("LangGraph")
