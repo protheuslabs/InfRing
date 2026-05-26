@@ -483,12 +483,17 @@ impl AgentContract {
                         }),
                     );
                 }
-                let compact_bootstrap = bounded_direct_edit_task
+                let local_context_pack_bootstrap = bounded_direct_edit_task
+                    && native_tool_local_context_pack_builder_enabled(&self.metadata);
+                let compact_bootstrap = !local_context_pack_bootstrap
+                    && bounded_direct_edit_task
                     && native_tool_compact_bounded_edit_bootstrap_applies(
                         &self.metadata,
                         &self.initial_prompt,
                     );
-                let observation = if compact_bootstrap {
+                let observation = if local_context_pack_bootstrap {
+                    native_tool_local_context_pack_observation_prompt(&self.metadata, &all_receipts)
+                } else if compact_bootstrap {
                     native_tool_compact_bounded_edit_bootstrap_observation_prompt(
                         &self.metadata,
                         &all_receipts,
@@ -513,7 +518,12 @@ impl AgentContract {
                     default_bootstrap_rule,
                 );
                 let edit_owner_hint = native_tool_edit_owner_hint(&all_receipts);
-                prompt = if compact_bootstrap {
+                prompt = if local_context_pack_bootstrap {
+                    format!(
+                        "User task:\n{}\n\n{bootstrap_rule}{edit_owner_hint}\n\nLocal context pack:\n{observation}\n\nUse the local context pack as the model-facing summary. Full receipts remain retained by the runtime. Return only JSON tool_calls for the smallest safe file_write/file_patch mutation next, followed by requested validation/probe command_run calls. Return a structured blocker only if the context pack proves local completion is unsafe.",
+                        self.initial_prompt.trim()
+                    )
+                } else if compact_bootstrap {
                     format!(
                         "User task:\n{}\n\n{bootstrap_rule}{edit_owner_hint}\n\nCompact native tool observations:\n{observation}",
                         self.initial_prompt.trim()
@@ -6066,6 +6076,163 @@ fn native_tool_compact_bounded_edit_bootstrap_applies(metadata: &Value, original
         .unwrap_or(2) as usize;
     let explicit_paths = native_tool_unique_code_path_mentions(original_prompt);
     !explicit_paths.is_empty() && explicit_paths.len() <= max_explicit_paths
+}
+
+fn native_tool_local_context_pack_builder_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("local_context_pack_builder"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_local_context_pack_observation_prompt(
+    metadata: &Value,
+    receipts: &[NativeToolReceipt],
+) -> String {
+    let file_char_budget = metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("local_context_pack_file_chars"))
+        .and_then(Value::as_u64)
+        .unwrap_or(2600) as usize;
+    let command_char_budget = metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("local_context_pack_command_chars"))
+        .and_then(Value::as_u64)
+        .unwrap_or(1800) as usize;
+    let max_files = metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("local_context_pack_max_files"))
+        .and_then(Value::as_u64)
+        .unwrap_or(8) as usize;
+
+    let mut files = Vec::new();
+    let mut commands = Vec::new();
+    for receipt in receipts {
+        if receipt.status != "ok" {
+            continue;
+        }
+        match receipt.tool_name.as_str() {
+            "file_read" => {
+                if let Some(file) = native_tool_context_pack_file_capsule(
+                    &receipt.result,
+                    file_char_budget,
+                ) {
+                    files.push(file);
+                }
+            }
+            "file_read_many" => {
+                if let Some(items) = receipt.result.get("files").and_then(Value::as_array) {
+                    for item in items {
+                        if let Some(file) =
+                            native_tool_context_pack_file_capsule(item, file_char_budget)
+                        {
+                            files.push(file);
+                        }
+                    }
+                }
+            }
+            "command_run" => {
+                commands.push(native_tool_context_pack_command_capsule(
+                    &receipt.result,
+                    command_char_budget,
+                ));
+            }
+            _ => {}
+        }
+    }
+    files.truncate(max_files);
+    json!({
+        "schema": "local_context_pack_v1",
+        "files": files,
+        "commands": commands,
+        "instruction": "Use file capsules as authoritative local context. Preserve existing behavior described by failing validation. Mutate implementation/source before export surfaces when both are needed. After mutation, rerun requested validation/probe commands."
+    })
+    .to_string()
+}
+
+fn native_tool_context_pack_file_capsule(result: &Value, max_chars: usize) -> Option<Value> {
+    let path = result.get("path").and_then(Value::as_str)?;
+    let content = result.get("content").and_then(Value::as_str).unwrap_or("");
+    Some(json!({
+        "path": path,
+        "role": native_tool_context_pack_file_role(path),
+        "start_line": result.get("start_line").cloned().unwrap_or(Value::Null),
+        "end_line": result.get("end_line").cloned().unwrap_or(Value::Null),
+        "total_lines": result.get("total_lines").cloned().unwrap_or(Value::Null),
+        "content_excerpt": native_tool_context_pack_head_text(content, max_chars),
+        "truncated": content.chars().count() > max_chars,
+    }))
+}
+
+fn native_tool_context_pack_command_capsule(result: &Value, max_chars: usize) -> Value {
+    let stdout = result.get("stdout").and_then(Value::as_str).unwrap_or("");
+    let stderr = result.get("stderr").and_then(Value::as_str).unwrap_or("");
+    json!({
+        "cwd": result.get("cwd").and_then(Value::as_str),
+        "cmd": result.get("cmd").cloned().unwrap_or(Value::Null),
+        "success": result.get("success").and_then(Value::as_bool),
+        "exit_code": result.get("exit_code").cloned().unwrap_or(Value::Null),
+        "timed_out": result.get("timed_out").and_then(Value::as_bool),
+        "stdout_excerpt": native_tool_tail_text(stdout, max_chars / 2),
+        "stderr_excerpt": native_tool_tail_text(stderr, max_chars),
+    })
+}
+
+fn native_tool_context_pack_file_role(path: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase();
+    if lower.contains("/test")
+        || lower.contains("\\test")
+        || lower.contains("tests/")
+        || lower.contains("test_")
+        || lower.ends_with("_test.py")
+        || lower.ends_with(".test.js")
+        || lower.ends_with(".spec.js")
+        || lower.ends_with(".test.ts")
+        || lower.ends_with(".spec.ts")
+    {
+        "test"
+    } else if lower.ends_with("__init__.py")
+        || lower.contains("mod.rs")
+        || lower.contains("index.ts")
+        || lower.contains("index.js")
+    {
+        "export_surface"
+    } else if lower.ends_with(".toml")
+        || lower.ends_with(".json")
+        || lower.ends_with(".yaml")
+        || lower.ends_with(".yml")
+    {
+        "config"
+    } else {
+        "source"
+    }
+}
+
+fn native_tool_context_pack_head_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        text.to_string()
+    } else {
+        format!("{}...<truncated>", text.chars().take(max_chars).collect::<String>())
+    }
+}
+
+fn native_tool_tail_text(text: &str, max_chars: usize) -> String {
+    let count = text.chars().count();
+    if count <= max_chars {
+        text.to_string()
+    } else {
+        format!(
+            "<truncated>...{}",
+            text.chars()
+                .skip(count.saturating_sub(max_chars))
+                .collect::<String>()
+        )
+    }
 }
 
 fn native_tool_compact_bounded_edit_bootstrap_observation_prompt(

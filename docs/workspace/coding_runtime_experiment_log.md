@@ -113,3 +113,23 @@ Observed result:
 - Disabling the flag restored the workflow shape, but the follow-up Level 7 restore smoke hit provider timeout, so that timeout is not counted as evidence for the compact path.
 
 Conclusion: Receipt-preview compaction is the wrong primitive. Preserve this only as a dormant scaffold. The next primitive should be `local_context_pack_builder`, which emits explicit file/context capsules rather than truncated receipt JSON.
+
+## Local context pack builder v1
+
+Date: 2026-05-26
+
+Status: Active in the native coding workflow.
+
+Purpose: Reduce model-facing bounded-edit context without weakening native receipts, mutation gates, validation gates, or audit evidence.
+
+Primitive shape:
+- Runtime retains full native tool receipts internally.
+- Model receives `local_context_pack_v1` capsules instead of full receipt JSON during bounded direct-edit bootstrap.
+- File capsules include path, role, line range, total lines, and bounded content excerpts.
+- Command capsules include cwd, command, success, exit code, timeout flag, and bounded stdout/stderr excerpts.
+
+Initial smoke results:
+- Level 4: pass, prompt chars dropped to 5057 from the prior approximate 6124 full-receipt prompt.
+- Level 7: pass, prompt chars dropped to 8206 from the prior approximate 10007 full-receipt prompt.
+
+Conclusion: This is the first viable version of the model-facing context optimization. It is materially better than compact receipt-preview truncation because it preserves file and validation semantics for multi-file slices.
