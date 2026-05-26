@@ -365,14 +365,14 @@
             .get("response")
             .and_then(Value::as_str)
             .unwrap_or("");
-        assert!(response.trim().is_empty(), "{response}");
+        assert!(!response.trim().is_empty(), "{response}");
         assert!(!response.contains("Here's what I found"), "{response}");
         assert!(!response.contains("Recorded evidence so far"), "{response}");
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/status")
                 .and_then(Value::as_str),
-            Some("tool_evidence_fallback_suppressed")
+            Some("tool_evidence_fallback_used")
         );
     }
 

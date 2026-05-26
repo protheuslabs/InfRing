@@ -236,16 +236,34 @@
             .get("response")
             .and_then(Value::as_str)
             .unwrap_or("");
-        assert!(response.trim().is_empty());
+        assert!(
+            response.contains("do not have enough reliable information"),
+            "{response}"
+        );
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/status")
                 .and_then(Value::as_str),
-            Some("empty_llm_response")
+            Some("terminal_presence_fallback_used")
         );
-        assert!(workflow
-            .pointer("/final_llm_response/fallback_source")
-            .is_none());
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/fallback_source")
+                .and_then(Value::as_str),
+            Some("terminal_presence_fallback")
+        );
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/replacement_response_used")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            workflow
+                .pointer("/quality_telemetry/final_terminal_fallback_used")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/diagnostic_event_reason")
@@ -335,7 +353,7 @@
     }
 
     #[test]
-    fn final_empty_response_diagnostic_suppresses_generic_tool_evidence_fallback_when_findings_exist()
+    fn final_empty_response_diagnostic_uses_generic_tool_evidence_fallback_when_findings_exist()
     {
         let mut workflow = json!({
             "response": "",
@@ -363,18 +381,19 @@
             .get("response")
             .and_then(Value::as_str)
             .unwrap_or("");
-        assert!(response.trim().is_empty(), "{response}");
+        assert!(!response.trim().is_empty(), "{response}");
+        assert!(response.contains("partial conclusion") || response.contains("OpenHands"), "{response}");
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/used")
                 .and_then(Value::as_bool),
-            Some(false)
+            Some(true)
         );
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/status")
                 .and_then(Value::as_str),
-            Some("tool_evidence_fallback_suppressed")
+            Some("tool_evidence_fallback_used")
         );
         assert_eq!(
             workflow
@@ -386,18 +405,18 @@
             workflow
                 .pointer("/quality_telemetry/final_fallback_used")
                 .and_then(Value::as_bool),
-            Some(false)
+            Some(true)
         );
         assert_eq!(
             workflow
                 .pointer("/quality_telemetry/final_fallback_suppressed")
                 .and_then(Value::as_bool),
-            Some(true)
+            Some(false)
         );
     }
 
     #[test]
-    fn final_empty_response_diagnostic_suppresses_tool_evidence_fallback_when_failure_exists() {
+    fn final_empty_response_diagnostic_uses_tool_evidence_fallback_when_failure_exists() {
         let mut workflow = json!({
             "response": "",
             "quality_telemetry": {},
@@ -424,16 +443,16 @@
             .get("response")
             .and_then(Value::as_str)
             .unwrap_or("");
-        assert!(response.trim().is_empty(), "{response}");
+        assert!(!response.trim().is_empty(), "{response}");
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/status")
                 .and_then(Value::as_str),
-            Some("tool_evidence_fallback_suppressed")
+            Some("tool_evidence_fallback_used")
         );
         assert_eq!(
             workflow
-                .pointer("/final_llm_response/suppressed_replacement_response_excerpt")
+                .pointer("/final_llm_response/replacement_response_excerpt")
                 .and_then(Value::as_str),
             Some("My recommendation is to treat the current evidence as insufficient for a direct source-backed conclusion.")
         );

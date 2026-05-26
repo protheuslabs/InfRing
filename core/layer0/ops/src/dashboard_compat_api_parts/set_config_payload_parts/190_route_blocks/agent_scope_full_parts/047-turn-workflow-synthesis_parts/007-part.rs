@@ -144,28 +144,30 @@ fn apply_tool_evidence_fallback_response(
     diagnostic_reason: &str,
     diagnostic_stage: &str,
 ) {
-    let cleaned_response =
-        workflow_final_visible_response_text(&clean_text(fallback_response, 3_000));
+    let cleaned_response = persist_workflow_visible_response(
+        workflow,
+        &clean_text(fallback_response, 3_000),
+    );
     if cleaned_response.is_empty() {
         return;
     }
-    workflow["quality_telemetry"]["final_fallback_used"] = Value::Bool(false);
-    workflow["quality_telemetry"]["final_fallback_suppressed"] = Value::Bool(true);
-    workflow["quality_telemetry"]["suppressed_runtime_visible_fallback_source"] =
+    workflow["quality_telemetry"]["final_fallback_used"] = Value::Bool(true);
+    workflow["quality_telemetry"]["final_fallback_suppressed"] = Value::Bool(false);
+    workflow["quality_telemetry"]["runtime_visible_fallback_source"] =
         Value::String(clean_text(fallback_source, 120));
-    workflow["final_llm_response"]["used"] = Value::Bool(false);
+    workflow["final_llm_response"]["used"] = Value::Bool(true);
     workflow["final_llm_response"]["status"] =
-        Value::String("tool_evidence_fallback_suppressed".to_string());
+        Value::String("tool_evidence_fallback_used".to_string());
     workflow["final_llm_response"]["runtime_interference_disabled"] = Value::Bool(true);
     workflow["final_llm_response"]["visible_response_preserved"] = Value::Bool(false);
     workflow["final_llm_response"]["fallback_source"] =
         Value::String(clean_text(fallback_source, 120));
-    workflow["final_llm_response"]["replacement_response_used"] = Value::Bool(false);
-    workflow["final_llm_response"]["suppressed_replacement_response_excerpt"] =
+    workflow["final_llm_response"]["replacement_response_used"] = Value::Bool(true);
+    workflow["final_llm_response"]["replacement_response_excerpt"] =
         Value::String(first_sentence(&cleaned_response, 240));
     workflow["final_llm_response"]["error"] = Value::String(clean_text(error_code, 160));
     workflow["final_llm_response"]["last_reject_reason"] =
-        Value::String("runtime_visible_tool_evidence_fallback_suppressed".to_string());
+        Value::String("runtime_visible_tool_evidence_fallback_used".to_string());
     annotate_final_evidence_outcome_posture(workflow, response_tools);
     if let Some(reason) = original_reject_reason {
         let cleaned = clean_text(reason, 240);
@@ -181,10 +183,10 @@ fn apply_tool_evidence_fallback_response(
     }
     record_workflow_diagnostic_event(
         workflow,
-        &format!("{diagnostic_reason}_suppressed"),
+        diagnostic_reason,
         diagnostic_stage,
     );
-    set_turn_workflow_final_stage_status(workflow, "tool_evidence_fallback_suppressed");
+    set_turn_workflow_final_stage_status(workflow, "tool_evidence_fallback_used");
 }
 
 fn maybe_apply_rejected_tool_evidence_fallback(

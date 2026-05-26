@@ -287,9 +287,45 @@
     }
 
     #[test]
+    fn finish_turn_workflow_final_response_after_attempts_never_finishes_blank() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let workflow = turn_workflow_metadata("research_synthesize_verify", &[], &[], "", "hello");
+        let gate_state = WorkflowFinalResponseGateState::default();
+        let diagnostics = WorkflowFinalResponseDiagnostics {
+            last_error: "invoke_failed".to_string(),
+            ..Default::default()
+        };
+
+        let finalized = finish_turn_workflow_final_response_after_attempts(
+            root.path(),
+            workflow,
+            "hello",
+            "",
+            &[],
+            false,
+            1,
+            false,
+            &gate_state,
+            &diagnostics,
+        );
+
+        let response = workflow_visible_response_candidate(&finalized);
+        assert!(!response.trim().is_empty(), "{response}");
+        assert_eq!(
+            finalized
+                .pointer("/final_llm_response/status")
+                .and_then(Value::as_str),
+            Some("terminal_presence_fallback_used")
+        );
+    }
+
+    #[test]
     fn runtime_visible_fallback_blocker_only_blocks_tool_evidence_suppression() {
         assert!(workflow_status_blocks_runtime_visible_fallback(
             "tool_evidence_fallback_suppressed"
+        ));
+        assert!(!workflow_status_blocks_runtime_visible_fallback(
+            "tool_evidence_fallback_used"
         ));
         assert!(!workflow_status_blocks_runtime_visible_fallback(
             "synthesized"

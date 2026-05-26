@@ -1,3 +1,22 @@
+fn terminal_presence_fallback_response(response_tools: &[Value]) -> String {
+    let response = if response_tools_have_recorded_material(response_tools) {
+        match tool_evidence_outcome_posture(response_tools) {
+            "supported_answer" => {
+                "I found grounded material for this turn, but I could not safely carry it through to a clean final answer without risking overstatement."
+            }
+            "bounded_partial_answer" => {
+                "I found some evidence for this turn, but it is partial or uneven, so I cannot honestly give a strong source-backed conclusion yet."
+            }
+            _ => {
+                "I do not have enough reliable evidence from this turn to answer your request cleanly."
+            }
+        }
+    } else {
+        "I do not have enough reliable information from this turn to answer your request cleanly."
+    };
+    clean_text(response, 900)
+}
+
 fn apply_final_empty_response_diagnostic(
     workflow: &mut Value,
     message: &str,
@@ -34,20 +53,53 @@ fn apply_final_empty_response_diagnostic(
         return;
     }
 
-    workflow["quality_telemetry"]["final_fallback_used"] = Value::Bool(false);
-    workflow["final_llm_response"]["used"] = Value::Bool(false);
-    workflow["final_llm_response"]["status"] = Value::String("empty_llm_response".to_string());
+    let terminal_fallback = persist_workflow_visible_response(
+        workflow,
+        &terminal_presence_fallback_response(response_tools),
+    );
+    if terminal_fallback.is_empty() {
+        workflow["quality_telemetry"]["final_fallback_used"] = Value::Bool(false);
+        workflow["final_llm_response"]["used"] = Value::Bool(false);
+        workflow["final_llm_response"]["status"] =
+            Value::String("empty_llm_response".to_string());
+        workflow["final_llm_response"]["runtime_interference_disabled"] = Value::Bool(true);
+        workflow["final_llm_response"]["visible_response_preserved"] = Value::Bool(false);
+        workflow["final_llm_response"]["error"] = Value::String("empty_response".to_string());
+        workflow["final_llm_response"]["last_reject_reason"] =
+            Value::String("diagnostic_only_presence".to_string());
+        record_workflow_diagnostic_event(
+            workflow,
+            "empty_response_presence_diagnostic",
+            "final_presence_diagnostic",
+        );
+        set_turn_workflow_final_stage_status(workflow, "empty_llm_response");
+        return;
+    }
+    workflow["quality_telemetry"]["final_fallback_used"] = Value::Bool(true);
+    workflow["quality_telemetry"]["final_fallback_suppressed"] = Value::Bool(false);
+    workflow["quality_telemetry"]["final_terminal_fallback_used"] = Value::Bool(true);
+    workflow["quality_telemetry"]["runtime_visible_fallback_source"] =
+        Value::String("terminal_presence_fallback".to_string());
+    workflow["final_llm_response"]["used"] = Value::Bool(true);
+    workflow["final_llm_response"]["status"] =
+        Value::String("terminal_presence_fallback_used".to_string());
     workflow["final_llm_response"]["runtime_interference_disabled"] = Value::Bool(true);
     workflow["final_llm_response"]["visible_response_preserved"] = Value::Bool(false);
-    workflow["final_llm_response"]["error"] = Value::String("empty_response".to_string());
+    workflow["final_llm_response"]["fallback_source"] =
+        Value::String("terminal_presence_fallback".to_string());
+    workflow["final_llm_response"]["replacement_response_used"] = Value::Bool(true);
+    workflow["final_llm_response"]["replacement_response_excerpt"] =
+        Value::String(first_sentence(&terminal_fallback, 240));
+    workflow["final_llm_response"]["error"] =
+        Value::String("empty_response_replaced_from_terminal_fallback".to_string());
     workflow["final_llm_response"]["last_reject_reason"] =
-        Value::String("diagnostic_only_presence".to_string());
+        Value::String("runtime_visible_terminal_fallback_used".to_string());
     record_workflow_diagnostic_event(
         workflow,
         "empty_response_presence_diagnostic",
         "final_presence_diagnostic",
     );
-    set_turn_workflow_final_stage_status(workflow, "empty_llm_response");
+    set_turn_workflow_final_stage_status(workflow, "terminal_presence_fallback_used");
 }
 
 fn fallback_coverage_lane_sentence(response_tools: &[Value]) -> String {

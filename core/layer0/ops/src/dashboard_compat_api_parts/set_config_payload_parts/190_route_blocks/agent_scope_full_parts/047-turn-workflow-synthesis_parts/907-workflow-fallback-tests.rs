@@ -82,19 +82,19 @@
             .get("response")
             .and_then(Value::as_str)
             .unwrap_or("");
-        assert!(response.trim().is_empty(), "{response}");
+        assert!(!response.trim().is_empty(), "{response}");
         assert!(!response.contains("Sources:"), "{response}");
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/status")
                 .and_then(Value::as_str),
-            Some("tool_evidence_fallback_suppressed")
+            Some("tool_evidence_fallback_used")
         );
         assert_eq!(
             workflow
                 .pointer("/quality_telemetry/final_fallback_used")
                 .and_then(Value::as_bool),
-            Some(false)
+            Some(true)
         );
     }
 
@@ -139,18 +139,18 @@
             .get("response")
             .and_then(Value::as_str)
             .unwrap_or("");
-        assert!(response.trim().is_empty(), "{response}");
+        assert!(!response.trim().is_empty(), "{response}");
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/status")
                 .and_then(Value::as_str),
-            Some("tool_evidence_fallback_suppressed")
+            Some("tool_evidence_fallback_used")
         );
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/replacement_response_used")
                 .and_then(Value::as_bool),
-            Some(false)
+            Some(true)
         );
         assert_eq!(
             workflow
@@ -204,7 +204,7 @@
             .get("response")
             .and_then(Value::as_str)
             .unwrap_or("");
-        assert!(response.trim().is_empty(), "{response}");
+        assert!(!response.trim().is_empty(), "{response}");
         assert!(
             !response.contains("answer grounding pipeline is more than RAG"),
             "{response}"
@@ -213,13 +213,13 @@
             workflow
                 .pointer("/final_llm_response/status")
                 .and_then(Value::as_str),
-            Some("tool_evidence_fallback_suppressed")
+            Some("tool_evidence_fallback_used")
         );
         assert_eq!(
             workflow
                 .pointer("/final_llm_response/replacement_response_used")
                 .and_then(Value::as_bool),
-            Some(false)
+            Some(true)
         );
     }
 
