@@ -453,6 +453,33 @@ def summarize_native_provider_turn_timing(project_root: Path) -> dict[str, Any] 
     }
 
 
+def summarize_native_runtime_timeline(project_root: Path) -> dict[str, Any] | None:
+    path = project_root / ".infring" / "native_runtime_timeline.jsonl"
+    if not path.exists():
+        return None
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            rows.append(value)
+    if not rows:
+        return None
+    return {
+        "source": "native_runtime_timeline_probe_v1",
+        "path": str(path),
+        "event_count": len(rows),
+        "first_event": rows[0],
+        "last_event": rows[-1],
+        "events": rows[-16:],
+    }
+
+
 def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
     started = time.monotonic()
     resolution = resolve_xtask_command(REPO_ROOT, policy=command_execution_policy())
@@ -501,6 +528,8 @@ def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
     trace_summary = parsed.get("trace_summary") if isinstance(parsed.get("trace_summary"), dict) else {}
     xtask_outer_timing_ms = parsed.get("xtask_outer_timing_ms") if isinstance(parsed.get("xtask_outer_timing_ms"), dict) else None
     agent_runtime_phase_latency_ms = receipt.get("agent_runtime_phase_latency_ms") if isinstance(receipt.get("agent_runtime_phase_latency_ms"), dict) else None
+    native_tool_phase_latency_ms = receipt.get("native_tool_phase_latency_ms") if isinstance(receipt.get("native_tool_phase_latency_ms"), dict) else None
+    runtime_lane_phase_latency_ms = trace_summary.get("runtime_lane_phase_latency_ms") if isinstance(trace_summary.get("runtime_lane_phase_latency_ms"), dict) else None
     coding_runtime_probe = receipt.get("coding_runtime_probe") if isinstance(receipt.get("coding_runtime_probe"), dict) else None
     if coding_runtime_probe is None and isinstance(trace_summary.get("coding_runtime_probe"), dict):
         coding_runtime_probe = trace_summary["coding_runtime_probe"]
@@ -513,6 +542,7 @@ def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
                 "runtime_probe": coding_runtime_probe,
                 "native_provider_turn_timing": native_provider_turn_timing_probe,
             }
+    native_runtime_timeline_probe = summarize_native_runtime_timeline(job["project_root"])
     native_receipts = receipt.get("native_tool_receipts") if isinstance(receipt.get("native_tool_receipts"), list) else []
     response = parsed.get("response") if isinstance(parsed.get("response"), dict) else {}
     response_raw = response.get("raw") if isinstance(response.get("raw"), dict) else {}
@@ -551,7 +581,10 @@ def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
         "native_patch_artifact_profile": lane_artifact_profile,
         "native_patch_lane_phase_latency_ms": lane_phase_latency_ms,
         "agent_runtime_phase_latency_ms": agent_runtime_phase_latency_ms,
+        "native_tool_phase_latency_ms": native_tool_phase_latency_ms,
+        "runtime_lane_phase_latency_ms": runtime_lane_phase_latency_ms,
         "coding_runtime_probe": coding_runtime_probe,
+        "native_runtime_timeline_probe": native_runtime_timeline_probe,
         "xtask_outer_timing_ms": xtask_outer_timing_ms,
         "command_resolution": resolution["receipt"],
         "execution_mode": resolution["receipt"]["execution_mode"],

@@ -86,6 +86,39 @@ fn runtime_lane_response_allows_bounded_existing_project_fallback(
     )
 }
 
+fn runtime_lane_value_bool_at_path<'a>(value: &'a Value, path: &[&str]) -> Option<bool> {
+    let mut cursor = value;
+    for segment in path {
+        cursor = cursor.get(*segment)?;
+    }
+    cursor.as_bool()
+}
+
+fn runtime_lane_should_run_bounded_existing_project_pre_probe(
+    metadata: &Value,
+    tools: &[String],
+    capability_packs: &[String],
+) -> bool {
+    if runtime_lane_value_bool_at_path(metadata, &["runtime_policy", "bounded_existing_project_pre_probe"])
+        == Some(true)
+        || runtime_lane_value_bool_at_path(metadata, &["coding_runtime", "bounded_existing_project_pre_probe"])
+            == Some(true)
+        || metadata
+            .get("bounded_existing_project_pre_probe")
+            .and_then(Value::as_bool)
+            == Some(true)
+    {
+        return true;
+    }
+
+    tools
+        .iter()
+        .any(|tool| tool == "bounded_existing_project_edit_loop")
+        || capability_packs
+            .iter()
+            .any(|pack| pack == "bounded-existing-project-edit-loop")
+}
+
 #[derive(Debug)]
 pub enum RuntimeLaneError {
     Build(AgentBuildError),
@@ -133,8 +166,12 @@ pub fn run_runtime_lane_with_registry(
         schedule_max_runs,
     } = request;
 
+    let pre_agent_setup_started = Instant::now();
+    let state_load_started = Instant::now();
     let state_path = runtime_lane_state_path(&metadata);
     let mut durable_state = runtime_lane_state_load(&state_path);
+    let state_load_ms = state_load_started.elapsed().as_millis() as u64;
+    let permission_setup_started = Instant::now();
     let parent_permissions_manifest =
         permission_manifest_from_value(metadata.get("parent_permissions_manifest"));
     let permissions_template = metadata
@@ -158,6 +195,8 @@ pub fn run_runtime_lane_with_registry(
         .get("parent_permissions_patch_clamped")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let permission_setup_ms = permission_setup_started.elapsed().as_millis() as u64;
+    let permission_gate_started = Instant::now();
     let catalog = CapabilityPackCatalog::new();
     let required_pack_permissions = catalog.required_permissions_for_packs(&capability_packs);
     for permission in &required_pack_permissions {
@@ -292,7 +331,9 @@ pub fn run_runtime_lane_with_registry(
             &mut durable_state,
         ));
     }
+    let permission_gate_ms = permission_gate_started.elapsed().as_millis() as u64;
 
+    let wasm_policy_started = Instant::now();
     let wasm_policy = wasm_policy_from_value(wasm_sandbox.as_ref());
     let requested_modules = runtime_requested_wasm_modules(&tools, &metadata);
     let requests_network = runtime_requests_network(&tools, &metadata);
@@ -326,7 +367,9 @@ pub fn run_runtime_lane_with_registry(
             &mut durable_state,
         ));
     }
+    let wasm_policy_ms = wasm_policy_started.elapsed().as_millis() as u64;
 
+    let direct_mutation_probe_started = Instant::now();
     if let Some(response) = runtime_lane_try_direct_mutation(
         &name,
         &initial_prompt,
@@ -344,7 +387,9 @@ pub fn run_runtime_lane_with_registry(
     ) {
         return Ok(response);
     }
+    let direct_mutation_probe_ms = direct_mutation_probe_started.elapsed().as_millis() as u64;
 
+    let deterministic_local_loop_probe_started = Instant::now();
     if let Some(response) = runtime_lane_try_deterministic_local_loop(
         &name,
         &initial_prompt,
@@ -362,7 +407,10 @@ pub fn run_runtime_lane_with_registry(
     ) {
         return Ok(response);
     }
+    let deterministic_local_loop_probe_ms =
+        deterministic_local_loop_probe_started.elapsed().as_millis() as u64;
 
+    let public_api_extension_probe_started = Instant::now();
     if let Some(response) = runtime_lane_try_public_api_extension_lane(
         &name,
         &initial_prompt,
@@ -383,38 +431,49 @@ pub fn run_runtime_lane_with_registry(
     ) {
         return Ok(response);
     }
+    let public_api_extension_probe_ms = public_api_extension_probe_started.elapsed().as_millis() as u64;
 
+    let bounded_existing_project_probe_started = Instant::now();
     let mut bounded_existing_project_fallback_probe = None;
-    if let Some(response) = runtime_lane_try_bounded_existing_project_edit_loop(
-        &name,
-        &initial_prompt,
-        provider.as_deref(),
-        model.as_ref(),
+    if runtime_lane_should_run_bounded_existing_project_pre_probe(
         &metadata,
         &tools,
         &capability_packs,
-        &required_pack_permissions,
-        &permissions,
-        wasm_sandbox.as_ref(),
-        voice_session.as_ref(),
-        receipt_merkle.as_ref(),
-        previous_receipt_root.as_ref(),
-        &state_path,
-        &mut durable_state,
-        providers,
     ) {
-        if !runtime_lane_response_allows_bounded_existing_project_fallback(&response) {
-            return Ok(response);
+        if let Some(response) = runtime_lane_try_bounded_existing_project_edit_loop(
+            &name,
+            &initial_prompt,
+            provider.as_deref(),
+            model.as_ref(),
+            &metadata,
+            &tools,
+            &capability_packs,
+            &required_pack_permissions,
+            &permissions,
+            wasm_sandbox.as_ref(),
+            voice_session.as_ref(),
+            receipt_merkle.as_ref(),
+            previous_receipt_root.as_ref(),
+            &state_path,
+            &mut durable_state,
+            providers,
+        ) {
+            if !runtime_lane_response_allows_bounded_existing_project_fallback(&response) {
+                return Ok(response);
+            }
+            bounded_existing_project_fallback_probe = Some(json!({
+                "fallback_source": "bounded_existing_project_edit_loop",
+                "discarded_error": response.error,
+                "discarded_receipt_status": response.receipt.get("status").cloned().unwrap_or(Value::Null),
+                "discarded_receipt_details": response.receipt.get("details").cloned().unwrap_or(Value::Null),
+                "discarded_coding_runtime_probe": response.receipt.get("coding_runtime_probe").cloned().unwrap_or(Value::Null),
+            }));
         }
-        bounded_existing_project_fallback_probe = Some(json!({
-            "fallback_source": "bounded_existing_project_edit_loop",
-            "discarded_error": response.error,
-            "discarded_receipt_status": response.receipt.get("status").cloned().unwrap_or(Value::Null),
-            "discarded_receipt_details": response.receipt.get("details").cloned().unwrap_or(Value::Null),
-            "discarded_coding_runtime_probe": response.receipt.get("coding_runtime_probe").cloned().unwrap_or(Value::Null),
-        }));
     }
+    let bounded_existing_project_probe_ms =
+        bounded_existing_project_probe_started.elapsed().as_millis() as u64;
 
+    let model_manifest_probe_started = Instant::now();
     if let Some(mut response) = runtime_lane_try_model_manifest_planner(
         &name,
         &initial_prompt,
@@ -439,7 +498,9 @@ pub fn run_runtime_lane_with_registry(
         }
         return Ok(response);
     }
+    let model_manifest_probe_ms = model_manifest_probe_started.elapsed().as_millis() as u64;
 
+    let agent_builder_started = Instant::now();
     let merkle_options = merkle_receipt_options_from_value(receipt_merkle.as_ref());
     let mut builder = AgentBuilder::new(name)
         .initial_prompt(initial_prompt)
@@ -494,6 +555,8 @@ pub fn run_runtime_lane_with_registry(
     let contract = builder.build().map_err(RuntimeLaneError::Build)?;
     let contract = contract.with_default_schedule_from_packs(&catalog);
     let resolved_tools = contract.resolved_tools(Some(&catalog));
+    let agent_builder_ms = agent_builder_started.elapsed().as_millis() as u64;
+    let wasm_execution_boundary_started = Instant::now();
     let wasm_execution_fuel_used = metadata
         .get("wasm_execution")
         .and_then(|value| value.get("fuel_used"))
@@ -548,7 +611,10 @@ pub fn run_runtime_lane_with_registry(
             }
         }
     }
+    let wasm_execution_boundary_ms = wasm_execution_boundary_started.elapsed().as_millis() as u64;
+    let pre_agent_setup_ms = pre_agent_setup_started.elapsed().as_millis() as u64;
     let context = AgentExecutionContext::new(providers, Some(&catalog));
+    let agent_run_started = std::time::Instant::now();
     let run: AgentRunResult = match contract.run_once(&context) {
         Ok(result) => result,
         Err(error) => {
@@ -570,6 +636,8 @@ pub fn run_runtime_lane_with_registry(
             return Err(RuntimeLaneError::Provider(error));
         }
     };
+    let agent_run_ms = agent_run_started.elapsed().as_millis() as u64;
+    let contract_checks_started = std::time::Instant::now();
     if let Some((error_code, details)) =
         native_success_contract_violation(&metadata, &run.receipt, &run.response.output)
     {
@@ -628,6 +696,8 @@ pub fn run_runtime_lane_with_registry(
         runtime_lane_attach_agent_run_journal(&mut response, &run);
         return Ok(response);
     }
+    let contract_checks_ms = contract_checks_started.elapsed().as_millis() as u64;
+    let merkle_started = std::time::Instant::now();
     let persisted_previous_root = durable_state
         .merkle_roots
         .get(contract.name.as_str())
@@ -649,7 +719,10 @@ pub fn run_runtime_lane_with_registry(
             .merkle_roots
             .insert(contract.name.clone(), root.to_string());
     }
+    let merkle_ms = merkle_started.elapsed().as_millis() as u64;
+    let mut schedule_mark_ms = 0u64;
     if let Some(plan) = &contract.schedule {
+        let schedule_mark_started = std::time::Instant::now();
         let pack_id = contract
             .capability_packs
             .first()
@@ -661,8 +734,12 @@ pub fn run_runtime_lane_with_registry(
             pack_id.as_str(),
             plan,
         );
+        schedule_mark_ms = schedule_mark_started.elapsed().as_millis() as u64;
     }
+    let state_persist_started = std::time::Instant::now();
     let state_persist_error = runtime_lane_state_save(&state_path, &durable_state);
+    let state_persist_ms = state_persist_started.elapsed().as_millis() as u64;
+    let response_build_started = std::time::Instant::now();
     let voice = voice_request
         .as_ref()
         .map(|request| {
@@ -721,6 +798,26 @@ pub fn run_runtime_lane_with_registry(
             "release_gate_counters": runtime_lane_state_release_gate_counters(&durable_state),
             "state_path": state_path.display().to_string(),
             "state_persist_error": state_persist_error,
+            "runtime_lane_phase_latency_ms": {
+                "pre_agent_setup_ms": pre_agent_setup_ms,
+                "state_load_ms": state_load_ms,
+                "permission_setup_ms": permission_setup_ms,
+                "permission_gate_ms": permission_gate_ms,
+                "wasm_policy_ms": wasm_policy_ms,
+                "direct_mutation_probe_ms": direct_mutation_probe_ms,
+                "deterministic_local_loop_probe_ms": deterministic_local_loop_probe_ms,
+                "public_api_extension_probe_ms": public_api_extension_probe_ms,
+                "bounded_existing_project_probe_ms": bounded_existing_project_probe_ms,
+                "model_manifest_probe_ms": model_manifest_probe_ms,
+                "agent_builder_ms": agent_builder_ms,
+                "wasm_execution_boundary_ms": wasm_execution_boundary_ms,
+                "agent_run_ms": agent_run_ms,
+                "contract_checks_ms": contract_checks_ms,
+                "merkle_ms": merkle_ms,
+                "schedule_mark_ms": schedule_mark_ms,
+                "state_persist_ms": state_persist_ms,
+                "response_build_ms": response_build_started.elapsed().as_millis() as u64,
+            },
         }),
         output: run.response.output,
         error: response_error,

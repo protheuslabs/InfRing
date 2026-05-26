@@ -304,6 +304,19 @@ impl AgentContract {
             events,
             attributes: BTreeMap::from([("tools".to_string(), tools.join(","))]),
         };
+        let receipt_serialization_started = Instant::now();
+        let native_tool_call_count = tool_receipts.len();
+        let native_tool_phase_latency_ms = native_tool_receipt_phase_latency(&tool_receipts);
+        native_tool_persist_runtime_timeline_event(
+            &self.metadata,
+            &self.initial_prompt,
+            "agent_receipt_serialization_start",
+            native_tool_bounded_patch_elapsed_ms(run_started),
+            json!({
+                "native_tool_call_count": native_tool_call_count,
+                "terminal_status": terminal_status,
+            }),
+        );
         let receipt = json!({
             "type": "agent_run_receipt",
             "agent": self.name,
@@ -311,7 +324,7 @@ impl AgentContract {
             "model": response.model,
             "status": terminal_status,
             "tool_count": tools.len(),
-            "native_tool_call_count": tool_receipts.len(),
+            "native_tool_call_count": native_tool_call_count,
             "lifespan_seconds": self.lifespan_seconds,
             "duration_ms": duration_ms,
             "agent_runtime_phase_latency_ms": {
@@ -320,6 +333,7 @@ impl AgentContract {
                 "model_tool_loop_ms": model_tool_loop_ms,
                 "total_ms": native_tool_bounded_patch_elapsed_ms(run_started)
             },
+            "native_tool_phase_latency_ms": native_tool_phase_latency_ms,
             "trace_id": trace.trace_id,
             "workflow": self
                 .metadata
@@ -328,6 +342,26 @@ impl AgentContract {
                 .unwrap_or(Value::Null),
             "native_tool_receipts": tool_receipts,
         });
+        native_tool_persist_runtime_timeline_event(
+            &self.metadata,
+            &self.initial_prompt,
+            "agent_receipt_serialization_end",
+            native_tool_bounded_patch_elapsed_ms(run_started),
+            json!({
+                "duration_ms": native_tool_bounded_patch_elapsed_ms(receipt_serialization_started),
+                "native_tool_call_count": native_tool_call_count,
+            }),
+        );
+        native_tool_persist_runtime_timeline_event(
+            &self.metadata,
+            &self.initial_prompt,
+            "agent_run_result_ready",
+            native_tool_bounded_patch_elapsed_ms(run_started),
+            json!({
+                "duration_ms": duration_ms,
+                "terminal_status": terminal_status,
+            }),
+        );
         Ok(AgentRunResult {
             response,
             receipt,
@@ -354,6 +388,17 @@ impl AgentContract {
                 .map(|response| (response, Vec::new(), 1, "ok".to_string()));
         }
 
+        let native_timeline_started = Instant::now();
+        native_tool_persist_runtime_timeline_event(
+            &self.metadata,
+            &self.initial_prompt,
+            "runtime_lane_entry",
+            0,
+            json!({
+                "tool_count": tools.len(),
+                "has_successful_mutation_requirement": native_tool_requires_successful_mutation(&self.metadata),
+            }),
+        );
         let max_turns = native_tool_max_turns(&self.metadata);
         let mut prompt = native_tool_initial_prompt(&self.initial_prompt, &self.metadata);
         let system = if self.preamble.trim().is_empty() {
@@ -383,10 +428,29 @@ impl AgentContract {
                 &self.metadata,
                 &self.initial_prompt,
             );
+            let bootstrap_started = Instant::now();
+            native_tool_persist_runtime_timeline_event(
+                &self.metadata,
+                &self.initial_prompt,
+                "bootstrap_context_start",
+                native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                json!({ "lane": "bounded_direct_edit" }),
+            );
             let bootstrap_receipts =
                 native_tool_bootstrap_context_receipts(&dispatcher, &self.initial_prompt);
+            native_tool_persist_runtime_timeline_event(
+                &self.metadata,
+                &self.initial_prompt,
+                "bootstrap_context_end",
+                native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                json!({
+                    "duration_ms": native_tool_bounded_patch_elapsed_ms(bootstrap_started),
+                    "receipt_count": bootstrap_receipts.len(),
+                }),
+            );
             if !bootstrap_receipts.is_empty() {
                 all_receipts.extend(bootstrap_receipts);
+                let pre_validation_started = Instant::now();
                 if let Some(validation_receipt) =
                     native_tool_pre_mutation_validation_bootstrap_receipt(
                         &dispatcher,
@@ -394,7 +458,28 @@ impl AgentContract {
                         &all_receipts,
                     )
                 {
+                    native_tool_persist_runtime_timeline_event(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "bootstrap_validation_end",
+                        native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                        json!({
+                            "duration_ms": native_tool_bounded_patch_elapsed_ms(pre_validation_started),
+                            "status": validation_receipt.status,
+                            "success": validation_receipt.result.get("success").cloned().unwrap_or(Value::Null),
+                        }),
+                    );
                     all_receipts.push(validation_receipt);
+                } else {
+                    native_tool_persist_runtime_timeline_event(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "bootstrap_validation_skipped",
+                        native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                        json!({
+                            "duration_ms": native_tool_bounded_patch_elapsed_ms(pre_validation_started),
+                        }),
+                    );
                 }
                 let observation = native_tool_observation_prompt(&all_receipts);
                 let preflight_ready = bounded_fast_edit_preflight
@@ -587,10 +672,40 @@ impl AgentContract {
                 model: self.model.clone(),
                 metadata: request_metadata,
             };
+            native_tool_persist_runtime_timeline_event(
+                &self.metadata,
+                &self.initial_prompt,
+                "provider_request_start",
+                native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                json!({
+                    "provider_call_count": provider_call_count,
+                    "turn_idx": turn_idx,
+                    "prompt_chars": request.prompt.chars().count(),
+                    "system_chars": request.system.as_ref().map(|value| value.chars().count()).unwrap_or(0),
+                    "tool_count": request.tools.len(),
+                }),
+            );
             let provider_turn_started = Instant::now();
             let provider_result = provider.complete(&request);
             let provider_turn_latency_ms =
                 native_tool_bounded_patch_elapsed_ms(provider_turn_started);
+            native_tool_persist_runtime_timeline_event(
+                &self.metadata,
+                &self.initial_prompt,
+                "provider_request_end",
+                native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                json!({
+                    "provider_call_count": provider_call_count,
+                    "turn_idx": turn_idx,
+                    "duration_ms": provider_turn_latency_ms,
+                    "status": if provider_result.is_ok() { "ok" } else { "error" },
+                    "error_preview": provider_result
+                        .as_ref()
+                        .err()
+                        .map(|error| error.message.chars().take(500).collect::<String>())
+                        .unwrap_or_default(),
+                }),
+            );
             native_tool_persist_provider_turn_timing_probe(
                 &self.metadata,
                 &self.initial_prompt,
@@ -837,6 +952,18 @@ impl AgentContract {
                 last_response = Some(response);
                 break;
             }
+            let tool_dispatch_started = Instant::now();
+            native_tool_persist_runtime_timeline_event(
+                &self.metadata,
+                &self.initial_prompt,
+                "tool_dispatch_batch_start",
+                native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                json!({
+                    "provider_call_count": provider_call_count,
+                    "turn_idx": turn_idx,
+                    "call_count": calls.len().min(native_tool_max_calls_per_turn(&self.metadata)),
+                }),
+            );
             let mut turn_receipts = Vec::new();
             for call in calls
                 .into_iter()
@@ -885,6 +1012,20 @@ impl AgentContract {
                 turn_receipts.push(receipt.clone());
                 all_receipts.push(receipt);
             }
+            native_tool_persist_runtime_timeline_event(
+                &self.metadata,
+                &self.initial_prompt,
+                "tool_dispatch_batch_end",
+                native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                json!({
+                    "provider_call_count": provider_call_count,
+                    "turn_idx": turn_idx,
+                    "duration_ms": native_tool_bounded_patch_elapsed_ms(tool_dispatch_started),
+                    "receipt_count": turn_receipts.len(),
+                    "successful_mutation_in_batch": native_tool_has_successful_mutation(&turn_receipts),
+                    "successful_validation_after_batch": native_tool_has_successful_validation_command(&all_receipts),
+                }),
+            );
             native_tool_persist_run_journal(
                 &self.metadata,
                 &self.initial_prompt,
@@ -1791,6 +1932,38 @@ fn native_tool_run_journal_path(metadata: &Value, original_prompt: &str) -> Opti
     native_tool_prompt_project_root(original_prompt)
         .map(PathBuf::from)
         .map(|root| root.join(".infring").join("native_run_journal.json"))
+}
+
+fn native_tool_persist_runtime_timeline_event(
+    metadata: &Value,
+    original_prompt: &str,
+    event: &str,
+    elapsed_ms: u64,
+    details: Value,
+) {
+    let Some(journal_path) = native_tool_run_journal_path(metadata, original_prompt) else {
+        return;
+    };
+    let Some(parent) = journal_path.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let path = parent.join("native_runtime_timeline.jsonl");
+    let payload = json!({
+        "schema_version": "native_runtime_timeline_probe_v1",
+        "source": "infring_native_tool_runtime",
+        "updated_at_unix_ms": Utc::now().timestamp_millis(),
+        "event": event,
+        "elapsed_ms": elapsed_ms,
+        "details": details,
+    });
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
+        if let Ok(line) = serde_json::to_string(&payload) {
+            let _ = writeln!(file, "{line}");
+        }
+    }
 }
 
 fn native_tool_persist_provider_turn_timing_probe(
