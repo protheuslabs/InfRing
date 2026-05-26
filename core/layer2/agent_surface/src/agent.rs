@@ -483,7 +483,19 @@ impl AgentContract {
                         }),
                     );
                 }
-                let observation = native_tool_observation_prompt(&all_receipts);
+                let compact_bootstrap = bounded_direct_edit_task
+                    && native_tool_compact_bounded_edit_bootstrap_applies(
+                        &self.metadata,
+                        &self.initial_prompt,
+                    );
+                let observation = if compact_bootstrap {
+                    native_tool_compact_bounded_edit_bootstrap_observation_prompt(
+                        &self.metadata,
+                        &all_receipts,
+                    )
+                } else {
+                    native_tool_observation_prompt(&all_receipts)
+                };
                 let preflight_ready = bounded_fast_edit_preflight
                     && native_tool_has_successful_read_context_receipt(&all_receipts);
                 let default_bootstrap_rule = if preflight_ready {
@@ -501,9 +513,16 @@ impl AgentContract {
                     default_bootstrap_rule,
                 );
                 let edit_owner_hint = native_tool_edit_owner_hint(&all_receipts);
-                prompt = format!(
-                    "{prompt}\n\n{bootstrap_rule}{edit_owner_hint}\n\nNative tool observations:\n{observation}"
-                );
+                prompt = if compact_bootstrap {
+                    format!(
+                        "User task:\n{}\n\n{bootstrap_rule}{edit_owner_hint}\n\nCompact native tool observations:\n{observation}",
+                        self.initial_prompt.trim()
+                    )
+                } else {
+                    format!(
+                        "{prompt}\n\n{bootstrap_rule}{edit_owner_hint}\n\nNative tool observations:\n{observation}"
+                    )
+                };
             }
         }
         if !micro_direct_write_task && native_tool_requires_successful_mutation(&self.metadata) {
@@ -6023,6 +6042,87 @@ fn native_tool_compact_text(text: &str) -> String {
         compact
     } else {
         format!("{}...", compact.chars().take(240).collect::<String>())
+    }
+}
+
+fn native_tool_compact_bounded_edit_bootstrap_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("compact_bounded_edit_bootstrap"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_compact_bounded_edit_bootstrap_applies(metadata: &Value, original_prompt: &str) -> bool {
+    if !native_tool_compact_bounded_edit_bootstrap_enabled(metadata) {
+        return false;
+    }
+    let max_explicit_paths = metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("compact_bounded_edit_bootstrap_max_explicit_paths"))
+        .and_then(Value::as_u64)
+        .unwrap_or(2) as usize;
+    let explicit_paths = native_tool_unique_code_path_mentions(original_prompt);
+    !explicit_paths.is_empty() && explicit_paths.len() <= max_explicit_paths
+}
+
+fn native_tool_compact_bounded_edit_bootstrap_observation_prompt(
+    metadata: &Value,
+    receipts: &[NativeToolReceipt],
+) -> String {
+    let per_receipt_budget = metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("compact_bounded_edit_bootstrap_result_chars"))
+        .and_then(Value::as_u64)
+        .unwrap_or(1400) as usize;
+    let observations = receipts
+        .iter()
+        .map(|receipt| {
+            json!({
+                "call_id": &receipt.call_id,
+                "tool_name": &receipt.tool_name,
+                "status": &receipt.status,
+                "path": native_tool_receipt_result_path(&receipt.result),
+                "error": &receipt.error,
+                "result_preview": native_tool_compact_receipt_result_preview(&receipt.result, per_receipt_budget),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "native_tool_observations_compact": observations,
+        "instruction": "Use these compact receipt summaries as authoritative. Full receipts are retained by the runtime. Continue with the smallest safe file_write/file_patch mutation next, followed by requested validation/probe command_run calls."
+    })
+    .to_string()
+}
+
+fn native_tool_receipt_result_path(result: &Value) -> Option<String> {
+    for pointer in ["/path", "/file/path", "/target/path", "/cwd"] {
+        if let Some(path) = result.pointer(pointer).and_then(Value::as_str) {
+            if !path.trim().is_empty() {
+                return Some(path.to_string());
+            }
+        }
+    }
+    result
+        .get("paths")
+        .and_then(Value::as_array)
+        .and_then(|paths| paths.iter().find_map(Value::as_str))
+        .map(str::to_string)
+}
+
+fn native_tool_compact_receipt_result_preview(result: &Value, max_chars: usize) -> String {
+    let serialized = serde_json::to_string(result).unwrap_or_else(|_| result.to_string());
+    let compact = serialized.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= max_chars {
+        compact
+    } else {
+        format!(
+            "{}...<truncated>",
+            compact.chars().take(max_chars).collect::<String>()
+        )
     }
 }
 

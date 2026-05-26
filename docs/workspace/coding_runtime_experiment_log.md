@@ -96,3 +96,20 @@ Design implication:
 
 - Keep `mutation_batch_scheduler` as a promoted bounded-direct-edit primitive if lower levels remain green.
 - The next speed primitive should target provider/tool-call streaming or split execution, not prompt compression.
+
+## Dormant compact bounded-edit bootstrap experiment
+
+Date: 2026-05-26
+
+Status: Dormant. The workflow flags are off.
+
+Purpose: Test whether reducing model-facing receipt context could close the Level 4 speed gap against Claude Code while preserving native receipt gates.
+
+Change shape: Added a compact bounded-edit bootstrap prompt path that keeps full receipts internally but sends summarized receipt previews to the model.
+
+Observed result:
+- Level 4 compact smoke passed, but prompt size only dropped modestly and did not prove a speed win.
+- Level 7 compact smoke regressed because the compact preview removed too much multi-file dependency/export context.
+- Disabling the flag restored the workflow shape, but the follow-up Level 7 restore smoke hit provider timeout, so that timeout is not counted as evidence for the compact path.
+
+Conclusion: Receipt-preview compaction is the wrong primitive. Preserve this only as a dormant scaffold. The next primitive should be `local_context_pack_builder`, which emits explicit file/context capsules rather than truncated receipt JSON.
