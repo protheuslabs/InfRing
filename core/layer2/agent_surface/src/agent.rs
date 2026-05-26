@@ -952,6 +952,11 @@ impl AgentContract {
             {
                 native_tool_prioritize_pre_mutation_validation_calls(&mut calls);
             }
+            let mutation_batch_scheduler = bounded_direct_edit_task
+                && native_tool_mutation_batch_scheduler_enabled(&self.metadata);
+            if mutation_batch_scheduler {
+                native_tool_schedule_mutation_batch(&mut calls);
+            }
             if calls.is_empty() {
                 if all_receipts.is_empty() && empty_tool_retry_count < empty_tool_retry_limit {
                     empty_tool_retry_count += 1;
@@ -1073,6 +1078,10 @@ impl AgentContract {
                     native_tool_atomic_dependent_edit_blocked_receipt(&all_receipts, &call)
                 {
                     blocked
+                } else if mutation_batch_scheduler
+                    && native_tool_export_surface_waiting_for_product_source(&self.initial_prompt, &all_receipts, &call)
+                {
+                    native_tool_export_surface_waiting_for_product_source_receipt(call)
                 } else if let Some(blocked) = native_tool_python_src_prefix_import_blocked_receipt(
                     &self.initial_prompt,
                     &call,
@@ -2307,6 +2316,15 @@ fn native_tool_incremental_edit_loop_enabled(metadata: &Value) -> bool {
         .get("native_success_criteria")
         .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
         .and_then(|value| value.get("incremental_edit_loop"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_mutation_batch_scheduler_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("mutation_batch_scheduler"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
 }
@@ -4939,6 +4957,74 @@ fn native_tool_prioritize_pre_mutation_validation_calls(calls: &mut Vec<NativeTo
     *calls = validation_calls;
 }
 
+fn native_tool_schedule_mutation_batch(calls: &mut Vec<NativeToolCall>) {
+    if calls.len() < 2 || !calls.iter().any(native_tool_call_is_mutation) {
+        return;
+    }
+    let mut implementation_source_mutations = Vec::new();
+    let mut other_product_mutations = Vec::new();
+    let mut export_surface_mutations = Vec::new();
+    let mut validation_or_command_calls = Vec::new();
+    let mut context_or_other_calls = Vec::new();
+    for call in calls.drain(..) {
+        if native_tool_call_is_implementation_source_mutation(&call) {
+            implementation_source_mutations.push(call);
+        } else if native_tool_call_is_export_surface_mutation(&call) {
+            export_surface_mutations.push(call);
+        } else if native_tool_call_is_product_mutation(&call) {
+            other_product_mutations.push(call);
+        } else if native_tool_call_is_command_run(&call) {
+            validation_or_command_calls.push(call);
+        } else {
+            context_or_other_calls.push(call);
+        }
+    }
+    implementation_source_mutations.extend(other_product_mutations);
+    implementation_source_mutations.extend(export_surface_mutations);
+    implementation_source_mutations.extend(validation_or_command_calls);
+    implementation_source_mutations.extend(context_or_other_calls);
+    *calls = implementation_source_mutations;
+}
+
+fn native_tool_call_is_implementation_source_mutation(call: &NativeToolCall) -> bool {
+    if !native_tool_call_is_mutation(call) {
+        return false;
+    }
+    native_tool_call_path_arg(call)
+        .map(native_tool_path_is_implementation_source_path)
+        .unwrap_or(false)
+}
+
+fn native_tool_export_surface_waiting_for_product_source(
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+    call: &NativeToolCall,
+) -> bool {
+    native_tool_prompt_requires_product_mutation(&original_prompt.to_ascii_lowercase())
+        && !native_tool_has_successful_implementation_source_mutation(receipts)
+        && native_tool_call_is_export_surface_mutation(call)
+}
+
+fn native_tool_export_surface_waiting_for_product_source_receipt(
+    call: NativeToolCall,
+) -> NativeToolReceipt {
+    let path = native_tool_call_path_arg(&call).map(str::to_string);
+    let tool_name = call.name.trim().to_ascii_lowercase();
+    NativeToolReceipt {
+        call_id: call.id,
+        tool_name,
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "mutation_batch_scheduler",
+            "reason": "export_surface_requires_product_source_mutation_first",
+            "path": path,
+            "required_next_tool": "file_patch_or_file_write_on_product_source"
+        }),
+        error: Some("export_surface_requires_product_source_mutation_first".to_string()),
+    }
+}
+
 fn native_tool_product_repair_context_blocked_receipt(
     call: NativeToolCall,
     repair_reasons: &[String],
@@ -5966,6 +6052,27 @@ fn native_tool_prioritize_repair_calls(calls: &mut [NativeToolCall], repair_reas
 }
 
 fn native_tool_completion_repair_tools(tools: &[String], repair_reasons: &[String]) -> Vec<String> {
+    if native_tool_repair_reasons_include_failed_validation(repair_reasons) {
+        let filtered = tools
+            .iter()
+            .filter(|tool| {
+                let lower = tool.to_ascii_lowercase();
+                lower.contains("file_read")
+                    || lower.contains("file_read_many")
+                    || lower.contains("workspace.read")
+                    || lower.contains("file_write")
+                    || lower.contains("workspace.write")
+                    || lower.contains("file_patch")
+                    || lower.contains("workspace.patch")
+                    || lower.contains("command_run")
+                    || lower.contains("command.run")
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if !filtered.is_empty() {
+            return filtered;
+        }
+    }
     let missing_test_only = repair_reasons
         .iter()
         .any(|reason| reason == "missing_test_change_receipt")

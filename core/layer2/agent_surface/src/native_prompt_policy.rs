@@ -149,6 +149,7 @@ pub(crate) fn native_tool_completion_evidence_repair_prompt(
     let test_change_repair_hint =
         native_tool_missing_test_change_repair_hint(receipts, repair_reasons);
     let failed_validation_repair_hint = native_tool_failed_validation_repair_hint(receipts);
+    let failed_validation_repair_contract = native_tool_failed_validation_repair_contract(receipts);
     let repair_rule = native_tool_orchestration_prompt_text(
         metadata,
         "completion_evidence_repair_prompt_rule",
@@ -160,7 +161,7 @@ pub(crate) fn native_tool_completion_evidence_repair_prompt(
         "Stage controller: advance in order through source mutation, test mutation, validation, checkpoint handoff, memory closure, and final answer. Do not skip to a later stage while earlier receipt evidence is missing.",
     );
     format!(
-        "{}\n\nStage controller:\n{}\n\nOriginal task:\n{}\n{}\n\nReceipt-backed changed files so far:\n{}\n\nSuccessful receipt refs:\n{}\n\nFailed validation receipt details:\n{}\n\nUncovered requirements detected by the runtime:\n{}\n\nRequired repair actions:\n{}\n\nTest mutation repair hint:\n{}\n\nFailed validation repair hint:\n{}\n\nPrevious output preview:\n{}",
+        "{}\n\nStage controller:\n{}\n\nOriginal task:\n{}\n{}\n\nReceipt-backed changed files so far:\n{}\n\nSuccessful receipt refs:\n{}\n\nFailed validation receipt details:\n{}\n\nFailed validation repair contract:\n{}\n\nUncovered requirements detected by the runtime:\n{}\n\nRequired repair actions:\n{}\n\nTest mutation repair hint:\n{}\n\nFailed validation repair hint:\n{}\n\nPrevious output preview:\n{}",
         repair_rule,
         stage_rule,
         original_prompt.chars().take(2600).collect::<String>(),
@@ -168,6 +169,7 @@ pub(crate) fn native_tool_completion_evidence_repair_prompt(
         changed_paths.join("\n"),
         receipt_refs.join("\n"),
         failed_validation_details,
+        failed_validation_repair_contract,
         repair_reasons.join("\n"),
         repair_actions,
         test_change_repair_hint,
@@ -236,6 +238,21 @@ pub(crate) fn native_tool_failed_validation_repair_hint(receipts: &[NativeToolRe
     }
     format!(
         "Validation is failing after local mutations. Use the failed validation details as repair input and make the next substantive tool call a file_write or file_patch against the changed source/test file that caused the failure; do not continue read-only exploration once the failed source/test files have been inspected. Changed files:\n{}",
+        changed_paths.join("\n")
+    )
+}
+
+fn native_tool_failed_validation_repair_contract(receipts: &[NativeToolReceipt]) -> String {
+    let failed_validation_details = native_tool_failed_validation_receipt_details(receipts);
+    if failed_validation_details == "<none>" {
+        return "<none>".to_string();
+    }
+    let changed_paths = native_tool_changed_paths(receipts);
+    if changed_paths.is_empty() {
+        return "Failed-validation repair is mutation-first. Return JSON tool calls only: make the smallest relevant file_write or file_patch repair, then rerun the failing validation command. Do not answer in prose while local repair remains possible.".to_string();
+    }
+    format!(
+        "Failed-validation repair is mutation-first. Return JSON tool calls only. The next substantive call must be file_patch or file_write against one of the changed source/test files below, unless exactly one focused file_read/file_read_many is needed to inspect current contents. After the mutation, rerun the failing validation command. Do not answer in prose or ask for user input while local repair remains possible.\n{}",
         changed_paths.join("\n")
     )
 }

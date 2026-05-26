@@ -69,3 +69,30 @@ Design implication:
 
 - Keep `incremental_edit_loop` dormant until the controller can stream or split execution at the tool-call boundary.
 - Do not promote prompt-only early-edit experiments without a passing lower-level monotonic batch.
+
+## 2026-05-26 - `mutation_batch_scheduler` controller primitive
+
+Experiment:
+
+- Added `mutation_batch_scheduler` as a controller-level primitive.
+- Enabled it in the coding workflow CD.
+- Ran native Infring Level 7 five times with `kimi-k2.6:cloud`.
+
+Observed result:
+
+- Level 7 passed `5/5`.
+- Wall times: `37.6s`, `61.8s`, `47.0s`, `75.2s`, `52.9s`.
+- Median wall time: about `52.9s`.
+- Median first mutation: about `52.7s`.
+- The scheduler reordered source/export edits when needed. In the smoke run, the model requested the export edit before the source edit, and the runtime executed the implementation source edit first.
+
+Conclusion:
+
+- This is a real primitive improvement: it changes controller behavior without hardcoding the eval.
+- It improves atomicity and modestly improves median performance versus the prior native Infring Level 7 median of about `57.8s`.
+- It does not solve the remaining speed gap against Claude Code, because most wall time is still provider latency before usable tool calls appear.
+
+Design implication:
+
+- Keep `mutation_batch_scheduler` as a promoted bounded-direct-edit primitive if lower levels remain green.
+- The next speed primitive should target provider/tool-call streaming or split execution, not prompt compression.
