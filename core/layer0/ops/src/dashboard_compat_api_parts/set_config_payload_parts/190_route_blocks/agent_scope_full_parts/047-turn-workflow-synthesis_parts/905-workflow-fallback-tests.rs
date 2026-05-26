@@ -377,6 +377,7 @@
         );
         assert!(response.contains("partial comparison"), "{response}");
         assert!(response.contains("Gong"), "{response}");
+        assert!(response.contains("best-supported option"), "{response}");
         assert!(
             response.contains("Chorus")
                 || response.contains("Clari Copilot")
@@ -438,4 +439,3 @@
         );
         assert!(!response.contains("market has matured"), "{response}");
     }
-

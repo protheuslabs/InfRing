@@ -428,6 +428,134 @@ fn fallback_user_visible_coverage_note(response_tools: &[Value]) -> String {
     )
 }
 
+fn workflow_join_visible_list(items: &[String]) -> String {
+    let cleaned = items
+        .iter()
+        .map(|item| clean_text(item, 120))
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>();
+    match cleaned.as_slice() {
+        [] => String::new(),
+        [only] => only.clone(),
+        [left, right] => format!("{left} and {right}"),
+        _ => {
+            let mut parts = cleaned.clone();
+            let last = parts.pop().unwrap_or_default();
+            format!("{}, and {}", parts.join(", "), last)
+        }
+    }
+}
+
+fn synthesis_partial_comparison_decision_hint(
+    message: &str,
+    response_tools: &[Value],
+) -> String {
+    if !workflow_prompt_needs_decision_bearing_evidence(message) {
+        return String::new();
+    }
+    let required_entity_lanes = hard_required_entity_lanes_for_tools(response_tools, 8);
+    if required_entity_lanes.len() < 2 {
+        return String::new();
+    }
+    let goal_terms = workflow_answer_unit_goal_terms(message);
+    let answer_units = evidence_packet_answer_units_for_goal(message, response_tools, 6);
+    let mut covered_lanes = synthesis_coverage_lanes_for_tools(response_tools, 24)
+        .into_iter()
+        .filter(|row| row.get("kind").and_then(Value::as_str) == Some("entity"))
+        .filter(|row| {
+            matches!(
+                row.get("status").and_then(Value::as_str),
+                Some("covered") | Some("usable")
+            )
+        })
+        .filter_map(|row| {
+            let requested = clean_text(
+                row.get("requested_text")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                120,
+            );
+            (!requested.is_empty()).then_some(requested)
+        })
+        .filter(|lane| {
+            required_entity_lanes
+                .iter()
+                .any(|required| required.eq_ignore_ascii_case(lane))
+        })
+        .fold(Vec::<String>::new(), |mut out, lane| {
+            if !out.iter().any(|existing| existing.eq_ignore_ascii_case(&lane)) {
+                out.push(lane);
+            }
+            out
+        });
+    if covered_lanes.is_empty() {
+        for unit in answer_units.iter() {
+            let (_, matched_lanes) =
+                fallback_visible_answer_for_required_lanes(unit, &required_entity_lanes, &goal_terms);
+            for lane in matched_lanes {
+                let cleaned = clean_text(&lane, 120);
+                if cleaned.is_empty()
+                    || covered_lanes
+                        .iter()
+                        .any(|existing| existing.eq_ignore_ascii_case(&cleaned))
+                {
+                    continue;
+                }
+                covered_lanes.push(cleaned);
+            }
+        }
+    }
+    if covered_lanes.is_empty() || covered_lanes.len() >= required_entity_lanes.len() {
+        return String::new();
+    }
+    let missing_lanes = required_entity_lanes
+        .iter()
+        .filter(|lane| !covered_lanes.iter().any(|covered| covered.eq_ignore_ascii_case(lane)))
+        .map(|lane| clean_text(lane, 120))
+        .filter(|lane| !lane.is_empty())
+        .collect::<Vec<_>>();
+    let best_supported_lane = answer_units
+        .into_iter()
+        .filter_map(|unit| {
+            let (answer, matched_lanes) =
+                fallback_visible_answer_for_required_lanes(&unit, &required_entity_lanes, &goal_terms);
+            if answer.is_empty() || matched_lanes.len() != 1 {
+                return None;
+            }
+            let lane = clean_text(&matched_lanes[0], 120);
+            covered_lanes
+                .iter()
+                .any(|covered| covered.eq_ignore_ascii_case(&lane))
+                .then_some((lane, answer))
+        })
+        .max_by_key(|(_, answer)| workflow_answer_unit_rank(answer, &goal_terms))
+        .map(|(lane, _)| lane);
+    if covered_lanes.len() == 1 {
+        let covered = best_supported_lane.unwrap_or_else(|| covered_lanes[0].clone());
+        let missing = workflow_join_visible_list(&missing_lanes);
+        if missing.is_empty() {
+            return String::new();
+        }
+        return clean_text(
+            &format!(
+                "If a bounded recommendation is needed, treat {covered} as the best-supported option in this evidence set so far, and explicitly mark {missing} as still weakly covered or unverified in this turn."
+            ),
+            420,
+        );
+    }
+    let covered = workflow_join_visible_list(&covered_lanes);
+    let missing = workflow_join_visible_list(&missing_lanes);
+    if covered.is_empty() || missing.is_empty() {
+        return String::new();
+    }
+    clean_text(
+        &format!(
+            "If a bounded recommendation is needed, limit it to the covered set ({covered}) and explicitly mark {missing} as still weakly covered or unverified in this turn."
+        ),
+        420,
+    )
+}
+
 fn annotate_final_evidence_outcome_posture(workflow: &mut Value, response_tools: &[Value]) {
     let posture = tool_evidence_outcome_posture(response_tools);
     workflow["final_llm_response"]["evidence_outcome_posture"] = Value::String(posture.to_string());

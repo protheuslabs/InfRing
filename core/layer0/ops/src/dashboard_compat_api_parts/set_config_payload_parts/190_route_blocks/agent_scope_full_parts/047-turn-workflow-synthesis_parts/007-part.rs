@@ -2,6 +2,8 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
     let required_entity_lanes = hard_required_entity_lanes_for_tools(response_tools, 8);
     let goal_terms = workflow_answer_unit_goal_terms(message);
     let answer_units = evidence_packet_answer_units_for_goal(message, response_tools, 4);
+    let partial_decision_hint =
+        synthesis_partial_comparison_decision_hint(message, response_tools);
     if !answer_units.is_empty() {
         let mut answer_parts = Vec::<String>::new();
         let mut lane_scoped_answer_parts = Vec::<String>::new();
@@ -42,12 +44,17 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
             } else {
                 "The current evidence supports only a partial comparison across the requested entities.".to_string()
             }];
-            parts.extend(
-                lane_scoped_answer_parts
-                    .iter()
-                    .take(2)
-                    .map(|part| workflow_finish_visible_sentence(part)),
-            );
+            if partial_decision_hint.is_empty() {
+                parts.extend(
+                    lane_scoped_answer_parts
+                        .iter()
+                        .take(2)
+                        .map(|part| workflow_finish_visible_sentence(part)),
+                );
+            }
+            if !partial_decision_hint.is_empty() {
+                parts.push(workflow_finish_visible_sentence(&partial_decision_hint));
+            }
             if !coverage_note.is_empty() {
                 parts.push(workflow_finish_visible_sentence(&coverage_note));
             }
@@ -64,6 +71,9 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
                         .iter()
                         .map(|part| workflow_finish_visible_sentence(part)),
                 );
+            }
+            if !partial_decision_hint.is_empty() {
+                parts.push(workflow_finish_visible_sentence(&partial_decision_hint));
             }
             if !coverage_note.is_empty() {
                 parts.push(workflow_finish_visible_sentence(&coverage_note));
@@ -113,6 +123,9 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
     }
     if !findings.is_empty() {
         parts.push(findings);
+    }
+    if !partial_decision_hint.is_empty() {
+        parts.push(partial_decision_hint);
     }
     if !coverage_note.is_empty() {
         parts.push(coverage_note);

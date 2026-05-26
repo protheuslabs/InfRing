@@ -1096,6 +1096,8 @@ fn workflow_answer_unit_synthesis_prompt_context(
         .filter_map(|row| row.as_str().map(|value| clean_text(value, 160)))
         .filter(|row| !row.is_empty())
         .collect::<Vec<_>>();
+    let bounded_decision_hint =
+        synthesis_partial_comparison_decision_hint(message, response_tools);
     let mut lines = vec![
         "Direct synthesis brief:".to_string(),
         format!("- {}", synthesis_answer_shape_lead_instruction(message)),
@@ -1110,6 +1112,9 @@ fn workflow_answer_unit_synthesis_prompt_context(
             "- Name these requested entities explicitly when they are covered: {}.",
             named_entities.join(", ")
         ));
+    }
+    if !bounded_decision_hint.is_empty() {
+        lines.push(format!("- {bounded_decision_hint}"));
     }
     if primary_units.is_empty() {
         lines.push(
@@ -2072,6 +2077,42 @@ mod tool_turn_response_text_tests {
         assert!(prompt.contains("Avoid generic lead-ins"), "{prompt}");
         assert!(prompt.contains("Do not describe the prompt"), "{prompt}");
         assert!(prompt.contains("The user wants"), "{prompt}");
+    }
+
+    #[test]
+    fn workflow_answer_unit_synthesis_prompt_context_surfaces_partial_decision_hint() {
+        let prompt = workflow_answer_unit_synthesis_prompt_context(
+            "Compare Away, Travelpro, Briggs & Riley, and Samsonite for carry-on durability and airline practicality.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["Away", "Travelpro", "Briggs & Riley", "Samsonite"],
+                        "facets": ["durability", "airline practicality"]
+                    }
+                },
+                "evidence_coverage": [
+                    {"requested_text": "Away", "facet_kind": "entity", "status": "usable"},
+                    {"requested_text": "Travelpro", "facet_kind": "entity", "status": "missing"},
+                    {"requested_text": "Briggs & Riley", "facet_kind": "entity", "status": "missing"},
+                    {"requested_text": "Samsonite", "facet_kind": "entity", "status": "missing"}
+                ],
+                "evidence_pack": [{
+                    "title": "Away testing standards",
+                    "source_domain": "awaytravel.com",
+                    "relevant_extract": "Away publishes quality-testing standards for its luggage.",
+                    "claim_hints": ["Away publishes quality-testing standards for its luggage."],
+                    "counts_as_usable_evidence": true
+                }]
+            })],
+        );
+
+        assert!(prompt.contains("best-supported option"), "{prompt}");
+        assert!(prompt.contains("Away"), "{prompt}");
+        assert!(prompt.contains("Travelpro"), "{prompt}");
+        assert!(prompt.contains("Briggs & Riley"), "{prompt}");
+        assert!(prompt.contains("Samsonite"), "{prompt}");
     }
 
     #[test]
