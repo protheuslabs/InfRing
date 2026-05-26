@@ -1101,6 +1101,7 @@ fn workflow_answer_unit_synthesis_prompt_context(
         format!("- {}", synthesis_answer_shape_lead_instruction(message)),
         "- Use the primary answer units below as the first-pass substrate instead of opening with tool/search/retrieval status or a source inventory.".to_string(),
         "- Keep the first two sentences directly responsive to the user's semantic object. If evidence is partial, answer the supported part first and name remaining gaps after that.".to_string(),
+        "- Do not describe the prompt or user intent in the visible answer. Forbidden openings include `The user wants`, `The user asks`, `I need to answer`, or similar prompt-analysis prose.".to_string(),
         "- Avoid generic lead-ins like `Here's what I found`, `The retrieved evidence shows`, or `Based on search/retrieval` when a direct answer unit exists.".to_string(),
         "- Prefer compact natural prose. Usually 2-4 sentences are enough unless the user clearly asked for more detail.".to_string(),
     ];
@@ -2069,6 +2070,8 @@ mod tool_turn_response_text_tests {
         assert!(prompt.contains("Microsoft Copilot"), "{prompt}");
         assert!(prompt.contains("Google Workspace Gemini"), "{prompt}");
         assert!(prompt.contains("Avoid generic lead-ins"), "{prompt}");
+        assert!(prompt.contains("Do not describe the prompt"), "{prompt}");
+        assert!(prompt.contains("The user wants"), "{prompt}");
     }
 
     #[test]

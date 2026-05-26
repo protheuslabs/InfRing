@@ -459,6 +459,20 @@
     }
 
     #[test]
+    fn final_synthesis_retry_guidance_explains_prompt_analysis_leak() {
+        let prompt = workflow_final_synthesis_retry_prompt_context(
+            "workflow_prompt_analysis_leak",
+            "The user wants a comparison of robot vacuums.",
+        );
+        let lowered = prompt.to_ascii_lowercase();
+
+        assert!(lowered.contains("narrated the prompt instead of answering"));
+        assert!(lowered.contains("start with the subject-matter answer"));
+        assert!(lowered.contains("the user wants"));
+        assert!(lowered.contains("the user asks"));
+    }
+
+    #[test]
     fn latent_tool_candidates_do_not_force_prompt_only_gate() {
         let message = "what? why are you repeating the same fallback text?";
         let latent_tool_candidates = json!([{"tool": "web_search"}]);

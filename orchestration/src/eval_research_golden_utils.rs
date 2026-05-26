@@ -700,13 +700,25 @@ fn assistant_row_to_payload(row: &Value) -> Option<Value> {
         .or_else(|| row.get("content"))
         .and_then(Value::as_str)
         .map(|raw| clean_text(raw, 64_000))
-        .filter(|raw| !raw.is_empty())?;
+        .unwrap_or_default();
+    let has_structured_artifacts = row.get("detail_refs").is_some()
+        || row.get("tools").is_some()
+        || row.get("response_workflow").is_some()
+        || row.get("response_finalization").is_some()
+        || row.get("process_summary").is_some()
+        || row.get("workflow_visibility").is_some()
+        || row.get("turn_transaction").is_some()
+        || row.get("terminal_transcript").is_some();
+    if response_text.is_empty() && !has_structured_artifacts {
+        return None;
+    }
     let mut payload = json!({
         "ok": true,
         "response": response_text,
         "text": response_text,
         "message": response_text,
         "recovered_from_timeout": true,
+        "recovered_artifact_only_response": response_text.is_empty(),
         "recovery_source": "agent_session_state"
     });
     if let Some(object) = row.as_object() {
@@ -1294,6 +1306,34 @@ mod eval_research_golden_utils_tests {
                 .and_then(Value::as_bool),
             Some(true)
         );
+    }
+
+    #[test]
+    fn assistant_row_to_payload_recovers_artifact_only_turns() {
+        let row = json!({
+            "role": "assistant",
+            "text": "",
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "input": {"query": "robot vacuums"}
+            }],
+            "turn_transaction": {"id": "turn-artifact-only"},
+            "detail_refs": {
+                "response_workflow": {
+                    "ref": "session_artifact:agent:response_workflow:abc"
+                }
+            }
+        });
+        let payload = assistant_row_to_payload(&row).expect("artifact-only payload");
+        assert_eq!(payload.get("response").and_then(Value::as_str), Some(""));
+        assert_eq!(
+            payload
+                .get("recovered_artifact_only_response")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert!(recovered_payload_has_structured_turn_artifacts(&payload));
     }
 
     #[test]

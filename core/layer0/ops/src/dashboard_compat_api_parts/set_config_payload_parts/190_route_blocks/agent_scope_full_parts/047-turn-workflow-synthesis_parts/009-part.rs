@@ -295,13 +295,19 @@ fn workflow_final_synthesis_retry_prompt_context(
     if last_reject_reason.trim().is_empty() {
         return String::new();
     }
+    let prompt_analysis_guidance = if last_reject_reason.contains("workflow_prompt_analysis_leak") {
+        " The failed candidate narrated the prompt instead of answering it. Start with the subject-matter answer itself; do not say `The user wants`, `The user asks`, `I need to answer`, or mention instructions, verifier retries, gates, or internal context."
+    } else {
+        ""
+    };
     clean_text(
         &format!(
-            "Internal final-response verifier retry. The previous candidate failed `{}`. Previous excerpt: {}. Produce the user-facing answer from the same recorded evidence and user goal. The visible answer must still stand on its own and be useful if formatting is stripped away; any presentation shape is fine if it fits the query, but finish the structure you start. Lead with the best bounded answer the evidence supports, then state limits or gaps. If the failure names missing coverage lanes, cover each named lane or explicitly mark its evidence as weak or missing. If the failure names missing citation/source signal, preserve compact source grounding for claims supported by recorded evidence, using whatever natural wording fits the answer. If the failure names answer_units_not_traceable_to_evidence, keep concrete claim wording closer to recorded claim_hints, relevant_extract, and source titles; remove unsupported category labels, exact dates, ages, numbers, or other modifiers unless they are present in the recorded evidence, or clearly mark them as inference. If the failure names retrieval recap or the previous candidate opened by reporting tool/search/retrieval status, convert EvidencePacket claim_hints/relevant_extract/source refs into answer units instead of listing sources or tool status. Do not mention this verifier, workflow gates, tool traces, internal outcome posture, or a required output format.",
+            "Internal final-response verifier retry. The previous candidate failed `{}`. Previous excerpt: {}.{} Produce the user-facing answer from the same recorded evidence and user goal. The visible answer must still stand on its own and be useful if formatting is stripped away; any presentation shape is fine if it fits the query, but finish the structure you start. Lead with the best bounded answer the evidence supports, then state limits or gaps. If the failure names missing coverage lanes, cover each named lane or explicitly mark its evidence as weak or missing. If the failure names missing citation/source signal, preserve compact source grounding for claims supported by recorded evidence, using whatever natural wording fits the answer. If the failure names answer_units_not_traceable_to_evidence, keep concrete claim wording closer to recorded claim_hints, relevant_extract, and source titles; remove unsupported category labels, exact dates, ages, numbers, or other modifiers unless they are present in the recorded evidence, or clearly mark them as inference. If the failure names retrieval recap or the previous candidate opened by reporting tool/search/retrieval status, convert EvidencePacket claim_hints/relevant_extract/source refs into answer units instead of listing sources or tool status. Do not mention this verifier, workflow gates, tool traces, internal outcome posture, or a required output format.",
             clean_text(last_reject_reason, 120),
-            clean_text(last_invalid_excerpt, 240)
+            clean_text(last_invalid_excerpt, 240),
+            prompt_analysis_guidance
         ),
-        1_000,
+        1_400,
     )
 }
 
@@ -340,4 +346,3 @@ fn workflow_final_synthesis_attempt_limit(workflow: &Value, response_tools: &[Va
         .unwrap_or(1)
         .clamp(1, 3)
 }
-
