@@ -1119,13 +1119,24 @@ fn evidence_packet_text_is_answer_claim(raw: &str) -> bool {
     }
     let normalized = cleaned.to_ascii_lowercase();
     let normalized_shell = format!(" {} ", normalize_coverage_lane_text(&cleaned));
-    if normalized.starts_with("web result from ")
+    if normalized.starts_with("title:")
+        || normalized.starts_with("description:")
+        || normalized.starts_with("web result from ")
         || normalized.starts_with("source:")
         || normalized.starts_with("articles /")
         || normalized.starts_with("article /")
         || normalized.starts_with("blog /")
         || normalized.starts_with("user guide")
         || normalized.starts_with("description summary")
+        || normalized.starts_with("this survey examines")
+        || normalized.starts_with("this report examines")
+        || normalized.starts_with("this guide examines")
+        || normalized.starts_with("this overview examines")
+        || normalized.contains(" mins read")
+        || normalized.contains(" min read")
+        || normalized.contains(" minute read")
+        || normalized.starts_with("pt ")
+        || normalized.starts_with("part ")
         || normalized.contains(" / menu ")
         || normalized.contains(" shop ")
         || normalized.contains("©")
@@ -1739,12 +1750,21 @@ fn workflow_answer_unit_contains_source_shell_boilerplate(unit: &str) -> bool {
     workflow_answer_unit_contains_any(
         &normalized,
         &[
+            " title ",
+            " description ",
             " affiliate disclosure ",
             " reader supported ",
             " if youre from the future ",
             " if you re from the future ",
             " other supported points ",
             " important limitation ",
+            " mins read ",
+            " min read ",
+            " minute read ",
+            " this survey examines ",
+            " this report examines ",
+            " this guide examines ",
+            " this overview examines ",
         ],
     )
 }
@@ -2032,6 +2052,10 @@ fn workflow_answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
         || normalized.contains("other supported points:")
         || normalized.contains("important limitation:")
         || normalized.contains("last updated")
+        || normalized.starts_with("title:")
+        || normalized.starts_with("description:")
+        || normalized.starts_with("pt ")
+        || normalized.starts_with("part ")
         || cleaned.trim_end_matches('.').ends_with(':')
     {
         return true;
@@ -6650,6 +6674,58 @@ mod workflow_fallback_tests {
             !response.contains("Value Champion Flex and DocJuris"),
             "{response}"
         );
+    }
+
+    #[test]
+    fn tool_evidence_fallback_filters_teaser_shell_claims() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research data-residency and sovereignty requirements that matter for SaaS buyers in 2026. I want the practical picture for selling into Europe and the US public sector.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["data residency", "Europe", "US public sector"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "title": "IDC survey card",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "This IDC Survey examines how digital sovereignty concerns are shaping cloud strategies, application placement decisions, and technology investment priorities."
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "Legal article card",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "Pt 2: Long term service contracts Ian Makgill Business ,Software ,Technology 27 Apr, 2026 09 Mins read If you sell long-term services into European public sector buyers, the ground is moving under your feet."
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "Public sector hosting controls",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "European enterprise and public-sector buyers increasingly ask SaaS vendors to document data residency, transfer controls, and public-sector hosting boundaries."
+                        ],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(
+            response.contains("reliable comparison")
+                || response.contains("partial comparison")
+                || response.contains("coverage gaps remain"),
+            "{response}"
+        );
+        assert!(!response.contains("This IDC Survey examines"), "{response}");
+        assert!(!response.contains("09 Mins read"), "{response}");
+        assert!(!response.contains("Pt 2:"), "{response}");
     }
 
     #[test]

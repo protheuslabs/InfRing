@@ -198,8 +198,7 @@ mod web_quality_diagnostics_tests {
 
     #[test]
     fn social_share_wrapper_locator_decodes_target_url() {
-        let wrapper =
-            "https://www.facebook.com/share.php?u=https%3A%2F%2Faje.news%2Fswm9ax";
+        let wrapper = "https://www.facebook.com/share.php?u=https%3A%2F%2Faje.news%2Fswm9ax";
 
         assert!(citation_wrapper_link(wrapper));
         assert_eq!(
@@ -849,8 +848,8 @@ mod web_quality_diagnostics_tests {
             "https://www.cnn.com/world",
             "World news directory with breaking news, video, headlines, opinion, sections, newsletters, latest updates, photos, clips, social links, topic pages, and a broad list of unrelated story links from around the world.",
         );
-        directory.title = "World news - breaking news, video, headlines and opinion | CNN"
-            .to_string();
+        directory.title =
+            "World news - breaking news, video, headlines and opinion | CNN".to_string();
         directory.source_kind = "tavily_api_search_result".to_string();
         directory.permissions = Some("public_web;structured_feed".to_string());
 
@@ -887,8 +886,7 @@ mod web_quality_diagnostics_tests {
 
     #[test]
     fn evidence_selection_dedupes_locator_and_keeps_richer_materialized_row() {
-        let article_locator =
-            "https://www.aljazeera.com/news/2026/5/20/multipolar-world-summit";
+        let article_locator = "https://www.aljazeera.com/news/2026/5/20/multipolar-world-summit";
         let materialized = materialized_candidate(
             article_locator,
             "This week's world news includes a May 20, 2026 summit where leaders announced a bilateral cooperation package, and officials said the agreement includes energy, trade, and security commitments for the coming year.",
@@ -932,7 +930,10 @@ mod web_quality_diagnostics_tests {
             1,
             "{selected:#?}"
         );
-        assert_eq!(candidate_materialization_quality(first), "full_materialized");
+        assert_eq!(
+            candidate_materialization_quality(first),
+            "full_materialized"
+        );
         assert!(locators.contains(&second_article.locator.as_str()));
     }
 
@@ -951,7 +952,10 @@ mod web_quality_diagnostics_tests {
 
         let selected = select_pack_ready_ranked_candidates(
             "Give me the biggest world news from this week.",
-            vec![(higher_score_feed, 0.99), (stronger_materialized.clone(), 0.78)],
+            vec![
+                (higher_score_feed, 0.99),
+                (stronger_materialized.clone(), 0.78),
+            ],
             &[facet],
             1,
             1,
@@ -1079,17 +1083,18 @@ mod web_quality_diagnostics_tests {
             "content": "Agent research systems comparison — https://example.org/agent-research-systems — The comparison explains how agent research systems use query planning, source retrieval, evidence extraction, citation packaging, and synthesis checks to produce grounded answers for users.",
             "status_code": 200
         });
-        let candidates =
-            candidates_from_rendered_search_payload("agent research systems comparison", &payload, 4);
+        let candidates = candidates_from_rendered_search_payload(
+            "agent research systems comparison",
+            &payload,
+            4,
+        );
         let candidate = candidates.first().expect("candidate").clone();
         assert_eq!(candidate.source_kind, "tavily_api_search_result");
-        assert!(
-            candidate
-                .permissions
-                .as_deref()
-                .unwrap_or("")
-                .contains("structured_feed")
-        );
+        assert!(candidate
+            .permissions
+            .as_deref()
+            .unwrap_or("")
+            .contains("structured_feed"));
 
         let pack = evidence_pack_from_ranked_candidates(
             &default_policy(),
@@ -1123,7 +1128,9 @@ mod web_quality_diagnostics_tests {
             4,
         );
         assert!(
-            hints.iter().any(|hint| hint.contains("counter-rotating brush rolls")),
+            hints
+                .iter()
+                .any(|hint| hint.contains("counter-rotating brush rolls")),
             "{hints:#?}"
         );
         assert!(
@@ -1159,7 +1166,10 @@ mod web_quality_diagnostics_tests {
         );
         let joined = hints.join(" ").to_ascii_lowercase();
         assert!(joined.contains("precisionvision"), "{hints:#?}");
-        assert!(joined.contains("de-tangle") || joined.contains("engineered"), "{hints:#?}");
+        assert!(
+            joined.contains("de-tangle") || joined.contains("engineered"),
+            "{hints:#?}"
+        );
     }
 
     #[test]
@@ -1316,8 +1326,7 @@ mod web_quality_diagnostics_tests {
             "Dyson V15 Detect vs Shark Stratos comparison says Dyson emphasizes laser dust detection and particle counting, while Shark emphasizes anti-hair-wrap brush design, a folding wand, and larger dustbin capacity for pet owners.",
         );
         candidate.title =
-            "Dyson V15 Detect vs Shark Stratos: Which Survives Real Use? | ProvedHome"
-                .to_string();
+            "Dyson V15 Detect vs Shark Stratos: Which Survives Real Use? | ProvedHome".to_string();
 
         let flags = candidate_quality_flags(query, &candidate, 0.92);
         assert!(
@@ -1419,7 +1428,10 @@ mod web_quality_diagnostics_tests {
         );
         let claims = evidence_claims_from_pack(&BatchQueryKeywordPack::default(), &pack, 4);
         assert!(
-            claims.as_array().map(|rows| !rows.is_empty()).unwrap_or(false),
+            claims
+                .as_array()
+                .map(|rows| !rows.is_empty())
+                .unwrap_or(false),
             "{claims:#?}"
         );
     }
@@ -1433,8 +1445,14 @@ mod web_quality_diagnostics_tests {
             "The US Department of Justice has announced that this week's unprecedented settlement of President Donald Trump's lawsuit over the leaking of his tax returns blocks the IRS from reviewing tax filings that Trump, his family and his businesses made in 2026.",
         );
 
-        let raw_pack =
-            evidence_pack_from_ranked_candidates(&default_policy(), raw_query, &[], 1, &[(candidate.clone(), 0.92)], 1);
+        let raw_pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            raw_query,
+            &[],
+            1,
+            &[(candidate.clone(), 0.92)],
+            1,
+        );
         assert_eq!(
             raw_pack
                 .pointer("/0/counts_as_usable_evidence")
@@ -1458,13 +1476,13 @@ mod web_quality_diagnostics_tests {
             Some(true),
             "{retrieval_pack:#?}"
         );
-        let claims = evidence_claims_from_pack(
-            &BatchQueryKeywordPack::default(),
-            &retrieval_pack,
-            4,
-        );
+        let claims =
+            evidence_claims_from_pack(&BatchQueryKeywordPack::default(), &retrieval_pack, 4);
         assert!(
-            claims.as_array().map(|rows| !rows.is_empty()).unwrap_or(false),
+            claims
+                .as_array()
+                .map(|rows| !rows.is_empty())
+                .unwrap_or(false),
             "{claims:#?}"
         );
     }
@@ -1547,7 +1565,10 @@ mod web_quality_diagnostics_tests {
             .unwrap_or("");
         let lowered = extract.to_ascii_lowercase();
 
-        assert!(lowered.contains("disproved a central conjecture"), "{extract}");
+        assert!(
+            lowered.contains("disproved a central conjecture"),
+            "{extract}"
+        );
         assert!(!lowered.contains("read the proof"), "{extract}");
         assert!(!lowered.contains("companion remarks"), "{extract}");
         assert!(!lowered.contains("listen to article"), "{extract}");
@@ -1577,6 +1598,42 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn doc_action_shell_copy_blocks_candidate_evidence() {
+        let mut candidate = materialized_candidate(
+            "https://developers.llamaindex.ai/python/framework/module_guides/deploying/agents/",
+            "LlamaAgents Agent Workflows Introduction Copy Markdown Open in Claude Open in ChatGPT Open in Cursor View as Markdown Introduction What is a workflow.",
+        );
+        candidate.title = "LlamaAgents Agent Workflows".to_string();
+
+        assert!(
+            contains_web_junk_marker(&candidate.snippet),
+            "doc action chrome should be classified as web junk"
+        );
+        assert!(
+            !candidate_counts_as_query_usable_evidence(
+                "Compare LlamaIndex workflows versus LangGraph for document-heavy research assistants.",
+                &candidate,
+                0.92,
+            ),
+            "doc action chrome must not count as usable evidence"
+        );
+    }
+
+    #[test]
+    fn title_claim_hint_rejects_non_substantive_doc_heading() {
+        let mut candidate = materialized_candidate(
+            "https://developers.llamaindex.ai/python/framework/module_guides/deploying/agents/",
+            "LlamaAgents Agent Workflows Introduction Copy Markdown Open in Claude Open in ChatGPT Open in Cursor View as Markdown Introduction What is a workflow.",
+        );
+        candidate.title = "LlamaAgents Agent Workflows Introduction".to_string();
+
+        assert!(
+            evidence_pack_title_claim_hint_for_candidate("LlamaAgents workflows", &candidate)
+                .is_none()
+        );
+    }
+
+    #[test]
     fn evidence_selection_does_not_backfill_non_pack_ready_when_ready_exists() {
         let ready = materialized_candidate(
             "https://www.aljazeera.com/news/2026/5/20/multipolar-world-summit",
@@ -1586,8 +1643,8 @@ mod web_quality_diagnostics_tests {
             "https://www.politico.com/news/primary-source",
             "Updated World News: Top & Breaking World News Today | AP News — https://apnews.com/world-news — Reuters World — https://www.reuters.com/world — headlines, sections, newsletters, photos, videos, and topic pages.",
         );
-        directory.title = "Primary Source: Latest News, Top Stories & Analysis - POLITICO"
-            .to_string();
+        directory.title =
+            "Primary Source: Latest News, Top Stories & Analysis - POLITICO".to_string();
 
         let selected = select_pack_ready_ranked_candidates(
             "Give me the biggest world news from this week.",
@@ -1662,7 +1719,8 @@ mod web_quality_diagnostics_tests {
             "{first:#?}"
         );
         assert_eq!(
-            first.get("counts_as_usable_evidence")
+            first
+                .get("counts_as_usable_evidence")
                 .and_then(Value::as_bool),
             Some(false),
             "{first:#?}"
@@ -1703,7 +1761,8 @@ mod web_quality_diagnostics_tests {
             "{first:#?}"
         );
         assert_eq!(
-            first.get("counts_as_usable_evidence")
+            first
+                .get("counts_as_usable_evidence")
                 .and_then(Value::as_bool),
             Some(false),
             "{first:#?}"
@@ -1739,7 +1798,8 @@ mod web_quality_diagnostics_tests {
             "{first:#?}"
         );
         assert_eq!(
-            first.get("counts_as_usable_evidence")
+            first
+                .get("counts_as_usable_evidence")
                 .and_then(Value::as_bool),
             Some(false),
             "{first:#?}"
@@ -1780,7 +1840,8 @@ mod web_quality_diagnostics_tests {
             "{first:#?}"
         );
         assert_eq!(
-            first.get("counts_as_usable_evidence")
+            first
+                .get("counts_as_usable_evidence")
                 .and_then(Value::as_bool),
             Some(false),
             "{first:#?}"
@@ -1816,7 +1877,8 @@ mod web_quality_diagnostics_tests {
             "{first:#?}"
         );
         assert_eq!(
-            first.get("counts_as_usable_evidence")
+            first
+                .get("counts_as_usable_evidence")
                 .and_then(Value::as_bool),
             Some(false),
             "{first:#?}"
@@ -1855,6 +1917,19 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
+    fn claim_text_is_synthesis_safe_rejects_teaser_shell_and_metadata_labels() {
+        assert!(!claim_text_is_synthesis_safe(
+            "title: \"AI Agents in Legal: Harvey AI and CoCounsel Process 10 Million Legal Documents in Q1\" description: \"Legal AI agents from Harvey AI and Thomson Reuters CoCounsel are transforming contract review.\""
+        ));
+        assert!(!claim_text_is_synthesis_safe(
+            "This IDC Survey examines how digital sovereignty concerns are shaping cloud strategies, application placement decisions, and technology investment priorities."
+        ));
+        assert!(!claim_text_is_synthesis_safe(
+            "Pt 2: Long term service contracts Ian Makgill Business ,Software ,Technology 27 Apr, 2026 09 Mins read If you sell long-term services into European public sector buyers, the ground is moving under your feet."
+        ));
+    }
+
+    #[test]
     fn broad_current_claim_hints_use_neighboring_date_signal() {
         let claims = evidence_pack_claim_hints(
             "Give me the biggest world news from this week.",
@@ -1888,7 +1963,8 @@ mod web_quality_diagnostics_tests {
         );
         let first = pack.pointer("/0").expect("evidence row");
         assert_eq!(
-            first.get("counts_as_usable_evidence")
+            first
+                .get("counts_as_usable_evidence")
                 .and_then(Value::as_bool),
             Some(true),
             "{first:#?}"
@@ -1966,7 +2042,8 @@ mod web_quality_diagnostics_tests {
             1,
         );
         assert_eq!(
-            pack.pointer("/0/materialization_quality").and_then(Value::as_str),
+            pack.pointer("/0/materialization_quality")
+                .and_then(Value::as_str),
             Some("trusted_structured_feed")
         );
         assert_eq!(
@@ -3124,11 +3201,9 @@ mod web_quality_diagnostics_tests {
         );
         candidate.title = "Shark Stratos vs. Dyson V15 - A Side-by-Side Comparison".to_string();
         let score = rerank_score(query, &candidate);
-        assert!(
-            candidate_quality_flags(query, &candidate, score)
-                .iter()
-                .any(|flag| flag == "freshness_unproven")
-        );
+        assert!(candidate_quality_flags(query, &candidate, score)
+            .iter()
+            .any(|flag| flag == "freshness_unproven"));
         assert!(candidate_counts_as_query_usable_evidence(
             query, &candidate, score
         ));
@@ -3157,9 +3232,9 @@ mod web_quality_diagnostics_tests {
         );
         let hints = evidence_pack_claim_hints_for_candidate(query, &candidate, 2);
         assert!(
-            hints.iter().any(|hint| hint
-                .to_ascii_lowercase()
-                .contains("hybrid metamaterial")),
+            hints
+                .iter()
+                .any(|hint| hint.to_ascii_lowercase().contains("hybrid metamaterial")),
             "{hints:#?}"
         );
     }
@@ -3274,7 +3349,7 @@ mod web_quality_diagnostics_tests {
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
-                .any(|flag| flag == "comparison_evidence_insufficient"));
+            .any(|flag| flag == "comparison_evidence_insufficient"));
     }
 
     #[test]
@@ -3286,7 +3361,11 @@ mod web_quality_diagnostics_tests {
         );
 
         assert!(
-            candidate_counts_as_query_usable_evidence(query, &candidate, rerank_score(query, &candidate)),
+            candidate_counts_as_query_usable_evidence(
+                query,
+                &candidate,
+                rerank_score(query, &candidate)
+            ),
             "materialized current article text should survive generic query-usable filtering"
         );
         let hints = evidence_pack_claim_hints_for_candidate(query, &candidate, 2);
@@ -3363,8 +3442,7 @@ mod web_quality_diagnostics_tests {
     #[test]
     fn coverage_facets_match_compound_runtime_and_brushroll_variants() {
         let runtime = research_facet_from_metadata_text("battery runtime", 0, "facet").unwrap();
-        let brushroll =
-            research_facet_from_metadata_text("brushroll design", 1, "facet").unwrap();
+        let brushroll = research_facet_from_metadata_text("brushroll design", 1, "facet").unwrap();
         let runtime_candidate = candidate(
             "https://example.com/runtime",
             "The product page lists a seven-cell battery, 60min run time, and fade-free suction for cordless use.",

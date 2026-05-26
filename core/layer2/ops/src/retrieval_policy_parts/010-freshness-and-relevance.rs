@@ -2378,6 +2378,20 @@ fn claim_text_looks_like_page_or_subscription_boilerplate(text: &str) -> bool {
     if looks_like_page_chrome_or_unavailable_shell(&lowered) {
         return true;
     }
+    if lowered.starts_with("title:")
+        || lowered.starts_with("description:")
+        || lowered.contains(" mins read")
+        || lowered.contains(" min read")
+        || lowered.contains(" minute read")
+        || lowered.starts_with("pt ")
+        || lowered.starts_with("part ")
+        || lowered.starts_with("this survey examines")
+        || lowered.starts_with("this report examines")
+        || lowered.starts_with("this guide examines")
+        || lowered.starts_with("this overview examines")
+    {
+        return true;
+    }
     [
         "affiliate link",
         "affiliate links",
@@ -2387,6 +2401,8 @@ fn claim_text_looks_like_page_or_subscription_boilerplate(text: &str) -> bool {
         "before final publication",
         "by clicking",
         "cite this article",
+        "copy markdown",
+        "copy as markdown",
         "cookie policy",
         "download pdf article",
         "earn from qualifying purchases",
@@ -2400,6 +2416,9 @@ fn claim_text_looks_like_page_or_subscription_boilerplate(text: &str) -> bool {
         "listen to article",
         "live updates",
         "news provided by",
+        "open in chatgpt",
+        "open in claude",
+        "open in cursor",
         "privacy policy",
         "published:",
         "read the companion remarks",
@@ -2414,6 +2433,7 @@ fn claim_text_looks_like_page_or_subscription_boilerplate(text: &str) -> bool {
         "subscribe",
         "terms of service",
         "tos and privacy",
+        "view as markdown",
         "you have full access to this open access",
     ]
     .iter()
@@ -2452,16 +2472,22 @@ fn claim_text_without_page_chrome_tail(text: &str) -> String {
     for marker in [
         " before final publication",
         " cite this article",
+        " copy markdown",
+        " copy as markdown",
         " download pdf",
         " explore all metrics",
         " javascript:",
         " listen to article",
         " news provided by",
+        " open in chatgpt",
+        " open in claude",
+        " open in cursor",
         " read the companion remarks",
         " read the proof",
         " share save",
         " share this article",
         " show authors",
+        " view as markdown",
         " you have full access to this open access",
     ] {
         if let Some(index) = lowered.find(marker) {
@@ -2992,7 +3018,10 @@ fn evidence_pack_title_claim_hint_for_candidate(
         return None;
     }
     let claim = trim_words(&title, 48);
-    claim_text_is_synthesis_safe(&claim).then_some(claim)
+    if !claim_text_is_synthesis_safe(&claim) || !claim_hint_segment_is_substantive(&claim) {
+        return None;
+    }
+    Some(claim)
 }
 
 fn evidence_pack_claim_hints_for_candidate(

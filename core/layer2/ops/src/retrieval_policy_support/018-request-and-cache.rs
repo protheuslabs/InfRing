@@ -61,11 +61,17 @@ fn contains_web_junk_marker(text: &str) -> bool {
         "please enable javascript",
         "enable javascript and cookies",
         "access denied",
+        "copy markdown",
+        "copy as markdown",
         "403 forbidden",
         "login required",
+        "open in chatgpt",
+        "open in claude",
+        "open in cursor",
         "subscribe to continue",
         "please log in to continue",
         "this content is not available in your region",
+        "view as markdown",
         "we use cookies to improve your experience",
         "manage your cookie preferences",
         "copyright zendesk, inc",
@@ -263,10 +269,7 @@ fn claim_gap_recovery_enabled(policy: &Value) -> bool {
         .unwrap_or(false)
 }
 
-fn claim_gap_recovery_min_materialized_evidence(
-    policy: &Value,
-    budget: ApertureBudget,
-) -> usize {
+fn claim_gap_recovery_min_materialized_evidence(policy: &Value, budget: ApertureBudget) -> usize {
     policy
         .pointer("/batch_query/claim_gap_recovery/min_materialized_evidence")
         .and_then(Value::as_u64)
