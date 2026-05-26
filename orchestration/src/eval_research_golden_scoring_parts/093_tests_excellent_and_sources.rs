@@ -454,6 +454,14 @@ fn answer_unit_alignment_handles_decimal_and_compound_tokens() {
 }
 
 #[test]
+fn answer_unit_alignment_ignores_without_as_connective() {
+    let terms = answer_unit_specific_terms(
+        "Without source-backed updates on these entities, claims about credible versus promotional dates cannot be resolved this turn.",
+    );
+    assert!(!terms.contains(&"without".to_string()), "{terms:?}");
+}
+
+#[test]
 fn retrieval_limitation_report_without_answer_is_not_successful_research_output() {
     let case = json!({
         "prompt": "Give me news from this week.",

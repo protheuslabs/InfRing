@@ -528,17 +528,6 @@
       "split_strategy": "Split this oversized part into additional logically named sibling shards by one function group or decision branch per file."
     },
     {
-      "path": "core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/047-turn-workflow-synthesis.rs",
-      "owner": "jay",
-      "reason": "legacy oversized kernel source discovered by SYS-HL-028 sweep; scheduled decomposition batch",
-      "expires": "2026-06-15",
-      "task_id": "TD-SIZE-OPS-L0",
-      "planned_batch_date": "2026-06-15",
-      "disposition": "split_required",
-      "rationale": "Temporary exception preserves current behavior while requiring decomposition before feature expansion; this is not a keep-forever exemption.",
-      "split_strategy": "Split this oversized part into additional logically named sibling shards by one function group or decision branch per file."
-    },
-    {
       "path": "core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/050-message-finalization-and-payload_parts/050-finalize-message-finalization-and-payload_parts/000-combined.rs",
       "owner": "jay",
       "reason": "legacy oversized kernel source discovered by SYS-HL-028 sweep; scheduled decomposition batch",

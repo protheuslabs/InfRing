@@ -638,6 +638,7 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "while"
             | "with"
             | "within"
+            | "without"
             | "january"
             | "february"
             | "march"

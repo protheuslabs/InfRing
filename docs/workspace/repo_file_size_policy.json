@@ -305,14 +305,6 @@
       "planned_batch_date": "2026-06-15"
     },
     {
-      "path": "core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/047-turn-workflow-synthesis.rs",
-      "owner": "jay",
-      "reason": "legacy oversize debt; scheduled decomposition batch",
-      "expires": "2026-06-15",
-      "task_id": "TD-SIZE-OPS-L0",
-      "planned_batch_date": "2026-06-15"
-    },
-    {
       "path": "core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/late_b.rs",
       "owner": "jay",
       "reason": "legacy oversize debt; scheduled decomposition batch",

@@ -15,6 +15,11 @@ fn visible_response_source_for_turn(
     {
         return "llm_draft";
     }
+    if outcome.contains("tool_evidence_fallback_used")
+        || outcome.contains("tool_evidence_fallback_suppressed")
+    {
+        return "runtime_tool_evidence_fallback";
+    }
     if outcome.contains("empty_visible_response_preserved_without_system_chat")
     {
         return if clean_text(response_text, 1_000).is_empty() {
@@ -254,5 +259,35 @@ mod visible_response_provenance_source_tests {
             "workflow:synthesized|runtime_pending_tool_confirmation_fallback",
         );
         assert_eq!(source, "llm_draft");
+    }
+
+    #[test]
+    fn provenance_marks_tool_evidence_fallback_as_runtime_substitution() {
+        let source = visible_response_source_for_turn(
+            "Runtime-composed evidence text.",
+            true,
+            false,
+            "workflow_authored|workflow:tool_evidence_fallback_used",
+        );
+        assert_eq!(source, "runtime_tool_evidence_fallback");
+        let contract = visible_response_provenance_contract("Runtime-composed evidence text.", source);
+        assert_eq!(contract.pointer("/llm_authored").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            contract
+                .pointer("/system_substitution_violation")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn provenance_marks_suppressed_tool_evidence_status_as_runtime_if_visible_text_leaks() {
+        let source = visible_response_source_for_turn(
+            "Leaked suppressed text.",
+            true,
+            false,
+            "workflow_authored|workflow:tool_evidence_fallback_suppressed",
+        );
+        assert_eq!(source, "runtime_tool_evidence_fallback");
     }
 }

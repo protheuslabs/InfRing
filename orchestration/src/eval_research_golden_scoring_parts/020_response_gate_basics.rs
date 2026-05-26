@@ -23,10 +23,49 @@ pub(super) fn response_diagnostics(payload: &Value, response_text: &str) -> Valu
         "final_llm_status": payload
             .pointer("/response_workflow/final_llm_response/status")
             .and_then(Value::as_str),
+        "final_llm_attempt_count": payload
+            .pointer("/response_workflow/final_llm_response/attempt_count")
+            .and_then(Value::as_u64),
+        "final_llm_reject_reason": final_llm_diagnostic_text(
+            payload,
+            &[
+                "/response_workflow/final_llm_response/original_reject_reason",
+                "/response_workflow/final_llm_response/diagnostic_reject_reason",
+                "/response_workflow/final_llm_response/last_reject_reason",
+            ],
+            240,
+        ),
+        "final_llm_reject_excerpt": final_llm_diagnostic_text(
+            payload,
+            &[
+                "/response_workflow/final_llm_response/original_reject_excerpt",
+                "/response_workflow/final_llm_response/diagnostic_invalid_excerpt",
+                "/response_workflow/final_llm_response/error",
+            ],
+            500,
+        ),
+        "suppressed_runtime_visible_fallback_excerpt": final_llm_diagnostic_text(
+            payload,
+            &[
+                "/response_workflow/final_llm_response/suppressed_replacement_response_excerpt",
+            ],
+            500,
+        ),
         "evidence_outcome_posture": payload
             .pointer("/response_workflow/final_llm_response/evidence_outcome_posture")
             .or_else(|| payload.pointer("/response_finalization/final_llm_response/evidence_outcome_posture"))
             .and_then(Value::as_str),
+    })
+}
+
+fn final_llm_diagnostic_text(payload: &Value, pointers: &[&str], max_len: usize) -> Option<String> {
+    pointers.iter().find_map(|pointer| {
+        let cleaned = clean_text(payload.pointer(pointer).and_then(Value::as_str).unwrap_or(""), max_len);
+        if cleaned.is_empty() {
+            None
+        } else {
+            Some(cleaned)
+        }
     })
 }
 
@@ -345,4 +384,3 @@ const CITATION_ARTIFACT_POINTERS: &[(&str, &str)] = &[
         "tool_completion.evidence_pack_candidates",
     ),
 ];
-

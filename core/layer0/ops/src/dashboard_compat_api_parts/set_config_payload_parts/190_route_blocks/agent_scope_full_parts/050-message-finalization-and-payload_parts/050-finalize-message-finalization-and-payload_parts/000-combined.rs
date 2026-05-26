@@ -502,6 +502,13 @@ fn finalize_message_finalization_and_payload(
             &response_tools,
             "workflow_authored",
         );
+    } else if workflow_status_blocks_runtime_visible_fallback(&workflow_status) {
+        finalized_response.clear();
+        response_workflow["response"] = json!("");
+        response_workflow["final_llm_response"]["runtime_interference_disabled"] = json!(true);
+        tool_completion = tool_completion_report_for_response("", &response_tools, "workflow_blocked");
+        finalization_outcome =
+            merge_response_outcomes(&finalization_outcome, "runtime_visible_fallback_suppressed", 220);
     } else {
         // Keep chat output LLM-authored only; runtime fallback substitution is disabled.
         let missing_turn_tool_context_fallback =

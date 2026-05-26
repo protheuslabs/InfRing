@@ -919,11 +919,7 @@ fn answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
         || (normalized.starts_with("comparison ")
             && headline_punctuation
             && (contains_vs || normalized.contains(" which is better ")))
-        || (cleaned
-            .chars()
-            .take_while(|ch| ch.is_ascii_digit())
-            .count()
-            >= 4
+        || (cleaned.chars().take_while(|ch| ch.is_ascii_digit()).count() >= 4
             && headline_punctuation
             && alpha_tokens.len() >= 6)
 }
@@ -961,8 +957,7 @@ fn token_is_lowercase_content_word(token: &str) -> bool {
             .all(|ch| !ch.is_ascii_alphabetic() || ch.is_ascii_lowercase())
         && !matches!(
             normalized.as_str(),
-            "a"
-                | "an"
+            "a" | "an"
                 | "and"
                 | "as"
                 | "at"

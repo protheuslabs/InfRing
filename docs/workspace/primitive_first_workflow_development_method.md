@@ -49,6 +49,10 @@ Before patching production behavior, identify the failed primitive boundary, com
 
 A patch that only makes the immediate eval symptom disappear is not progress unless it also strengthens the reusable model. If the failure cannot be explained as a primitive/model gap, bad boundary, bad tool substrate, bad profile selection, bad eval, or clear local bug, stop and update the model first.
 
+Named eval cases are sensors, not targets.
+
+Use individual prompts, golden rows, bad-prompt banks, and live reproductions to expose failure classes. Do not patch production behavior so a specific case ID, benchmark question, or prompt wording passes. Patch only the generalized failure type the case revealed.
+
 ## Required method
 
 ### 0. Human-guided method loop
@@ -67,6 +71,22 @@ Default loop:
 The operator's most important role is to catch patch momentum. If the implementation starts chasing symptoms, adding level-specific branches, routing too much work through heavyweight paths, or weakening lower-level behavior to satisfy a higher-level eval, stop and return to failure classification.
 
 This process is part of the development method. It is not optional ceremony.
+
+### 0.1 Case discipline
+
+When using evals or live reproductions to drive development:
+
+1. Treat each failing case as a probe for a reusable failure class.
+2. Restate the failure in generic terms before patching.
+3. Patch the primitive, boundary, contract, substrate, or judge that would fix the failure for an open class of similar prompts.
+4. Use the original case only as a regression check after the generic patch exists.
+5. Re-run mixed or random prompt pools after the fix so the system proves generalization instead of memorization.
+
+Short rule:
+
+- Cases are sensors.
+- Failure classes are what we patch.
+- Random/diverse reruns are the proof that the patch generalized.
 
 ### 1. Reference before invention
 
@@ -202,6 +222,8 @@ The answer should become a primitive/contract/model update, not a one-off prompt
 ### 8. Quarantine eval specificity
 
 Eval-specific details belong only in eval fixtures, judges, golden files, reproduction cases, or test-only harnesses.
+
+Production behavior must never be justified by "this specific eval case now passes." The acceptable justification is "this reusable failure class is now handled by a better primitive or contract, and the original case is only one probe that demonstrates it."
 
 They must not leak into:
 

@@ -256,6 +256,12 @@ Permitted non-freeze lanes:
 4. Research eval reporting, measurement split, and rubric diagnostics
 5. Golden data maintenance that records real failure shapes without changing workflow behavior
 
+Eval discipline for this frozen workflow:
+
+1. Prompt-pool rows, goldens, and bad-prompt banks are probes for failure classes, not behavior specs for the production workflow.
+2. A workflow/tooling patch must be justified in generic terms such as answer-unit contamination, traceability drift, undercoverage honesty, or source-quality gating, not "make case X pass."
+3. After a patch, success must be re-checked on diverse or random prompts so the system proves generalization rather than prompt memorization.
+
 Freeze exception rule:
 
 Changing the frozen workflow surface requires an explicit freeze exception note in the workflow CD, a passing workflow contract guard, a passing research-golden regression run, and an operator-facing reason explaining why the issue cannot be solved in tooling/evidence/rubric space. Improving retrieval quality, candidate quality, provider resilience, evidence-pack shape, or excellent scoring must not change the research workflow gate semantics.
