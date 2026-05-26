@@ -96,7 +96,7 @@
       "first_edit_batch_contract": false,
       "incremental_edit_loop": false,
       "mutation_batch_scheduler": true,
-      "local_context_pack_builder": true,
+      "local_context_pack_builder": false,
       "local_context_pack_file_chars": 2600,
       "local_context_pack_command_chars": 1800,
       "local_context_pack_max_files": 8,

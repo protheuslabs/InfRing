@@ -133,3 +133,15 @@ Initial smoke results:
 - Level 7: pass, prompt chars dropped to 8206 from the prior approximate 10007 full-receipt prompt.
 
 Conclusion: This is the first viable version of the model-facing context optimization. It is materially better than compact receipt-preview truncation because it preserves file and validation semantics for multi-file slices.
+
+## Local context pack builder v1 batch retry
+
+Date: 2026-05-26
+
+Status: Dormant. The workflow flags were turned off after batch retry.
+
+Batch result with `local_context_pack_builder` active:
+- Level 4: 2/3 pass. One failure class: `no_successful_mutation` after a long provider turn.
+- Level 7: 1 completed pass plus one `no_successful_mutation` failure before the remaining run was interrupted after the regression was clear.
+
+Conclusion: `local_context_pack_builder` is a better abstraction than compact receipt-preview truncation, but v1 is not reliable enough to stay active. Keep the code as a dormant primitive scaffold. Next iteration should preserve dependency/export structure more explicitly and add a mutation-required micro-contract inside the context pack, without reintroducing full receipt JSON.
