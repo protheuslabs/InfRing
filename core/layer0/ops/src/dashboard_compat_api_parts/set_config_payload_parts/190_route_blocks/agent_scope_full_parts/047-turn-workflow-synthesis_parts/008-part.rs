@@ -405,6 +405,14 @@ fn tool_backed_final_verifier_violation_reason(
             missing_lanes.join(", ")
         ));
     }
+    if response_tools_have_recorded_evidence_refs(response_tools)
+        && !response_tools_have_answer_ready_evidence_packets(response_tools)
+        && response_has_answer_unit_precision_traceability_violation(&cleaned, response_tools)
+    {
+        return Some(
+            "final_response_verifier_contract:answer_units_not_traceable_to_evidence".to_string(),
+        );
+    }
     if response_tools_have_answer_ready_evidence_packets(response_tools)
         && response_has_answer_unit_traceability_violation(&cleaned, response_tools)
     {
@@ -414,4 +422,3 @@ fn tool_backed_final_verifier_violation_reason(
     }
     None
 }
-

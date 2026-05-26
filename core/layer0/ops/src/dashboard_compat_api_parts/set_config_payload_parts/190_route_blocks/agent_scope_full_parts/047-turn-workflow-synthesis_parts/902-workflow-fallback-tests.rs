@@ -288,6 +288,28 @@
     }
 
     #[test]
+    fn final_verifier_rejects_unsupported_named_details_with_recorded_evidence_only() {
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "result": "A critical phase of machine assembly has begun at ITER's construction site in Cadarache, southern France, according to a May 2026 report from Nucnet.",
+            "evidence_refs": [{
+                "title": "ITER European fusion project now on budget and on schedule after turnaround",
+                "locator": "https://www.nucnet.org/news/iter-european-fusion-project-now-on-budget-and-on-schedule-after-turnaround-5-5-2026"
+            }]
+        })];
+
+        assert!(!response_tools_have_answer_ready_evidence_packets(&tools));
+        assert_eq!(
+            tool_backed_final_verifier_violation_reason(
+                "ITER reported that the AXT-900 assembly phase restarted in Cadarache after a 14.3-month redesign.",
+                &tools,
+            ),
+            Some("final_response_verifier_contract:answer_units_not_traceable_to_evidence".to_string())
+        );
+    }
+
+    #[test]
     fn final_verifier_treats_materialized_candidates_as_recorded_evidence() {
         let tools = vec![json!({
             "name": "browser_materialize_page",

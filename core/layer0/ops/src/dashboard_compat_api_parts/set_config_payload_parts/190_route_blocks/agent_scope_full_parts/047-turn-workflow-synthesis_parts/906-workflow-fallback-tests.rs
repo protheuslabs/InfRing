@@ -240,6 +240,63 @@
     }
 
     #[test]
+    fn synthesis_answer_units_drop_ungrounded_claim_hints_and_keep_grounded_extracts() {
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "evidence_pack": [
+                {
+                    "title": "Carry On Backpack | Baseline Travel Backpack | Briggs & Riley",
+                    "source_domain": "briggs-riley.ca",
+                    "relevant_extract": "Carry On Backpack | Baseline Travel Backpack | Briggs & Riley",
+                    "claim_hints": [
+                        "Briggs & Riley publishes a detailed airline carry-on size guide with exact dimensions by carrier."
+                    ],
+                    "counts_as_usable_evidence": true
+                },
+                {
+                    "title": "How Away Luggage Is Tested: Our Quality Standards | Away",
+                    "source_domain": "awaytravel.com",
+                    "relevant_extract": "How Away Luggage Is Tested: Our Quality Standards | Away",
+                    "claim_hints": [
+                        "Away subjects luggage to quality testing intended to withstand rough travel."
+                    ],
+                    "counts_as_usable_evidence": true
+                },
+                {
+                    "title": "Compact Carry-On Hardside Spinner | Platinum Elite by Travelpro",
+                    "source_domain": "travelpro.com",
+                    "relevant_extract": "Travelpro's Platinum Elite carry-on is tested to fit overhead bins on most major U.S. airlines.",
+                    "claim_hints": [
+                        "Travelpro's Platinum Elite carry-on is tested to fit overhead bins on most major U.S. airlines."
+                    ],
+                    "counts_as_usable_evidence": true
+                }
+            ]
+        })];
+
+        let units = evidence_packet_answer_units_for_goal(
+            "Compare current carry-on luggage brands for durability and airline practicality.",
+            &tools,
+            8,
+        );
+
+        assert!(
+            units.iter()
+                .any(|unit| unit.contains("Travelpro's Platinum Elite carry-on is tested to fit overhead bins")),
+            "{units:#?}"
+        );
+        assert!(
+            !units.iter().any(|unit| unit.contains("exact dimensions by carrier")),
+            "{units:#?}"
+        );
+        assert!(
+            !units.iter().any(|unit| unit.contains("intended to withstand rough travel")),
+            "{units:#?}"
+        );
+    }
+
+    #[test]
     fn final_verifier_rejects_incomplete_visible_answer() {
         let tools = vec![json!({
             "name": "batch_query",

@@ -353,6 +353,48 @@ fn workflow_answer_unit_specific_terms(unit: &str) -> Vec<String> {
     terms
 }
 
+fn workflow_answer_unit_precision_terms(unit: &str) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::<String>::new();
+    let mut terms = Vec::<String>::new();
+    for raw in unit.split_whitespace() {
+        let mut cleaned = raw.trim_matches(|ch: char| {
+            !ch.is_ascii_alphanumeric() && ch != '-' && ch != '.' && ch != '/'
+        });
+        cleaned = cleaned
+            .trim_end_matches("'s")
+            .trim_end_matches("'S")
+            .trim_end_matches("’s")
+            .trim_end_matches("’S");
+        if cleaned.is_empty() {
+            continue;
+        }
+        let normalized = workflow_normalize_specific_term(cleaned);
+        if normalized.len() < 2 && !normalized.chars().any(|ch| ch.is_ascii_digit()) {
+            continue;
+        }
+        if workflow_specific_stop_term(&normalized) {
+            continue;
+        }
+        let letters = cleaned
+            .chars()
+            .filter(|ch| ch.is_ascii_alphabetic())
+            .collect::<Vec<_>>();
+        let uppercase_letters = letters.iter().filter(|ch| ch.is_ascii_uppercase()).count();
+        let has_digit = cleaned.chars().any(|ch| ch.is_ascii_digit());
+        let is_acronym =
+            letters.len() >= 2 && uppercase_letters >= 2 && uppercase_letters * 2 >= letters.len();
+        let domain_like = workflow_specific_token_looks_domain_like(cleaned);
+        let precision_marker = has_digit || is_acronym || domain_like;
+        if precision_marker && seen.insert(normalized.clone()) {
+            terms.push(normalized);
+        }
+        if terms.len() >= 12 {
+            break;
+        }
+    }
+    terms
+}
+
 fn workflow_answer_unit_is_hedged_or_gap(normalized_unit: &str) -> bool {
     let padded = format!(" {normalized_unit} ");
     workflow_answer_unit_contains_any(
@@ -374,7 +416,10 @@ fn workflow_answer_unit_is_hedged_or_gap(normalized_unit: &str) -> bool {
             " no source-backed",
             " limited evidence",
             " available evidence",
+            " weakly covered",
+            " weak coverage",
             " coverage gap",
+            " coverage gaps",
             " verify ",
             " need to verify ",
             " tentative",
@@ -440,4 +485,37 @@ fn workflow_answer_unit_unsupported_is_significant(
     }
     let total_terms = supported_terms.len() + unsupported_terms.len();
     unsupported_terms.len() >= 2 && unsupported_terms.len() * 2 >= total_terms.max(1)
+}
+
+fn response_has_answer_unit_precision_traceability_violation(
+    response_text: &str,
+    response_tools: &[Value],
+) -> bool {
+    let evidence_texts = workflow_evidence_alignment_texts(response_tools);
+    if evidence_texts.is_empty() {
+        return false;
+    }
+    for unit in workflow_answer_text_units(response_text).iter().take(18) {
+        let normalized_unit = normalize_coverage_lane_text(unit);
+        if workflow_answer_unit_is_hedged_or_gap(&normalized_unit) {
+            continue;
+        }
+        let precision_terms = workflow_answer_unit_precision_terms(unit);
+        if precision_terms.is_empty() {
+            continue;
+        }
+        let unsupported_precision = precision_terms
+            .into_iter()
+            .filter(|term| !workflow_evidence_texts_support_term(&evidence_texts, term))
+            .collect::<Vec<_>>();
+        if unsupported_precision.is_empty() {
+            continue;
+        }
+        if workflow_answer_unit_has_high_commitment_claim(&normalized_unit)
+            || unsupported_precision.len() >= 2
+        {
+            return true;
+        }
+    }
+    false
 }

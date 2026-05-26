@@ -1113,7 +1113,7 @@ fn workflow_answer_unit_synthesis_prompt_context(
     }
     if primary_units.is_empty() {
         lines.push(
-            "Primary answer units:\n- none extracted; rely on recorded claim_hints, relevant_extract, and compact source refs before falling back to status language."
+            "Primary answer units:\n- none extracted; rely on recorded relevant_extract, support_snippet, evidence_claims, and compact source refs. Use claim_hints only when the same substance is mirrored by recorded extract text; otherwise name the evidence gap instead of promoting the hint into a concrete claim."
                 .to_string(),
         );
     } else {

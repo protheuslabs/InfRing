@@ -218,20 +218,124 @@ fn evidence_packet_first_string(value: Option<&Value>, max_len: usize) -> String
 
 fn evidence_packet_claim_text(row: &Value) -> String {
     let claim = evidence_packet_first_answer_claim(row.get("claim_hints"), 260);
-    if !claim.is_empty() {
+    if evidence_packet_claim_is_grounded_by_support(&claim, row) {
         return claim;
     }
     let claim = evidence_packet_first_answer_claim(row.get("evidence_claims"), 260);
-    if !claim.is_empty() {
+    if evidence_packet_claim_is_grounded_by_support(&claim, row) {
         return claim;
     }
     for field in ["claim", "finding"] {
         let claim = evidence_packet_text_field(row, &[field], 260);
-        if evidence_packet_text_is_answer_claim(&claim) {
+        if evidence_packet_text_is_answer_claim(&claim)
+            && evidence_packet_claim_is_grounded_by_support(&claim, row)
+        {
             return claim;
         }
     }
     String::new()
+}
+
+fn evidence_packet_support_texts(row: &Value) -> Vec<String> {
+    let mut out = Vec::<String>::new();
+    let mut seen = std::collections::BTreeSet::<String>::new();
+    for field in ["relevant_extract", "support_snippet", "snippet", "content"] {
+        let text = evidence_packet_text_field(row, &[field], 420);
+        if !text.is_empty() && seen.insert(text.to_ascii_lowercase()) {
+            out.push(text);
+        }
+    }
+    if let Some(claims) = row.get("evidence_claims").and_then(Value::as_array) {
+        for claim in claims.iter().take(4) {
+            for field in ["support_snippet", "claim", "text"] {
+                let text = clean_text(
+                    claim.get(field).and_then(Value::as_str).unwrap_or(""),
+                    420,
+                );
+                if !text.is_empty() && seen.insert(text.to_ascii_lowercase()) {
+                    out.push(text);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn evidence_packet_grounding_terms(text: &str) -> std::collections::BTreeSet<String> {
+    normalize_coverage_lane_text(text)
+        .split_whitespace()
+        .filter(|token| token.len() >= 4 || token.chars().any(|ch| ch.is_ascii_digit()))
+        .filter(|token| {
+            !matches!(
+                *token,
+                "that"
+                    | "this"
+                    | "these"
+                    | "those"
+                    | "from"
+                    | "into"
+                    | "than"
+                    | "then"
+                    | "their"
+                    | "there"
+                    | "where"
+                    | "which"
+                    | "while"
+                    | "after"
+                    | "before"
+                    | "under"
+                    | "rough"
+                    | "intended"
+                    | "detail"
+                    | "details"
+                    | "guide"
+                    | "guides"
+                    | "exact"
+                    | "current"
+                    | "major"
+                    | "minor"
+                    | "other"
+            ) && !workflow_specific_stop_term(token)
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+fn evidence_packet_claim_is_grounded_by_support(claim: &str, row: &Value) -> bool {
+    let cleaned_claim = clean_text(claim, 260);
+    if cleaned_claim.is_empty() || !evidence_packet_text_is_answer_claim(&cleaned_claim) {
+        return false;
+    }
+    let support_texts = evidence_packet_support_texts(row);
+    if support_texts.is_empty() {
+        return false;
+    }
+    let normalized_claim = normalize_coverage_lane_text(&cleaned_claim);
+    if support_texts.iter().any(|text| {
+        let normalized = normalize_coverage_lane_text(text);
+        !normalized.is_empty()
+            && (normalized == normalized_claim
+                || normalized.contains(&normalized_claim)
+                || normalized_claim.contains(&normalized))
+    }) {
+        return true;
+    }
+    let claim_terms = evidence_packet_grounding_terms(&cleaned_claim);
+    if claim_terms.is_empty() {
+        return false;
+    }
+    let support_terms = support_texts
+        .iter()
+        .flat_map(|text| evidence_packet_grounding_terms(text).into_iter())
+        .collect::<std::collections::BTreeSet<_>>();
+    if support_terms.is_empty() {
+        return false;
+    }
+    let overlap = claim_terms
+        .iter()
+        .filter(|term| support_terms.contains(*term))
+        .count();
+    overlap >= 3 && overlap * 2 >= claim_terms.len().max(1)
 }
 
 fn evidence_packet_first_answer_claim(value: Option<&Value>, max_len: usize) -> String {
@@ -444,4 +548,3 @@ fn evidence_packet_answer_units(response_tools: &[Value], limit: usize) -> Vec<S
     }
     units
 }
-
