@@ -1132,6 +1132,10 @@ fn evidence_packet_text_is_answer_claim(raw: &str) -> bool {
         || normalized.starts_with("this report examines")
         || normalized.starts_with("this guide examines")
         || normalized.starts_with("this overview examines")
+        || normalized.starts_with("this article examines")
+        || normalized.starts_with("this article explores")
+        || normalized.starts_with("this paper examines")
+        || normalized.starts_with("this paper explores")
         || normalized.contains(" mins read")
         || normalized.contains(" min read")
         || normalized.contains(" minute read")
@@ -1155,6 +1159,9 @@ fn evidence_packet_text_is_answer_claim(raw: &str) -> bool {
         .filter(|word| word.chars().any(|ch| ch.is_ascii_alphanumeric()))
         .count();
     if word_count < 7 {
+        return false;
+    }
+    if workflow_answer_unit_has_dangling_truncated_tail(&normalized) {
         return false;
     }
     let title_or_question_heading = (normalized.contains(" / ") && normalized.contains(':'))
@@ -1765,6 +1772,10 @@ fn workflow_answer_unit_contains_source_shell_boilerplate(unit: &str) -> bool {
             " this report examines ",
             " this guide examines ",
             " this overview examines ",
+            " this article examines ",
+            " this article explores ",
+            " this paper examines ",
+            " this paper explores ",
         ],
     )
 }
@@ -1792,6 +1803,32 @@ fn workflow_answer_unit_prompt_asks_for_process_or_schedule(message: &str) -> bo
     )
 }
 
+fn workflow_prompt_needs_decision_bearing_evidence(message: &str) -> bool {
+    let normalized = format!(" {} ", normalize_coverage_lane_text(message));
+    workflow_answer_unit_contains_any(
+        &normalized,
+        &[
+            " assess ",
+            " compare ",
+            " comparison ",
+            " decide ",
+            " decision ",
+            " choose ",
+            " evaluate ",
+            " evaluation ",
+            " practical ",
+            " recommend ",
+            " recommendation ",
+            " should ",
+            " tradeoff ",
+            " tradeoffs ",
+            " versus ",
+            " vs ",
+            " which ",
+        ],
+    )
+}
+
 fn workflow_answer_unit_is_process_or_metadata_fact(unit: &str) -> bool {
     let normalized = unit.to_ascii_lowercase();
     workflow_answer_unit_contains_source_shell_boilerplate(unit)
@@ -1812,6 +1849,72 @@ fn workflow_answer_unit_is_process_or_metadata_fact(unit: &str) -> bool {
                 "press release",
             ],
         )
+}
+
+fn workflow_answer_unit_has_concrete_decision_signal(unit: &str) -> bool {
+    let normalized = format!(" {} ", normalize_coverage_lane_text(unit));
+    workflow_answer_unit_contains_any(
+        &normalized,
+        &[
+            " approval ",
+            " benchmark ",
+            " capacity ",
+            " certification ",
+            " compliant ",
+            " control ",
+            " controls ",
+            " cost ",
+            " deployment ",
+            " deployments ",
+            " evidence ",
+            " implementation ",
+            " integration ",
+            " integrations ",
+            " limit ",
+            " limits ",
+            " limitation ",
+            " metric ",
+            " metrics ",
+            " outcome ",
+            " outcomes ",
+            " performance ",
+            " pricing ",
+            " requirement ",
+            " requirements ",
+            " risk ",
+            " risks ",
+        ],
+    )
+}
+
+fn workflow_answer_unit_is_low_information_profile_or_overview(unit: &str) -> bool {
+    let normalized = format!(" {} ", normalize_coverage_lane_text(unit));
+    if workflow_answer_unit_has_concrete_decision_signal(unit) {
+        return false;
+    }
+    workflow_answer_unit_contains_any(
+        &normalized,
+        &[
+            " clear leaders emerging ",
+            " enables teams to ",
+            " helps teams ",
+            " is a modernized version ",
+            " is a platform ",
+            " is a solution ",
+            " is a tool ",
+            " is an ai powered ",
+            " is an ai-powered ",
+            " market has matured ",
+            " markets have matured ",
+            " purpose built ",
+            " purpose-built ",
+            " designed to ",
+            " provides an overview ",
+            " this guide covers ",
+            " this overview covers ",
+            " this report covers ",
+        ],
+    )
 }
 
 fn workflow_answer_unit_goal_terms(message: &str) -> Vec<String> {
@@ -1896,11 +1999,14 @@ fn evidence_packet_answer_units_for_goal(
     response_tools: &[Value],
     limit: usize,
 ) -> Vec<String> {
-    let units = evidence_packet_answer_units(response_tools, limit);
+    let requested_limit = limit.clamp(1, 8);
+    let internal_limit = requested_limit.saturating_mul(3).clamp(requested_limit, 8);
+    let units = evidence_packet_answer_units(response_tools, internal_limit);
     if units.is_empty() || workflow_answer_unit_prompt_asks_for_process_or_schedule(message) {
-        return units;
+        return units.into_iter().take(requested_limit).collect();
     }
     let goal_terms = workflow_answer_unit_goal_terms(message);
+    let needs_decision_bearing_evidence = workflow_prompt_needs_decision_bearing_evidence(message);
     let mut filtered = units
         .iter()
         .filter(|unit| {
@@ -1911,6 +2017,8 @@ fn evidence_packet_answer_units_for_goal(
                 && !workflow_answer_unit_looks_like_source_title_fragment(&answer)
                 && workflow_answer_unit_matches_goal(&answer, &goal_terms)
                 && evidence_packet_text_is_answer_claim(&answer)
+                && !(needs_decision_bearing_evidence
+                    && workflow_answer_unit_is_low_information_profile_or_overview(&answer))
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -1927,6 +2035,8 @@ fn evidence_packet_answer_units_for_goal(
                     && !workflow_answer_unit_contains_ui_or_source_shell(&answer)
                     && !workflow_answer_unit_looks_like_source_title_fragment(&answer)
                     && evidence_packet_text_is_answer_claim(&answer)
+                    && !(needs_decision_bearing_evidence
+                        && workflow_answer_unit_is_low_information_profile_or_overview(&answer))
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -1938,6 +2048,10 @@ fn evidence_packet_answer_units_for_goal(
                     !answer.is_empty()
                         && !workflow_answer_unit_contains_ui_or_source_shell(&answer)
                         && evidence_packet_text_is_answer_claim(&answer)
+                        && !(needs_decision_bearing_evidence
+                            && workflow_answer_unit_is_low_information_profile_or_overview(
+                                &answer,
+                            ))
                 })
                 .cloned()
                 .collect::<Vec<_>>();
@@ -1946,8 +2060,10 @@ fn evidence_packet_answer_units_for_goal(
             workflow_answer_unit_rank(right, &goal_terms)
                 .cmp(&workflow_answer_unit_rank(left, &goal_terms))
         });
+        fallback.truncate(requested_limit);
         fallback
     } else {
+        filtered.truncate(requested_limit);
         filtered
     }
 }
@@ -1957,6 +2073,40 @@ fn response_tools_have_answer_ready_evidence_packets(response_tools: &[Value]) -
 }
 
 fn fallback_answer_unit_text_and_source(unit: &str) -> (String, String) {
+    fn trim_answer_front_matter_prefix(raw: &str) -> String {
+        let cleaned = clean_text(raw, 520);
+        let lowered = cleaned.to_ascii_lowercase();
+        for marker in [
+            " abstract this ",
+            " abstract the ",
+            " introduction this ",
+            " introduction the ",
+            " summary this ",
+            " summary the ",
+        ] {
+            if let Some(index) = lowered.find(marker) {
+                let start = index + marker.find(|ch: char| ch.is_ascii_alphabetic()).unwrap_or(0);
+                let after_heading = cleaned[start..]
+                    .split_once(' ')
+                    .map(|(_, rest)| rest)
+                    .unwrap_or(&cleaned[start..]);
+                return clean_text(after_heading, 520);
+            }
+        }
+        for marker in [" after ", " when ", " if ", " for ", " to "] {
+            if let Some(index) = lowered.find(marker) {
+                let prefix = &cleaned[..index];
+                let suffix = &cleaned[index + 1..];
+                if workflow_text_prefix_looks_like_headline(prefix)
+                    && evidence_packet_text_is_answer_claim(suffix)
+                {
+                    return clean_text(suffix, 520);
+                }
+            }
+        }
+        cleaned
+    }
+
     fn trim_answer_tail(raw: &str) -> String {
         let cleaned = clean_text(raw, 520);
         let lowered = cleaned.to_ascii_lowercase();
@@ -1973,7 +2123,7 @@ fn fallback_answer_unit_text_and_source(unit: &str) -> (String, String) {
                 cut_at = cut_at.min(index);
             }
         }
-        clean_text(&cleaned[..cut_at], 520)
+        trim_answer_front_matter_prefix(&cleaned[..cut_at])
     }
     if let Some((answer, source)) = unit.split_once(" Source: ") {
         (
@@ -1983,6 +2133,69 @@ fn fallback_answer_unit_text_and_source(unit: &str) -> (String, String) {
     } else {
         (trim_answer_tail(unit), String::new())
     }
+}
+
+fn workflow_answer_unit_has_dangling_truncated_tail(normalized: &str) -> bool {
+    let tail = normalized
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+        .split_whitespace()
+        .last()
+        .unwrap_or("");
+    matches!(
+        tail,
+        "a" | "an"
+            | "and"
+            | "any"
+            | "by"
+            | "every"
+            | "for"
+            | "from"
+            | "in"
+            | "into"
+            | "of"
+            | "or"
+            | "that"
+            | "the"
+            | "their"
+            | "this"
+            | "to"
+            | "with"
+            | "within"
+            | "your"
+    )
+}
+
+fn workflow_text_prefix_looks_like_headline(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 220);
+    if cleaned.is_empty() || cleaned.contains('.') {
+        return false;
+    }
+    let tokens = cleaned
+        .split_whitespace()
+        .map(|token| {
+            token.trim_matches(|ch: char| {
+                !ch.is_ascii_alphanumeric() && ch != '-' && ch != '.' && ch != '/'
+            })
+        })
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    let alpha_tokens = tokens
+        .iter()
+        .copied()
+        .filter(|token| token.chars().any(|ch| ch.is_ascii_alphabetic()))
+        .collect::<Vec<_>>();
+    if !(4..=18).contains(&alpha_tokens.len()) {
+        return false;
+    }
+    let title_like_words = alpha_tokens
+        .iter()
+        .filter(|token| workflow_answer_unit_token_looks_title_like(token))
+        .count();
+    let lowercase_content_words = alpha_tokens
+        .iter()
+        .filter(|token| workflow_answer_unit_token_is_lowercase_content_word(token))
+        .count();
+    title_like_words >= 3 && lowercase_content_words <= 3
 }
 
 fn workflow_answer_unit_contains_ui_or_source_shell(unit: &str) -> bool {
@@ -2188,10 +2401,13 @@ fn workflow_answer_unit_goal_overlap_count(unit: &str, goal_terms: &[String]) ->
 fn workflow_answer_unit_rank(
     unit: &str,
     goal_terms: &[String],
-) -> (usize, usize, usize, usize, usize) {
+) -> (usize, usize, usize, usize, usize, usize) {
     let (answer, source) = fallback_answer_unit_text_and_source(unit);
     (
         workflow_answer_unit_goal_overlap_count(&answer, goal_terms),
+        usize::from(!workflow_answer_unit_is_low_information_profile_or_overview(
+            &answer,
+        )),
         usize::from(evidence_packet_text_is_answer_claim(&answer)),
         usize::from(!workflow_answer_unit_looks_like_source_title_fragment(
             &answer,
@@ -6660,20 +6876,146 @@ mod workflow_fallback_tests {
                             "The AI contract management market has matured significantly in 2025, with clear leaders emerging across different use cases and organizational sizes."
                         ],
                         "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "Contract review deployment evidence",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "Contract review evidence shows operational deployments are stronger when sources describe review queues, clause extraction controls, and integrations with internal legal intake rather than demo-only positioning."
+                        ],
+                        "counts_as_usable_evidence": true
                     }
                 ]
             })],
         );
         assert!(
-            response.starts_with(
-                "For legal ops AI, The AI contract management market has matured significantly"
-            ),
+            response.starts_with("Contract review evidence shows operational deployments"),
             "{response}"
         );
         assert!(
             !response.contains("Value Champion Flex and DocJuris"),
             "{response}"
         );
+        assert!(!response.contains("market has matured"), "{response}");
+    }
+
+    #[test]
+    fn tool_evidence_fallback_does_not_answer_decision_prompt_from_profile_copy_only() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research the current legal-ops AI market for contract review and internal legal workflows. What looks operationally real versus mostly demo-driven?",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["legal ops AI"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "title": "Vendor profile",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "Kira is a modernized version of Litera Workflow, a system that enables teams to automate the review, analysis, and management of legal documents."
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "Market overview",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "The AI contract management market has matured significantly, with clear leaders emerging across different use cases and organizational sizes."
+                        ],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(!response.contains("Kira is a modernized version"), "{response}");
+        assert!(!response.contains("market has matured"), "{response}");
+        assert!(
+            response.contains("reliable comparison")
+                || response.contains("coverage gaps remain")
+                || response.contains("insufficient"),
+            "{response}"
+        );
+    }
+
+    #[test]
+    fn tool_evidence_fallback_filters_front_matter_before_answer_units() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research mainstream historical interpretations of the long-term legacy of Japanese American incarceration in the United States.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["Japanese American incarceration", "United States"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "title": "PDF front matter",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "2021 Professor Rodnyansky Rodarte 1 Abstract This paper explores the legacy of the Japanese American Redress and Reparations movement and the 1988 Civil Liberties Act."
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "Legacy interpretation",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "The long-term legacy of Japanese American incarceration in the United States is commonly framed as a civil-liberties failure that led to redress, reparations, and public-memory institutions."
+                        ],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(response.starts_with("The long-term legacy"), "{response}");
+        assert!(!response.contains("Professor Rodnyansky"), "{response}");
+        assert!(!response.contains("Abstract This paper explores"), "{response}");
+    }
+
+    #[test]
+    fn tool_evidence_fallback_filters_headline_leads_and_dangling_teasers() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Build a practical home inventory plan for insurance claims.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["home inventory", "insurance claims"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "title": "Home inventory teaser",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "Why a Home Inventory Matters More Than You Think After a fire, flood, or severe storm, the last thing any homeowner wants to do is try to remember every"
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "Insurance inventory guidance",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "A home inventory is useful for insurance claims because it documents belongings and estimated value before a loss."
+                        ],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(response.starts_with("A home inventory is useful"), "{response}");
+        assert!(!response.contains("Why a Home Inventory"), "{response}");
+        assert!(!response.contains("remember every"), "{response}");
     }
 
     #[test]
