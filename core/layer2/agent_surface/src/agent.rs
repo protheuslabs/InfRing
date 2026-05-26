@@ -498,8 +498,9 @@ impl AgentContract {
                     "bounded_direct_edit_bootstrap_rule",
                     default_bootstrap_rule,
                 );
+                let edit_owner_hint = native_tool_edit_owner_hint(&all_receipts);
                 prompt = format!(
-                    "{prompt}\n\n{bootstrap_rule}\n\nNative tool observations:\n{observation}"
+                    "{prompt}\n\n{bootstrap_rule}{edit_owner_hint}\n\nNative tool observations:\n{observation}"
                 );
             }
         }
@@ -632,6 +633,12 @@ impl AgentContract {
                 }
             }
             provider_call_count += 1;
+            let staged_edit_turn = native_tool_staged_edit_controller_enabled(
+                &self.metadata,
+                bounded_direct_edit_task,
+            ) && turn_idx == 0
+                && native_tool_has_successful_read_context_receipt(&all_receipts)
+                && !native_tool_has_successful_mutation(&all_receipts);
             let first_edit_batch_turn = first_edit_batch_contract
                 && native_tool_has_successful_read_context_receipt(&all_receipts)
                 && !native_tool_has_successful_mutation(&all_receipts);
@@ -644,8 +651,21 @@ impl AgentContract {
                     );
                 }
             }
+            let stream_until_tool_calls =
+                native_tool_stream_until_tool_calls_enabled(&request_metadata, bounded_direct_edit_task);
+            if stream_until_tool_calls {
+                if let Value::Object(object) = &mut request_metadata {
+                    object.insert("provider_stream_until_tool_calls".to_string(), json!(true));
+                }
+            }
             let request_prompt = if first_edit_batch_turn {
                     native_tool_first_edit_batch_prompt(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &all_receipts,
+                    )
+                } else if staged_edit_turn {
+                    native_tool_staged_edit_prompt(
                         &self.metadata,
                         &self.initial_prompt,
                         &all_receipts,
@@ -655,11 +675,15 @@ impl AgentContract {
                 };
             let request_system = if first_edit_batch_turn {
                 native_tool_first_edit_batch_system()
+            } else if staged_edit_turn {
+                native_tool_staged_edit_system()
             } else {
                 system.clone()
             };
             let request_tools = if first_edit_batch_turn {
                 native_tool_bounded_fast_edit_preflight_tools(tools)
+            } else if staged_edit_turn {
+                native_tool_staged_edit_tools(tools)
             } else {
                 tools.to_vec()
             };
@@ -683,10 +707,28 @@ impl AgentContract {
                     "prompt_chars": request.prompt.chars().count(),
                     "system_chars": request.system.as_ref().map(|value| value.chars().count()).unwrap_or(0),
                     "tool_count": request.tools.len(),
+                    "stream_until_tool_calls": stream_until_tool_calls,
+                    "staged_edit_turn": staged_edit_turn,
                 }),
             );
             let provider_turn_started = Instant::now();
-            let provider_result = provider.complete(&request);
+            let provider_result = if stream_until_tool_calls {
+                provider.stream_complete(&request).map(|stream| {
+                    let mut response = stream.response;
+                    response.raw = json!({
+                        "provider_raw": response.raw,
+                        "provider_stream": {
+                            "enabled": true,
+                            "event_count": stream.events.len(),
+                            "stopped_early": stream.stopped_early,
+                            "stop_reason": stream.stop_reason,
+                        }
+                    });
+                    response
+                })
+            } else {
+                provider.complete(&request)
+            };
             let provider_turn_latency_ms =
                 native_tool_bounded_patch_elapsed_ms(provider_turn_started);
             native_tool_persist_runtime_timeline_event(
@@ -699,6 +741,13 @@ impl AgentContract {
                     "turn_idx": turn_idx,
                     "duration_ms": provider_turn_latency_ms,
                     "status": if provider_result.is_ok() { "ok" } else { "error" },
+                    "stream_until_tool_calls": stream_until_tool_calls,
+                    "staged_edit_turn": staged_edit_turn,
+                    "stream_diagnostics": provider_result
+                        .as_ref()
+                        .ok()
+                        .and_then(|response| response.raw.pointer("/provider_raw/stream_diagnostics").cloned())
+                        .unwrap_or(Value::Null),
                     "error_preview": provider_result
                         .as_ref()
                         .err()
@@ -984,6 +1033,15 @@ impl AgentContract {
                     && !native_tool_has_successful_mutation(&all_receipts)
                     && !native_tool_has_successful_mutation(&turn_receipts)
                     && native_tool_call_is_command_run(&call);
+                let staged_edit_context_blocked =
+                    staged_edit_turn && native_tool_call_is_context_only(&call);
+                let staged_edit_command_blocked =
+                    staged_edit_turn && native_tool_call_is_command_run(&call);
+                let edit_owner_blocked = bounded_direct_edit_task
+                    && !native_tool_has_successful_mutation(&all_receipts)
+                    && native_tool_call_is_product_mutation(&call)
+                    && !native_tool_prompt_explicit_new_file_allowed(&self.initial_prompt)
+                    && !native_tool_call_targets_observed_product_path(&call, &all_receipts);
                 let receipt = if let Some(blocked) = native_tool_live_stage_blocked_receipt(
                     &self.metadata,
                     &self.initial_prompt,
@@ -995,6 +1053,10 @@ impl AgentContract {
                     native_tool_preserved_api_write_blocked_receipt(&self.initial_prompt, &call)
                 {
                     blocked
+                } else if let Some(blocked) =
+                    native_tool_atomic_dependent_edit_blocked_receipt(&all_receipts, &call)
+                {
+                    blocked
                 } else if let Some(blocked) = native_tool_python_src_prefix_import_blocked_receipt(
                     &self.initial_prompt,
                     &call,
@@ -1004,6 +1066,12 @@ impl AgentContract {
                     native_tool_bounded_fast_edit_preflight_context_blocked_receipt(call)
                 } else if first_edit_batch_command_blocked {
                     native_tool_first_edit_batch_command_blocked_receipt(call)
+                } else if staged_edit_context_blocked {
+                    native_tool_staged_edit_context_blocked_receipt(call)
+                } else if staged_edit_command_blocked {
+                    native_tool_staged_edit_command_blocked_receipt(call)
+                } else if edit_owner_blocked {
+                    native_tool_edit_owner_blocked_receipt(call, &all_receipts)
                 } else if context_blocked {
                     native_tool_product_repair_context_blocked_receipt(call, &[], &all_receipts)
                 } else {
@@ -1035,6 +1103,34 @@ impl AgentContract {
                 Some(&response.output),
                 None,
             );
+            if native_tool_has_successful_mutation(&turn_receipts) {
+                let auto_validation_started = Instant::now();
+                if let Some(validation_receipt) =
+                    native_tool_auto_validation_receipt(&dispatcher, &self.initial_prompt, &all_receipts)
+                {
+                    turn_receipts.push(validation_receipt.clone());
+                    all_receipts.push(validation_receipt);
+                    native_tool_persist_runtime_timeline_event(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "auto_validation_after_mutation_end",
+                        native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                        json!({
+                            "duration_ms": native_tool_bounded_patch_elapsed_ms(auto_validation_started),
+                            "successful_validation_after_batch": native_tool_has_successful_validation_command(&all_receipts),
+                        }),
+                    );
+                    native_tool_persist_run_journal(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "auto_validation_after_mutation",
+                        provider_call_count,
+                        &all_receipts,
+                        Some(&response.output),
+                        None,
+                    );
+                }
+            }
             if native_tool_should_synthesize_micro_final(
                 &self.metadata,
                 &self.initial_prompt,
@@ -1547,6 +1643,10 @@ impl AgentContract {
                         native_tool_product_repair_context_blocked_receipt(call, &[], &all_receipts)
                     } else if let Some(blocked) =
                         native_tool_preserved_api_write_blocked_receipt(&self.initial_prompt, &call)
+                    {
+                        blocked
+                    } else if let Some(blocked) =
+                        native_tool_atomic_dependent_edit_blocked_receipt(&all_receipts, &call)
                     {
                         blocked
                     } else if let Some(blocked) =
@@ -2077,6 +2177,15 @@ fn native_tool_wall_timeout(metadata: &Value) -> Option<Duration> {
     }
 }
 
+fn native_tool_stream_until_tool_calls_enabled(metadata: &Value, bounded_direct_edit_task: bool) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("provider_stream_until_tool_calls"))
+        .and_then(Value::as_bool)
+        .unwrap_or(bounded_direct_edit_task)
+}
+
 fn native_tool_max_turns(metadata: &Value) -> u64 {
     metadata
         .get("native_tool_max_turns")
@@ -2177,6 +2286,70 @@ fn native_tool_first_edit_batch_contract_enabled(metadata: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn native_tool_staged_edit_controller_enabled(metadata: &Value, _bounded_direct_edit_task: bool) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("staged_edit_controller"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_staged_edit_system() -> String {
+    "Staged local edit turn.\n\
+Return only JSON tool_calls.\n\
+Use file_patch/file_write only.\n\
+No command_run/read/list/stat/resolve/prose.\n\
+Patch observed owner files; do not create new files unless explicitly requested."
+        .to_string()
+}
+
+fn native_tool_staged_edit_prompt(
+    metadata: &Value,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> String {
+    let observation = native_tool_observation_prompt(receipts);
+    let owner_hint = native_tool_edit_owner_hint(receipts);
+    let rule = native_tool_orchestration_prompt_text(
+        metadata,
+        "staged_edit_controller_rule",
+        "Use the receipt-backed context and failing validation evidence. Return only file_patch/file_write tool_calls for the smallest safe product/API edit. Runtime will run validation after mutation. Do not include command_run, reads, planning prose, or final answer.",
+    );
+    format!(
+        "User task:\n{}\n\n{}\n{}\n\nNative tool observations:\n{}",
+        original_prompt.trim(),
+        rule,
+        owner_hint.trim(),
+        observation
+    )
+}
+
+fn native_tool_staged_edit_tools(tools: &[String]) -> Vec<String> {
+    let filtered = tools
+        .iter()
+        .filter(|tool| {
+            matches!(
+                tool.trim().to_ascii_lowercase().as_str(),
+                "file_write"
+                    | "write_file"
+                    | "workspace.write"
+                    | "workspace_write"
+                    | "file_patch"
+                    | "patch_file"
+                    | "workspace.patch"
+                    | "workspace_patch"
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if filtered.is_empty() {
+        tools.to_vec()
+    } else {
+        filtered
+    }
+}
+
 fn native_tool_first_edit_batch_system() -> String {
     "First edit batch contract.\n\
 Return only JSON tool_calls.\n\
@@ -2251,6 +2424,40 @@ fn native_tool_bounded_fast_edit_preflight_context_blocked_receipt(
     }
 }
 
+fn native_tool_staged_edit_context_blocked_receipt(
+    call: NativeToolCall,
+) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: call.id,
+        tool_name: call.name.trim().to_ascii_lowercase(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "staged_edit_controller",
+            "reason": "staged_edit_uses_preloaded_context",
+            "required_next_tool": "file_write_or_file_patch"
+        }),
+        error: Some("staged_edit_uses_preloaded_context".to_string()),
+    }
+}
+
+fn native_tool_staged_edit_command_blocked_receipt(
+    call: NativeToolCall,
+) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: call.id,
+        tool_name: call.name.trim().to_ascii_lowercase(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "staged_edit_controller",
+            "reason": "runtime_runs_validation_after_mutation",
+            "required_next_tool": "file_write_or_file_patch"
+        }),
+        error: Some("runtime_runs_validation_after_mutation".to_string()),
+    }
+}
+
 fn native_tool_first_edit_batch_command_blocked_receipt(
     call: NativeToolCall,
 ) -> NativeToolReceipt {
@@ -2266,6 +2473,80 @@ fn native_tool_first_edit_batch_command_blocked_receipt(
         }),
         error: Some("first_edit_batch_requires_mutation_before_command".to_string()),
     }
+}
+
+fn native_tool_atomic_dependent_edit_blocked_receipt(
+    receipts: &[NativeToolReceipt],
+    call: &NativeToolCall,
+) -> Option<NativeToolReceipt> {
+    let unresolved_paths = native_tool_unresolved_preserved_api_additive_patch_paths(receipts);
+    if unresolved_paths.is_empty() || !native_tool_call_is_export_surface_mutation(call) {
+        return None;
+    }
+    Some(NativeToolReceipt {
+        call_id: call.id.clone(),
+        tool_name: call.name.trim().to_ascii_lowercase(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "atomic_dependent_edit_guard",
+            "reason": "dependent_export_requires_successful_product_source_mutation",
+            "path": native_tool_call_path_arg(call),
+            "unresolved_product_source_paths": unresolved_paths,
+            "required_next_tool": "file_patch_or_file_write_on_blocked_product_source"
+        }),
+        error: Some("dependent_export_requires_successful_product_source_mutation".to_string()),
+    })
+}
+
+fn native_tool_unresolved_preserved_api_additive_patch_paths(
+    receipts: &[NativeToolReceipt],
+) -> Vec<String> {
+    let mut unresolved: Vec<String> = Vec::new();
+    for receipt in receipts {
+        let path = receipt
+            .result
+            .get("path")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        if receipt.error.as_deref() == Some("preserved_api_existing_source_requires_additive_patch")
+        {
+            if let Some(path) = path {
+                if !unresolved
+                    .iter()
+                    .any(|existing| native_tool_paths_same_or_suffix(existing, &path))
+                {
+                    unresolved.push(path);
+                }
+            }
+            continue;
+        }
+        if receipt.status == "ok"
+            && matches!(receipt.tool_name.as_str(), "file_write" | "file_patch")
+        {
+            if let Some(path) = path {
+                unresolved
+                    .retain(|blocked| !native_tool_paths_same_or_suffix(blocked, &path));
+            }
+        }
+    }
+    unresolved
+}
+
+fn native_tool_call_is_export_surface_mutation(call: &NativeToolCall) -> bool {
+    if !native_tool_call_is_mutation(call) {
+        return false;
+    }
+    let Some(path) = native_tool_call_path_arg(call) else {
+        return false;
+    };
+    let lower = path.replace('\\', "/").to_ascii_lowercase();
+    lower.ends_with("/__init__.py")
+        || lower.ends_with("/index.ts")
+        || lower.ends_with("/index.tsx")
+        || lower.ends_with("/index.js")
+        || lower.ends_with("/index.jsx")
+        || lower.ends_with("/mod.rs")
 }
 
 fn native_tool_bounded_direct_edit_max_files(metadata: &Value) -> usize {
@@ -4203,6 +4484,126 @@ fn native_tool_has_successful_product_mutation(receipts: &[NativeToolReceipt]) -
     })
 }
 
+fn native_tool_call_is_product_mutation(call: &NativeToolCall) -> bool {
+    if !native_tool_call_is_mutation(call) {
+        return false;
+    }
+    native_tool_call_path_arg(call)
+        .map(native_tool_path_is_product_mutation_path)
+        .unwrap_or(false)
+}
+
+fn native_tool_edit_owner_hint(receipts: &[NativeToolReceipt]) -> String {
+    let paths = native_tool_observed_product_source_paths(receipts);
+    if paths.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n\nRuntime edit-owner hint: prefer mutating these observed product source files before creating new product modules: {}.",
+        paths.join(", ")
+    )
+}
+
+fn native_tool_edit_owner_blocked_receipt(
+    call: NativeToolCall,
+    receipts: &[NativeToolReceipt],
+) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: call.id,
+        tool_name: call.name.trim().to_ascii_lowercase(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "bounded_direct_edit_owner_selection",
+            "reason": "product_mutation_must_target_observed_owner_file",
+            "observed_product_source_paths": native_tool_observed_product_source_paths(receipts),
+            "required_next_tool": "file_write_or_file_patch"
+        }),
+        error: Some("product_mutation_must_target_observed_owner_file".to_string()),
+    }
+}
+
+fn native_tool_call_targets_observed_product_path(
+    call: &NativeToolCall,
+    receipts: &[NativeToolReceipt],
+) -> bool {
+    let Some(target) = native_tool_call_path_arg(call) else {
+        return true;
+    };
+    let paths = native_tool_observed_product_source_paths(receipts);
+    if paths.is_empty() {
+        return true;
+    }
+    paths.iter()
+        .any(|path| native_tool_paths_same_or_suffix(path, target))
+}
+
+fn native_tool_observed_product_source_paths(receipts: &[NativeToolReceipt]) -> Vec<String> {
+    let mut paths = Vec::<String>::new();
+    for receipt in receipts {
+        if receipt.status != "ok" {
+            continue;
+        }
+        match receipt.tool_name.as_str() {
+            "file_read" => {
+                if let Some(path) = receipt.result.get("path").and_then(Value::as_str) {
+                    native_tool_push_observed_product_source_path(&mut paths, path);
+                }
+            }
+            "file_read_many" => {
+                if let Some(files) = receipt.result.get("files").and_then(Value::as_array) {
+                    for file in files {
+                        if let Some(path) = file.get("path").and_then(Value::as_str) {
+                            native_tool_push_observed_product_source_path(&mut paths, path);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    paths
+}
+
+fn native_tool_push_observed_product_source_path(paths: &mut Vec<String>, path: &str) {
+    let normalized = path.replace('\\', "/");
+    let lower = normalized.to_ascii_lowercase();
+    if lower.contains("/.infring/")
+        || native_tool_bootstrap_path_looks_like_test(&lower)
+        || !native_tool_path_is_product_mutation_path(&normalized)
+    {
+        return;
+    }
+    if !paths.iter().any(|existing| existing == &normalized) {
+        paths.push(normalized);
+    }
+}
+
+fn native_tool_paths_same_or_suffix(left: &str, right: &str) -> bool {
+    let left = left.replace('\\', "/");
+    let right = right.replace('\\', "/");
+    left == right
+        || left.ends_with(right.trim_start_matches("./"))
+        || right.ends_with(left.trim_start_matches("./"))
+}
+
+fn native_tool_prompt_explicit_new_file_allowed(original_prompt: &str) -> bool {
+    let prompt = original_prompt.to_ascii_lowercase();
+    [
+        "create a new file",
+        "add a new file",
+        "new source file",
+        "new module",
+        "new package",
+        "new component",
+        "from scratch",
+        "initialize a new project",
+        "create a new project",
+    ]
+    .iter()
+    .any(|needle| prompt.contains(needle))
+}
+
 fn native_tool_path_is_product_mutation_path(path: &str) -> bool {
     let lower = path.replace('\\', "/").to_ascii_lowercase();
     !(lower.contains("/test/")
@@ -4847,7 +5248,13 @@ fn native_tool_stage_block_reason(
                 && read_context_count >= native_tool_pre_mutation_read_budget(metadata)
                 && native_tool_call_is_context_only(call)
             {
-                Some("staged_controller_requires_product_source_mutation_before_more_context")
+                if native_tool_bounded_direct_edit_lane_active(metadata, original_prompt)
+                    && native_tool_has_successful_product_mutation(receipts)
+                {
+                    None
+                } else {
+                    Some("staged_controller_requires_product_source_mutation_before_more_context")
+                }
             } else {
                 None
             }
@@ -5680,6 +6087,10 @@ fn native_tool_completion_evidence_repair_loop(
                 native_tool_unrelated_repair_path_receipt(call)
             } else if let Some(blocked) =
                 native_tool_preserved_api_write_blocked_receipt(original_prompt, &call)
+            {
+                blocked
+            } else if let Some(blocked) =
+                native_tool_atomic_dependent_edit_blocked_receipt(&receipts, &call)
             {
                 blocked
             } else if let Some(blocked) =

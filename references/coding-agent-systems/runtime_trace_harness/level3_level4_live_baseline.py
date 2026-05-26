@@ -317,6 +317,114 @@ def cases() -> list[dict[str, Any]]:
                 "test_jsonl_round_trip",
             ],
         },
+        {
+            "id": "level7_multi_module_reporting_slice",
+            "level": 7,
+            "initial_files": {
+                "warehouse/__init__.py": (
+                    "from .items import StockItem, normalize_location\n\n"
+                    "__all__ = [\"StockItem\", \"normalize_location\"]\n"
+                ),
+                "warehouse/items.py": (
+                    "from dataclasses import dataclass\n\n"
+                    "@dataclass\n"
+                    "class StockItem:\n"
+                    "    sku: str\n"
+                    "    quantity: int\n"
+                    "    location: str\n\n"
+                    "def normalize_location(value: str) -> str:\n"
+                    "    return value.strip().lower().replace(\" \", \"_\")\n"
+                ),
+                "tests/test_inventory_reporting.py": (
+                    "import csv\n"
+                    "import tempfile\n"
+                    "import unittest\n"
+                    "from pathlib import Path\n\n"
+                    "import warehouse\n"
+                    "from warehouse import InventoryCatalog, StockItem, summarize_inventory, write_reorder_report\n\n"
+                    "class InventoryReportingTests(unittest.TestCase):\n"
+                    "    def test_public_exports_include_reporting_api(self):\n"
+                    "        self.assertIn(\"InventoryCatalog\", warehouse.__all__)\n"
+                    "        self.assertIn(\"summarize_inventory\", warehouse.__all__)\n"
+                    "        self.assertIn(\"write_reorder_report\", warehouse.__all__)\n\n"
+                    "    def test_catalog_records_and_summarizes_locations(self):\n"
+                    "        catalog = InventoryCatalog()\n"
+                    "        catalog.add(StockItem(\"SKU-1\", 10, \"Front Room\"))\n"
+                    "        catalog.add(StockItem(\"SKU-2\", 3, \"front room\"))\n"
+                    "        catalog.add(StockItem(\"SKU-3\", 8, \"Back Room\"))\n"
+                    "        self.assertEqual(catalog.count_by_location(), {\"front_room\": 2, \"back_room\": 1})\n"
+                    "        self.assertEqual(summarize_inventory(catalog.items, low_stock_threshold=5), {\n"
+                    "            \"total_skus\": 3,\n"
+                    "            \"total_quantity\": 21,\n"
+                    "            \"by_location\": {\"front_room\": 2, \"back_room\": 1},\n"
+                    "            \"low_stock_skus\": [\"SKU-2\"],\n"
+                    "        })\n\n"
+                    "    def test_reorder_report_csv_contains_low_stock_rows(self):\n"
+                    "        items = [\n"
+                    "            StockItem(\"SKU-9\", 1, \"Remote Shelf\"),\n"
+                    "            StockItem(\"SKU-8\", 9, \"Remote Shelf\"),\n"
+                    "            StockItem(\"SKU-7\", 2, \"Main Shelf\"),\n"
+                    "        ]\n"
+                    "        with tempfile.TemporaryDirectory() as tmp:\n"
+                    "            path = Path(tmp) / \"reorder.csv\"\n"
+                    "            write_reorder_report(items, path, low_stock_threshold=5)\n"
+                    "            rows = list(csv.DictReader(path.read_text(encoding=\"utf-8\").splitlines()))\n"
+                    "        self.assertEqual(rows, [\n"
+                    "            {\"sku\": \"SKU-7\", \"quantity\": \"2\", \"location\": \"main_shelf\"},\n"
+                    "            {\"sku\": \"SKU-9\", \"quantity\": \"1\", \"location\": \"remote_shelf\"},\n"
+                    "        ])\n\n"
+                    "if __name__ == \"__main__\":\n"
+                    "    unittest.main()\n"
+                ),
+            },
+            "validation_command": "PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_*.py'",
+            "semantic_probe": (
+                "from pathlib import Path\n"
+                "import csv\n"
+                "import tempfile\n"
+                "from warehouse import InventoryCatalog, StockItem, summarize_inventory, write_reorder_report\n"
+                "catalog = InventoryCatalog()\n"
+                "catalog.add(StockItem('A-1', 2, 'Floor Bin'))\n"
+                "catalog.add(StockItem('A-2', 7, 'Floor Bin'))\n"
+                "catalog.add(StockItem('A-3', 4, 'Overstock'))\n"
+                "summary = summarize_inventory(catalog.items, low_stock_threshold=5)\n"
+                "assert summary['total_skus'] == 3\n"
+                "assert summary['total_quantity'] == 13\n"
+                "assert summary['by_location'] == {'floor_bin': 2, 'overstock': 1}\n"
+                "assert summary['low_stock_skus'] == ['A-1', 'A-3']\n"
+                "with tempfile.TemporaryDirectory() as tmp:\n"
+                "    path = Path(tmp) / 'reorder.csv'\n"
+                "    write_reorder_report(catalog.items, path, low_stock_threshold=5)\n"
+                "    rows = list(csv.DictReader(path.read_text(encoding='utf-8').splitlines()))\n"
+                "assert rows == [\n"
+                "    {'sku': 'A-1', 'quantity': '2', 'location': 'floor_bin'},\n"
+                "    {'sku': 'A-3', 'quantity': '4', 'location': 'overstock'},\n"
+                "]\n"
+            ),
+            "prompt": lambda root: (
+                f"Project root: {root}\n"
+                "This is an existing Python package with failing inventory reporting tests. "
+                "First run this validation command from project root to observe the failure: "
+                "PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_*.py'. "
+                "Then inspect the package files, implement InventoryCatalog with add(), items, and "
+                "count_by_location(), implement summarize_inventory(items, low_stock_threshold=5), "
+                "implement write_reorder_report(items, path, low_stock_threshold=5) as a CSV writer for "
+                "low-stock rows sorted by sku, expose the new public API from warehouse, preserve StockItem "
+                "and normalize_location behavior, rerun validation until it passes, and run this semantic "
+                "probe: PYTHONPATH=. python3 .infring/semantic_probe.py. Do not commit."
+            ),
+            "expected_paths": [
+                "warehouse/__init__.py",
+                "warehouse/items.py",
+                "tests/test_inventory_reporting.py",
+            ],
+            "expected_markers": [
+                "class InventoryCatalog",
+                "def summarize_inventory",
+                "def write_reorder_report",
+                "test_reorder_report_csv_contains_low_stock_rows",
+            ],
+        },
     ]
 
 
