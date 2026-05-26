@@ -422,6 +422,8 @@ impl AgentContract {
             bounded_direct_edit_task && native_tool_bounded_fast_edit_preflight_enabled(&self.metadata);
         let first_edit_batch_contract = bounded_fast_edit_preflight
             && native_tool_first_edit_batch_contract_enabled(&self.metadata);
+        let incremental_edit_loop = bounded_fast_edit_preflight
+            && native_tool_incremental_edit_loop_enabled(&self.metadata);
         let mut next_provider_timeout_seconds: Option<u64> = None;
         if bounded_direct_edit_task {
             prompt = native_tool_bounded_direct_edit_initial_prompt(
@@ -639,6 +641,10 @@ impl AgentContract {
             ) && turn_idx == 0
                 && native_tool_has_successful_read_context_receipt(&all_receipts)
                 && !native_tool_has_successful_mutation(&all_receipts);
+            let incremental_edit_turn = incremental_edit_loop
+                && turn_idx == 0
+                && native_tool_has_successful_read_context_receipt(&all_receipts)
+                && !native_tool_has_successful_mutation(&all_receipts);
             let first_edit_batch_turn = first_edit_batch_contract
                 && native_tool_has_successful_read_context_receipt(&all_receipts)
                 && !native_tool_has_successful_mutation(&all_receipts);
@@ -664,6 +670,12 @@ impl AgentContract {
                         &self.initial_prompt,
                         &all_receipts,
                     )
+                } else if incremental_edit_turn {
+                    native_tool_incremental_edit_prompt(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &all_receipts,
+                    )
                 } else if staged_edit_turn {
                     native_tool_staged_edit_prompt(
                         &self.metadata,
@@ -675,6 +687,8 @@ impl AgentContract {
                 };
             let request_system = if first_edit_batch_turn {
                 native_tool_first_edit_batch_system()
+            } else if incremental_edit_turn {
+                native_tool_incremental_edit_system()
             } else if staged_edit_turn {
                 native_tool_staged_edit_system()
             } else {
@@ -709,6 +723,7 @@ impl AgentContract {
                     "tool_count": request.tools.len(),
                     "stream_until_tool_calls": stream_until_tool_calls,
                     "staged_edit_turn": staged_edit_turn,
+                    "incremental_edit_turn": incremental_edit_turn,
                 }),
             );
             let provider_turn_started = Instant::now();
@@ -743,6 +758,7 @@ impl AgentContract {
                     "status": if provider_result.is_ok() { "ok" } else { "error" },
                     "stream_until_tool_calls": stream_until_tool_calls,
                     "staged_edit_turn": staged_edit_turn,
+                    "incremental_edit_turn": incremental_edit_turn,
                     "stream_diagnostics": provider_result
                         .as_ref()
                         .ok()
@@ -2286,6 +2302,15 @@ fn native_tool_first_edit_batch_contract_enabled(metadata: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn native_tool_incremental_edit_loop_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("incremental_edit_loop"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 fn native_tool_staged_edit_controller_enabled(metadata: &Value, _bounded_direct_edit_task: bool) -> bool {
     metadata
         .get("native_success_criteria")
@@ -2356,6 +2381,35 @@ Return only JSON tool_calls.\n\
 Use file_patch/file_write before command_run.\n\
 No read/list/stat/resolve; blocker only if receipts prove unsafe."
         .to_string()
+}
+
+fn native_tool_incremental_edit_system() -> String {
+    "Incremental local coding loop.\n\
+Use the normal native tools and return JSON tool_calls when acting.\n\
+Prefer the smallest useful product edit from receipt-backed context, then validation.\n\
+Ask for more context only when receipts are insufficient for a safe mutation."
+        .to_string()
+}
+
+fn native_tool_incremental_edit_prompt(
+    metadata: &Value,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> String {
+    let observation = native_tool_observation_prompt(receipts);
+    let owner_hint = native_tool_edit_owner_hint(receipts);
+    let rule = native_tool_orchestration_prompt_text(
+        metadata,
+        "incremental_edit_loop_rule",
+        "Use receipt-backed context to make the smallest safe product/API edit now. Keep existing public behavior unless the task requires changing it. Prefer file_patch for existing files and only create new files when that is the cleanest design. Run or request validation after mutation; do not spend another turn on broad discovery unless a receipt-backed blocker remains.",
+    );
+    format!(
+        "User task:\n{}\n\n{}\n{}\n\nReceipt-backed context and validation evidence:\n{}",
+        original_prompt.trim(),
+        rule,
+        owner_hint.trim(),
+        observation
+    )
 }
 
 fn native_tool_first_edit_batch_prompt(
