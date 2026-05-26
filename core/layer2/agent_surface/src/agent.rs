@@ -1700,6 +1700,7 @@ fn native_tool_persist_run_journal(
             })
         })
         .collect::<Vec<_>>();
+    let phase_latency_ms = native_tool_receipt_phase_latency(receipts);
     let payload = json!({
         "schema_version": "native_coding_run_journal_v1",
         "source": "infring_native_tool_runtime",
@@ -1710,12 +1711,72 @@ fn native_tool_persist_run_journal(
         "native_tool_receipts": receipts,
         "changed_files": changed_files,
         "validation_receipts": validation_receipts,
+        "native_tool_phase_latency_ms": phase_latency_ms,
         "latest_output_preview": latest_output.unwrap_or("").chars().take(2000).collect::<String>(),
         "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null),
     });
     if let Ok(text) = serde_json::to_string_pretty(&payload) {
         let _ = fs::write(path, text);
     }
+}
+
+fn native_tool_receipt_phase_latency(receipts: &[NativeToolReceipt]) -> Value {
+    let mut bootstrap_context_ms = 0u64;
+    let mut bootstrap_validation_ms = 0u64;
+    let mut mutation_ms = 0u64;
+    let mut validation_ms = 0u64;
+    let mut semantic_probe_ms = 0u64;
+    let mut other_ms = 0u64;
+    for receipt in receipts {
+        if receipt.call_id.starts_with("runtime_bootstrap_file_")
+            || receipt.call_id.starts_with("bounded_patch_artifact_file_read")
+        {
+            bootstrap_context_ms += receipt.duration_ms;
+        } else if receipt.call_id == "runtime_bootstrap_pre_mutation_validation_command" {
+            bootstrap_validation_ms += receipt.duration_ms;
+        } else if matches!(receipt.tool_name.as_str(), "file_write" | "file_patch") {
+            mutation_ms += receipt.duration_ms;
+        } else if receipt.tool_name == "command_run"
+            && native_tool_receipt_command_text(receipt).contains("semantic_probe.py")
+        {
+            semantic_probe_ms += receipt.duration_ms;
+        } else if receipt.tool_name == "command_run" {
+            validation_ms += receipt.duration_ms;
+        } else {
+            other_ms += receipt.duration_ms;
+        }
+    }
+    json!({
+        "bootstrap_context_ms": bootstrap_context_ms,
+        "bootstrap_validation_ms": bootstrap_validation_ms,
+        "mutation_ms": mutation_ms,
+        "validation_ms": validation_ms,
+        "semantic_probe_ms": semantic_probe_ms,
+        "other_ms": other_ms,
+        "receipt_total_ms": bootstrap_context_ms
+            + bootstrap_validation_ms
+            + mutation_ms
+            + validation_ms
+            + semantic_probe_ms
+            + other_ms,
+    })
+}
+
+fn native_tool_receipt_command_text(receipt: &NativeToolReceipt) -> String {
+    receipt
+        .result
+        .get("cmd")
+        .map(|cmd| match cmd {
+            Value::Array(parts) => parts
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" "),
+            Value::String(value) => value.clone(),
+            other => other.to_string(),
+        })
+        .unwrap_or_default()
+        .to_ascii_lowercase()
 }
 
 fn native_tool_run_journal_path(metadata: &Value, original_prompt: &str) -> Option<PathBuf> {
