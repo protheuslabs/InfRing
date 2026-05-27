@@ -197,6 +197,13 @@ fn limitation_heavy_opening_blocks_excellent_even_when_answer_is_structured() {
 
     let grade = grade_case(&case, &payload, 85, 95);
     assert!(grade.pass, "{:?}", grade.failures);
+    assert!(
+        !string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| blocker == "insufficiency_without_bounded_closure"),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
     assert!(!grade.excellent);
     assert!(grade
         .excellent_blockers
@@ -948,5 +955,280 @@ fn thin_source_inventory_answer_frame_fails_user_facing_quality() {
             }),
         "{:#?}",
         grade.user_facing_answer_quality
+    );
+}
+
+#[test]
+fn thin_partial_answer_with_value_and_detail_blockers_does_not_pass_user_facing_quality() {
+    let case = json!({
+        "prompt": "Research data-residency and sovereignty requirements that matter for SaaS buyers in 2026. I want the practical picture for selling into Europe and the US public sector.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["data residency", "Europe", "US public sector"]
+    });
+    let payload = json!({
+        "response": "Europe appears to require stronger residency and sovereignty readiness (ec.europa.eu), but I do not have enough usable evidence yet to give a practical selling recommendation for the US public sector.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "data residency sovereignty SaaS Europe US public sector 2026",
+                "queries": ["Europe data residency sovereignty SaaS", "US public sector SaaS data residency requirements"],
+                "keywords": ["data residency", "Europe", "US public sector", "sovereignty"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 4,
+            "content_rich_candidate_count": 3,
+            "claim_hint_count": 2,
+            "evidence_refs": [{
+                "title": "European sovereignty guidance",
+                "locator": "https://ec.europa.eu/example",
+                "source_kind": "government",
+                "snippet": "European guidance emphasizes localization, sovereignty posture, and controllable residency expectations for cloud and SaaS vendors.",
+                "claim_hints": ["Europe requires stronger residency and sovereignty readiness."]
+            }]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| blocker == "substantive_user_value_missing"),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| blocker == "wrong_level_of_detail"),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert_ne!(
+        grade
+            .user_facing_answer_quality
+            .get("verdict")
+            .and_then(Value::as_str),
+        Some("sounds_good")
+    );
+}
+
+#[test]
+fn eu_shorthand_does_not_trigger_false_entity_coverage_failure() {
+    let case = json!({
+        "prompt": "Research data-residency and sovereignty requirements that matter for SaaS buyers in 2026. I want the practical picture for selling into Europe and the US public sector.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["data residency", "Europe", "US public sector"]
+    });
+    let payload = json!({
+        "response": "The EU-US Data Privacy Framework remains the current transfer path for certified US SaaS vendors, while the EU Data Act adds separate portability and interoperability duties that affect European deals. For US public sector work, FedRAMP Rev5 remains the practical baseline. The current gap is that the retrieved evidence does not yet close the loop on narrower StateRAMP or ITAR edge cases.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "data residency sovereignty SaaS Europe US public sector 2026",
+                "queries": ["EU Data Act SaaS Europe 2026", "FedRAMP SaaS public sector 2026"],
+                "keywords": ["Europe", "EU", "US public sector", "FedRAMP", "data residency"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 5,
+            "content_rich_candidate_count": 4,
+            "claim_hint_count": 3,
+            "evidence_refs": [{
+                "title": "European sovereignty guidance",
+                "locator": "https://example.test/eu-data-act",
+                "source_kind": "government",
+                "snippet": "EU guidance emphasizes transfer controls, interoperability obligations, and cloud sovereignty posture for SaaS vendors.",
+                "claim_hints": [
+                    "The EU-US Data Privacy Framework remains a practical transfer path.",
+                    "The EU Data Act adds portability and interoperability duties."
+                ]
+            }]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(grade.coverage_entities, vec!["Europe".to_string()]);
+    assert!(!grade
+        .failures
+        .iter()
+        .any(|failure| failure.starts_with("entity_coverage_low")));
+    assert_eq!(
+        grade
+            .query_satisfaction
+            .get("scope_covered")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{:#?}",
+        grade.query_satisfaction
+    );
+}
+
+#[test]
+fn comparison_gap_without_bounded_closure_fails_user_facing_quality() {
+    let case = json!({
+        "prompt": "Compare online course platforms for an independent expert who wants to sell structured courses without building a full custom site.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["online course platforms"]
+    });
+    let payload = json!({
+        "response": "For an independent expert selling structured courses without building a custom site, the main split is between platforms optimized for course delivery and ones optimized for marketing funnels. Teachable and Thinkific both look workable if you already have an external site. But the retrieved evidence is insufficient for a direct ranking across the broader field, and I cannot rank them directly for your use case from what was retrieved.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "compare online course platforms structured courses without custom site",
+                "queries": ["Teachable Thinkific Kajabi Podia comparison", "online course platform structured course sales comparison"],
+                "keywords": ["course platforms", "structured courses", "independent expert", "no custom site"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 5,
+            "content_rich_candidate_count": 4,
+            "claim_hint_count": 2,
+            "evidence_refs": [
+                {
+                    "title": "Course platform comparison overview",
+                    "locator": "https://example.test/course-platforms-overview",
+                    "source_kind": "blog",
+                    "snippet": "Some platforms emphasize course delivery while others lean harder into funnel and marketing tooling.",
+                    "claim_hints": ["Course platforms often split between instructional design focus and marketing-funnel focus."]
+                },
+                {
+                    "title": "Teachable documentation for creators with existing websites",
+                    "locator": "https://example.test/teachable-existing-site",
+                    "source_kind": "official_docs",
+                    "snippet": "Teachable supports creators who already operate an external website and want to embed or link course sales paths.",
+                    "claim_hints": ["Teachable works for creators who already have an external site."]
+                }
+            ]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| blocker == "insufficiency_without_bounded_closure"),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+}
+
+#[test]
+fn insufficiency_only_answer_does_not_count_as_user_facing_good() {
+    let case = json!({
+        "prompt": "Research current approaches to reducing meeting overload on remote teams. What interventions have stronger evidence or operational support than vague productivity advice?",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["meeting overload", "remote teams"]
+    });
+    let payload = json!({
+        "response": "The current evidence is insufficient for a direct source-backed conclusion on which remote-team interventions are strongest. I cannot compare the interventions directly from what was retrieved.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "remote teams meeting overload stronger evidence interventions",
+                "queries": ["meeting overload remote teams evidence interventions"],
+                "keywords": ["meeting overload", "remote teams", "interventions", "evidence"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 4,
+            "content_rich_candidate_count": 2,
+            "claim_hint_count": 1,
+            "evidence_refs": [{
+                "title": "Remote team collaboration guidance",
+                "locator": "https://example.test/remote-team-guidance",
+                "source_kind": "guide",
+                "snippet": "General guidance discusses asynchronous communication and meeting-free blocks, but without a direct comparative ranking.",
+                "claim_hints": ["Asynchronous communication and meeting-free blocks are commonly discussed interventions."]
+            }]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| blocker == "insufficiency_without_bounded_closure"),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert_ne!(
+        grade
+            .user_facing_answer_quality
+            .get("verdict")
+            .and_then(Value::as_str),
+        Some("sounds_good")
     );
 }

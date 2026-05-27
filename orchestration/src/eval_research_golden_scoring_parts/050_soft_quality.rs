@@ -195,6 +195,8 @@ fn user_facing_answer_quality_check(
         .and_then(Value::as_u64)
         .unwrap_or(0);
     let limitation_heavy = limitation_heavy_for_excellent(normalized_response);
+    let explicit_goal_gap =
+        response_explicitly_cannot_answer_goal_from_current_evidence(normalized_response);
     let explicit_recap_frame = contains_any(
         normalized_response,
         &[
@@ -210,6 +212,13 @@ fn user_facing_answer_quality_check(
     let source_title_fragment_contamination =
         response_has_source_title_fragment_contamination(response_text);
     let projection_clean = !raw_tool_leak && !internal_leak && !tool_choice_final_response;
+    let bounded_recommendation_closure = direct_useful_units >= 2
+        && has_recommendation_signal(normalized_response)
+        && has_tradeoff_or_structure(normalized_response)
+        && !delegates_research
+        && !source_summary_without_answer;
+    let insufficiency_without_bounded_closure =
+        explicit_goal_gap && !bounded_recommendation_closure;
     let enough_substance = substantive_units >= 2
         || response_text.split_whitespace().count() >= 55
         || (intent_answered && direct_useful_units >= 1);
@@ -235,7 +244,7 @@ fn user_facing_answer_quality_check(
     );
     subgates.insert(
         "user_2_has_substantive_user_value".to_string(),
-        json!(useful_substance && enough_substance),
+        json!(useful_substance && enough_substance && !insufficiency_without_bounded_closure),
     );
     subgates.insert(
         "user_3_not_source_or_process_recap".to_string(),
@@ -273,6 +282,10 @@ fn user_facing_answer_quality_check(
         "user_11_not_source_title_fragment_contamination".to_string(),
         json!(!source_title_fragment_contamination),
     );
+    subgates.insert(
+        "user_12_explicit_gap_still_closes_usefully".to_string(),
+        json!(!insufficiency_without_bounded_closure),
+    );
 
     let ordered = [
         ("user_1_stands_alone_as_answer", "standalone_answer_missing"),
@@ -307,6 +320,10 @@ fn user_facing_answer_quality_check(
             "user_11_not_source_title_fragment_contamination",
             "source_title_fragment_contamination",
         ),
+        (
+            "user_12_explicit_gap_still_closes_usefully",
+            "insufficiency_without_bounded_closure",
+        ),
     ];
     let blockers = ordered
         .iter()
@@ -323,16 +340,10 @@ fn user_facing_answer_quality_check(
         .filter(|value| value.as_bool().unwrap_or(false))
         .count() as u64;
     let pass = score >= 9
-        && !blockers.iter().any(|blocker| {
-            matches!(
-                blocker.as_str(),
-                "standalone_answer_missing"
-                    | "source_or_process_recap_visible"
-                    | "source_title_fragment_contamination"
-                    | "readability_or_completion_issue"
-                    | "projection_or_smoke_issue"
-            )
-        });
+        && soft_smoke_pass
+        && !blockers
+            .iter()
+            .any(|blocker| user_facing_answer_quality_fatal_blocker(blocker));
     let verdict = if pass {
         "sounds_good"
     } else if score >= 7 {
@@ -361,9 +372,27 @@ fn user_facing_answer_quality_check(
             "citable_evidence_available": citable_evidence_available,
             "citation_signal": citation_signal,
             "response_source_signal": response_source_signal,
+            "explicit_goal_gap": explicit_goal_gap,
+            "bounded_recommendation_closure": bounded_recommendation_closure,
+            "insufficiency_without_bounded_closure": insufficiency_without_bounded_closure,
             "source_or_process_recap_visible": source_or_process_recap_visible,
             "source_title_fragment_contamination": source_title_fragment_contamination
         },
         "note": "Soft user-facing proxy. It asks whether the final visible text would feel useful and coherent to a real user if formatting and evaluator state were ignored. It remains diagnostic, but excellent should not outrun it and obviously bad visible answer shapes may be treated as grading failures."
     })
+}
+
+fn user_facing_answer_quality_fatal_blocker(blocker: &str) -> bool {
+    matches!(
+        blocker,
+        "standalone_answer_missing"
+            | "substantive_user_value_missing"
+            | "source_or_process_recap_visible"
+            | "readability_or_completion_issue"
+            | "projection_or_smoke_issue"
+            | "wrong_level_of_detail"
+            | "answer_units_not_prompt_useful"
+            | "insufficiency_without_bounded_closure"
+            | "source_title_fragment_contamination"
+    )
 }

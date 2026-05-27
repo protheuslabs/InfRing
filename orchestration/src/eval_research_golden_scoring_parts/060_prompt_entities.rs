@@ -79,10 +79,7 @@ fn required_entity_needs_entity_coverage(entity: &str) -> bool {
         return false;
     }
 
-    if trimmed
-        .chars()
-        .any(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
-    {
+    if trimmed.chars().any(|ch| ch.is_ascii_digit()) {
         return true;
     }
 
@@ -99,7 +96,19 @@ fn required_entity_needs_entity_coverage(entity: &str) -> bool {
         return false;
     }
 
+    let raw_tokens = trimmed
+        .split_whitespace()
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    let distinctive_named_tokens = raw_tokens
+        .iter()
+        .filter(|token| token_has_distinctive_named_shape(token))
+        .count();
+
     if tokens.len() == 1 {
+        if distinctive_named_tokens >= 1 {
+            return true;
+        }
         return !matches!(
             tokens[0],
             "agent"
@@ -152,56 +161,46 @@ fn required_entity_needs_entity_coverage(entity: &str) -> bool {
         );
     }
 
-    !tokens.iter().all(|token| {
-        matches!(
-            *token,
-            "agent"
-                | "agents"
-                | "agentic"
-                | "best"
-                | "benchmark"
-                | "benchmarks"
-                | "browser"
-                | "company"
-                | "comparison"
-                | "credential"
-                | "credentials"
-                | "current"
-                | "database"
-                | "deployment"
-                | "enterprise"
-                | "framework"
-                | "frameworks"
-                | "injection"
-                | "integration"
-                | "landscape"
-                | "latest"
-                | "model"
-                | "news"
-                | "observability"
-                | "prompt"
-                | "provider"
-                | "providers"
-                | "public"
-                | "rag"
-                | "recent"
-                | "release"
-                | "releases"
-                | "research"
-                | "retrieval"
-                | "security"
-                | "sentiment"
-                | "snippet"
-                | "snippets"
-                | "stack"
-                | "tool"
-                | "tools"
-                | "tradeoff"
-                | "tradeoffs"
-                | "update"
-                | "vector"
-                | "workflow"
-                | "workflows"
-        )
-    })
+    if distinctive_named_tokens >= 2 {
+        return true;
+    }
+
+    false
+}
+
+fn token_has_distinctive_named_shape(raw: &str) -> bool {
+    let cleaned = raw.trim_matches(|ch: char| !ch.is_ascii_alphanumeric());
+    if cleaned.is_empty() {
+        return false;
+    }
+    let mut chars = cleaned.chars();
+    let first = chars.next().unwrap_or_default();
+    let rest = chars.collect::<String>();
+    let has_upper = cleaned.chars().any(|ch| ch.is_ascii_uppercase());
+    let has_lower = cleaned.chars().any(|ch| ch.is_ascii_lowercase());
+    let has_digit = cleaned.chars().any(|ch| ch.is_ascii_digit());
+    if has_digit {
+        return true;
+    }
+    if has_upper && has_lower {
+        return cleaned.chars().all(|ch| ch.is_ascii_alphanumeric())
+            && (cleaned.chars().skip(1).any(|ch| ch.is_ascii_uppercase())
+                || (first.is_ascii_uppercase() && rest.chars().all(|ch| ch.is_ascii_lowercase())));
+    }
+    cleaned.chars().all(|ch| ch.is_ascii_uppercase()) && cleaned.len() >= 2
+}
+
+fn entity_supports_derived_initialism_alias(raw: &str) -> bool {
+    let tokens = raw
+        .split_whitespace()
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    if tokens.len() < 2 {
+        return false;
+    }
+    tokens
+        .iter()
+        .filter(|token| token_has_distinctive_named_shape(token))
+        .count()
+        >= 2
 }

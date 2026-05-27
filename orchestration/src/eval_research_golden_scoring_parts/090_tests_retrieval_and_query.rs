@@ -544,3 +544,15 @@ fn query_satisfaction_reports_entity_aliases_without_requiring_format() {
         Some("MCP")
     );
 }
+
+#[test]
+fn broad_scope_descriptors_do_not_get_derived_initialism_aliases() {
+    assert_eq!(
+        entity_coverage_aliases("AI agentic landscape"),
+        vec!["AI agentic landscape".to_string()]
+    );
+    assert_eq!(
+        entity_coverage_aliases("US public sector"),
+        vec!["US public sector".to_string()]
+    );
+}

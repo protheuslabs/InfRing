@@ -296,6 +296,9 @@ fn normalized_response_covers_entity_alias(normalized_response: &str, alias: &st
 fn entity_coverage_aliases(entity: &str) -> Vec<String> {
     let mut aliases = Vec::<String>::new();
     push_unique_alias(&mut aliases, entity);
+    for alias in common_entity_aliases(entity) {
+        push_unique_alias(&mut aliases, &alias);
+    }
     for alias in explicit_parenthetical_aliases(entity) {
         push_unique_alias(&mut aliases, &alias);
     }
@@ -303,6 +306,19 @@ fn entity_coverage_aliases(entity: &str) -> Vec<String> {
         push_unique_alias(&mut aliases, &acronym);
     }
     aliases
+}
+
+fn common_entity_aliases(entity: &str) -> Vec<String> {
+    let normalized = normalize_for_compare(entity);
+    match normalized.as_str() {
+        "europe" => vec!["EU".to_string(), "European Union".to_string(), "European".to_string()],
+        "european union" => vec!["EU".to_string(), "Europe".to_string(), "European".to_string()],
+        "united states" | "u s" | "usa" => {
+            vec!["US".to_string(), "U.S.".to_string(), "America".to_string()]
+        }
+        "united kingdom" => vec!["UK".to_string(), "Britain".to_string(), "Great Britain".to_string()],
+        _ => Vec::new(),
+    }
 }
 
 fn coverage_entity_aliases(coverage_entities: &[String]) -> Value {
@@ -365,6 +381,9 @@ fn explicit_parenthetical_aliases(raw: &str) -> Vec<String> {
 }
 
 fn derived_initialism_alias(raw: &str) -> Option<String> {
+    if !entity_supports_derived_initialism_alias(raw) {
+        return None;
+    }
     let tokens = raw
         .split(|ch: char| !ch.is_ascii_alphanumeric())
         .filter(|token| !token.is_empty())

@@ -169,6 +169,15 @@ fn short_derived_initialisms_are_not_used_as_loose_entity_aliases() {
 }
 
 #[test]
+fn geographic_scope_alias_counts_for_entity_coverage() {
+    let response = normalize_for_compare(
+        "The EU Data Act and EU-US Data Privacy Framework shape the practical picture for SaaS vendors selling into the region.",
+    );
+    assert!(normalized_response_covers_entity(&response, "Europe"));
+    assert!(normalized_response_covers_entity(&response, "European Union"));
+}
+
+#[test]
 fn hidden_fixture_entities_do_not_hard_fail_broad_discovery_prompts() {
     let case = json!({
         "prompt": "Research the strongest open-source coding agents right now and explain which are useful for real repositories versus demos.",
@@ -222,6 +231,77 @@ fn hidden_fixture_entities_do_not_hard_fail_broad_discovery_prompts() {
         Some(true)
     );
     assert!(grade.pass, "{:?}", grade.failures);
+}
+
+#[test]
+fn broad_topic_category_does_not_force_literal_entity_coverage() {
+    let case = json!({
+        "prompt": "Compare online course platforms for an independent expert who wants to sell structured courses without building a full custom site.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["online course platforms"]
+    });
+    let payload = json!({
+        "response": "For an independent expert selling structured courses without a custom site, Kajabi and Teachable are the easiest all-in-one options, while Thinkific is the better budget pick if lower monthly cost matters more than polished built-in marketing.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "online course platforms independent expert structured courses no custom site",
+                "queries": ["Kajabi Teachable Thinkific comparison"],
+                "keywords": ["Kajabi", "Teachable", "Thinkific", "online course platforms"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 4,
+            "content_rich_candidate_count": 4,
+            "claim_hint_count": 3,
+            "evidence_refs": [{
+                "title": "Hosted course platform comparison",
+                "locator": "https://example.test/course-platforms",
+                "source_kind": "comparison",
+                "snippet": "Kajabi and Teachable emphasize hosted all-in-one course businesses, while Thinkific is often positioned as a lower-cost hosted option.",
+                "claim_hints": [
+                    "Kajabi and Teachable are easier all-in-one hosted options.",
+                    "Thinkific is a stronger budget option."
+                ]
+            }]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert!(grade.coverage_entities.is_empty(), "{:?}", grade.coverage_entities);
+    assert!(!grade
+        .failures
+        .iter()
+        .any(|failure| failure.starts_with("entity_coverage_low")));
+    assert_eq!(
+        grade
+            .query_satisfaction
+            .get("scope_covered")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{:#?}",
+        grade.query_satisfaction
+    );
+}
+
+#[test]
+fn topical_scope_phrase_with_date_only_requires_literal_date_coverage() {
+    let entities = user_stated_required_entities(
+        &normalize_for_compare("Give me an update on the AI agentic landscape in May 2026."),
+        &["AI agentic landscape".to_string(), "May 2026".to_string()],
+    );
+    assert_eq!(entities, vec!["May 2026".to_string()]);
 }
 
 #[test]
