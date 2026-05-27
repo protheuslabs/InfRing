@@ -1096,6 +1096,119 @@ fn eu_shorthand_does_not_trigger_false_entity_coverage_failure() {
 }
 
 #[test]
+fn useful_explanatory_answer_is_not_blocked_only_by_soft_smoke_decision_signal() {
+    let case = json!({
+        "prompt": "Research data-residency and sovereignty requirements that matter for SaaS buyers in 2026. I want the practical picture for selling into Europe and the US public sector.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["source", "query", "aperture"]
+        },
+        "required_entities": ["data residency", "Europe", "US public sector"]
+    });
+    let payload = json!({
+        "response": "For the US public sector, FedRAMP is the baseline gate for cloud and SaaS offerings that handle unclassified agency data. For Europe, the evidence points to tighter data-localization and sovereign-cloud pressure around enterprise procurement, even though the retrieved sources do not fully close the loop on post-Schrems transfer mechanics or DORA operational specifics. Key gaps remain around StateRAMP timing and how EU sovereignty requirements are being enforced in actual contract language.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "source": "web",
+                "query": "data residency sovereignty SaaS Europe US public sector 2026",
+                "queries": ["EU data localization sovereign cloud SaaS 2026", "FedRAMP SaaS public sector 2026"],
+                "keywords": ["Europe", "EU", "US public sector", "FedRAMP", "data residency", "sovereign cloud"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 6,
+            "content_rich_candidate_count": 4,
+            "claim_hint_count": 3,
+            "evidence_refs": [
+                {
+                    "title": "EU cloud regulations explained",
+                    "locator": "https://example.test/eu-cloud",
+                    "source_kind": "analysis",
+                    "snippet": "European procurement and sovereignty pressure is increasing around localization, sovereign cloud posture, and transfer controls.",
+                    "claim_hints": [
+                        "Europe is tightening localization and sovereignty expectations.",
+                        "Transfer and procurement expectations are still evolving."
+                    ]
+                },
+                {
+                    "title": "FedRAMP public sector scope",
+                    "locator": "https://example.test/fedramp-scope",
+                    "source_kind": "government",
+                    "snippet": "FedRAMP remains the baseline assessment and authorization framework for cloud services used by US federal agencies.",
+                    "claim_hints": [
+                        "FedRAMP is the baseline gate for US public sector cloud procurement."
+                    ]
+                }
+            ]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .soft_quality_smoke
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{:#?}",
+        grade.soft_quality_smoke
+    );
+    assert_eq!(
+        grade
+            .soft_quality_smoke
+            .get("top_blocker")
+            .and_then(Value::as_str),
+        Some("decision_or_explanatory_value_missing"),
+        "{:#?}",
+        grade.soft_quality_smoke
+    );
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("verdict")
+            .and_then(Value::as_str),
+        Some("sounds_good"),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("max_score")
+            .and_then(Value::as_u64),
+        Some(12),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        !grade
+            .failures
+            .iter()
+            .any(|failure| failure == "user_facing_answer_not_good_enough"),
+        "{:?}",
+        grade.failures
+    );
+}
+
+#[test]
 fn comparison_gap_without_bounded_closure_fails_user_facing_quality() {
     let case = json!({
         "prompt": "Compare online course platforms for an independent expert who wants to sell structured courses without building a full custom site.",

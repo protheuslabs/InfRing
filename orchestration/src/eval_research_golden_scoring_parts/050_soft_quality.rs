@@ -340,7 +340,6 @@ fn user_facing_answer_quality_check(
         .filter(|value| value.as_bool().unwrap_or(false))
         .count() as u64;
     let pass = score >= 9
-        && soft_smoke_pass
         && !blockers
             .iter()
             .any(|blocker| user_facing_answer_quality_fatal_blocker(blocker));
@@ -357,7 +356,7 @@ fn user_facing_answer_quality_check(
         "pass": pass,
         "verdict": verdict,
         "score": score,
-        "max_score": 11,
+        "max_score": 12,
         "subgates": Value::Object(subgates),
         "blockers": blockers,
         "top_blocker": blockers.first().cloned().unwrap_or_else(|| "none".to_string()),
