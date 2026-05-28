@@ -651,9 +651,140 @@ fn answerability_rejects_packets_when_coverage_gaps_dominate() {
         Some(false)
     );
     assert_eq!(
+        diag.pointer("/evidence_quality/bounded_answerability_ready")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+    assert_eq!(
         diag.pointer("/first_failed_gate").and_then(Value::as_str),
         Some("web_5g_answerability_ready")
     );
+}
+
+#[test]
+fn bounded_answerability_accepts_thin_but_coherent_evidence_packages() {
+    let payload = json!({
+        "pending_tool_request": {
+            "tool_key": "batch_query",
+            "input": {
+                "query": "practical data residency requirements for SaaS buyers selling into Europe and the US public sector",
+                "queries": ["practical data residency requirements for SaaS buyers selling into Europe and the US public sector"],
+                "keywords": ["data residency", "Europe", "US public sector", "FedRAMP", "NIS2"],
+                "required_coverage": {
+                    "entities": ["Europe", "US public sector", "FedRAMP", "NIS2"],
+                    "facets": ["requirements", "procurement", "compliance", "operational impact"]
+                }
+            }
+        },
+        "tools": [{
+            "status": "usable"
+        }],
+        "evidence_pack_quality": {
+            "status": "thin",
+            "usable_count": 4,
+            "content_rich_item_count": 4,
+            "claim_hint_count": 6,
+            "source_domain_count": 4,
+            "missing_facet_count": 1,
+            "weak_facet_count": 2,
+            "covered_facet_count": 4,
+            "total_facet_count": 8,
+            "covered_facet_ratio": 0.5,
+            "coverage_thresholds_met": false,
+            "low_confidence_count": 0,
+            "candidate_only_count": 0,
+            "thresholds": {
+                "min_usable_items": 2,
+                "min_source_domains": 2,
+                "min_covered_facet_ratio_for_usable": 0.6
+            }
+        },
+        "evidence_pack": [
+            {
+                "title": "NIS2 scope",
+                "locator": "https://commission.example.com/nis2",
+                "source_type": "official_docs",
+                "source_kind": "official_docs",
+                "source_domain": "commission.example.com",
+                "snippet": "NIS2 expands obligations for cloud and digital providers selling into Europe.",
+                "relevant_extract": "NIS2 expands obligations for cloud and digital providers selling into Europe.",
+                "why_relevant_to_query": "It directly affects SaaS compliance requirements for European buyers.",
+                "claim_hints": ["NIS2 expands obligations for cloud and digital providers selling into Europe."]
+            },
+            {
+                "title": "FedRAMP Rev5",
+                "locator": "https://fedramp.example.com/rev5",
+                "source_type": "official_docs",
+                "source_kind": "official_docs",
+                "source_domain": "fedramp.example.com",
+                "snippet": "FedRAMP Rev5 requirements apply broadly to cloud services sold into the US public sector.",
+                "relevant_extract": "FedRAMP Rev5 requirements apply broadly to cloud services sold into the US public sector.",
+                "why_relevant_to_query": "It captures the practical compliance baseline for US public-sector SaaS sales.",
+                "claim_hints": ["FedRAMP Rev5 requirements apply broadly to cloud services sold into the US public sector."]
+            },
+            {
+                "title": "Sovereign cloud advisory",
+                "locator": "https://lawfirm.example.com/sovereign-cloud",
+                "source_type": "analysis",
+                "source_kind": "web_page_enriched",
+                "source_domain": "lawfirm.example.com",
+                "snippet": "European buyers increasingly treat data residency and transfer controls as procurement gates rather than optional assurances.",
+                "relevant_extract": "European buyers increasingly treat data residency and transfer controls as procurement gates rather than optional assurances.",
+                "why_relevant_to_query": "It gives practical procurement context for Europe.",
+                "claim_hints": ["European buyers increasingly treat data residency and transfer controls as procurement gates rather than optional assurances."]
+            },
+            {
+                "title": "Public sector compliance overview",
+                "locator": "https://publicsector.example.com/compliance",
+                "source_type": "analysis",
+                "source_kind": "web_page_enriched",
+                "source_domain": "publicsector.example.com",
+                "snippet": "StateRAMP and adjacent controls can add operational overhead even when FedRAMP is the headline requirement.",
+                "relevant_extract": "StateRAMP and adjacent controls can add operational overhead even when FedRAMP is the headline requirement.",
+                "why_relevant_to_query": "It adds operational impact context for US public-sector sales.",
+                "claim_hints": ["StateRAMP and adjacent controls can add operational overhead even when FedRAMP is the headline requirement."]
+            }
+        ]
+    });
+    let retrieval_quality = json!({
+        "status": "usable",
+        "candidate_count": 18,
+        "evidence_count": 4,
+        "content_rich_candidate_count": 4,
+        "materialized_candidate_count": 4,
+        "claim_hint_count": 6,
+        "usable_evidence": true
+    });
+    let query_metadata = json!({
+        "metadata_present": true,
+        "rich_query_pack_or_narrow_marker": true
+    });
+    let transitions = json!({
+        "checkpoints": [{
+            "checkpoint": "5e_agent_received_evidence_context",
+            "status": "pass"
+        }]
+    });
+    let diag =
+        web_retrieval_gate_diagnostics(&payload, &retrieval_quality, &query_metadata, &transitions);
+
+    assert_eq!(
+        diag.pointer("/evidence_quality/pack_coverage_thresholds_met")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+    assert_eq!(
+        diag.pointer("/evidence_quality/bounded_answerability_ready")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{diag:#?}"
+    );
+    assert_eq!(
+        diag.pointer("/evidence_quality/answerability_ready")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(diag.pointer("/first_failed_gate").and_then(Value::as_str), None);
 }
 
 #[test]

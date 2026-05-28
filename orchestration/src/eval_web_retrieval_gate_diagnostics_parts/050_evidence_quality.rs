@@ -123,11 +123,26 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         ratio(scan.evidence_packet_ready_count, evidence_packet_item_count);
     let evidence_packet_contract_ready =
         scan.evidence_packet_ready_count > 0 && evidence_packet_ready_rate >= 0.5;
+    let bounded_answerability_ready = source_quality_ready
+        && claim_quality_ready
+        && citation_renderability_ready
+        && evidence_packet_contract_ready
+        && pack_source_thresholds_met
+        && pack_usable_count >= pack_min_usable_items
+        && pack_source_domain_count >= pack_min_source_domains
+        && pack_covered_facet_count >= 2
+        && pack_covered_facet_ratio >= 0.5
+        && pack_missing_facet_count <= 1
+        && pack_weak_facet_count <= pack_covered_facet_count
+        && concrete_claim_count >= 2
+        && citation_ready_claim_count >= 2
+        && pack_candidate_only_count == 0
+        && pack_low_confidence_count < pack_usable_count;
     let answerability_ready = source_quality_ready
         && claim_quality_ready
         && citation_renderability_ready
-        && pack_coverage_thresholds_met
-        && pack_status_allows_answerability;
+        && ((pack_coverage_thresholds_met && pack_status_allows_answerability)
+            || bounded_answerability_ready);
     let pack_thresholds = json!({
         "min_usable_items": pack_min_usable_items,
         "min_source_domains": pack_min_source_domains
@@ -170,6 +185,10 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
     out.insert(
         "answerability_ready".to_string(),
         json!(answerability_ready),
+    );
+    out.insert(
+        "bounded_answerability_ready".to_string(),
+        json!(bounded_answerability_ready),
     );
     out.insert(
         "evidence_item_count".to_string(),

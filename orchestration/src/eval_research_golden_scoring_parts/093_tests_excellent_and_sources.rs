@@ -841,6 +841,64 @@ fn source_title_fragment_contamination_blocks_user_facing_and_excellent() {
 }
 
 #[test]
+fn single_source_title_with_byline_counts_as_contamination() {
+    let case = json!({
+        "prompt": "Explain the current data residency and sovereignty requirements that matter to SaaS buyers selling in Europe and the public sector.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        }
+    });
+    let payload = json!({
+        "response": "Self-Hosted EU Data Residency Laws Are Breaking Your SaaS Stack (Here's How to Fix It) /author/michael/ Michael Soto 12 Feb 2026 •",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "data residency sovereignty SaaS buyers Europe public sector",
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 4,
+            "content_rich_candidate_count": 4,
+            "claim_hint_count": 3,
+            "evidence_refs": [
+                {
+                    "title": "EU data sovereignty guidance",
+                    "locator": "https://example.test/eu-data-sovereignty",
+                    "source_kind": "official_docs",
+                    "snippet": "European public-sector and regulated SaaS buyers increasingly require data location controls, subprocessor transparency, and clear jurisdiction boundaries.",
+                    "claim_hints": ["European public-sector and regulated SaaS buyers increasingly require data location controls, subprocessor transparency, and clear jurisdiction boundaries."]
+                }
+            ]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| blocker == "source_title_fragment_contamination")
+    );
+}
+
+#[test]
 fn user_facing_answer_quality_flags_source_recap_as_not_good() {
     let case = json!({
         "prompt": "Give me news from this week.",

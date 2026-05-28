@@ -4,6 +4,7 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
     let answer_units = evidence_packet_answer_units_for_goal(message, response_tools, 4);
     let partial_decision_hint =
         synthesis_partial_comparison_decision_hint(message, response_tools);
+    let comparison_intent = synthesis_message_is_comparison_intent(message);
     if !answer_units.is_empty() {
         let mut answer_parts = Vec::<String>::new();
         let mut lane_scoped_answer_parts = Vec::<String>::new();
@@ -39,15 +40,24 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
         let coverage_note = fallback_user_visible_coverage_note(response_tools);
         if minimum_lane_coverage > 0 && covered_required_entity_lanes.len() < minimum_lane_coverage
         {
-            let mut parts = vec![if covered_required_entity_lanes.is_empty() {
+            let mut parts = vec![if comparison_intent && covered_required_entity_lanes.is_empty() {
                 "The current evidence does not yet support a reliable comparison across the requested entities.".to_string()
-            } else {
+            } else if comparison_intent {
                 "The current evidence supports only a partial comparison across the requested entities.".to_string()
+            } else if covered_required_entity_lanes.is_empty() {
+                "The current evidence supports only a partial answer to the request so far.".to_string()
+            } else {
+                "The current evidence supports only a partial answer to the request so far.".to_string()
             }];
             if partial_decision_hint.is_empty() {
+                let support_parts = if comparison_intent {
+                    lane_scoped_answer_parts.iter().collect::<Vec<_>>()
+                } else {
+                    answer_parts.iter().collect::<Vec<_>>()
+                };
                 parts.extend(
-                    lane_scoped_answer_parts
-                        .iter()
+                    support_parts
+                        .into_iter()
                         .take(2)
                         .map(|part| workflow_finish_visible_sentence(part)),
                 );
@@ -102,6 +112,21 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
         320,
     );
     if findings.is_empty() && failure_reason.is_empty() {
+        let evidence_sketch = clean_text(
+            &bounded_evidence_sketch_for_rejected_fallback(message, response_tools, ""),
+            1_200,
+        );
+        if !evidence_sketch.is_empty() {
+            let mut parts = vec![workflow_finish_visible_sentence(&evidence_sketch)];
+            if !partial_decision_hint.is_empty() {
+                parts.push(workflow_finish_visible_sentence(&partial_decision_hint));
+            }
+            let coverage_gap_note = fallback_user_visible_coverage_note(response_tools);
+            if !coverage_gap_note.is_empty() {
+                parts.push(workflow_finish_visible_sentence(&coverage_gap_note));
+            }
+            return clean_text(&parts.join(" "), 1_600);
+        }
         if coverage_note.is_empty() {
             return String::new();
         }
@@ -200,18 +225,57 @@ fn maybe_apply_rejected_tool_evidence_fallback(
     if response_tools.is_empty() || last_invalid_excerpt.trim().is_empty() {
         return false;
     }
-    let _ = last_invalid_response_text;
+    let salvage_source_text = if !last_invalid_response_text.trim().is_empty() {
+        last_invalid_response_text
+    } else {
+        last_invalid_excerpt
+    };
     let fallback_response = clean_text(
         &fallback_final_response_from_tool_evidence(message, response_tools),
         3_000,
     );
-    if fallback_response.is_empty() {
+    let salvaged_response = clean_text(
+        &salvaged_rejected_answer_units_for_fallback(
+            message,
+            salvage_source_text,
+            response_tools,
+            last_reject_reason,
+        ),
+        3_000,
+    );
+    let excerpt_sentence_salvage = clean_text(
+        &fallback_excerpt_sentence_from_rejected_response(
+            message,
+            last_invalid_excerpt,
+            response_tools,
+            last_reject_reason,
+        ),
+        3_000,
+    );
+    let evidence_sketch_salvage = clean_text(
+        &bounded_evidence_sketch_for_rejected_fallback(
+            message,
+            response_tools,
+            last_reject_reason,
+        ),
+        3_000,
+    );
+    let preferred_response = if !salvaged_response.is_empty() {
+        salvaged_response
+    } else if !excerpt_sentence_salvage.is_empty() {
+        excerpt_sentence_salvage
+    } else if !evidence_sketch_salvage.is_empty() {
+        evidence_sketch_salvage
+    } else {
+        fallback_response
+    };
+    if preferred_response.is_empty() {
         return false;
     }
     apply_tool_evidence_fallback_response(
         workflow,
         response_tools,
-        &fallback_response,
+        &preferred_response,
         "tool_evidence_runtime_fallback_after_verifier_reject",
         "rejected_response_replaced_from_tool_evidence",
         Some(last_reject_reason),
@@ -220,6 +284,203 @@ fn maybe_apply_rejected_tool_evidence_fallback(
         "synthesis_failure_diagnostic",
     );
     true
+}
+
+fn workflow_final_llm_diagnostic_text(
+    workflow: &Value,
+    pointers: &[&str],
+    max_len: usize,
+) -> String {
+    pointers
+        .iter()
+        .find_map(|pointer| {
+            let cleaned = clean_text(workflow.pointer(pointer).and_then(Value::as_str).unwrap_or(""), max_len);
+            (!cleaned.is_empty()).then_some(cleaned)
+        })
+        .unwrap_or_default()
+}
+
+fn response_is_low_information_coverage_fallback(response_text: &str) -> bool {
+    let lowered = clean_text(response_text, 1_200).to_ascii_lowercase();
+    if lowered.is_empty() {
+        return false;
+    }
+    lowered.contains("coverage state:")
+        && lowered.contains("usable evidence is present")
+        && (lowered.starts_with("my recommendation is to treat the current evidence as insufficient")
+            || lowered.starts_with("the practical answer is that the current evidence supports only a partial conclusion"))
+}
+
+fn maybe_repair_runtime_tool_evidence_fallback_from_reject_excerpt(
+    workflow: &mut Value,
+    message: &str,
+    response_tools: &[Value],
+) -> bool {
+    if workflow_final_response_status(workflow) != "tool_evidence_fallback_used" {
+        return false;
+    }
+    let current_response = clean_text(workflow.get("response").and_then(Value::as_str).unwrap_or(""), 3_000);
+    if current_response.is_empty() || !response_is_low_information_coverage_fallback(&current_response) {
+        return false;
+    }
+    let reject_excerpt = workflow_final_llm_diagnostic_text(
+        workflow,
+        &[
+            "/final_llm_response/original_reject_excerpt",
+            "/final_llm_response/diagnostic_invalid_excerpt",
+            "/final_llm_response/error",
+        ],
+        600,
+    );
+    let reject_reason = workflow_final_llm_diagnostic_text(
+        workflow,
+        &[
+            "/final_llm_response/original_reject_reason",
+            "/final_llm_response/diagnostic_reject_reason",
+            "/final_llm_response/last_reject_reason",
+        ],
+        240,
+    );
+    let repaired = clean_text(
+        &fallback_excerpt_sentence_from_rejected_response(
+            message,
+            &reject_excerpt,
+            response_tools,
+            &reject_reason,
+        ),
+        3_000,
+    );
+    let repaired = if repaired.is_empty() {
+        clean_text(
+            &bounded_evidence_sketch_for_rejected_fallback(
+                message,
+                response_tools,
+                &reject_reason,
+            ),
+            3_000,
+        )
+    } else {
+        repaired
+    };
+    if repaired.is_empty() || repaired == current_response {
+        return false;
+    }
+    let cleaned = persist_workflow_visible_response(workflow, &repaired);
+    if cleaned.is_empty() {
+        return false;
+    }
+    workflow["quality_telemetry"]["runtime_visible_fallback_source"] =
+        Value::String("tool_evidence_reject_excerpt_repair".to_string());
+    workflow["final_llm_response"]["replacement_response_used"] = Value::Bool(true);
+    workflow["final_llm_response"]["replacement_response_excerpt"] =
+        Value::String(first_sentence(&cleaned, 240));
+    workflow["final_llm_response"]["visible_response_repaired_from_reject_excerpt"] =
+        Value::Bool(true);
+    true
+}
+
+fn salvaged_rejected_answer_units_for_fallback(
+    message: &str,
+    rejected_response_text: &str,
+    response_tools: &[Value],
+    reject_reason: &str,
+) -> String {
+    let lowered_reason = reject_reason.to_ascii_lowercase();
+    if !lowered_reason.contains("missing_coverage_lanes=")
+        && !lowered_reason.contains("answer_units_not_useful_for_prompt")
+    {
+        return String::new();
+    }
+    let goal_terms = workflow_answer_unit_goal_terms(message);
+    let mut parts = Vec::<String>::new();
+    for unit in workflow_answer_text_units(rejected_response_text) {
+        let cleaned = clean_text(&unit, 520);
+        if cleaned.is_empty()
+            || response_looks_like_retrieval_recap_substituted_for_answer(&cleaned)
+            || workflow_answer_unit_contains_ui_or_source_shell(&cleaned)
+            || workflow_answer_unit_looks_like_source_title_fragment(&cleaned)
+            || workflow_answer_unit_looks_like_datestamped_headline_shell(&cleaned)
+            || workflow_answer_unit_is_process_or_metadata_fact(&cleaned)
+            || workflow_answer_unit_goal_overlap_count(&cleaned, &goal_terms) == 0
+            || response_has_answer_unit_traceability_violation(&cleaned, response_tools)
+        {
+            continue;
+        }
+        let finished = workflow_finish_visible_sentence(&cleaned);
+        if !finished.is_empty() && !parts.iter().any(|existing| existing == &finished) {
+            parts.push(finished);
+        }
+        if parts.len() >= 2 {
+            break;
+        }
+    }
+    if parts.is_empty() {
+        return String::new();
+    }
+    let coverage_note = fallback_user_visible_coverage_note(response_tools);
+    if lowered_reason.contains("missing_coverage_lanes=") && !coverage_note.is_empty() {
+        parts.push(workflow_finish_visible_sentence(&coverage_note));
+    }
+    clean_text(&parts.join(" "), 1_600)
+}
+
+fn fallback_excerpt_sentence_from_rejected_response(
+    message: &str,
+    rejected_excerpt: &str,
+    response_tools: &[Value],
+    reject_reason: &str,
+) -> String {
+    let cleaned = clean_text(&first_sentence(rejected_excerpt, 420), 520);
+    if cleaned.is_empty() || workflow_answer_unit_is_process_or_metadata_fact(&cleaned) {
+        return String::new();
+    }
+    let goal_terms = workflow_answer_unit_goal_terms(message);
+    let goal_overlap = workflow_answer_unit_goal_overlap_count(&cleaned, &goal_terms);
+    if goal_overlap == 0 {
+        return String::new();
+    }
+    let mut parts = vec![workflow_finish_visible_sentence(&cleaned)];
+    if reject_reason
+        .to_ascii_lowercase()
+        .contains("missing_coverage_lanes=")
+    {
+        let coverage_note = fallback_user_visible_coverage_note(response_tools);
+        if !coverage_note.is_empty() {
+            parts.push(workflow_finish_visible_sentence(&coverage_note));
+        }
+    }
+    clean_text(&parts.join(" "), 1_200)
+}
+
+fn bounded_evidence_sketch_for_rejected_fallback(
+    message: &str,
+    response_tools: &[Value],
+    reject_reason: &str,
+) -> String {
+    let primary_units = evidence_packet_answer_units_for_goal(message, response_tools, 2);
+    let evidence_sketch = clean_text(
+        &synthesis_safe_bounded_sketch_from_evidence(message, response_tools, &primary_units),
+        1_200,
+    );
+    if evidence_sketch.is_empty()
+        || response_looks_like_retrieval_recap_substituted_for_answer(&evidence_sketch)
+        || workflow_answer_unit_contains_ui_or_source_shell(&evidence_sketch)
+        || workflow_answer_unit_looks_like_source_title_fragment(&evidence_sketch)
+        || workflow_answer_unit_is_process_or_metadata_fact(&evidence_sketch)
+    {
+        return String::new();
+    }
+    let mut parts = vec![workflow_finish_visible_sentence(&evidence_sketch)];
+    if reject_reason
+        .to_ascii_lowercase()
+        .contains("missing_coverage_lanes=")
+    {
+        let coverage_note = fallback_user_visible_coverage_note(response_tools);
+        if !coverage_note.is_empty() {
+            parts.push(workflow_finish_visible_sentence(&coverage_note));
+        }
+    }
+    clean_text(&parts.join(" "), 1_600)
 }
 
 fn replacement_response_for_retry_boilerplate(message: &str, response_tools: &[Value]) -> String {

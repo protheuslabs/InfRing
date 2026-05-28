@@ -144,6 +144,13 @@ fn workflow_answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
     let contains_vs = normalized.contains(" vs ") || normalized.contains(" versus ");
     let headline_punctuation = cleaned.contains(':') || cleaned.contains(" - ");
     let question_like = cleaned.ends_with('?');
+    let trailing_dateline = workflow_answer_unit_looks_like_datestamped_headline_shell(&cleaned);
+    let byline_or_source_path_shell = normalized.contains("/author/")
+        || normalized.contains("/authors/")
+        || normalized.contains(" /author/")
+        || normalized.contains(" /authors/")
+        || normalized.contains("&bull")
+        || cleaned.contains('•');
     let preview_or_review_marker = normalized_shell.contains(" needs review ")
         || normalized_shell.contains(" public preview ")
         || normalized_shell.contains(" last updated ");
@@ -168,12 +175,72 @@ fn workflow_answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
     (contains_vs && title_like_words >= 3 && lowercase_content_words <= 4)
         || (question_like && title_ratio >= 0.45 && lowercase_content_words <= 4)
         || (headline_punctuation && title_ratio >= 0.50 && lowercase_content_words <= 3)
+        || (trailing_dateline && (headline_punctuation || title_ratio >= 0.45 || title_like_prefix))
+        || (byline_or_source_path_shell
+            && (headline_punctuation || trailing_dateline || title_ratio >= 0.40 || title_like_prefix))
         || (title_ratio >= 0.65 && lowercase_content_words <= 2)
         || title_like_prefix
         || (preview_or_review_marker && (headline_punctuation || title_ratio >= 0.40))
         || (cleaned.chars().take_while(|ch| ch.is_ascii_digit()).count() >= 4
             && headline_punctuation
             && alpha_count >= 6)
+}
+
+fn workflow_answer_unit_looks_like_datestamped_headline_shell(unit: &str) -> bool {
+    fn has_trailing_month_dateline(raw: &str) -> bool {
+        let mut tokens = normalize_coverage_lane_text(raw)
+            .split_whitespace()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        while tokens
+            .last()
+            .map(|token| {
+                token.len() == 1 && token.chars().all(|ch| ch.is_ascii_alphabetic())
+            })
+            .unwrap_or(false)
+        {
+            tokens.pop();
+        }
+        if tokens.len() < 2 {
+            return false;
+        }
+        let is_month = |token: &str| {
+            matches!(
+                token,
+                "january"
+                    | "february"
+                    | "march"
+                    | "april"
+                    | "may"
+                    | "june"
+                    | "july"
+                    | "august"
+                    | "september"
+                    | "october"
+                    | "november"
+                    | "december"
+            )
+        };
+        let is_year =
+            |token: &str| token.len() == 4 && token.starts_with("20") && token.chars().all(|ch| ch.is_ascii_digit());
+        let is_day = |token: &str| {
+            token.parse::<u8>()
+                .map(|value| (1..=31).contains(&value))
+                .unwrap_or(false)
+        };
+        let len = tokens.len();
+        is_year(&tokens[len - 1])
+            && ((len >= 3 && is_month(&tokens[len - 3]) && is_day(&tokens[len - 2]))
+                || (len >= 2 && is_month(&tokens[len - 2])))
+    }
+
+    let cleaned = clean_text(unit, 320);
+    if cleaned.is_empty() || !has_trailing_month_dateline(&cleaned) {
+        return false;
+    }
+    let prefix = cleaned.split_once(':').map(|(left, _)| left).unwrap_or(&cleaned);
+    cleaned.contains(':')
+        && workflow_text_prefix_looks_like_headline(prefix)
 }
 
 fn workflow_answer_unit_token_looks_title_like(token: &str) -> bool {

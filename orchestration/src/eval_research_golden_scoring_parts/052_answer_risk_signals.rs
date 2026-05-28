@@ -221,11 +221,15 @@ fn response_has_source_title_fragment_contamination(response_text: &str) -> bool
     let title_list_comparison_dump =
         title_list_marker
             && contains_any(&normalized_response, &[" vs ", " versus ", " which framework "]);
-    let suspicious_units = answer_text_units(response_text)
+    let units = answer_text_units(response_text);
+    let suspicious_units = units
         .iter()
         .filter(|unit| answer_unit_looks_like_source_title_fragment(unit))
         .count();
-    title_list_comparison_dump || suspicious_units >= 2 || (title_list_marker && suspicious_units >= 1)
+    title_list_comparison_dump
+        || suspicious_units >= 2
+        || (title_list_marker && suspicious_units >= 1)
+        || (units.len() == 1 && suspicious_units == 1)
 }
 
 fn answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
@@ -291,10 +295,17 @@ fn answer_unit_looks_like_source_title_fragment(unit: &str) -> bool {
     let headline_punctuation = cleaned.contains(':') || cleaned.contains(" - ");
     let question_like = cleaned.ends_with('?');
     let title_ratio = title_like_words as f64 / alpha_tokens.len() as f64;
+    let byline_or_source_path_shell = normalized.contains("/author/")
+        || normalized.contains("/authors/")
+        || normalized.contains(" /author/")
+        || normalized.contains(" /authors/")
+        || normalized.contains("&bull")
+        || cleaned.contains('•');
 
     (contains_vs && title_like_words >= 3 && lowercase_content_words <= 4)
         || (question_like && title_ratio >= 0.45 && lowercase_content_words <= 4)
         || (headline_punctuation && title_ratio >= 0.50 && lowercase_content_words <= 3)
+        || (byline_or_source_path_shell && (headline_punctuation || title_ratio >= 0.40))
         || (title_ratio >= 0.65 && lowercase_content_words <= 2)
 }
 

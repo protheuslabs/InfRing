@@ -132,7 +132,9 @@ fn workflow_answer_unit_is_process_or_metadata_fact(unit: &str) -> bool {
                 "deadline",
                 "registration",
                 "application window",
-                "calendar",
+                "event calendar",
+                "calendar of events",
+                "calendar schedule",
                 "press release",
             ],
         )
@@ -334,6 +336,7 @@ fn evidence_packet_answer_units_for_goal(
                     let (answer, _) = fallback_answer_unit_text_and_source(unit);
                     !answer.is_empty()
                         && !workflow_answer_unit_contains_ui_or_source_shell(&answer)
+                        && !workflow_answer_unit_looks_like_datestamped_headline_shell(&answer)
                         && evidence_packet_text_is_answer_claim(&answer)
                         && !(needs_decision_bearing_evidence
                             && workflow_answer_unit_is_low_information_profile_or_overview(
@@ -421,4 +424,3 @@ fn fallback_answer_unit_text_and_source(unit: &str) -> (String, String) {
         (trim_answer_tail(unit), String::new())
     }
 }
-

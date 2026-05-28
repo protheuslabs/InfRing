@@ -224,6 +224,205 @@
     }
 
     #[test]
+    fn rejected_tool_backed_response_salvages_supported_units_before_generic_coverage_note() {
+        let mut workflow = json!({
+            "response": "",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": false,
+                "status": "synthesis_failed"
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "query_metadata": {
+                "required_coverage": {
+                    "entities": ["meeting overload", "remote teams"]
+                }
+            },
+            "evidence_pack": [{
+                "title": "Field experiment summary",
+                "source_domain": "example.test",
+                "relevant_extract": "For remote teams, a large-scale field experiment found that prompting attendees to define meeting goals in advance improved meeting effectiveness and reduced meeting overload.",
+                "claim_hints": ["For remote teams, a large-scale field experiment found that prompting attendees to define meeting goals in advance improved meeting effectiveness and reduced meeting overload."],
+                "counts_as_usable_evidence": true
+            }]
+        })];
+        let rejected_response = "Remote and hybrid work has increased meeting load across distributed teams. For remote teams, a large-scale field experiment found that prompting attendees to define meeting goals in advance improved meeting effectiveness and reduced meeting overload.";
+
+        let rewritten = maybe_apply_rejected_tool_evidence_fallback(
+            &mut workflow,
+            "Research current approaches to reducing meeting overload on remote teams. What interventions have stronger evidence or operational support than vague productivity advice?",
+            &tools,
+            rejected_response,
+            rejected_response,
+            "final_response_verifier_contract:missing_coverage_lanes=calendar audit, asynchronous communication",
+        );
+
+        assert!(rewritten);
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(response.contains("define meeting goals in advance"), "{response}");
+        assert!(!response.starts_with("My recommendation is to treat the current evidence as insufficient"), "{response}");
+    }
+
+    #[test]
+    fn rejected_tool_backed_response_salvages_from_excerpt_when_full_text_missing() {
+        let mut workflow = json!({
+            "response": "",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": false,
+                "status": "synthesis_failed"
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "query_metadata": {
+                "required_coverage": {
+                    "entities": ["meeting overload", "remote teams"]
+                }
+            },
+            "evidence_pack": [{
+                "title": "Meeting-free days metrics",
+                "source_domain": "example.test",
+                "relevant_extract": "Remote teams with structured calendar analytics recover more focus time when recurring low-value meetings are reduced.",
+                "claim_hints": ["Remote teams with structured calendar analytics recover more focus time when recurring low-value meetings are reduced."],
+                "counts_as_usable_evidence": true
+            }]
+        })];
+        let rejected_excerpt =
+            "Calendar analytics tools that benchmark meeting load by role and quantify focus-time recovery now offer concrete operational support for remote teams, going beyond generic productivity tips.";
+
+        let rewritten = maybe_apply_rejected_tool_evidence_fallback(
+            &mut workflow,
+            "Research current approaches to reducing meeting overload on remote teams. What interventions have stronger evidence or operational support than vague productivity advice?",
+            &tools,
+            "",
+            rejected_excerpt,
+            "final_response_verifier_contract:missing_coverage_lanes=meeting overload",
+        );
+
+        assert!(rewritten);
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(
+            response.contains("Calendar analytics tools that benchmark meeting load by role"),
+            "{response}"
+        );
+        assert!(
+            !response.contains("structured calendar analytics recover more focus time"),
+            "{response}"
+        );
+        assert!(!response.starts_with("My recommendation is to treat the current evidence as insufficient"), "{response}");
+    }
+
+    #[test]
+    fn low_information_tool_evidence_fallback_is_repaired_from_reject_excerpt() {
+        let mut workflow = json!({
+            "response": "My recommendation is to treat the current evidence as insufficient for a direct source-backed conclusion. Coverage state: usable evidence is present for remote teams, meeting overload, asynchronous communication, meeting-free days.",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": true,
+                "status": "tool_evidence_fallback_used",
+                "diagnostic_reject_reason": "final_response_verifier_contract:missing_coverage_lanes=remote teams, meeting overload",
+                "diagnostic_invalid_excerpt": "Microsoft Research published an ACM paper in April 2026 finding that ineffective meetings are pervasive, and that thinking ahead explicitly about meeting goals may improve effectiveness."
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "query_metadata": {
+                "required_coverage": {
+                    "entities": ["remote teams", "meeting overload"]
+                }
+            },
+            "evidence_pack": [{
+                "title": "Meeting effectiveness study",
+                "source_domain": "example.test",
+                "relevant_extract": "Microsoft Research published an ACM paper in April 2026 finding that ineffective meetings are pervasive, and that thinking ahead explicitly about meeting goals may improve effectiveness for remote teams.",
+                "claim_hints": ["Microsoft Research published an ACM paper in April 2026 finding that ineffective meetings are pervasive, and that thinking ahead explicitly about meeting goals may improve effectiveness for remote teams."],
+                "counts_as_usable_evidence": true
+            }]
+        })];
+
+        let repaired = maybe_repair_runtime_tool_evidence_fallback_from_reject_excerpt(
+            &mut workflow,
+            "Research current approaches to reducing meeting overload on remote teams. What interventions have stronger evidence or operational support than vague productivity advice?",
+            &tools,
+        );
+
+        assert!(repaired);
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(response.contains("thinking ahead explicitly about meeting goals may improve effectiveness"), "{response}");
+        assert!(!response.starts_with("My recommendation is to treat the current evidence as insufficient"), "{response}");
+        assert_eq!(
+            workflow
+                .pointer("/quality_telemetry/runtime_visible_fallback_source")
+                .and_then(Value::as_str),
+            Some("tool_evidence_reject_excerpt_repair")
+        );
+    }
+
+    #[test]
+    fn low_information_tool_evidence_fallback_is_repaired_from_bounded_evidence_sketch_without_excerpt() {
+        let mut workflow = json!({
+            "response": "My recommendation is to treat the current evidence as insufficient for a direct source-backed conclusion. Coverage state: usable evidence is present for remote teams, meeting overload, async communication, meeting-free days.",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": true,
+                "status": "tool_evidence_fallback_used",
+                "diagnostic_reject_reason": "final_response_verifier_contract:missing_coverage_lanes=remote teams, meeting overload"
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "query_metadata": {
+                "required_coverage": {
+                    "entities": ["remote teams", "meeting overload", "async communication", "meeting-free days"]
+                }
+            },
+            "evidence_pack": [{
+                "title": "Distributed team case study",
+                "source_domain": "example.test",
+                "relevant_extract": "One measured case study from early 2026 documents a distributed product team that cut meeting time by 60% using async boards, with tracked methodology and outcomes.",
+                "claim_hints": ["One measured case study from early 2026 documents a distributed product team that cut meeting time by 60% using async boards, with tracked methodology and outcomes."],
+                "counts_as_usable_evidence": true
+            }]
+        })];
+
+        let repaired = maybe_repair_runtime_tool_evidence_fallback_from_reject_excerpt(
+            &mut workflow,
+            "Research current approaches to reducing meeting overload on remote teams. What interventions have stronger evidence or operational support than vague productivity advice?",
+            &tools,
+        );
+
+        assert!(repaired);
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(
+            response.contains("cut meeting time by 60% using async boards"),
+            "{response}"
+        );
+        assert!(
+            !response.starts_with("My recommendation is to treat the current evidence as insufficient"),
+            "{response}"
+        );
+    }
+
+    #[test]
     fn tool_input_required_coverage_becomes_synthesis_lanes() {
         let input = json!({
             "query": "Compare AlphaTool and BetaTool for current research workflows.",

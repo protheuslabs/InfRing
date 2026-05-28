@@ -631,6 +631,13 @@ fn page_extraction_link_preflight_rejection_reason_with_context(
         trusted_primary_source_candidate || trusted_official_source_candidate;
     let query_has_distinctive_terms = query_has_distinctive_relevance_terms(query);
     let article_like_link = page_extraction_link_has_article_like_path(link);
+    let contextual_bridge = substantive_prefetch_context_bridge(
+        query,
+        link,
+        context,
+        &candidate,
+        trusted_prefetch_candidate,
+    );
     if link_contains_collapsed_query_phrase(query, link) {
         return None;
     }
@@ -648,10 +655,13 @@ fn page_extraction_link_preflight_rejection_reason_with_context(
         return Some("off_intent_link");
     }
     if !trusted_prefetch_candidate && !query_has_distinctive_terms && !article_like_link {
-        if candidate_looks_like_relevant_discovery_hub(query, &candidate) {
+        if candidate_looks_like_relevant_discovery_hub(query, &candidate) || contextual_bridge {
             return None;
         }
         return Some("broad_query_non_article_link");
+    }
+    if contextual_bridge {
+        return None;
     }
     if !trusted_prefetch_candidate
         && query_has_distinctive_terms
@@ -667,6 +677,43 @@ fn page_extraction_link_preflight_rejection_reason_with_context(
         return Some("no_distinctive_overlap_link");
     }
     None
+}
+
+fn substantive_prefetch_context_bridge(
+    query: &str,
+    link: &str,
+    context: &str,
+    candidate: &Candidate,
+    trusted_prefetch_candidate: bool,
+) -> bool {
+    let combined = clean_text(
+        &format!("{} {} {}", candidate.title, candidate.snippet, candidate.locator),
+        2_400,
+    );
+    if combined.is_empty()
+        || contains_web_junk_marker(&combined)
+        || looks_like_off_intent_noise_candidate(query, candidate)
+        || looks_like_portal_noise_candidate(candidate)
+        || looks_like_link_directory_or_aggregator_shell(&combined)
+    {
+        return false;
+    }
+    let score = fallback_link_score_with_context(query, link, context);
+    if score < 0.18 {
+        return false;
+    }
+    let trusted_or_article = trusted_prefetch_candidate
+        || source_trust_adjustment(candidate) >= 0.1
+        || page_extraction_link_has_article_like_path(link);
+    if !trusted_or_article {
+        return false;
+    }
+    let content_rich = content_rich_text(context) || content_rich_text(&combined);
+    if !content_rich {
+        return false;
+    }
+    query_subject_phrase_matches_candidate(query, candidate)
+        || (current_web_intent(query) && segment_has_current_signal(&combined))
 }
 
 fn citation_wrapper_link(link: &str) -> bool {

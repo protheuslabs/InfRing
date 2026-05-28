@@ -204,6 +204,47 @@
     }
 
     #[test]
+    fn tool_evidence_fallback_filters_date_stamped_headline_shells() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research current approaches to reducing meeting overload on remote teams. What interventions have stronger evidence or operational support than vague productivity advice?",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["meeting overload", "remote teams"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "title": "Meeting-free-day article",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "Meeting-Free Days: What the Data Actually Shows June 14, 2026."
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "Field experiment summary",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "For remote teams, a large-scale field experiment found that prompting attendees to define meeting goals in advance improved meeting effectiveness and reduced meeting overload."
+                        ],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(
+            response.starts_with("A large-scale field experiment found"),
+            "{response}"
+        );
+        assert!(!response.contains("Meeting-Free Days"), "{response}");
+        assert!(!response.contains("What the Data Actually Shows"), "{response}");
+    }
+
+    #[test]
     fn tool_evidence_fallback_filters_preview_title_shell() {
         let response = fallback_final_response_from_tool_evidence(
             "Research data-residency and sovereignty requirements that matter for SaaS buyers in 2026 for selling into Europe and the US public sector, with practical compliance picture.",
@@ -275,6 +316,39 @@
         assert!(!response.contains("Copy Markdown"), "{response}");
         assert!(!response.contains("Open in ChatGPT"), "{response}");
         assert!(!response.contains("View as Markdown"), "{response}");
+    }
+
+    #[test]
+    fn tool_evidence_fallback_prefers_bounded_evidence_sketch_over_coverage_state_note() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research current approaches to reducing meeting overload on remote teams. What interventions have stronger evidence or operational support than vague productivity advice?",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["remote teams", "meeting overload", "async communication", "meeting-free days"]
+                    }
+                },
+                "evidence_pack": [{
+                    "title": "Distributed team case study",
+                    "source_domain": "example.test",
+                    "relevant_extract": "One measured case study from early 2026 documents a distributed product team that cut meeting time by 60% using async boards, with tracked methodology and outcomes.",
+                    "claim_hints": ["One measured case study from early 2026 documents a distributed product team that cut meeting time by 60% using async boards, with tracked methodology and outcomes."],
+                    "counts_as_usable_evidence": true
+                }]
+            })],
+        );
+        assert!(
+            response.contains("cut meeting time by 60% using async boards"),
+            "{response}"
+        );
+        assert!(
+            !response.starts_with("My recommendation is to treat the current evidence as insufficient"),
+            "{response}"
+        );
+        assert!(!response.contains("Coverage state:"), "{response}");
     }
 
     #[test]
@@ -438,4 +512,41 @@
             "{response}"
         );
         assert!(!response.contains("market has matured"), "{response}");
+    }
+
+    #[test]
+    fn tool_evidence_fallback_filters_headline_byline_shells() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Explain the current data residency and sovereignty requirements that matter to SaaS buyers selling in Europe and the public sector.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "evidence_pack": [
+                    {
+                        "title": "EU data residency article",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "Self-Hosted EU Data Residency Laws Are Breaking Your SaaS Stack (Here's How to Fix It) /author/michael/ Michael Soto 12 Feb 2026 •"
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "EU data residency guidance",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "For SaaS buyers selling into Europe or the public sector, the practical requirements are data location controls, subprocessor transparency, and clear jurisdiction boundaries for regulated workloads."
+                        ],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(!response.contains("/author/michael/"), "{response}");
+        assert!(
+            !response.contains(
+                "Self-Hosted EU Data Residency Laws Are Breaking Your SaaS Stack"
+            ),
+            "{response}"
+        );
     }

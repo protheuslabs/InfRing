@@ -3076,6 +3076,29 @@ mod quality_tests {
     }
 
     #[test]
+    fn page_extraction_keeps_substantive_current_links_when_context_is_strong_but_terms_shift() {
+        let query = "current shipping and logistics disruptions this month. What is actually happening, and what downstream effects should businesses watch?";
+        let link = "https://shipping.example.org/news/2026/05/red-sea-rerouting-freight-risk-premiums";
+        let context = "Late May 2026 freight-risk analysts say Red Sea rerouting and canal constraints are stretching delivery windows and raising inventory costs for importers.";
+        assert_eq!(
+            page_extraction_link_preflight_rejection_reason_with_context(query, link, context),
+            None
+        );
+        let candidate = Candidate {
+            source_kind: "exa_api_search_result_page_enriched".to_string(),
+            title: "Red Sea rerouting raises freight-risk premiums for importers".to_string(),
+            locator: link.to_string(),
+            snippet: "Late May 2026 freight-risk analysts say Red Sea rerouting and canal constraints are stretching delivery windows, forcing importers to hold more buffer inventory and rethink routing.".to_string(),
+            excerpt_hash: "shipping-bridge".to_string(),
+            timestamp: None,
+            permissions: Some("public_web;page_enriched".to_string()),
+            status_code: 200,
+        };
+        assert!(candidate_passes_relevance_gate(query, &candidate, false));
+        assert!(candidate_is_synthesis_eligible(query, &candidate, false));
+    }
+
+    #[test]
     fn page_extraction_keeps_authoritative_article_links_for_distinctive_current_research_queries()
     {
         let query = "scientific breakthroughs 2026 major discoveries physics chemistry biology";

@@ -462,6 +462,11 @@ fn finalize_message_finalization_and_payload(
         &latest_assistant_text,
         &response_tools,
     );
+    maybe_repair_runtime_tool_evidence_fallback_from_reject_excerpt(
+        &mut response_workflow,
+        message,
+        &response_tools,
+    );
     let pending_tool_confirmation_fallback = manual_toolbox_pending_tool_request
         .as_ref()
         .map(|pending_request| {

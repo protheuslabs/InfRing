@@ -726,6 +726,37 @@ fn looks_like_portal_noise_candidate(candidate: &Candidate) -> bool {
     .any(|marker| lowered.contains(marker))
 }
 
+fn candidate_has_substantive_page_enriched_bridge(query: &str, candidate: &Candidate) -> bool {
+    let source_kind = candidate.source_kind.to_ascii_lowercase();
+    let permissions = candidate.permissions.as_deref().unwrap_or("").to_ascii_lowercase();
+    let page_enriched =
+        source_kind.contains("page_enriched") || permissions.contains("page_enriched");
+    if !page_enriched {
+        return false;
+    }
+    let combined = candidate_relevance_text(candidate);
+    if combined.is_empty()
+        || looks_like_link_directory_or_aggregator_shell(&combined)
+        || looks_like_off_intent_noise_candidate(query, candidate)
+        || looks_like_portal_noise_candidate(candidate)
+    {
+        return false;
+    }
+    let content_rich = content_rich_text(&candidate.snippet) || content_rich_text(&combined);
+    if !content_rich {
+        return false;
+    }
+    let trusted_or_article = candidate_has_trusted_primary_source_signal(query, candidate)
+        || candidate_has_trusted_official_source_signal(query, candidate)
+        || source_trust_adjustment(candidate) >= 0.1
+        || page_extraction_link_has_article_like_path(&candidate.locator);
+    if !trusted_or_article {
+        return false;
+    }
+    query_subject_phrase_matches_candidate(query, candidate)
+        || (current_web_intent(query) && segment_has_current_signal(&combined))
+}
+
 fn candidate_passes_relevance_gate(
     query: &str,
     candidate: &Candidate,
@@ -743,6 +774,8 @@ fn candidate_passes_relevance_gate(
     let (overlap, distinctive_overlap, query_len) = query_overlap_profile(query, candidate);
     let query_has_distinctive_terms = query_has_distinctive_relevance_terms(query);
     let trusted_primary_source = candidate_has_trusted_primary_source_signal(query, candidate);
+    let page_enriched_context_bridge =
+        candidate_has_substantive_page_enriched_bridge(query, candidate);
     let broad_current_article_evidence = current_web_intent(query)
         && !query_has_distinctive_terms
         && segment_has_current_signal(&candidate_relevance)
@@ -761,12 +794,16 @@ fn candidate_passes_relevance_gate(
         }
     }
     if overlap == 0 {
-        if broad_current_article_evidence {
+        if broad_current_article_evidence || page_enriched_context_bridge {
             return true;
         }
         return false;
     }
-    if query_has_distinctive_terms && query_len >= 3 && distinctive_overlap == 0 {
+    if query_has_distinctive_terms
+        && query_len >= 3
+        && distinctive_overlap == 0
+        && !page_enriched_context_bridge
+    {
         return false;
     }
     let overlap_ratio = overlap as f64 / query_len as f64;
@@ -791,7 +828,12 @@ fn candidate_passes_relevance_gate(
         }
         return true;
     }
-    if query_has_distinctive_terms && query_len >= 3 && overlap < 2 && !trusted_primary_source {
+    if query_has_distinctive_terms
+        && query_len >= 3
+        && overlap < 2
+        && !trusted_primary_source
+        && !page_enriched_context_bridge
+    {
         return false;
     }
     if looks_like_portal_noise_candidate(candidate) && overlap < 2 && overlap_ratio < 0.25 {
