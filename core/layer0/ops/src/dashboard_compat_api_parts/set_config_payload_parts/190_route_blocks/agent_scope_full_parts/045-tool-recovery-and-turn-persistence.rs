@@ -282,6 +282,62 @@ fn synthesis_answer_shape_lead_instruction(message: &str) -> &'static str {
     }
 }
 
+fn synthesis_safe_bounded_sketch_from_primary_units(primary_units: &[String]) -> String {
+    let mut parts = Vec::<String>::new();
+    for unit in primary_units.iter().take(2) {
+        let sentence = clean_text(&first_sentence(unit, 220), 260);
+        if sentence.is_empty() {
+            continue;
+        }
+        if !parts.iter().any(|existing| existing == &sentence) {
+            parts.push(workflow_finish_visible_sentence(&sentence));
+        }
+    }
+    clean_text(&parts.join(" "), 720)
+}
+
+fn synthesis_safe_bounded_sketch_from_evidence(
+    message: &str,
+    response_tools: &[Value],
+    primary_units: &[String],
+) -> String {
+    let mut parts = Vec::<String>::new();
+    if let Some(rows) = synthesis_evidence_pack_for_tools(response_tools, 6).as_array() {
+        for row in rows {
+            let raw = clean_text(
+                row.get("relevant_extract")
+                    .or_else(|| row.get("support_snippet"))
+                    .or_else(|| row.get("snippet"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                420,
+            );
+            if raw.is_empty() {
+                continue;
+            }
+            let sentence = clean_text(&first_sentence(&raw, 220), 260);
+            if sentence.is_empty()
+                || !evidence_packet_text_is_answer_claim(&sentence)
+                || workflow_answer_unit_contains_ui_or_source_shell(&sentence)
+                || workflow_answer_unit_looks_like_source_title_fragment(&sentence)
+            {
+                continue;
+            }
+            let sentence = workflow_finish_visible_sentence(&sentence);
+            if !parts.iter().any(|existing| existing == &sentence) {
+                parts.push(sentence);
+            }
+            if parts.len() >= 2 {
+                break;
+            }
+        }
+    }
+    if parts.is_empty() {
+        return synthesis_safe_bounded_sketch_from_primary_units(primary_units);
+    }
+    clean_text(&parts.join(" "), 720)
+}
+
 fn synthesis_source_preferences(message: &str, metadata: Option<&Value>) -> Vec<String> {
     let mut out = Vec::<String>::new();
     let mut seen = HashSet::<String>::new();
@@ -1098,6 +1154,14 @@ fn workflow_answer_unit_synthesis_prompt_context(
         .collect::<Vec<_>>();
     let bounded_decision_hint =
         synthesis_partial_comparison_decision_hint(message, response_tools);
+    let safe_bounded_sketch = if synthesis_message_is_comparison_intent(message) {
+        clean_text(
+            &fallback_final_response_from_tool_evidence(message, response_tools),
+            720,
+        )
+    } else {
+        synthesis_safe_bounded_sketch_from_evidence(message, response_tools, &primary_units)
+    };
     let mut lines = vec![
         "Direct synthesis brief:".to_string(),
         format!("- {}", synthesis_answer_shape_lead_instruction(message)),
@@ -1131,6 +1195,12 @@ fn workflow_answer_unit_synthesis_prompt_context(
         lines.push(format!(
             "Coverage gaps to mention only after the supported answer: {}.",
             weak_lanes.join(", ")
+        ));
+    }
+    if !safe_bounded_sketch.is_empty() {
+        lines.push(format!(
+            "- If you need a safe bounded structure, stay at least as direct as this evidence-backed sketch (adapt naturally; do not copy mechanically): {}",
+            safe_bounded_sketch
         ));
     }
     clean_text(&lines.join("\n"), 3_200)
@@ -2113,6 +2183,57 @@ mod tool_turn_response_text_tests {
         assert!(prompt.contains("Travelpro"), "{prompt}");
         assert!(prompt.contains("Briggs & Riley"), "{prompt}");
         assert!(prompt.contains("Samsonite"), "{prompt}");
+    }
+
+    #[test]
+    fn workflow_answer_unit_synthesis_prompt_context_includes_safe_bounded_sketch() {
+        let prompt = workflow_answer_unit_synthesis_prompt_context(
+            "Research current shipping and logistics disruptions this month. What is actually happening, and what downstream effects should businesses watch?",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["shipping", "logistics disruptions"],
+                        "facets": ["downstream business effects", "supply chain risk"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "pack_version": "evidence_pack_v1",
+                        "source_kind": "news_article",
+                        "source_class": "announcement_or_news",
+                        "title": "Shipping delays expand beyond ports",
+                        "locator": "https://example.test/shipping-delays",
+                        "source_domain": "example.test",
+                        "relevant_extract": "Ocean shipping delays are expanding beyond port congestion into booking cycles, voyage routes, and inland discharge networks.",
+                        "why_relevant_to_query": "It describes what is currently happening across shipping lanes.",
+                        "claim_hints": [
+                            "Ocean shipping delays are expanding beyond port congestion into booking cycles, voyage routes, and inland discharge networks."
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "pack_version": "evidence_pack_v1",
+                        "source_kind": "industry_report",
+                        "source_class": "documentation_or_reference",
+                        "title": "Route irregularity affects delivery windows",
+                        "locator": "https://example.test/delivery-windows",
+                        "source_domain": "example.test",
+                        "relevant_extract": "Longer routes and irregular vessel arrivals are making delivery windows harder to predict and forcing supply chains to rethink transit-time metrics.",
+                        "why_relevant_to_query": "It provides a concrete downstream business effect to watch.",
+                        "claim_hints": [
+                            "Longer routes and irregular vessel arrivals are making delivery windows harder to predict."
+                        ],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+
+        assert!(prompt.contains("safe bounded structure"), "{prompt}");
+        assert!(prompt.contains("adapt naturally; do not copy mechanically"), "{prompt}");
+        assert!(prompt.contains("delivery windows harder to predict"), "{prompt}");
     }
 
     #[test]

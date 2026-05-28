@@ -3118,6 +3118,34 @@ mod quality_tests {
     }
 
     #[test]
+    fn page_extraction_keeps_links_when_relevance_depends_on_plural_variants() {
+        let query = "remote team intervention approach for meeting overload";
+        let policy = default_policy();
+        let links = payload_links_for_page_extraction(
+            query,
+            &policy,
+            &json!({
+                "links": [
+                    "https://example.org/compare-text",
+                    "https://example.org/remote-teams-interventions-approaches"
+                ],
+                "content": "Remote teams interventions approaches for meeting overload — https://example.org/remote-teams-interventions-approaches — Practical interventions and facilitation approaches for remote teams trying to reduce meeting overload."
+            }),
+            2,
+        );
+        assert!(
+            links
+                .iter()
+                .any(|link| link.contains("remote-teams-interventions-approaches")),
+            "{links:?}"
+        );
+        assert!(
+            !links.iter().any(|link| link.contains("compare-text")),
+            "{links:?}"
+        );
+    }
+
+    #[test]
     fn page_extraction_allows_relevant_hub_links_only_with_context_signal() {
         let query = "Give me the biggest world news from this week.";
         let hub = "https://apnews.com/world-news";
@@ -3199,6 +3227,30 @@ mod quality_tests {
         assert!(
             candidate_passes_relevance_gate(query, &candidate, false),
             "broad current-event queries should allow current article evidence even when a specific story has no literal overlap with generic words like news/week"
+        );
+    }
+
+    #[test]
+    fn relevance_gate_accepts_close_plural_overlap_for_distinctive_queries() {
+        let query = "remote team intervention approach";
+        let candidate = Candidate {
+            source_kind: "web".to_string(),
+            title: "Remote teams interventions and approaches".to_string(),
+            locator: "https://example.org/remote-teams-interventions-approaches".to_string(),
+            snippet: "Practical interventions and facilitation approaches for remote teams that need a lighter collaboration cadence."
+                .to_string(),
+            excerpt_hash: "plural-overlap".to_string(),
+            timestamp: None,
+            permissions: Some("public_web;page_enriched".to_string()),
+            status_code: 200,
+        };
+        assert!(
+            candidate_passes_relevance_gate(query, &candidate, false),
+            "plural and simple suffix variants should still count as distinctive overlap for relevance"
+        );
+        assert!(
+            candidate_is_synthesis_eligible(query, &candidate, false),
+            "relevance normalization should keep obviously on-topic evidence eligible for synthesis"
         );
     }
 

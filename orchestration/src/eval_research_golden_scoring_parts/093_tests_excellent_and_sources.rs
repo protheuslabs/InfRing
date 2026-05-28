@@ -1206,6 +1206,15 @@ fn useful_explanatory_answer_is_not_blocked_only_by_soft_smoke_decision_signal()
         "{:?}",
         grade.failures
     );
+    assert!(
+        !grade
+            .failures
+            .iter()
+            .any(|failure| failure.starts_with("research_score_below_pass")),
+        "{:?}",
+        grade.failures
+    );
+    assert!(grade.score >= 85, "{:?}", grade.failures);
 }
 
 #[test]

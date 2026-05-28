@@ -460,6 +460,36 @@
     }
 
     #[test]
+    fn answer_unit_usefulness_allows_time_scoped_update_units_with_may_as_month() {
+        let retrieval_quality = json!({
+            "usable_evidence": true,
+            "status": "usable"
+        });
+        let usefulness = answer_unit_usefulness_for_prompt(
+            &normalize_for_compare("Give me an update on the AI agentic landscape in May 2026."),
+            "By late May 2026, the agentic AI landscape is marked by a flurry of major model releases rather than framework or protocol breakthroughs. A practitioner roundup from May 27 frames the biggest agentic AI launches as Anthropic's Mythos, Gemini 3.5 Flash, and Qwen 3. The recorded evidence surfaces model-release activity but does not yet materialize the framework, protocol, and platform coverage needed for a full landscape update.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(usefulness.get("pass").and_then(Value::as_bool), Some(true));
+        assert!(
+            usefulness
+                .get("direct_useful_units")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                >= 2,
+            "{:#?}",
+            usefulness
+        );
+        assert_ne!(
+            usefulness.get("top_blocker").and_then(Value::as_str),
+            Some("direct_answer_units_missing"),
+            "{:#?}",
+            usefulness
+        );
+    }
+
+    #[test]
     fn response_truncation_detector_flags_incomplete_table_tail() {
         assert!(response_looks_truncated_or_incomplete(
             "Comparison:\n| Dimension | Best signal |\n| SDK ecosystem | Tavily (AWS"

@@ -534,15 +534,43 @@ fn tokenize_relevance(raw: &str, cap: usize) -> HashSet<String> {
         .split(|ch: char| !ch.is_ascii_alphanumeric())
     {
         let normalized = token.trim();
-        if normalized.len() < 3 || is_relevance_stop_token(normalized) {
+        let canonical = canonicalize_relevance_token(normalized);
+        if canonical.len() < 3 || is_relevance_stop_token(&canonical) {
             continue;
         }
-        out.insert(normalized.to_string());
+        out.insert(canonical);
         if out.len() >= cap.max(1) {
             break;
         }
     }
     out
+}
+
+fn canonicalize_relevance_token(token: &str) -> String {
+    if token.len() <= 4 || token.chars().all(|ch| ch.is_ascii_digit()) {
+        return token.to_string();
+    }
+    if token.ends_with("ies") && token.len() > 5 {
+        return format!("{}y", &token[..token.len() - 3]);
+    }
+    if ["ches", "shes", "sses", "xes", "zes", "oes"]
+        .iter()
+        .any(|suffix| token.ends_with(suffix))
+        && token.len() > 5
+    {
+        return token[..token.len() - 2].to_string();
+    }
+    if token.ends_with('s')
+        && token.len() > 4
+        && !token.ends_with("ss")
+        && !token.ends_with("us")
+        && !token.ends_with("is")
+        && !token.ends_with("ws")
+        && !token.ends_with("ics")
+    {
+        return token[..token.len() - 1].to_string();
+    }
+    token.to_string()
 }
 
 fn is_weak_relevance_token(token: &str) -> bool {

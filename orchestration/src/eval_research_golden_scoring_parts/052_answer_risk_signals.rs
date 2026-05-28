@@ -1,73 +1,99 @@
 fn answer_unit_is_hedged_or_gap(normalized_unit: &str) -> bool {
     let padded = format!(" {normalized_unit} ");
-    contains_any(
-        &padded,
-        &[
-            " may ",
-            " might ",
-            " could ",
-            " appears ",
-            " suggests ",
-            " uncertain",
-            " not clear",
-            " not enough",
-            " does not confirm",
-            " doesn't confirm",
-            " current evidence does not",
-            " evidence does not",
-            " wasn't materialized",
-            " wasnt materialized",
-            " not materialized",
-            " not retrieved",
-            " can't give ",
-            " cannot give ",
-            " source-backed comparison",
-            " source backed comparison",
-            " search returned only",
-            " returned only headline",
-            " headline-level",
-            " coverage gaps",
-            " missing entity",
-            " missing facet",
-            " lacked direct",
-            " lacks direct",
-            " no source-backed",
-            " insufficient for a direct",
-            " insufficient for a fully source backed",
-            " insufficient for a fully source-backed",
-            " evidence is insufficient",
-            " evidence was insufficient",
-            " evidence is too thin",
-            " evidence was too thin",
-            " too thin to deliver",
-            " too thin to provide",
-            " too thin to give",
-            " limited evidence",
-            " available evidence",
-            " available snippet",
-            " available snippets",
-            " coverage gap",
-            " safe boundary",
-            " do not choose",
-            " dont choose",
-            " more targeted search",
-            " targeted search",
-            " would likely yield",
-            " verify ",
-            " next search direction",
-            " needed to choose",
-            " cant rank ",
-            " can t rank ",
-            " cannot rank ",
-            " cant compare ",
-            " can t compare ",
-            " cannot compare ",
-            " unknown",
-            " unverified",
-            " inference",
-            " partial",
-        ],
-    )
+    answer_unit_contains_modal_may(normalized_unit)
+        || contains_any(
+            &padded,
+            &[
+                " might ",
+                " could ",
+                " appears ",
+                " suggests ",
+                " uncertain",
+                " not clear",
+                " not enough",
+                " does not confirm",
+                " doesn't confirm",
+                " current evidence does not",
+                " evidence does not",
+                " wasn't materialized",
+                " wasnt materialized",
+                " not materialized",
+                " not retrieved",
+                " can't give ",
+                " cannot give ",
+                " source-backed comparison",
+                " source backed comparison",
+                " search returned only",
+                " returned only headline",
+                " headline-level",
+                " coverage gaps",
+                " missing entity",
+                " missing facet",
+                " lacked direct",
+                " lacks direct",
+                " no source-backed",
+                " insufficient for a direct",
+                " insufficient for a fully source backed",
+                " insufficient for a fully source-backed",
+                " evidence is insufficient",
+                " evidence was insufficient",
+                " evidence is too thin",
+                " evidence was too thin",
+                " too thin to deliver",
+                " too thin to provide",
+                " too thin to give",
+                " limited evidence",
+                " available evidence",
+                " available snippet",
+                " available snippets",
+                " coverage gap",
+                " safe boundary",
+                " do not choose",
+                " dont choose",
+                " more targeted search",
+                " targeted search",
+                " would likely yield",
+                " verify ",
+                " next search direction",
+                " needed to choose",
+                " cant rank ",
+                " can t rank ",
+                " cannot rank ",
+                " cant compare ",
+                " can t compare ",
+                " cannot compare ",
+                " unknown",
+                " unverified",
+                " inference",
+                " partial",
+            ],
+        )
+}
+
+fn answer_unit_contains_modal_may(normalized_unit: &str) -> bool {
+    let tokens = normalized_unit
+        .split_whitespace()
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    for (idx, token) in tokens.iter().enumerate() {
+        if *token != "may" {
+            continue;
+        }
+        let prev = tokens.get(idx.saturating_sub(1)).copied().unwrap_or("");
+        let next = tokens.get(idx + 1).copied().unwrap_or("");
+        if answer_unit_may_looks_temporal(prev, next) {
+            continue;
+        }
+        return true;
+    }
+    false
+}
+
+fn answer_unit_may_looks_temporal(prev: &str, next: &str) -> bool {
+    matches!(
+        prev,
+        "late" | "early" | "mid" | "in" | "by" | "during" | "through" | "throughout" | "from"
+    ) || next.chars().all(|ch| ch.is_ascii_digit())
 }
 
 fn answer_unit_unsupported_is_significant(

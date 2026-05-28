@@ -105,6 +105,19 @@ pub(super) fn grade_case(
         "workflow_specific_rubric": workflow_specific_rubric,
         "note": "Separates general answer quality, evidence-use discipline, and research-specific rubric checks so format flexibility and workflow-specific semantics can evolve independently."
     });
+    let answer_unit_evidence_alignment =
+        answer_unit_evidence_alignment(payload, &response_text, &retrieval_quality);
+    let answer_unit_usefulness =
+        answer_unit_usefulness_for_prompt(&normalized_prompt, &response_text, &retrieval_quality);
+    let direct_useful_units = answer_unit_usefulness
+        .get("direct_useful_units")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let useful_explanatory_answer_signal = answer_unit_usefulness
+        .get("pass")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        && direct_useful_units >= 2;
     let soft_quality_smoke = soft_quality_smoke_check(
         &response_text,
         &normalized,
@@ -116,10 +129,6 @@ pub(super) fn grade_case(
         tool_choice_final_response,
         truncated_or_incomplete_response,
     );
-    let answer_unit_evidence_alignment =
-        answer_unit_evidence_alignment(payload, &response_text, &retrieval_quality);
-    let answer_unit_usefulness =
-        answer_unit_usefulness_for_prompt(&normalized_prompt, &response_text, &retrieval_quality);
     let user_facing_answer_quality = user_facing_answer_quality_check(
         &response_text,
         &normalized,
@@ -166,6 +175,14 @@ pub(super) fn grade_case(
         })
         + (if has_recommendation_signal(&normalized) {
             4
+        } else {
+            0
+        })
+        + (if useful_explanatory_answer_signal
+            && !has_tradeoff_or_structure(&normalized)
+            && !has_recommendation_signal(&normalized)
+        {
+            2
         } else {
             0
         })

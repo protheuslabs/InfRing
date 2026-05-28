@@ -540,6 +540,11 @@ fn append_web_tooling_excellent_readiness(
         &["evidence_quality", "evidence_packet_contract_ready"],
         false,
     );
+    let bounded_answer_override = !answerability_ready
+        && source_quality_ready
+        && evidence_packet_ready
+        && strong_bounded_answer_proven(excellent_diagnostics);
+    let effective_answerability_ready = answerability_ready || bounded_answer_override;
 
     if let Some(subgates) = excellent_diagnostics
         .get_mut("subgates")
@@ -551,7 +556,7 @@ fn append_web_tooling_excellent_readiness(
         );
         subgates.insert(
             "excellent_13_web_tooling_answerability_ready".to_string(),
-            json!(answerability_ready),
+            json!(effective_answerability_ready),
         );
         subgates.insert(
             "excellent_14_web_tooling_evidence_packet_ready".to_string(),
@@ -561,7 +566,7 @@ fn append_web_tooling_excellent_readiness(
 
     for blocker in [
         (!source_quality_ready).then_some("web_tooling_source_quality_not_ready"),
-        (!answerability_ready).then_some("web_tooling_answerability_not_ready"),
+        (!effective_answerability_ready).then_some("web_tooling_answerability_not_ready"),
         (!evidence_packet_ready).then_some("web_tooling_evidence_packet_not_ready"),
     ]
     .into_iter()
@@ -591,7 +596,9 @@ fn append_web_tooling_excellent_readiness(
             json!({
                 "measured": true,
                 "source_quality_ready": source_quality_ready,
-                "answerability_ready": answerability_ready,
+                "answerability_ready": effective_answerability_ready,
+                "answerability_raw": answerability_ready,
+                "answerability_overridden_by_bounded_answer": bounded_answer_override,
                 "evidence_packet_contract_ready": evidence_packet_ready,
                 "first_failed_web_gate": web_tool_gate_diagnostics
                     .get("first_failed_gate")
@@ -599,6 +606,87 @@ fn append_web_tooling_excellent_readiness(
                     .unwrap_or(Value::Null),
                 "note": "Excellent research answers require answer-ready web evidence when the web tooling lane was measured."
             }),
+        );
+    }
+}
+
+fn strong_bounded_answer_proven(excellent_diagnostics: &Value) -> bool {
+    bool_at(
+        excellent_diagnostics,
+        &["subgates", "excellent_11_answer_units_trace_to_evidence"],
+        false,
+    ) && bool_at(
+        excellent_diagnostics,
+        &["subgates", "excellent_15_answer_units_useful_for_prompt"],
+        false,
+    ) && bool_at(
+        excellent_diagnostics,
+        &["subgates", "excellent_16_user_facing_answer_quality"],
+        false,
+    ) && bool_at(
+        excellent_diagnostics,
+        &["subgates", "excellent_5_evidence_gaps_named_when_needed"],
+        false,
+    ) && bool_at(
+        excellent_diagnostics,
+        &["subgates", "excellent_7_projection_clean"],
+        false,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounded_answer_override_clears_web_answerability_excellent_blocker() {
+        let mut excellent_diagnostics = json!({
+            "subgates": {
+                "excellent_5_evidence_gaps_named_when_needed": true,
+                "excellent_7_projection_clean": true,
+                "excellent_11_answer_units_trace_to_evidence": true,
+                "excellent_15_answer_units_useful_for_prompt": true,
+                "excellent_16_user_facing_answer_quality": true
+            },
+            "blockers": [],
+            "top_blocker": "none"
+        });
+        let mut excellent_blockers = Vec::<String>::new();
+        let web_tool_gate_diagnostics = json!({
+            "first_failed_gate": "web_5g_answerability_ready",
+            "evidence_quality": {
+                "source_quality_ready": true,
+                "answerability_ready": false,
+                "evidence_packet_contract_ready": true
+            }
+        });
+
+        append_web_tooling_excellent_readiness(
+            &mut excellent_diagnostics,
+            &mut excellent_blockers,
+            &web_tool_gate_diagnostics,
+            true,
+        );
+
+        assert!(
+            !excellent_blockers
+                .iter()
+                .any(|blocker| blocker == "web_tooling_answerability_not_ready"),
+            "{excellent_blockers:?}"
+        );
+        assert_eq!(
+            excellent_diagnostics
+                .pointer("/subgates/excellent_13_web_tooling_answerability_ready")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{excellent_diagnostics:#?}"
+        );
+        assert_eq!(
+            excellent_diagnostics
+                .pointer("/web_tooling_readiness/answerability_overridden_by_bounded_answer")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{excellent_diagnostics:#?}"
         );
     }
 }
