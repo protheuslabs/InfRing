@@ -89,8 +89,13 @@ pub(super) fn synthesis_uses_evidence_or_low_evidence_fallback(
             && !response_requests_more_scope_without_substance(&normalized);
     }
     if tool_result_low_signal(payload) {
-        return response_has_low_evidence_signal(&normalized)
-            && response_has_research_shape(&normalized)
+        let direct_evidence_backed_answer =
+            response_has_direct_evidence_backed_answer_shape(&response, &normalized);
+        let source_or_citation_signal =
+            response_has_source_signal(&normalized) || payload_has_final_citation_signal(payload);
+        return ((response_has_low_evidence_signal(&normalized)
+            && response_has_research_shape(&normalized))
+            || (source_or_citation_signal && direct_evidence_backed_answer))
             && !response_overleads_with_tool_status(&normalized)
             && !response_uses_internal_runtime_context_as_evidence(&normalized)
             && !response_requests_more_scope_without_substance(&normalized);
@@ -126,7 +131,7 @@ fn payload_evidence_outcome_posture(payload: &Value) -> Option<String> {
 }
 
 fn payload_has_final_citation_signal(payload: &Value) -> bool {
-    [
+    let pointer_signal = [
         "/citations",
         "/source_refs",
         "/response_workflow/citations",
@@ -137,6 +142,7 @@ fn payload_has_final_citation_signal(payload: &Value) -> bool {
         "/response_finalization/source_refs",
         "/response_finalization/tool_completion/citations",
         "/response_finalization/tool_completion/source_refs",
+        "/response_finalization/tool_completion/evidence_refs_used",
     ]
     .iter()
     .any(|pointer| {
@@ -145,6 +151,19 @@ fn payload_has_final_citation_signal(payload: &Value) -> bool {
             .and_then(Value::as_array)
             .map(|rows| rows.iter().any(value_has_content))
             .unwrap_or(false)
+    });
+    if pointer_signal {
+        return true;
+    }
+    tool_rows(payload).iter().any(|row| {
+        ["citations", "source_refs", "evidence_refs"]
+            .iter()
+            .any(|key| {
+                row.get(*key)
+                    .and_then(Value::as_array)
+                    .map(|rows| rows.iter().any(value_has_content))
+                    .unwrap_or(false)
+            })
     })
 }
 
@@ -484,6 +503,10 @@ fn response_has_low_evidence_signal(normalized: &str) -> bool {
         "low relevance",
         "low-relevance",
         "limited evidence",
+        "evidence is limited",
+        "available evidence is limited",
+        "available evidence remains limited",
+        "source backed details are limited",
         "retrieval results are limited",
         "retrieval result is limited",
         "source coverage",
@@ -547,6 +570,9 @@ fn response_has_low_evidence_signal(normalized: &str) -> bool {
         "retrieved evidence does not contain",
         "evidence falls short",
         "evidence fell short",
+        "need fresher sources",
+        "need more targeted sources",
+        "need fresher more targeted sources",
         "direct evidence is missing",
         "direct source coverage is missing",
         "caveat",
@@ -1150,6 +1176,85 @@ mod tests {
                     "title": "Old Quebec winter guide",
                     "locator": "https://example.com/quebec-winter"
                 }]
+            }
+        });
+        assert!(synthesis_uses_evidence_or_low_evidence_fallback(
+            &json!({}),
+            &payload,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn synthesis_gate_accepts_direct_answer_with_tool_evidence_refs_only() {
+        let payload = json!({
+            "response": "Container freight rates are climbing sharply across the world's major shipping routes, driven by geopolitical disruption, rerouting pressure, and pre-emptive cargo volume shifts, with Europe now caught up in a rally that began elsewhere.",
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "result": "Shipping disruptions findings",
+                "evidence_refs": [{
+                    "title": "Shipping market update",
+                    "locator": "https://example.com/shipping-market-update",
+                    "snippet": "Rates are climbing across major routes as rerouting pressure and cargo surges tighten capacity."
+                }]
+            }],
+            "response_finalization": {
+                "tool_completion": {
+                    "evidence_refs_used": ["https://example.com/shipping-market-update"]
+                }
+            }
+        });
+        assert!(synthesis_uses_evidence_or_low_evidence_fallback(
+            &json!({}),
+            &payload,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn synthesis_gate_accepts_available_evidence_is_limited_wording() {
+        let payload = json!({
+            "response": "I don't have current, source-backed details on 2026 RSV vaccine guidance changes for older adults. The available evidence is limited and doesn't yield concrete answer units about what's new this year or which patient questions are most important. What I can say is that current materials still center adults aged 60 and older and risk-based discussion, but I'd need fresher, more targeted sources to answer reliably.",
+            "tools": [{
+                "name": "batch_query",
+                "status": "no_results",
+                "result": "No usable source-backed update was returned for the current-year guidance delta.",
+                "evidence_refs": [{
+                    "title": "No usable result",
+                    "locator": "tool:no-results",
+                    "snippet": "No current-year guidance delta was returned."
+                }]
+            }]
+        });
+        assert!(synthesis_uses_evidence_or_low_evidence_fallback(
+            &json!({}),
+            &payload,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn synthesis_gate_accepts_direct_bounded_answer_even_when_tool_state_is_low_signal() {
+        let payload = json!({
+            "response": "RSV vaccination for older adults is recommended as a single dose for all adults ages 75 and older, and for adults ages 50 to 74 who are at increased risk of severe RSV illness. Questions patients should bring to a clinician include whether they meet the higher-risk criteria, which vaccine product fits their history, and the best timing before RSV season. What I could not verify from the retrieved evidence is whether 2026 guidance changed this recommendation or only continued it.",
+            "tools": [{
+                "name": "batch_query",
+                "status": "low_signal",
+                "result": "Current-year guidance deltas were incomplete, but CDC/ACIP source material was partially recovered.",
+                "evidence_refs": [{
+                    "title": "CDC RSV guidance",
+                    "locator": "https://example.com/cdc-rsv-guidance",
+                    "snippet": "Adults ages 75 and older and adults 50 to 74 at increased risk are recommended for RSV vaccination."
+                }]
+            }],
+            "response_finalization": {
+                "tool_completion": {
+                    "evidence_refs_used": ["https://example.com/cdc-rsv-guidance"]
+                }
             }
         });
         assert!(synthesis_uses_evidence_or_low_evidence_fallback(

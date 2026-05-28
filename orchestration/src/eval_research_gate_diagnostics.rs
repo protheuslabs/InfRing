@@ -386,7 +386,9 @@ fn synthesis_failure_class(
         return "low_signal_synthesis_contract_miss".to_string();
     }
     if evidence_extracted || packaged_tool_result {
-        if !response_has_source_signal_diag(&normalized) {
+        if !response_has_source_signal_diag(&normalized)
+            && !payload_has_final_citation_signal_diag(payload)
+        {
             return "evidence_present_but_not_used".to_string();
         }
         if required_entity_coverage_diag(case, &normalized) < 0.75 {
@@ -566,6 +568,65 @@ fn response_has_source_signal_diag(normalized: &str) -> bool {
     .any(|needle| normalized.contains(*needle))
 }
 
+fn value_has_content_diag(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::String(raw) => !clean_text(raw, 240).is_empty(),
+        Value::Array(rows) => rows.iter().any(value_has_content_diag),
+        Value::Object(map) => !map.is_empty(),
+        _ => true,
+    }
+}
+
+fn payload_has_final_citation_signal_diag(payload: &Value) -> bool {
+    let pointer_signal = [
+        "/citations",
+        "/source_refs",
+        "/response_workflow/citations",
+        "/response_workflow/source_refs",
+        "/response_workflow/final_llm_response/citations",
+        "/response_workflow/final_llm_response/source_refs",
+        "/response_finalization/citations",
+        "/response_finalization/source_refs",
+        "/response_finalization/tool_completion/citations",
+        "/response_finalization/tool_completion/source_refs",
+        "/response_finalization/tool_completion/evidence_refs_used",
+    ]
+    .iter()
+    .any(|pointer| {
+        payload
+            .pointer(pointer)
+            .and_then(Value::as_array)
+            .map(|rows| rows.iter().any(value_has_content_diag))
+            .unwrap_or(false)
+    });
+    if pointer_signal {
+        return true;
+    }
+    payload
+        .get("tools")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .chain(
+            payload
+                .pointer("/response_finalization/tool_completion/tool_attempts")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten(),
+        )
+        .any(|row| {
+            ["citations", "source_refs", "evidence_refs"]
+                .iter()
+                .any(|key| {
+                    row.get(*key)
+                        .and_then(Value::as_array)
+                        .map(|rows| rows.iter().any(value_has_content_diag))
+                        .unwrap_or(false)
+                })
+        })
+}
+
 fn response_has_low_evidence_signal_diag(normalized: &str) -> bool {
     [
         "low signal",
@@ -573,6 +634,10 @@ fn response_has_low_evidence_signal_diag(normalized: &str) -> bool {
         "low relevance",
         "low-relevance",
         "limited evidence",
+        "evidence is limited",
+        "available evidence is limited",
+        "available evidence remains limited",
+        "source backed details are limited",
         "retrieval results are limited",
         "retrieval result is limited",
         "source coverage",
@@ -634,6 +699,9 @@ fn response_has_low_evidence_signal_diag(normalized: &str) -> bool {
         "retrieved evidence does not contain",
         "evidence falls short",
         "evidence fell short",
+        "need fresher sources",
+        "need more targeted sources",
+        "need fresher more targeted sources",
         "direct evidence is missing",
         "direct source coverage is missing",
         "caveat",
