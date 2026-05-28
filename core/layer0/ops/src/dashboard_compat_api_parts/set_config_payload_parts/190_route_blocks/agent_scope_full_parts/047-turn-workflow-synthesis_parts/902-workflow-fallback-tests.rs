@@ -495,6 +495,19 @@
     }
 
     #[test]
+    fn final_synthesis_retry_guidance_prevents_concrete_findings_collapse() {
+        let prompt = workflow_final_synthesis_retry_prompt_context(
+            "final_response_verifier_contract:answer_units_not_traceable_to_evidence",
+            "The recorded evidence doesn't include concrete findings on evidence-based interventions for meeting overload on remote teams.",
+        );
+        let lowered = prompt.to_ascii_lowercase();
+
+        assert!(lowered.contains("primary answer units"));
+        assert!(lowered.contains("restate the strongest supported one before naming gaps"));
+        assert!(lowered.contains("do not say that the evidence lacks concrete findings"));
+    }
+
+    #[test]
     fn latent_tool_candidates_do_not_force_prompt_only_gate() {
         let message = "what? why are you repeating the same fallback text?";
         let latent_tool_candidates = json!([{"tool": "web_search"}]);

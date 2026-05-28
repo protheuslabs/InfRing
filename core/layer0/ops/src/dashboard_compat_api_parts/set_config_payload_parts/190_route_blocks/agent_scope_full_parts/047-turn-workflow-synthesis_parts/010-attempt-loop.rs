@@ -132,9 +132,14 @@ fn run_turn_workflow_final_response_attempts(
                 8_000,
             )
         } else if compact_tool_retry {
+            let retry_guidance_block = if final_synthesis_retry_guidance.is_empty() {
+                String::new()
+            } else {
+                format!("{final_synthesis_retry_guidance}\n\n")
+            };
             clean_text(
                 &format!(
-                    "User message:\n{message}\n\n{tool_state_summary}{answer_unit_synthesis_block}{missing_turn_tool_context_block}\n\nSynthesis input envelope:\n{synthesis_input_json}\n\nRecorded tool outcomes:\n{tool_rows_json}"
+                    "User message:\n{message}\n\n{retry_guidance_block}{tool_state_summary}{answer_unit_synthesis_block}{missing_turn_tool_context_block}\n\nSynthesis input envelope:\n{synthesis_input_json}\n\nRecorded tool outcomes:\n{tool_rows_json}"
                 ),
                 8_000,
             )
