@@ -83,10 +83,6 @@ fn required_entity_needs_entity_coverage(entity: &str) -> bool {
         return true;
     }
 
-    if trimmed.contains(['-', '_', '/', '.']) {
-        return true;
-    }
-
     let normalized = normalize_for_compare(trimmed);
     let tokens = normalized
         .split_whitespace()
@@ -104,6 +100,15 @@ fn required_entity_needs_entity_coverage(entity: &str) -> bool {
         .iter()
         .filter(|token| token_has_distinctive_named_shape(token))
         .count();
+
+    if trimmed.contains(['-', '_', '/', '.']) {
+        if tokens.len() == 1 {
+            return true;
+        }
+        if distinctive_named_tokens >= 1 {
+            return true;
+        }
+    }
 
     if tokens.len() == 1 {
         if distinctive_named_tokens >= 1 {

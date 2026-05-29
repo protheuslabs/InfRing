@@ -305,6 +305,42 @@ fn topical_scope_phrase_with_date_only_requires_literal_date_coverage() {
 }
 
 #[test]
+fn broad_hyphenated_topic_phrase_does_not_become_literal_entity_requirement() {
+    let entities = user_stated_required_entities(
+        &normalize_for_compare(
+            "Research the current wave of youth social-media restriction bills in the US.",
+        ),
+        &[
+            "youth social-media restriction bills".to_string(),
+            "US".to_string(),
+        ],
+    );
+    assert_eq!(entities, vec!["US".to_string()]);
+}
+
+#[test]
+fn us_jurisdiction_signal_counts_for_entity_coverage_without_literal_us() {
+    let response = normalize_for_compare(
+        "States are pursuing age-verification mandates, and a federal court in Virginia has already blocked one of the newer restrictions on First Amendment grounds.",
+    );
+    assert!(
+        entity_coverage(&response, &["US".to_string()]) >= 1.0,
+        "{response}"
+    );
+}
+
+#[test]
+fn us_federal_agency_signal_counts_for_entity_coverage_without_literal_us() {
+    let response = normalize_for_compare(
+        "DEA and HHS extended the telehealth prescribing flexibilities through December 31, 2026, while the Ryan Haight Act's in-person rule remains only temporarily suspended.",
+    );
+    assert!(
+        entity_coverage(&response, &["US".to_string()]) >= 1.0,
+        "{response}"
+    );
+}
+
+#[test]
 fn real_conversation_source_summary_is_not_a_passing_research_answer() {
     let case = json!({
         "prompt": "what are some scientific breakthroughs 2026?",

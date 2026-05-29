@@ -313,8 +313,28 @@ fn common_entity_aliases(entity: &str) -> Vec<String> {
     match normalized.as_str() {
         "europe" => vec!["EU".to_string(), "European Union".to_string(), "European".to_string()],
         "european union" => vec!["EU".to_string(), "Europe".to_string(), "European".to_string()],
-        "united states" | "u s" | "usa" => {
-            vec!["US".to_string(), "U.S.".to_string(), "America".to_string()]
+        "united states" | "u s" | "us" | "usa" => {
+            vec![
+                "US".to_string(),
+                "U.S.".to_string(),
+                "America".to_string(),
+                "DEA".to_string(),
+                "HHS".to_string(),
+                "FDA".to_string(),
+                "CDC".to_string(),
+                "CMS".to_string(),
+                "DOJ".to_string(),
+                "Ryan Haight Act".to_string(),
+                "FedRAMP".to_string(),
+                "federal court".to_string(),
+                "federal courts".to_string(),
+                "state law".to_string(),
+                "state laws".to_string(),
+                "state bill".to_string(),
+                "state bills".to_string(),
+                "state legislature".to_string(),
+                "state legislatures".to_string(),
+            ]
         }
         "united kingdom" => vec!["UK".to_string(), "Britain".to_string(), "Great Britain".to_string()],
         _ => Vec::new(),

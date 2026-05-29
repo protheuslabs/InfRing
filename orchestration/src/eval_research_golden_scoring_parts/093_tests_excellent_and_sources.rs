@@ -1412,3 +1412,152 @@ fn insufficiency_only_answer_does_not_count_as_user_facing_good() {
         Some("sounds_good")
     );
 }
+
+#[test]
+fn off_topic_retrieval_gap_answer_does_not_count_as_user_facing_good() {
+    let case = json!({
+        "prompt": "Research the current wave of youth social-media restriction bills in the US. What approaches are states trying, and what legal uncertainty remains?",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["youth social-media restriction bills", "US"]
+    });
+    let payload = json!({
+        "response": "I don't have usable evidence about current youth social-media restriction bills in the US. The only material returned is a 2026 Utah driver handbook from the state's Driver License Division, which doesn't address social-media legislation, age verification approaches, or ongoing First Amendment legal challenges. To answer your question properly, I would need source-backed information on state bills, age verification methods, parental consent requirements, and the current status of constitutional challenges—none of which appear in the evidence for this turn.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "youth social media restriction bills US legal uncertainty",
+                "queries": ["state social media restriction bills age verification minors"],
+                "keywords": ["youth social media restriction bills", "US", "age verification", "legal uncertainty"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 8,
+            "content_rich_candidate_count": 6,
+            "claim_hint_count": 3,
+            "evidence_refs": [{
+                "title": "Utah Driver Handbook",
+                "locator": "https://example.test/utah-driver-handbook",
+                "source_kind": "document_page_artifact_page_enriched",
+                "snippet": "The Utah Driver Handbook explains licensing rules and road procedures for state drivers in 2026."
+            }]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| blocker == "insufficiency_without_bounded_closure"
+                || blocker == "answer_units_not_prompt_useful"
+                || blocker == "substantive_user_value_missing"),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert_eq!(
+        grade
+            .answer_unit_usefulness
+            .get("direct_useful_units")
+            .and_then(Value::as_u64),
+        Some(0),
+        "{:#?}",
+        grade.answer_unit_usefulness
+    );
+}
+
+#[test]
+fn gap_dominated_partial_answer_does_not_count_as_prompt_useful() {
+    let case = json!({
+        "prompt": "Research the current wave of youth social-media restriction bills in the US. What approaches are states trying, and what legal uncertainty remains?",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["youth social-media restriction bills", "US"]
+    });
+    let payload = json!({
+        "response": "State-level youth social media restriction legislation is an active but legally unsettled area, though the specific bill mechanisms and current court challenges for Utah, Arkansas, Texas, Florida, and California weren't retrievable in this search. The recorded evidence points to general state references rather than substantive legislative details on age verification mandates, parental consent requirements, or under-18 usage limits that have been central to these laws. Without retrieved specifics on enacted approaches or pending litigation outcomes, I can't characterize which state models are prevailing or how courts are weighing the compelled age-verification against constitutional scrutiny standards.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "youth social media restriction bills US legal uncertainty",
+                "queries": ["state social media restriction bills age verification minors", "Utah Arkansas Texas Florida California social media law challenges"],
+                "keywords": ["youth social media restriction bills", "US", "age verification", "legal uncertainty"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 12,
+            "content_rich_candidate_count": 7,
+            "claim_hint_count": 3,
+            "evidence_refs": [
+                {
+                    "title": "State policy references",
+                    "locator": "https://example.test/state-policy-overview",
+                    "source_kind": "analysis",
+                    "snippet": "Several states are considering restrictions touching youth access and social media governance, but this summary does not spell out the bill mechanisms."
+                },
+                {
+                    "title": "Constitutional challenge overview",
+                    "locator": "https://example.test/constitutional-overview",
+                    "source_kind": "analysis",
+                    "snippet": "Legal analysis notes continuing First Amendment questions around compelled age verification and parental consent rules."
+                }
+            ]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .answer_unit_usefulness
+            .get("direct_useful_units")
+            .and_then(Value::as_u64),
+        Some(0),
+        "{:#?}",
+        grade.answer_unit_usefulness
+    );
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| blocker == "answer_units_not_prompt_useful"
+                || blocker == "substantive_user_value_missing"),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+}
