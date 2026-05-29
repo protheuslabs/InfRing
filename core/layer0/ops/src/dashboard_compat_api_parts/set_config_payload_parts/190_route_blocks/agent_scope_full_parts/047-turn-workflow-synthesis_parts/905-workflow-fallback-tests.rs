@@ -245,6 +245,160 @@
     }
 
     #[test]
+    fn tool_evidence_fallback_filters_published_source_dateline_shells() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research family-friendly neighborhoods to stay in Chicago for museums, transit access, and walkability. Compare a few options and tradeoffs.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["Lincoln Park", "Hyde Park", "Wicker Park", "South Loop"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "title": "Chicago Parent Hyde Park guide",
+                        "source_domain": "chicagoparent.com",
+                        "claim_hints": [
+                            "Family Guide to Hyde Park: Things to Do with Kids Chicago Parent Published: Tue, 17 Sep 2024 07:00:00 GMT. Source: Chicago Parent (www.chicagoparent.com)."
+                        ],
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "Neighborhood tradeoff note",
+                        "source_domain": "example.test",
+                        "claim_hints": [
+                            "Hyde Park gives families strong museum access near MSI, but the current evidence set does not yet support a fair comparison against Lincoln Park, Wicker Park, or South Loop."
+                        ],
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(!response.contains("Published"), "{response}");
+        assert!(!response.contains("GMT"), "{response}");
+        assert!(!response.contains("Chicago Parent"), "{response}");
+        assert!(response.contains("Hyde Park"), "{response}");
+    }
+
+    #[test]
+    fn tool_evidence_fallback_turns_single_lane_title_shell_into_bounded_partial_answer() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research family-friendly neighborhoods to stay in Chicago for museums, transit access, and walkability. Compare a few options and tradeoffs.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["Lincoln Park", "Hyde Park", "Near North Side", "The Loop", "Wicker Park"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "title": "Family Guide to Hyde Park: Things to Do with Kids - Chicago Parent",
+                        "source_domain": "chicagoparent.com",
+                        "snippet": "Family Guide to Hyde Park: Things to Do with Kids Chicago Parent Published: Tue, 17 Sep 2024 07:00:00 GMT. Source: Chicago Parent (www.chicagoparent.com).",
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(response.contains("Hyde Park"), "{response}");
+        assert!(response.contains("Chicago Parent"), "{response}");
+        assert!(
+            response.contains("direct source-backed coverage")
+                || response.contains("fair comparison"),
+            "{response}"
+        );
+        assert!(!response.contains("Published"), "{response}");
+        assert!(!response.contains("GMT"), "{response}");
+    }
+
+    #[test]
+    fn tool_evidence_fallback_drops_goal_less_findings_shell_and_emits_bounded_insufficiency() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research travel-friendly noise-canceling headphones in 2026 for calls, comfort, battery life, and reliability. I want a shortlist I can buy with confidence.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "result": "Web findings: newsroom.",
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": [
+                            "Sony WH-1000XM6",
+                            "Bose QuietComfort Ultra",
+                            "Apple AirPods Max",
+                            "Sennheiser Momentum 4",
+                            "Shure AONIC 50"
+                        ],
+                        "facets": [
+                            "call quality",
+                            "comfort",
+                            "battery life",
+                            "reliability"
+                        ]
+                    }
+                }
+            })],
+        );
+        assert!(!response.contains("Here's what I found"), "{response}");
+        assert!(!response.contains("web retrieval"), "{response}");
+        assert!(!response.contains("newsroom"), "{response}");
+        assert!(
+            response.contains("reliable recommendation")
+                || response.contains("confident conclusion"),
+            "{response}"
+        );
+        assert!(response.contains("Sony WH-1000XM6"), "{response}");
+        assert!(response.contains("call quality"), "{response}");
+    }
+
+    #[test]
+    fn tool_evidence_fallback_turns_multi_lane_title_shells_into_partial_comparison() {
+        let response = fallback_final_response_from_tool_evidence(
+            "Research family-friendly neighborhoods to stay in Chicago for museums, transit access, and walkability, and compare options and tradeoffs.",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "is_error": false,
+                "query_metadata": {
+                    "required_coverage": {
+                        "entities": ["Lincoln Park", "Hyde Park", "South Loop", "River North", "Loop"]
+                    }
+                },
+                "evidence_pack": [
+                    {
+                        "title": "Family Guide to Hyde Park: Things to Do with Kids - Chicago Parent",
+                        "source_domain": "chicagoparent.com",
+                        "snippet": "Family Guide to Hyde Park: Things to Do with Kids Chicago Parent Published: Tue, 17 Sep 2024 07:00:00 GMT. Source: Chicago Parent (www.chicagoparent.com).",
+                        "counts_as_usable_evidence": true
+                    },
+                    {
+                        "title": "South Loop family travel guide - Example Travel",
+                        "source_domain": "example.travel",
+                        "snippet": "South Loop family travel guide Example Travel Published: Mon, 12 Aug 2024 07:00:00 GMT. Source: Example Travel (example.travel).",
+                        "counts_as_usable_evidence": true
+                    }
+                ]
+            })],
+        );
+        assert!(
+            response.contains("partial comparison")
+                || response.contains("fair comparison")
+                || response.contains("source-backed coverage"),
+            "{response}"
+        );
+        assert!(response.contains("Hyde Park"), "{response}");
+        assert!(response.contains("South Loop"), "{response}");
+        assert!(!response.contains("Published"), "{response}");
+        assert!(!response.contains("GMT"), "{response}");
+    }
+
+    #[test]
     fn tool_evidence_fallback_filters_preview_title_shell() {
         let response = fallback_final_response_from_tool_evidence(
             "Research data-residency and sovereignty requirements that matter for SaaS buyers in 2026 for selling into Europe and the US public sector, with practical compliance picture.",

@@ -227,36 +227,37 @@ fn prompt_asks_for_process_or_schedule(normalized_prompt: &str) -> bool {
 }
 
 fn answer_unit_is_process_or_metadata_fact(normalized_unit: &str) -> bool {
-    contains_any(
-        normalized_unit,
-        &[
-            "here s what i found",
-            "heres what i found",
-            "web search",
-            "web search:",
-            "web search returned",
-            "search returned",
-            "search surfaced",
-            "from web retrieval",
-            "announcements are scheduled",
-            "announcement is scheduled",
-            "is scheduled for",
-            "are scheduled for",
-            "nominations closed",
-            "nomination period",
-            "nominations are open",
-            "deadline",
-            "registration",
-            "application window",
-            "calendar",
-            "press release",
-            "coverage state",
-            "usable evidence is present for",
-            "coverage gaps still matter",
-            "web result from",
-            "source: web result",
-        ],
-    )
+    answer_unit_is_followup_search_suggestion(normalized_unit)
+        || contains_any(
+            normalized_unit,
+            &[
+                "here s what i found",
+                "heres what i found",
+                "web search",
+                "web search:",
+                "web search returned",
+                "search returned",
+                "search surfaced",
+                "from web retrieval",
+                "announcements are scheduled",
+                "announcement is scheduled",
+                "is scheduled for",
+                "are scheduled for",
+                "nominations closed",
+                "nomination period",
+                "nominations are open",
+                "deadline",
+                "registration",
+                "application window",
+                "calendar",
+                "press release",
+                "coverage state",
+                "usable evidence is present for",
+                "coverage gaps still matter",
+                "web result from",
+                "source: web result",
+            ],
+        )
 }
 
 fn answer_unit_has_substantive_development_signal(normalized_unit: &str) -> bool {

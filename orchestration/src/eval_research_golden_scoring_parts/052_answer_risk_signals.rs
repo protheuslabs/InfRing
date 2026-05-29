@@ -1,6 +1,7 @@
 fn answer_unit_is_hedged_or_gap(normalized_unit: &str) -> bool {
     let padded = format!(" {normalized_unit} ");
     answer_unit_contains_modal_may(normalized_unit)
+        || answer_unit_is_followup_search_suggestion(normalized_unit)
         || contains_any(
             &padded,
             &[
@@ -102,6 +103,31 @@ fn answer_unit_is_hedged_or_gap(normalized_unit: &str) -> bool {
         )
 }
 
+fn answer_unit_is_followup_search_suggestion(normalized_unit: &str) -> bool {
+    contains_any(
+        normalized_unit,
+        &[
+            "more targeted approach would help",
+            "targeted approach would help",
+            "searching specific",
+            "search specific",
+            "specific entities",
+            "specific organizations",
+            "date filters",
+            "current month date filters",
+            "checking primary sources",
+            "check primary sources",
+            "check official sources",
+            "verify directly against",
+            "if you have a particular",
+            "i can narrow the query and retry",
+            "i can narrow this and retry",
+            "i can retry with",
+            "i can rerun with",
+        ],
+    )
+}
+
 fn answer_unit_contains_modal_may(normalized_unit: &str) -> bool {
     let tokens = normalized_unit
         .split_whitespace()
@@ -135,6 +161,9 @@ fn answer_unit_unsupported_is_significant(
     unsupported_terms: &[String],
 ) -> bool {
     if unsupported_terms.is_empty() {
+        return false;
+    }
+    if answer_unit_is_followup_search_suggestion(normalized_unit) {
         return false;
     }
     if supported_terms.is_empty() && scope_supported_terms.is_empty() {
@@ -395,7 +424,18 @@ fn source_title_style_stopword(token: &str) -> bool {
 }
 
 fn response_delegates_research_back_to_user(normalized_response: &str) -> bool {
-    contains_any(
+    let assistant_owned_retry_offer = contains_any(
+        normalized_response,
+        &[
+            "i can narrow the query and retry",
+            "i can narrow this and retry",
+            "i can retry",
+            "i can rerun",
+            "i can check",
+            "if you have a particular",
+        ],
+    );
+    let user_directed_research = contains_any(
         normalized_response,
         &[
             "try a narrower query",
@@ -406,7 +446,8 @@ fn response_delegates_research_back_to_user(normalized_response: &str) -> bool {
             "you could try again",
             "narrow the query",
         ],
-    )
+    );
+    user_directed_research && !assistant_owned_retry_offer
 }
 
 fn response_explicitly_cannot_answer_goal_from_current_evidence(normalized_response: &str) -> bool {

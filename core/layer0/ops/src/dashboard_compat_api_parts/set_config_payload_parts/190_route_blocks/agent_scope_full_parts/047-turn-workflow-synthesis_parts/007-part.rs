@@ -1,5 +1,6 @@
 fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[Value]) -> String {
     let required_entity_lanes = hard_required_entity_lanes_for_tools(response_tools, 8);
+    let required_facet_lanes = fallback_required_facet_lanes_for_tools(response_tools, 8);
     let goal_terms = workflow_answer_unit_goal_terms(message);
     let answer_units = evidence_packet_answer_units_for_goal(message, response_tools, 4);
     let partial_decision_hint =
@@ -91,6 +92,13 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
             return clean_text(&parts.join("\n"), 2_400);
         }
     }
+    let shell_partial = clean_text(
+        &bounded_partial_answer_from_source_shells(message, response_tools),
+        1_600,
+    );
+    if !shell_partial.is_empty() {
+        return shell_partial;
+    }
     let failure_reason = clean_text(
         &first_sentence(
             &response_tools_failure_reason_for_user(response_tools, 4),
@@ -104,6 +112,17 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
     );
     if !required_entity_lanes.is_empty()
         && text_matches_required_entity_lanes(&findings, &required_entity_lanes).is_empty()
+    {
+        findings.clear();
+    }
+    if !findings.is_empty()
+        && (response_looks_like_retrieval_recap_substituted_for_answer(&findings)
+            || workflow_answer_unit_is_process_or_metadata_fact(&findings)
+            || workflow_answer_unit_contains_ui_or_source_shell(&findings)
+            || workflow_answer_unit_looks_like_source_title_fragment(&findings)
+            || workflow_answer_unit_looks_like_datestamped_headline_shell(&findings)
+            || (workflow_prompt_needs_decision_bearing_evidence(message)
+                && workflow_answer_unit_goal_overlap_count(&findings, &goal_terms) == 0))
     {
         findings.clear();
     }
@@ -142,6 +161,18 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
             }
             return clean_text(&parts.join(" "), 1_600);
         }
+        let bounded_insufficiency = clean_text(
+            &bounded_insufficiency_answer_from_required_coverage(
+                message,
+                &required_entity_lanes,
+                &required_facet_lanes,
+                response_tools,
+            ),
+            1_600,
+        );
+        if !bounded_insufficiency.is_empty() {
+            return bounded_insufficiency;
+        }
         if coverage_note.is_empty() {
             return String::new();
         }
@@ -171,6 +202,216 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
         parts.push(coverage_note);
     }
     clean_text(&parts.join(" "), 900)
+}
+
+fn fallback_required_facet_lanes_for_tools(response_tools: &[Value], limit: usize) -> Vec<String> {
+    let mut lanes = Vec::<String>::new();
+    let limit = limit.clamp(1, 12);
+    for lane in synthesis_coverage_lanes_for_tools(response_tools, limit.saturating_mul(3)) {
+        let kind = clean_text(lane.get("kind").and_then(Value::as_str).unwrap_or(""), 80)
+            .to_ascii_lowercase();
+        if kind != "facet" {
+            continue;
+        }
+        let requested = clean_text(
+            lane.get("requested_text")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            120,
+        );
+        if requested.is_empty()
+            || lanes
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(&requested))
+        {
+            continue;
+        }
+        lanes.push(requested);
+        if lanes.len() >= limit {
+            break;
+        }
+    }
+    lanes
+}
+
+fn bounded_insufficiency_answer_from_required_coverage(
+    message: &str,
+    required_entity_lanes: &[String],
+    required_facet_lanes: &[String],
+    response_tools: &[Value],
+) -> String {
+    if !workflow_prompt_needs_decision_bearing_evidence(message)
+        || (required_entity_lanes.is_empty() && required_facet_lanes.is_empty())
+    {
+        return String::new();
+    }
+    let comparison_intent = synthesis_message_is_comparison_intent(message);
+    let normalized_message = normalize_coverage_lane_text(message);
+    let recommendation_intent = !comparison_intent
+        && (normalized_message.contains(" shortlist ")
+            || normalized_message.contains(" recommend ")
+            || normalized_message.contains(" recommendation ")
+            || normalized_message.contains(" choose ")
+            || normalized_message.contains(" best "));
+    let opening = if comparison_intent {
+        "I can't make a reliable comparison yet because the current evidence does not provide direct, source-backed coverage"
+    } else if recommendation_intent {
+        "I can't make a reliable recommendation yet because the current evidence does not provide direct, source-backed coverage"
+    } else {
+        "I can't make a confident conclusion yet because the current evidence does not provide direct, source-backed coverage"
+    };
+    let mut sentence = opening.to_string();
+    if !required_entity_lanes.is_empty() {
+        sentence.push_str(" across ");
+        sentence.push_str(&workflow_join_visible_list(required_entity_lanes));
+    }
+    if !required_facet_lanes.is_empty() {
+        let facet_list = workflow_join_visible_list(
+            &required_facet_lanes
+                .iter()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+        if !facet_list.is_empty() {
+            sentence.push_str(" for ");
+            sentence.push_str(&facet_list);
+        }
+    }
+    let mut parts = vec![workflow_finish_visible_sentence(&sentence)];
+    let coverage_note = fallback_user_visible_coverage_note(response_tools);
+    if !coverage_note.is_empty() {
+        parts.push(workflow_finish_visible_sentence(&coverage_note));
+    }
+    clean_text(&parts.join(" "), 1_600)
+}
+
+fn bounded_partial_answer_from_source_shells(message: &str, response_tools: &[Value]) -> String {
+    if !workflow_prompt_needs_decision_bearing_evidence(message) {
+        return String::new();
+    }
+    let required_entity_lanes = hard_required_entity_lanes_for_tools(response_tools, 8);
+    let minimum_lane_coverage = minimum_required_entity_lane_coverage(&required_entity_lanes);
+    if required_entity_lanes.len() < 2 || minimum_lane_coverage == 0 {
+        return String::new();
+    }
+    let goal_terms = workflow_answer_unit_goal_terms(message);
+    let mut covered_lanes = Vec::<String>::new();
+    let mut source_labels = std::collections::BTreeMap::<String, String>::new();
+    for tool in response_tools.iter().take(6) {
+        for key in ["evidence_pack", "evidence_refs", "evidence_pack_candidates"] {
+            for row in tool_hidden_array(tool, key).into_iter().take(8) {
+                if !evidence_packet_counts_as_usable(&row) {
+                    continue;
+                }
+                let title = evidence_packet_text_field(&row, &["title", "source_title", "source_ref"], 220);
+                let snippet = evidence_packet_text_field(
+                    &row,
+                    &["snippet", "support_snippet", "relevant_extract", "summary"],
+                    320,
+                );
+                let matched_lanes = if title.is_empty() {
+                    text_matches_required_entity_lanes(&snippet, &required_entity_lanes)
+                } else {
+                    text_matches_required_entity_lanes(&title, &required_entity_lanes)
+                };
+                if matched_lanes.len() != 1 {
+                    continue;
+                }
+                if workflow_answer_unit_goal_overlap_count(&title, &goal_terms) == 0
+                    && workflow_answer_unit_goal_overlap_count(&snippet, &goal_terms) == 0
+                {
+                    continue;
+                }
+                let lane = clean_text(&matched_lanes[0], 120);
+                if lane.is_empty()
+                    || covered_lanes
+                        .iter()
+                        .any(|existing| existing.eq_ignore_ascii_case(&lane))
+                {
+                    continue;
+                }
+                let source_label = source_shell_label_for_row(&row);
+                if !source_label.is_empty() {
+                    source_labels.insert(normalize_coverage_lane_text(&lane), source_label);
+                }
+                covered_lanes.push(lane);
+            }
+        }
+    }
+    if covered_lanes.is_empty() {
+        return String::new();
+    }
+    let covered_label = workflow_join_visible_list(&covered_lanes);
+    let source_phrase = covered_lanes
+        .first()
+        .and_then(|lane| source_labels.get(&normalize_coverage_lane_text(lane)))
+        .map(|label| format!(", based on material from {label}"))
+        .unwrap_or_default();
+    let opening = if covered_lanes.len() == 1 {
+        format!(
+            "{covered_label} is the only requested option with direct source-backed coverage in this run{source_phrase}, so I cannot make a fair comparison yet."
+        )
+    } else {
+        format!(
+            "The current evidence supports only a partial comparison, with direct source-backed coverage for {covered_label}{source_phrase}."
+        )
+    };
+    let coverage_note = fallback_user_visible_coverage_note(response_tools);
+    if coverage_note.is_empty() {
+        return clean_text(&opening, 1_200);
+    }
+    clean_text(
+        &format!(
+            "{} {}",
+            workflow_finish_visible_sentence(&opening),
+            workflow_finish_visible_sentence(&coverage_note)
+        ),
+        1_600,
+    )
+}
+
+fn source_shell_label_for_row(row: &Value) -> String {
+    let snippet = evidence_packet_text_field(
+        row,
+        &["snippet", "support_snippet", "relevant_extract", "summary"],
+        320,
+    );
+    if let Some((_, tail)) = snippet.split_once("Source:") {
+        let cleaned = clean_text(
+            tail.split('(')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .trim_end_matches('.'),
+            80,
+        );
+        if !cleaned.is_empty() {
+            return cleaned;
+        }
+    }
+    let title = evidence_packet_text_field(row, &["title", "source_title", "source_ref"], 180);
+    if let Some((_, tail)) = title.rsplit_once(" - ") {
+        let cleaned = clean_text(tail, 80);
+        if !cleaned.is_empty() {
+            return cleaned;
+        }
+    }
+    let domain = evidence_packet_text_field(row, &["source_domain", "domain"], 120);
+    let cleaned = domain
+        .trim_start_matches("www.")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .trim();
+    if cleaned.is_empty() {
+        String::new()
+    } else {
+        clean_text(cleaned, 80)
+    }
 }
 
 fn apply_tool_evidence_fallback_response(
@@ -371,12 +612,44 @@ fn response_is_low_information_tool_evidence_fallback(response_text: &str) -> bo
             && title_ratio >= 0.60
             && leading_lowercase_content_words <= 2
     };
+    let lead_sentence = clean_text(&first_sentence(&cleaned, 240), 320);
+    let lowered = cleaned.to_ascii_lowercase();
+    let mixed_shell_and_coverage_gap = !lead_sentence.is_empty()
+        && (lowered.contains("coverage gaps remain for")
+            || lowered.contains("coverage state:")
+            || lowered.contains("still weakly covered")
+            || lowered.contains("still unverified"))
+        && (workflow_answer_unit_contains_ui_or_source_shell(&lead_sentence)
+            || workflow_answer_unit_looks_like_source_title_fragment(&lead_sentence)
+            || workflow_answer_unit_looks_like_datestamped_headline_shell(&lead_sentence)
+            || workflow_answer_unit_contains_source_shell_boilerplate(&lead_sentence)
+            || workflow_text_prefix_looks_like_headline(
+                lead_sentence.trim_end_matches(|ch: char| matches!(ch, '.' | '!' | '?')),
+            ));
     (word_count <= 18 || !cleaned.contains('.'))
         && (workflow_answer_unit_looks_like_source_title_fragment(&cleaned)
             || workflow_answer_unit_looks_like_source_title_fragment(headline_candidate)
             || workflow_answer_unit_looks_like_datestamped_headline_shell(&cleaned)
             || workflow_text_prefix_looks_like_headline(headline_candidate)
             || title_shell)
+        || mixed_shell_and_coverage_gap
+}
+
+fn fallback_response_should_append_partial_coverage_note(
+    message: &str,
+    response_tools: &[Value],
+    answer_text: &str,
+) -> bool {
+    if !workflow_prompt_needs_decision_bearing_evidence(message) {
+        return false;
+    }
+    let required_entity_lanes = hard_required_entity_lanes_for_tools(response_tools, 8);
+    let minimum_lane_coverage = minimum_required_entity_lane_coverage(&required_entity_lanes);
+    if required_entity_lanes.len() < 2 || minimum_lane_coverage == 0 {
+        return false;
+    }
+    text_matches_required_entity_lanes(answer_text, &required_entity_lanes).len()
+        < minimum_lane_coverage
 }
 
 fn workflow_response_sentence_is_gap_or_status_preface(raw: &str) -> bool {
@@ -557,6 +830,7 @@ fn fallback_excerpt_sentence_from_rejected_response(
     if reject_reason
         .to_ascii_lowercase()
         .contains("missing_coverage_lanes=")
+        || fallback_response_should_append_partial_coverage_note(message, response_tools, &cleaned)
     {
         let coverage_note = fallback_user_visible_coverage_note(response_tools);
         if !coverage_note.is_empty() {
@@ -588,6 +862,7 @@ fn bounded_evidence_sketch_for_rejected_fallback(
     if reject_reason
         .to_ascii_lowercase()
         .contains("missing_coverage_lanes=")
+        || fallback_response_should_append_partial_coverage_note(message, response_tools, &evidence_sketch)
     {
         let coverage_note = fallback_user_visible_coverage_note(response_tools);
         if !coverage_note.is_empty() {
@@ -681,9 +956,15 @@ fn fallback_evidence_snippet_sentence_from_tools(
     if parts.is_empty() {
         return String::new();
     }
+    let primary_answer = parts.first().cloned().unwrap_or_default();
     if reject_reason
         .to_ascii_lowercase()
         .contains("missing_coverage_lanes=")
+        || fallback_response_should_append_partial_coverage_note(
+            message,
+            response_tools,
+            &primary_answer,
+        )
     {
         let coverage_note = fallback_user_visible_coverage_note(response_tools);
         if !coverage_note.is_empty() {

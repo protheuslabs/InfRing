@@ -103,6 +103,85 @@ fn bounded_low_evidence_fallback_can_pass_without_earning_excellent() {
 }
 
 #[test]
+fn assistant_owned_retry_offer_does_not_block_bounded_low_evidence_answer() {
+    let case = json!({
+        "prompt": "What notable labor actions or strike developments are actually moving this month in major US industries, versus just being threatened?",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["source", "query", "aperture"]
+        },
+        "required_entities": ["US"]
+    });
+    let payload = json!({
+        "response": "I don't have usable, source-backed evidence for current May 2026 labor actions or strikes in major US industries. The search returned only low-signal results—one February 2026 Cornell Chronicle item on health care strike trends and an unrelated GitHub page—with no materialized coverage of actual walkouts, threatened strikes, or industry-specific developments for this month. Given the current evidence state, a more targeted approach would help: searching specific entities with current-month date filters, or checking primary sources like labor trackers directly for May 2026 entries. If you have a particular industry or union in mind, I can narrow the query and retry.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "source": "web",
+                "query": "notable labor actions or strike developments this month in major US industries",
+                "queries": ["current labor actions major US industries this month"],
+                "keywords": ["labor actions", "strikes", "US industries", "current month"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 6,
+            "content_rich_candidate_count": 3,
+            "claim_hint_count": 1,
+            "evidence_refs": [
+                {
+                    "title": "Cornell Chronicle on strike trends",
+                    "locator": "https://example.test/cornell-strike-trends",
+                    "source_kind": "news",
+                    "snippet": "A February 2026 Cornell Chronicle article discusses health care strike trends rather than current walkouts across major US industries."
+                },
+                {
+                    "title": "Unrelated GitHub page",
+                    "locator": "https://example.test/unrelated-github",
+                    "source_kind": "web_page",
+                    "snippet": "An unrelated GitHub page that does not cover current labor actions."
+                }
+            ]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .answer_unit_evidence_alignment
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{:#?}",
+        grade.answer_unit_evidence_alignment
+    );
+    assert_eq!(
+        grade
+            .user_facing_answer_quality
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+    assert!(
+        !string_array_at(&grade.user_facing_answer_quality, &["blockers"])
+            .iter()
+            .any(|blocker| blocker == "source_or_process_recap_visible"
+                || blocker == "concrete_units_not_traceable_enough"),
+        "{:#?}",
+        grade.user_facing_answer_quality
+    );
+}
+
+#[test]
 fn outside_evidence_inference_cannot_carry_final_recommendation() {
     let case = json!({
         "prompt": "Compare Alpha, Beta, and Gamma for a purchasing decision.",
