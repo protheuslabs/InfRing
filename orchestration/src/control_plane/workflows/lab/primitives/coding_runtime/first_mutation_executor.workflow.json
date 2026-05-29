@@ -1,0 +1,312 @@
+{
+  "name": "first_mutation_executor",
+  "workflow_type": "control_plane_orchestration_workflow",
+  "workflow_role": "assistant_response_workflow",
+  "default": false,
+  "description": "Thin coding stage for turning supplied context into the first bounded file mutation, delegating actual mutation to file_mutation_executor.",
+  "primitive_first_contract": {
+    "case_specific_hardcoding_allowed": false,
+    "specificity_owner": "composite_stage",
+    "extension_surface": "workflow_cd",
+    "registered_capability_id": "workflow.first_mutation_executor",
+    "special_case_policy": "First-mutation behavior may vary by generic task contract, context confidence, and declared write scope; it must not branch on eval levels, fixture filenames, or benchmark task names.",
+    "monotonic_lower_level_regression_policy": "The stage must preserve cheap create-file writes by avoiding discovery, validation, or checkpoint work inside the mutation executor."
+  },
+  "provenance_contract": {
+    "source_systems": [
+      "Aider",
+      "Codex",
+      "Claude Code",
+      "ForgeCode"
+    ],
+    "import_rule": "assimilate_first_edit_artifact_and_patch_dispatch_patterns_not_tool_branding",
+    "artifact_corpus_ref": "references/coding-agent-systems"
+  },
+  "stages": [
+    "context_artifact_intake",
+    "mutation_intent_projection",
+    "write_scope_check",
+    "file_mutation_executor_dispatch",
+    "first_mutation_artifact_packaging"
+  ],
+  "workflow_composition": {
+    "primitive_level": 1,
+    "composed_of_workflow_ids": [
+      "file_mutation_executor"
+    ]
+  },
+  "final_response_policy": "control_plane_packaged_response",
+  "final_output_contract": {
+    "schema_version": "first_mutation_executor_final_output_contract_v1",
+    "source": "workflow_cd",
+    "visible_chat_source": "llm_final_answer_only",
+    "required_summary_fields": [
+      "status",
+      "mutation_operation",
+      "changed_paths",
+      "mutation_receipt_refs",
+      "remaining_requirements",
+      "blocked_reason",
+      "error"
+    ],
+    "internal_streams": [
+      "workflow_state",
+      "agent_internal_notes",
+      "tool_trace",
+      "eval_trace"
+    ],
+    "quality_contract": {
+      "answer_user_goal": "produce the first bounded mutation artifact from supplied project and memory context",
+      "scope_boundary": "do not discover project files, run validation, write checkpoint memory, or claim final software success",
+      "validation_calibration": "successful first mutation means at least one scoped mutation receipt exists, not that all requirements are complete",
+      "visibility": "return compact mutation summary fields and safe mutation receipt refs"
+    }
+  },
+  "first_mutation_executor_contract": {
+    "version": "first_mutation_executor_v1",
+    "input_contract": {
+      "schema": "first_mutation_executor_input_v1",
+      "required_fields": [
+        "task_contract",
+        "allowed_write_scope"
+      ],
+      "optional_fields": [
+        "local_project_bootstrap_artifact_ref",
+        "checkpoint_memory_bootstrap_artifact_ref",
+        "explicit_target_paths",
+        "preferred_operation",
+        "remaining_requirements"
+      ],
+      "allowed_operations": [
+        "write",
+        "patch"
+      ]
+    },
+    "required_behaviors": [
+      "consume_supplied_context_artifacts_without_running_discovery",
+      "derive_one_bounded_write_or_patch_request_from_task_contract",
+      "deny_mutation_when_context_confidence_is_insufficient_for_existing_project_patch",
+      "delegate_actual_file_mutation_to_file_mutation_executor",
+      "preserve_file_mutation_executor_receipt_as_authoritative_mutation_evidence",
+      "emit_remaining_requirements_for_later_completion_stages"
+    ],
+    "output_receipts": [
+      "first_mutation_artifact_v1",
+      "file_mutation_receipt_v1"
+    ],
+    "failure_modes": [
+      "insufficient_context_for_patch",
+      "write_scope_out_of_bounds",
+      "no_safe_first_mutation_available",
+      "file_mutation_executor_failed",
+      "permission_denied"
+    ],
+    "child_workflow_mapping": {
+      "write": "file_mutation_executor",
+      "patch": "file_mutation_executor"
+    },
+    "non_goals": [
+      "do_not_discover_or_read_files",
+      "do_not_run_validation_commands",
+      "do_not_write_checkpoint_memory",
+      "do_not_claim_final_task_success",
+      "do_not_branch_on_eval_level_or_fixture_name"
+    ]
+  },
+  "gate_contract": "control_plane_lifecycle_v1",
+  "typed_execution_contract": {
+    "gate_kind": "structured_control_plane_gate",
+    "input_kind": "multiple_choice_or_text_input",
+    "allowed_transitions": [
+      "context_artifact_intake->mutation_intent_projection",
+      "mutation_intent_projection->write_scope_check",
+      "write_scope_check->file_mutation_executor_dispatch",
+      "file_mutation_executor_dispatch->first_mutation_artifact_packaging",
+      "first_mutation_artifact_packaging->completed",
+      "context_artifact_intake->needs_input",
+      "write_scope_check->blocked",
+      "file_mutation_executor_dispatch->failed"
+    ],
+    "timeout_ms": 30000,
+    "retry_policy": {
+      "max_retries": 0,
+      "on_failure": "return_structured_failure"
+    },
+    "terminal_states": [
+      "completed",
+      "blocked",
+      "failed",
+      "needs_input",
+      "aborted"
+    ],
+    "telemetry_streams": [
+      "workflow_state",
+      "agent_internal_notes",
+      "tool_trace",
+      "eval_trace",
+      "final_answer"
+    ],
+    "tool_family_contracts": [
+      "workspace",
+      "web",
+      "memory",
+      "agent",
+      "shell",
+      "browser"
+    ],
+    "visible_chat_policy": "llm_final_only_no_system_injection",
+    "run_budgets": {
+      "max_stages": 5,
+      "max_model_turns": 1,
+      "max_tool_calls": 1,
+      "token_budget": 3500,
+      "loop_signature_detector": "first_mutation_executor_v1"
+    }
+  },
+  "workflow_source_of_truth_contract": {
+    "interaction_source": "json_workflow_spec",
+    "rust_reader_role": "validate_execute_trace_only",
+    "hardcoded_interaction_behavior_allowed": false,
+    "json_owns": [
+      "interaction_gates",
+      "gate_options",
+      "gate_transitions",
+      "tool_family_menus",
+      "tool_input_schemas",
+      "confirmation_states",
+      "loopbacks",
+      "final_output_contract"
+    ],
+    "rust_owns": [
+      "json_loading",
+      "schema_validation",
+      "state_transition_execution",
+      "tool_execution_handoff",
+      "receipt_binding",
+      "trace_export",
+      "kernel_policy_enforcement"
+    ]
+  },
+  "observation_lifecycle_contract": {
+    "version": "run_observation_lifecycle_v1",
+    "policy_ref": "orchestration/config/run_observation_lifecycle_policy.json",
+    "purpose": "Emit compact workflow observations for first mutation projection, write scope checks, delegated mutation dispatch, and terminal outcomes; keep raw patch/file payloads out of lifecycle storage.",
+    "required_lanes": [
+      "compact_ledger",
+      "hot_ring_buffer",
+      "failure_lifecycle_archive",
+      "artifact_ref_retention"
+    ],
+    "non_goals": [
+      "do_not_hide_current_failures",
+      "do_not_store_raw_tool_payloads",
+      "do_not_force_response_formats"
+    ]
+  },
+  "interaction_gate_contract": {
+    "version": "llm_toolbox_gate_contract_v1",
+    "tool_family_menu_stage": "gate_2_tool_family_menu",
+    "tool_request_payload_stage": "gate_4_request_payload_input",
+    "tool_observation_stage": "tool_observation",
+    "final_answer_stage": "gate_6_llm_final_output",
+    "recovery_stage": "recovery_escalation",
+    "gates": [
+      {
+        "stage": "gate_1_need_tool_access_menu",
+        "parser_kind": "need_tools",
+        "choice_base": 0,
+        "true_values": [
+          "yes",
+          "y",
+          "true",
+          "t",
+          "1"
+        ],
+        "false_values": [
+          "no",
+          "n",
+          "false",
+          "f",
+          "0"
+        ],
+        "finish_values": [],
+        "another_tool_values": []
+      },
+      {
+        "stage": "gate_2_tool_family_menu",
+        "parser_kind": "tool_family",
+        "choice_base": 1,
+        "true_values": [],
+        "false_values": [],
+        "finish_values": [],
+        "another_tool_values": []
+      },
+      {
+        "stage": "gate_3_tool_menu",
+        "parser_kind": "tool_name",
+        "choice_base": 0,
+        "true_values": [],
+        "false_values": [],
+        "finish_values": [],
+        "another_tool_values": []
+      },
+      {
+        "stage": "gate_4_request_payload_input",
+        "parser_kind": "request_payload",
+        "choice_base": 0,
+        "true_values": [],
+        "false_values": [],
+        "finish_values": [],
+        "another_tool_values": []
+      },
+      {
+        "stage": "gate_5_post_tool_menu",
+        "parser_kind": "post_tool",
+        "choice_base": 0,
+        "true_values": [],
+        "false_values": [],
+        "finish_values": [
+          "finish",
+          "done",
+          "submit"
+        ],
+        "another_tool_values": [
+          "another",
+          "another tool",
+          "use another tool"
+        ]
+      }
+    ]
+  },
+  "workflow_composition_contract": {
+    "version": "workflow_composition_contract_v1",
+    "cd_kind": "composite",
+    "returns_exactly_one_terminal_artifact": true,
+    "terminal_artifact_contract": {
+      "artifact_schema": "workflow_terminal_artifact_v1",
+      "allowed_kinds": [
+        "completed_final_answer",
+        "clarification_request",
+        "structured_failure",
+        "delegated_workflow_result"
+      ],
+      "parent_receives": "terminal_artifact_only_refs_for_internals"
+    },
+    "child_workflow_calls": [
+      {
+        "capability": "scoped_file_mutation",
+        "workflow_id": "file_mutation_executor",
+        "input_contract": "file_mutation_executor_input_envelope_v1",
+        "output_artifact": "file_mutation_receipt_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      }
+    ],
+    "non_goals": [
+      "do_not_inline_file_mutation_executor_internals",
+      "do_not_return_raw_tool_payloads",
+      "do_not_expose_internal_trace",
+      "do_not_decide_task_success"
+    ]
+  }
+}

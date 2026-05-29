@@ -34,12 +34,36 @@
     },
     "child_workflow_calls": [
       {
+        "capability": "local_project_context_bootstrap",
+        "workflow_id": "local_project_bootstrap",
+        "input_contract": "local_project_bootstrap_input_v1",
+        "output_artifact": "local_project_bootstrap_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      },
+      {
+        "capability": "checkpoint_memory_context_bootstrap",
+        "workflow_id": "checkpoint_memory_bootstrap",
+        "input_contract": "checkpoint_memory_bootstrap_input_v1",
+        "output_artifact": "checkpoint_memory_bootstrap_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      },
+      {
+        "capability": "first_bounded_code_mutation",
+        "workflow_id": "first_mutation_executor",
+        "input_contract": "first_mutation_executor_input_v1",
+        "output_artifact": "first_mutation_executor_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      },
+      {
         "capability": "local_coding_project_operator",
         "workflow_id": "local_coding_program_builder",
         "input_contract": "local_coding_program_builder_input_envelope_v1",
         "output_artifact": "local_coding_program_builder_result_artifact_v1",
         "return_policy": "return_single_terminal_artifact_to_parent",
-        "internal_trace_visibility": "public_reasoning_trace_refs_only"
+        "internal_trace_visibility": "refs_only"
       }
     ],
     "non_goals": [
@@ -51,7 +75,94 @@
   "workflow_composition": {
     "primitive_level": 4,
     "composed_of_workflow_ids": [
+      "local_project_bootstrap",
+      "checkpoint_memory_bootstrap",
+      "first_mutation_executor",
       "local_coding_program_builder"
+    ]
+  },
+  "coding_stage_pipeline_contract": {
+    "version": "coding_stage_pipeline_contract_v1",
+    "purpose": "Split the coding operator into explicit primitive-owned stages so runtime behavior is maintainable and each stage has a bounded input/output contract.",
+    "activation_policy": {
+      "default_greenfield_micro_tasks": "may_skip_bootstrap_and_use_micro_direct_write_when_no_local_project_context_is_needed",
+      "existing_project_tasks": "must_start_with_local_project_bootstrap_before mutation",
+      "checkpointed_project_tasks": "must_run_local_project_bootstrap_then_checkpoint_memory_bootstrap_before mutation",
+      "multi_requirement_tasks": "must_run_first_mutation_executor_then vertical slice completion, validation, repair, and closure stages"
+    },
+    "stage_order": [
+      {
+        "stage_id": "local_project_bootstrap",
+        "workflow_id": "local_project_bootstrap",
+        "input_artifact": "local_project_bootstrap_input_v1",
+        "output_artifact": "local_project_bootstrap_artifact_v1",
+        "required_when": [
+          "task_targets_existing_project",
+          "task_mentions_project_root",
+          "task_requires_preserving_existing_behavior"
+        ]
+      },
+      {
+        "stage_id": "checkpoint_memory_bootstrap",
+        "workflow_id": "checkpoint_memory_bootstrap",
+        "input_artifact": "checkpoint_memory_bootstrap_input_v1",
+        "output_artifact": "checkpoint_memory_bootstrap_artifact_v1",
+        "required_when": [
+          "task_mentions_checkpoint",
+          "task_mentions_resume_token",
+          "task_mentions_prior_memory_row",
+          "task_requires_project_context_persistence"
+        ]
+      },
+      {
+        "stage_id": "first_mutation_executor",
+        "workflow_id": "first_mutation_executor",
+        "input_artifact": "first_mutation_executor_input_v1",
+        "output_artifact": "first_mutation_executor_artifact_v1",
+        "composition_note": "level_1_stage_composes_file_mutation_executor_for_actual_write_or_patch",
+        "required_when": [
+          "task_requires_code_mutation",
+          "project_context_artifact_available"
+        ]
+      },
+      {
+        "stage_id": "vertical_slice_completion_gate",
+        "workflow_id": "placeholder.vertical_slice_completion_gate",
+        "input_artifact": "first_mutation_executor_artifact_v1",
+        "output_artifact": "vertical_slice_completion_gate_artifact_v1",
+        "status": "placeholder_extract_next",
+        "required_when": [
+          "task_has_multiple_capability_requirements"
+        ]
+      },
+      {
+        "stage_id": "validation_runner",
+        "workflow_id": "placeholder.validation_runner",
+        "input_artifact": "validation_runner_input_v1",
+        "output_artifact": "validation_runner_artifact_v1",
+        "status": "placeholder_extract_next",
+        "required_when": [
+          "task_requests_tests",
+          "validation_command_available"
+        ]
+      },
+      {
+        "stage_id": "checkpoint_closure_writer",
+        "workflow_id": "placeholder.checkpoint_closure_writer",
+        "input_artifact": "checkpoint_closure_writer_input_v1",
+        "output_artifact": "checkpoint_closure_artifact_v1",
+        "status": "placeholder_extract_next",
+        "required_when": [
+          "checkpointed_project_task",
+          "validation_or_completion_evidence_available"
+        ]
+      }
+    ],
+    "non_goals": [
+      "do_not_hide_stage_behavior_in_one_large_prompt",
+      "do_not_allow_first_mutation_executor_to_run discovery_or_validation",
+      "do_not_let_checkpoint_memory_override_current_files",
+      "do_not_mark_placeholder_stages_as active child workflows until their CDs exist"
     ]
   },
   "native_runtime_tooling": {
@@ -191,6 +302,26 @@
       "auto_validation_command_detection_enabled": true,
       "validation_failure_repair_uses_command_output": true,
       "synthesize_final_after_successful_validation": true,
+      "post_validation_closure_controller_enabled": true,
+      "capability_evidence_gate_enabled": true,
+      "mutation_only_recovery_gate_enabled": true,
+      "compact_mutation_entry_packet_enabled": true,
+      "controlled_shell_edit_batch_enabled": true,
+      "first_turn_timeout_recovery": true,
+      "premature_validation_recovery_gate_enabled": true,
+      "primitive_stage_pipeline_enabled": true,
+      "primitive_stage_pipeline_contract": "coding_stage_pipeline_contract_v1",
+      "local_project_bootstrap_workflow_id": "local_project_bootstrap",
+      "checkpoint_memory_bootstrap_workflow_id": "checkpoint_memory_bootstrap",
+      "first_mutation_executor_workflow_id": "first_mutation_executor",
+      "checkpointed_project_operator_tool_loop_enabled": true,
+      "project_operator_context_packet_enabled": true,
+      "project_operator_context_packet_max_observation_chars": 6000,
+      "project_operator_first_mutation_artifact_lane_enabled": true,
+      "project_operator_first_mutation_provider_timeout_seconds": 75,
+      "project_operator_first_mutation_max_calls": 4,
+      "checkpointed_tool_loop_initial_provider_timeout_seconds": 180,
+      "checkpointed_tool_loop_provider_timeout_seconds": 120,
       "generated_test_design_policy": "prompt_faithful_behavior_or_parsed_structure_not_incidental_format",
       "repair_uncovered_requirements_before_final": true,
       "staged_execution_controller_enabled": true,
@@ -205,20 +336,12 @@
       "fast_lane_repair_provider_timeout_seconds": 15,
       "fast_lane_omit_ollama_thinking_flags": true,
       "fast_lane_repair_omit_ollama_thinking_flags": false,
-      "bounded_existing_project_edit_loop_enabled": false,
+      "bounded_existing_project_pre_probe": true,
+      "bounded_existing_project_edit_loop_enabled": true,
       "model_manifest_compact_system": true,
       "bounded_direct_edit_lane": true,
       "bounded_fast_edit_preflight": true,
       "first_edit_batch_contract": false,
-      "incremental_edit_loop": false,
-      "mutation_batch_scheduler": true,
-      "local_context_pack_builder": false,
-      "local_context_pack_file_chars": 2600,
-      "local_context_pack_command_chars": 1800,
-      "local_context_pack_max_files": 8,
-      "compact_bounded_edit_bootstrap": false,
-      "compact_bounded_edit_bootstrap_max_explicit_paths": 2,
-      "compact_bounded_edit_bootstrap_result_chars": 1400,
       "setup_depth": "validation_guided_repair",
       "edit_context_packet": false,
       "validation_repair_requires_mutation_receipt": true,
@@ -634,7 +757,7 @@
       "shell",
       "browser"
     ],
-    "visible_chat_policy": "llm_final_plus_public_reasoning_rollup_no_system_injection",
+    "visible_chat_policy": "llm_final_only_no_system_injection",
     "run_budgets": {
       "max_stages": 12,
       "max_model_turns": 8,

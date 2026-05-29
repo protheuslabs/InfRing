@@ -150,9 +150,12 @@ For coding workflows:
 
 - The higher-level coding operator owns project initialization, architecture/stack decisions, checkpoint sizing, memory policy, discovery policy, and multi-slice stop conditions.
 - The primitive coding execution loop owns one bounded edit/proof slice.
+- Project bootstrap, checkpoint-memory bootstrap, and first mutation must be separately owned primitive stages when the coding operator needs all three.
 - File tools, command tools, receipts, and validation repair must remain generic primitives.
 - Level-specific eval capabilities should become explicit primitives or composites, not hidden branches in the shared controller.
 - A live coding eval failure must report whether it is a primitive failure, composite-routing failure, tool failure, validation failure, or user-input-needed breakpoint.
+
+Current coding split reference: `docs/workspace/coding_workflow_primitive_split.md`.
 
 ## Promotion checklist
 

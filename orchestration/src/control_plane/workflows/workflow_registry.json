@@ -45,6 +45,74 @@
       ]
     },
     {
+      "workflow_id": "research_objective_normalization",
+      "tier": "lab",
+      "source_framework": "research",
+      "source_path": "orchestration/src/control_plane/workflows/lab/primitives/research/research_objective_normalization.workflow.json",
+      "runtime_selectable": false,
+      "promotion_status": "lab",
+      "test_scenarios": [
+        "research_brief_normalization"
+      ],
+      "promotion_requirements": [
+        "schema_valid",
+        "composition_ledger_level_valid",
+        "workflow_cd_composition_contract",
+        "operator_promotion_approval"
+      ]
+    },
+    {
+      "workflow_id": "research_evidence_acquisition",
+      "tier": "lab",
+      "source_framework": "research",
+      "source_path": "orchestration/src/control_plane/workflows/lab/primitives/research/research_evidence_acquisition.workflow.json",
+      "runtime_selectable": false,
+      "promotion_status": "lab",
+      "test_scenarios": [
+        "research_evidence_packaging"
+      ],
+      "promotion_requirements": [
+        "schema_valid",
+        "composition_ledger_level_valid",
+        "workflow_cd_composition_contract",
+        "operator_promotion_approval"
+      ]
+    },
+    {
+      "workflow_id": "research_answer_synthesis",
+      "tier": "lab",
+      "source_framework": "research",
+      "source_path": "orchestration/src/control_plane/workflows/lab/primitives/research/research_answer_synthesis.workflow.json",
+      "runtime_selectable": false,
+      "promotion_status": "lab",
+      "test_scenarios": [
+        "research_answer_unit_synthesis"
+      ],
+      "promotion_requirements": [
+        "schema_valid",
+        "composition_ledger_level_valid",
+        "workflow_cd_composition_contract",
+        "operator_promotion_approval"
+      ]
+    },
+    {
+      "workflow_id": "research_answer_verification",
+      "tier": "lab",
+      "source_framework": "research",
+      "source_path": "orchestration/src/control_plane/workflows/lab/primitives/research/research_answer_verification.workflow.json",
+      "runtime_selectable": false,
+      "promotion_status": "lab",
+      "test_scenarios": [
+        "research_final_verifier"
+      ],
+      "promotion_requirements": [
+        "schema_valid",
+        "composition_ledger_level_valid",
+        "workflow_cd_composition_contract",
+        "operator_promotion_approval"
+      ]
+    },
+    {
       "workflow_id": "plan_execute_review",
       "tier": "official",
       "source_framework": "infring",
@@ -337,6 +405,61 @@
       ],
       "promotion_requirements": [
         "schema_valid",
+        "primitive_contract_reviewed",
+        "operator_promotion_approval"
+      ]
+    },
+    {
+      "workflow_id": "local_project_bootstrap",
+      "tier": "lab",
+      "source_framework": "primitive_first_coding_runtime_spine",
+      "source_path": "orchestration/src/control_plane/workflows/lab/primitives/coding_runtime/local_project_bootstrap.workflow.json",
+      "runtime_selectable": false,
+      "promotion_status": "lab",
+      "test_scenarios": [
+        "context_free_greenfield_skips_discovery",
+        "existing_project_collects_bounded_context",
+        "explicit_target_paths_are_preferred"
+      ],
+      "promotion_requirements": [
+        "schema_valid",
+        "primitive_contract_reviewed",
+        "operator_promotion_approval"
+      ]
+    },
+    {
+      "workflow_id": "checkpoint_memory_bootstrap",
+      "tier": "lab",
+      "source_framework": "primitive_first_coding_runtime_spine",
+      "source_path": "orchestration/src/control_plane/workflows/lab/primitives/coding_runtime/checkpoint_memory_bootstrap.workflow.json",
+      "runtime_selectable": false,
+      "promotion_status": "lab",
+      "test_scenarios": [
+        "no_checkpoint_signal_skips_memory_lookup",
+        "checkpoint_resume_retrieves_bounded_memory",
+        "stale_memory_is_downgraded_to_hint"
+      ],
+      "promotion_requirements": [
+        "schema_valid",
+        "primitive_contract_reviewed",
+        "operator_promotion_approval"
+      ]
+    },
+    {
+      "workflow_id": "first_mutation_executor",
+      "tier": "lab",
+      "source_framework": "primitive_first_coding_runtime_spine",
+      "source_path": "orchestration/src/control_plane/workflows/lab/primitives/coding_runtime/first_mutation_executor.workflow.json",
+      "runtime_selectable": false,
+      "promotion_status": "lab",
+      "test_scenarios": [
+        "first_write_delegates_to_file_mutation_executor",
+        "first_patch_requires_sufficient_context",
+        "remaining_requirements_are_returned_without_final_success_claim"
+      ],
+      "promotion_requirements": [
+        "schema_valid",
+        "composition_ledger_level_valid",
         "primitive_contract_reviewed",
         "operator_promotion_approval"
       ]
