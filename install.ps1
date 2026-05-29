@@ -1128,6 +1128,18 @@ function Resolve-ReleaseAssetProbe([string]$VersionTag, [string]$Triple, [string
   if ($release.assets -is [System.Array]) {
     $assetNames = @($release.assets | ForEach-Object { [string]$_.name })
   }
+  if ($assetNames.Count -eq 0) {
+    return @{
+      stem = $Stem
+      version = $VersionTag
+      selected_asset = ""
+      asset_found = $false
+      reachable = $false
+      reachability_status = "release_asset_bundle_empty"
+      candidate_triples = $tripleAliases
+      candidates = $candidates
+    }
+  }
   $selected = ""
   foreach ($candidate in $candidates) {
     if ($assetNames -contains $candidate) {

@@ -10,6 +10,8 @@ import { emitStructuredResult, writeJsonArtifact, writeTextArtifact } from '../.
 const ROOT = process.cwd();
 const INSTALL_SCRIPT_PATH = 'install.ps1';
 const INSTALL_SCRIPT_SH_PATH = 'install.sh';
+const VERSION_BUMP_WORKFLOW_PATH = '.github/workflows/version-bump.yml';
+const RELEASE_WORKFLOW_PATH = '.github/workflows/release.yml';
 const DEFAULT_OUT_JSON = 'core/local/artifacts/windows_installer_contract_guard_current.json';
 const DEFAULT_OUT_MARKDOWN = 'local/workspace/reports/WINDOWS_INSTALLER_CONTRACT_GUARD_CURRENT.md';
 const DEFAULT_RELIABILITY_OUT_JSON = 'core/local/artifacts/windows_install_reliability_current.json';
@@ -104,6 +106,11 @@ function run(argv: string[]): number {
   const args = parseArgs(argv);
   const source = fs.readFileSync(path.resolve(ROOT, INSTALL_SCRIPT_PATH), 'utf8');
   const sourceSh = fs.readFileSync(path.resolve(ROOT, INSTALL_SCRIPT_SH_PATH), 'utf8');
+  const versionBumpWorkflow = fs.readFileSync(
+    path.resolve(ROOT, VERSION_BUMP_WORKFLOW_PATH),
+    'utf8',
+  );
+  const releaseWorkflow = fs.readFileSync(path.resolve(ROOT, RELEASE_WORKFLOW_PATH), 'utf8');
 
   const checks: CheckRow[] = [];
   const asciiWrapperWriteCount = countOccurrences(
@@ -221,6 +228,35 @@ function run(argv: string[]): number {
       && source.includes('Installation incomplete: runtime pending.'),
     detail:
       'Windows full-mode onboarding fallback must complete as bootstrap-only runtime-pending outcome instead of claiming full runtime success',
+  });
+
+  checks.push({
+    id: 'windows_install_script_empty_release_bundle_diagnostic_present',
+    ok: source.includes('release_asset_bundle_empty'),
+    detail:
+      'installer must distinguish an empty published GitHub release from a normal missing-platform asset so Windows bootstrap-only installs point at the real release packaging failure',
+  });
+
+  checks.push({
+    id: 'version_bump_workflow_does_not_create_assetless_github_releases',
+    ok:
+      !/\bgh\s+release\s+(create|edit)\b/.test(versionBumpWorkflow)
+      && versionBumpWorkflow.includes('release_publication_owner')
+      && versionBumpWorkflow.includes('.github/workflows/release.yml'),
+    detail:
+      'version-bump may create/preserve the tag, but GitHub release publication must remain owned by release.yml so latest releases cannot be published without runtime assets',
+  });
+
+  checks.push({
+    id: 'release_workflow_verifies_windows_runtime_asset_contract',
+    ok:
+      releaseWorkflow.includes('Verify published release asset contract')
+      && releaseWorkflow.includes('release_asset_contract_failed')
+      && releaseWorkflow.includes('infring-ops-x86_64-pc-windows-msvc.exe')
+      && releaseWorkflow.includes('infringd-x86_64-pc-windows-msvc.exe')
+      && releaseWorkflow.includes('conduit_daemon-x86_64-pc-windows-msvc.exe'),
+    detail:
+      'asset-owning release workflow must fail if the published release is missing required Windows runtime assets',
   });
 
   checks.push({

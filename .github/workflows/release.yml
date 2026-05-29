@@ -719,3 +719,33 @@ jobs:
             docs/client/reports/benchmark_matrix_run_latest.json
             core/local/artifacts/benchmark_sanity_gate_current.json
             core/local/artifacts/benchmark_public_audit_current.json
+
+      - name: Verify published release asset contract
+        if: steps.semver.outputs.release_ready == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.semver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { execFileSync } = require('child_process');
+          const tag = String(process.env.RELEASE_TAG || '').trim();
+          const required = [
+            'infring-ops-x86_64-pc-windows-msvc.exe',
+            'infringd-x86_64-pc-windows-msvc.exe',
+            'infringd-tiny-max-x86_64-pc-windows-msvc.exe',
+            'conduit_daemon-x86_64-pc-windows-msvc.exe',
+            'infring-pure-workspace-x86_64-pc-windows-msvc.exe',
+            'infring-pure-workspace-tiny-max-x86_64-pc-windows-msvc.exe',
+          ];
+          const raw = execFileSync('gh', ['release', 'view', tag, '--json', 'assets'], { encoding: 'utf8' });
+          const payload = JSON.parse(raw);
+          const assets = Array.isArray(payload.assets) ? payload.assets : [];
+          const names = new Set(assets.map((asset) => String(asset.name || '')));
+          const missing = required.filter((name) => !names.has(name));
+          if (assets.length === 0 || missing.length > 0) {
+            console.error(`release_asset_contract_failed ${JSON.stringify({ tag, asset_count: assets.length, missing })}`);
+            process.exit(1);
+          }
+          console.log(`release_asset_contract_ok ${JSON.stringify({ tag, asset_count: assets.length })}`);
+          NODE

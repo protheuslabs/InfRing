@@ -181,7 +181,7 @@ jobs:
           echo "Dry run only. Planned ${{ steps.semver.outputs.bump }} bump to ${{ steps.semver.outputs.tag }}."
           exit 0
 
-      - name: Create or update per-commit GitHub release
+      - name: Create release tag for asset-owning release workflow
         if: steps.semver.outputs.release_ready == '1' && steps.semver.outputs.dry_run != '1'
         env:
           GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN || github.token }}
@@ -208,29 +208,23 @@ jobs:
             git tag -a "${RELEASE_TAG}" "${HEAD_SHA}" -m "${RELEASE_TAG}"
             git push origin "refs/tags/${RELEASE_TAG}"
           fi
-          cat > /tmp/release-notes.md <<EOF
-          Automated ${BUMP_KIND} release for version ${NEXT_VERSION}.
-
-          Commit: ${HEAD_SHA}
-          Channel: ${RELEASE_CHANNEL}
-          Synthetic per-commit fallback: ${SYNTHETIC_PER_COMMIT_RELEASE}
-          Workflow: ${RUN_URL}
-
-          This release is generated for every prefixed commit on main.
+          mkdir -p core/local/artifacts
+          cat > core/local/artifacts/version_bump_release_handoff_current.json <<EOF
+          {
+            "ok": true,
+            "type": "version_bump_release_handoff",
+            "release_tag": "${RELEASE_TAG}",
+            "next_version": "${NEXT_VERSION}",
+            "channel": "${RELEASE_CHANNEL}",
+            "bump_kind": "${BUMP_KIND}",
+            "synthetic_per_commit_release": "${SYNTHETIC_PER_COMMIT_RELEASE}",
+            "head_sha": "${HEAD_SHA}",
+            "workflow": "${RUN_URL}",
+            "release_publication_owner": ".github/workflows/release.yml",
+            "assetless_release_creation_forbidden": true
+          }
           EOF
-          latest_args=(--latest)
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release edit "${RELEASE_TAG}" \
-              --title "${RELEASE_TAG}" \
-              --notes-file /tmp/release-notes.md \
-              "${latest_args[@]}"
-          else
-            gh release create "${RELEASE_TAG}" \
-              --target "${HEAD_SHA}" \
-              --title "${RELEASE_TAG}" \
-              --notes-file /tmp/release-notes.md \
-              "${latest_args[@]}"
-          fi
+          echo "Created/preserved tag ${RELEASE_TAG}. GitHub release publication is owned by release.yml so runtime assets cannot be bypassed."
 
       - name: Commit version files
         if: steps.semver.outputs.release_ready == '1' && steps.semver.outputs.dry_run != '1' && vars.INFRING_RELEASE_PERSIST_VERSION == '1'
