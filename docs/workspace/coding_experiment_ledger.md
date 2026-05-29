@@ -556,3 +556,103 @@ Next:
 
 Patch activation boundaries, rebuild, then run a lower-profile smoke ladder
 from Profile 0 upward before returning to Level 8.
+
+## EXP-CODING-029: Compact mutation-entry packet for Level 6/7 no-mutation timeout
+
+Status: `reverted_no_positive_delta`
+
+Hypothesis: Claude Code, Codex, ForgeCode, and Aider traces all point toward a
+bounded editable context followed by a compact mutation artifact before
+validation. Enabling the existing `compact_mutation_entry_packet_enabled`
+primitive in the lab coding spine might reduce the first provider turn enough to
+restore mutation on Level 6/7 without adding case-specific behavior.
+
+Reference evidence:
+
+- Level 6 reference run:
+  `references/coding-agent-systems/runtime_trace_harness/reports/level6_reference_frameworks_trace_20260525_201057.stdout.json`
+- Level 7 reference run:
+  `references/coding-agent-systems/runtime_trace_harness/reports/level7_all_frameworks_20260525_233558.stdout.json`
+- Aider source pattern:
+  `references/coding-agent-systems/aider/aider/coders/base_prompts.py`,
+  `references/coding-agent-systems/aider/aider/coders/editblock_prompts.py`,
+  `references/coding-agent-systems/aider/aider/coders/editblock_coder.py`
+
+Change attempted:
+
+- Temporarily enabled `compact_mutation_entry_packet_enabled` in
+  `local_coding_phase1_mutation_spine.workflow.json`.
+
+Measurement:
+
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/compact_mutation_packet_l6_l7_20260529.json`
+- Level 6 remained `0/1`, failure `no_successful_mutation`, wall `105217ms`.
+- Level 7 remained `0/1`, failure `no_successful_mutation`, wall `105388ms`.
+- Prompt/system size improved materially:
+  Level 7 first turn changed to `prompt_chars=3958`, `system_chars=287`,
+  `tool_count=2`.
+- But both turns still timed out before mutation:
+  first provider turn `60015ms`, retry `45109ms`.
+
+Decision:
+
+Reverted the workflow flag. This was directionally useful as a diagnostic
+because it proved context compaction alone is not enough, but it did not produce
+an obvious positive capability delta under the current provider/model path.
+
+Next:
+
+Consult the passing framework traces for the missing implementation behavior:
+the winning systems do not merely compact context; they also make the first edit
+artifact operationally cheap. The next single-change candidate should target the
+mutation executor shape itself, most likely a deterministic local edit artifact
+or shell-edit batch primitive that applies a model-produced edit payload without
+another long generic provider/tool turn.
+
+## EXP-CODING-030: Full mutation-entry artifact trio for Level 6/7 no-mutation timeout
+
+Status: `partial_positive_keep_under_review`
+
+Hypothesis: The compact packet alone failed because it compressed context but
+did not activate the full edit-artifact behavior used by faster reference
+systems. The official coding operator already carries the full trio:
+`mutation_only_recovery_gate_enabled`, `compact_mutation_entry_packet_enabled`,
+and `controlled_shell_edit_batch_enabled`. Activating that trio in the lab
+phase-1 spine should more closely match Codex-style `command_execution` and
+Claude-style fast edit behavior.
+
+Change:
+
+- Enabled `mutation_only_recovery_gate_enabled`.
+- Enabled `compact_mutation_entry_packet_enabled`.
+- Enabled `controlled_shell_edit_batch_enabled`.
+- Enabled `premature_validation_recovery_gate_enabled`.
+
+Measurement:
+
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/mutation_entry_artifact_trio_l6_l7_20260529.json`
+- Level 6 changed from `no_successful_mutation` to a real first mutation:
+  `time_to_first_mutation_ms=43824`.
+- Level 6 touched the expected source files:
+  `orderflow/__init__.py` and `orderflow/attempts.py`.
+- Level 6 still failed overall because the implementation was semantically
+  wrong and post-mutation repair did not converge before the harness timeout.
+- Level 7 remained `no_successful_mutation` with the same 60s/45s timeout
+  shape.
+
+Decision:
+
+Keep this as a partial positive only if the next patch targets the newly exposed
+failure: after the first mutation, the runtime falls back into the full generic
+8-tool loop instead of staying in a narrow validation-repair lane. If that next
+patch does not improve Level 6 repair or Level 7 first mutation, revert the trio
+with its follow-up patch.
+
+Next:
+
+Consult the reference traces for post-mutation repair behavior. The likely fix
+is not more setup; it is a bounded repair controller that keeps post-mutation
+turns narrow: changed files, failed validation output, edit-only tools, and a
+single validation closeout.
