@@ -5,6 +5,16 @@
             &[],
         );
         assert!(
+            candidates.iter().any(|candidate| {
+                candidate
+                    .get("tool")
+                    .and_then(Value::as_str)
+                    .map(|tool| tool == "batch_query")
+                    .unwrap_or(false)
+            }),
+            "high-confidence external comparison should recover into workflow-only batch_query"
+        );
+        assert!(
             !candidates.iter().any(|candidate| {
                 candidate
                     .get("tool")
@@ -17,36 +27,55 @@
     }
 
     #[test]
-    fn ordinary_lookup_and_search_intents_do_not_create_latent_candidates() {
+    fn ordinary_lookup_and_search_intents_recover_batch_query_candidate() {
         for message in [
             "look up recent changes in the relevant frameworks",
             "search the web for public evidence about a named system",
             "use web research to compare current options",
         ] {
             let candidates = latent_tool_candidates_for_message(message, &[]);
-            assert!(candidates.is_empty(), "{message}: {candidates:?}");
+            assert_eq!(candidates.len(), 1, "{message}: {candidates:?}");
+            assert_eq!(
+                candidates[0].get("tool").and_then(Value::as_str),
+                Some("batch_query"),
+                "{message}: {candidates:?}"
+            );
+            assert_eq!(
+                candidates[0].get("workflow_only").and_then(Value::as_bool),
+                Some(true),
+                "{message}: {candidates:?}"
+            );
         }
     }
 
     #[test]
-    fn time_scoped_update_requests_do_not_create_latent_candidates() {
+    fn time_scoped_update_requests_recover_batch_query_candidate() {
         for message in [
             "give me an update on the agentic landscape in May 2026",
             "summarize the current state of synthetic biology in 2026",
             "brief me on the electric vehicle market landscape this year",
         ] {
             let candidates = latent_tool_candidates_for_message(message, &[]);
-            assert!(candidates.is_empty(), "{message}: {candidates:?}");
+            assert_eq!(candidates.len(), 1, "{message}: {candidates:?}");
+            assert_eq!(
+                candidates[0].get("tool").and_then(Value::as_str),
+                Some("batch_query"),
+                "{message}: {candidates:?}"
+            );
         }
     }
 
     #[test]
-    fn evaluative_web_research_prompts_do_not_create_latent_candidates() {
+    fn evaluative_web_research_prompts_recover_batch_query_candidate() {
         let candidates = latent_tool_candidates_for_message(
             "What is the best agentic framework in 2026? Search first, but do not trust marketing pages blindly. Give me a defensible answer.",
             &[],
         );
-        assert!(candidates.is_empty(), "{candidates:?}");
+        assert_eq!(candidates.len(), 1, "{candidates:?}");
+        assert_eq!(
+            candidates[0].get("tool").and_then(Value::as_str),
+            Some("batch_query")
+        );
     }
 
     #[test]

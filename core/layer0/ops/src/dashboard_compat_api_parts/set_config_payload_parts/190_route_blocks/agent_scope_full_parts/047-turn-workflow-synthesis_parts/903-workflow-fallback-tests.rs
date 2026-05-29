@@ -72,15 +72,34 @@
     }
 
     #[test]
-    fn latent_candidates_do_not_classify_research_from_question_shape() {
+    fn latent_candidates_recover_high_confidence_external_research_but_not_trivia() {
         let research_candidates = latent_tool_candidates_for_message(
             "Research Firecrawl, Tavily, and Exa as data tools for AI research agents.",
             &[],
         );
-        assert!(research_candidates.is_empty(), "{research_candidates:?}");
+        assert_eq!(research_candidates.len(), 1, "{research_candidates:?}");
+        assert_eq!(
+            research_candidates[0].get("tool").and_then(Value::as_str),
+            Some("batch_query"),
+            "{research_candidates:?}"
+        );
+        assert_eq!(
+            research_candidates[0]
+                .get("requires_tool_attempt_before_final_answer")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{research_candidates:?}"
+        );
 
         let trivia_candidates = latent_tool_candidates_for_message("what is 2+2?", &[]);
         assert!(trivia_candidates.is_empty(), "{trivia_candidates:?}");
+    }
+
+    #[test]
+    fn latent_candidates_keep_internal_workspace_comparisons_out_of_web_recovery() {
+        let candidates =
+            latent_tool_candidates_for_message("compare this system to openclaw", &[]);
+        assert!(candidates.is_empty(), "{candidates:?}");
     }
 
     #[test]
@@ -435,4 +454,3 @@
             .pointer("/final_llm_response/fallback_source")
             .is_none());
     }
-

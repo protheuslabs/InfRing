@@ -36,3 +36,6 @@ include!(
 include!(
     "100-governance-and-semantic-memory.combined_parts/1230-workflow-finalization-trace-diagnostics.rs"
 );
+include!(
+    "100-governance-and-semantic-memory.combined_parts/1240-research-turn-recovers-latent-batch-query-after-capability-denial.rs"
+);
