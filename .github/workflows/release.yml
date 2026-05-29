@@ -2,8 +2,8 @@ name: Release GA
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       release_channel:
@@ -111,7 +111,36 @@ jobs:
       - name: Resolve semantic release plan (conventional commits)
         id: semver
         run: |
-          cargo run --quiet --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops -- release-semver-contract run --strict=1 --write=1 --channel=${{ steps.channel.outputs.release_channel }} > /tmp/release-plan.json
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+            VERSION="$(printf '%s' "$TAG" | sed -E 's/^v([0-9]+\\.[0-9]+\\.[0-9]+).*/\\1/')"
+            CHANNEL="${{ steps.channel.outputs.release_channel }}"
+            PREVIOUS_TAG="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9._-]+)?$' | grep -v -x "$TAG" | head -n 1 || true)"
+            if [ -z "$PREVIOUS_TAG" ]; then
+              PREVIOUS_TAG="none"
+            fi
+            export TAG VERSION CHANNEL PREVIOUS_TAG
+            node <<'NODE' > /tmp/release-plan.json
+            const payload = {
+              ok: true,
+              mode: 'tag_handoff',
+              release_ready: true,
+              version_bumped: false,
+              write_requested: false,
+              bump: 'tag',
+              previous_tag: process.env.PREVIOUS_TAG || 'none',
+              next_tag: process.env.TAG,
+              next_version: process.env.VERSION,
+              release_channel: process.env.CHANNEL || 'alpha',
+              commits: [],
+              commits_scanned: 0,
+            };
+            process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
+NODE
+          else
+            cargo run --quiet --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops -- release-semver-contract run --strict=1 --write=1 --channel=${{ steps.channel.outputs.release_channel }} > /tmp/release-plan.json
+          fi
           cat /tmp/release-plan.json
           RELEASE_READY="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("/tmp/release-plan.json","utf8"));process.stdout.write(p.release_ready?"1":"0");')"
           TAG="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("/tmp/release-plan.json","utf8"));process.stdout.write(String(p.next_tag||"none"));')"

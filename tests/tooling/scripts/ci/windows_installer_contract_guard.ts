@@ -260,6 +260,18 @@ function run(argv: string[]): number {
   });
 
   checks.push({
+    id: 'release_workflow_runs_from_version_bump_tag_handoff',
+    ok:
+      releaseWorkflow.includes('tags:')
+      && releaseWorkflow.includes('"v*"')
+      && releaseWorkflow.includes("mode: 'tag_handoff'")
+      && releaseWorkflow.includes('github.ref_type')
+      && releaseWorkflow.includes('github.ref_name'),
+    detail:
+      'release workflow must consume version-bump tag handoffs so version bumping works without allowing version-bump to publish assetless releases',
+  });
+
+  checks.push({
     id: 'windows_install_script_runtime_pending_does_not_print_quickstart',
     ok:
       source.includes('if ($runtimeInstalled) {')
