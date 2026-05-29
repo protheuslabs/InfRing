@@ -323,22 +323,75 @@ fn finalize_message_finalization_and_payload(
             }),
         ));
     }
-    let mut response_workflow = run_turn_workflow_final_response(
-        root,
-        &workflow_provider,
-        &workflow_model,
-        &active_messages,
-        message,
+    let latent_recovery_probe_workflow = turn_workflow_metadata(
         &workflow_mode,
         &response_tools,
         &workflow_system_events,
         &response_text,
-        &latest_assistant_text,
+        message,
     );
-    let mut manual_toolbox_pending_tool_request = response_workflow
-        .get("manual_toolbox_pending_tool_request")
-        .filter(|value| value.is_object())
-        .cloned();
+    let early_latent_pending_request = if response_tools.is_empty()
+        && workflow_json_auto_executes_tools_if_permitted(&latent_recovery_probe_workflow)
+        && workflow_json_latent_candidate_recovery_enabled(&latent_recovery_probe_workflow)
+        && workflow_latent_candidate_recovery_required_by_terminal_invariant(
+            &latent_recovery_probe_workflow,
+            &latent_tool_candidates,
+        ) {
+        manual_toolbox_pending_request_from_latent_candidates(&latent_tool_candidates, message)
+    } else {
+        None
+    };
+    let mut response_workflow = if let Some(pending_request) = early_latent_pending_request.clone() {
+        let recovery_source = pending_request
+            .get("source")
+            .and_then(Value::as_str)
+            .unwrap_or("latent_candidate_recovery");
+        workflow_system_events.push(turn_workflow_event(
+            "workflow_pending_tool_request_recovered",
+            json!({
+                "source": recovery_source,
+                "tool_name": pending_request
+                    .get("tool_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                "ambiguity_policy": "single_valid_workflow_only_candidate_before_final_synthesis"
+            }),
+        ));
+        let mut workflow = turn_workflow_metadata(
+            &workflow_mode,
+            &response_tools,
+            &workflow_system_events,
+            &response_text,
+            message,
+        );
+        workflow["manual_toolbox_pending_tool_request"] = pending_request.clone();
+        workflow["pending_tool_request"] = pending_request;
+        workflow["workflow_control"]["direct_response_path"] =
+            Value::String("gate_4_pending_llm_tool_request".to_string());
+        workflow["final_llm_response"]["used"] = Value::Bool(false);
+        workflow["final_llm_response"]["status"] =
+            Value::String("skipped_pending_tool_confirmation".to_string());
+        workflow
+    } else {
+        run_turn_workflow_final_response(
+            root,
+            &workflow_provider,
+            &workflow_model,
+            &active_messages,
+            message,
+            &workflow_mode,
+            &response_tools,
+            &workflow_system_events,
+            &response_text,
+            &latest_assistant_text,
+        )
+    };
+    let mut manual_toolbox_pending_tool_request = early_latent_pending_request.or_else(|| {
+        response_workflow
+            .get("manual_toolbox_pending_tool_request")
+            .filter(|value| value.is_object())
+            .cloned()
+    });
     let latent_candidate_recovery_required =
         workflow_latent_candidate_recovery_required_by_terminal_invariant(
             &response_workflow,

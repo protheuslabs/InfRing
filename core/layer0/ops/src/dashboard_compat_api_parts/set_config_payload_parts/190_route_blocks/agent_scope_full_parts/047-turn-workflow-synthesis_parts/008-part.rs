@@ -207,10 +207,21 @@ fn response_answers_successful_tool_result(
         return false;
     }
     let lowered = cleaned.to_ascii_lowercase();
+    let summary_text = clean_text(&response_tools_summary_for_user(response_tools, 4), 2_000);
     response_tools.iter().any(|row| {
-        ["result", "input", "name"].iter().any(|field| {
-            clean_text(row.get(*field).and_then(Value::as_str).unwrap_or(""), 2_000)
-                .split(|ch: char| !ch.is_ascii_alphanumeric())
+        let mut evidence_texts = ["result", "summary", "display_text", "input", "name"]
+            .iter()
+            .map(|field| clean_text(row.get(*field).and_then(Value::as_str).unwrap_or(""), 2_000))
+            .collect::<Vec<_>>();
+        evidence_texts.push(clean_text(
+            row.pointer("/tool_pipeline/raw_payload/summary")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            2_000,
+        ));
+        evidence_texts.push(summary_text.clone());
+        evidence_texts.into_iter().any(|text| {
+            text.split(|ch: char| !ch.is_ascii_alphanumeric())
                 .map(|token| token.to_ascii_lowercase())
                 .filter(|token| token.len() >= 5)
                 .filter(|token| {
@@ -225,6 +236,11 @@ fn response_answers_successful_tool_result(
                             | "about"
                             | "https"
                             | "http"
+                            | "tool"
+                            | "tools"
+                            | "using"
+                            | "recorded"
+                            | "evidence"
                     )
                 })
                 .any(|token| lowered.contains(&token))

@@ -97,13 +97,15 @@ fn research_turn_recovers_latent_batch_query_after_capability_denial() {
         "{response_text}"
     );
     assert!(
-        matches!(
-            response
-                .payload
-                .pointer("/response_workflow/final_llm_response/status")
-                .and_then(Value::as_str),
-            Some("synthesized") | Some("tool_evidence_fallback_used")
-        ),
+        response_text.contains("trade and labor disruptions"),
+        "{response_text}"
+    );
+    assert_eq!(
+        response
+            .payload
+            .pointer("/response_workflow/final_llm_response/status")
+            .and_then(Value::as_str),
+        Some("synthesized"),
         "{:?}",
         response.payload.pointer("/response_workflow/final_llm_response/status")
     );
