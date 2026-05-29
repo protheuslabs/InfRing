@@ -20,6 +20,17 @@ The implementation must be built from monotonic primitives:
 - higher workflows may compose primitives, but must not alter their basic meaning
 - eval fixtures may be specific, but production runtime behavior must stay primitive-first
 - no success claim may bypass receipts
+- every primitive or guard must declare `profile_min`
+- primitives with `profile_min` above the selected profile must be invisible to that run
+- higher-profile work must run lower-profile smoke before promotion
+
+Activation audit:
+
+`docs/workspace/coding_profile_activation_audit.md`
+
+Machine-readable activation matrix:
+
+`orchestration/src/control_plane/workflows/lab/composites/coding/coding_profile_activation_matrix.json`
 
 ## Runtime spine
 
@@ -28,11 +39,15 @@ Canonical order:
 ```text
 coding_task_contract
 -> context_pack_builder
+-> project_operator_context_packet
 -> implementation_entry_gate
+-> tool_progress_watchdog
+-> first_mutation_artifact_lane
 -> file_mutation_executor
 -> receipt_journal
 -> public_interface_verifier
 -> validation_runner
+-> semantic_closeout_probe
 -> failure_diagnosis
 -> tool_retry_reflection
 -> doom_loop_interrupt
@@ -59,11 +74,15 @@ The fast path is allowed only when the task contract says local context is unnec
 |---|---|---|
 | `coding_task_contract` | Orchestration | Interprets user intent and maps it to runtime requirements. |
 | `context_pack_builder` | Orchestration | Selects relevant local context through tool-backed providers. |
+| `project_operator_context_packet` | Orchestration | Compresses project/checkpoint context into an action-oriented packet before the first model edit turn. |
 | `implementation_entry_gate` | Orchestration/Core boundary | Enforces mutation-before-success invariants. |
+| `tool_progress_watchdog` | Orchestration/Observability boundary | Detects provider turns that produce no tool receipts and routes to compact recovery or runtime failure. |
+| `first_mutation_artifact_lane` | Orchestration/Core boundary | Converts compact project context into one constrained source/test/operator mutation batch before the open tool loop. |
 | `file_mutation_executor` | Core tool substrate | Owns local file mutation and mutation receipts. |
 | `receipt_journal` | Core/Observability boundary | Records authoritative execution evidence. |
 | `public_interface_verifier` | Orchestration with adapters | Checks task-facing API shape without hardcoding languages globally. |
 | `validation_runner` | Validation | Runs declared checks and returns command receipts. |
+| `semantic_closeout_probe` | Orchestration with validation/tool adapters | Runs product/operator evidence probes after validation when the task requires public or operator-facing behavior. |
 | `failure_diagnosis` | Orchestration | Converts failed receipts into structured repair reasons. |
 | `tool_retry_reflection` | Orchestration | Repairs malformed or incorrect tool calls. |
 | `doom_loop_interrupt` | Orchestration/Observability boundary | Detects repeated no-progress loops from event history. |
@@ -90,6 +109,117 @@ Input:
   "workflow_profile": "coding"
 }
 ```
+
+### `tool_progress_watchdog`
+
+Input:
+
+```json
+{
+  "task_id": "string",
+  "turn_index": 0,
+  "receipt_count": 0,
+  "has_successful_mutation": false,
+  "provider_timeout_seconds": 240,
+  "first_receipt_deadline_seconds": 45
+}
+```
+
+Output:
+
+```json
+{
+  "action": "continue | compact_recovery | structured_runtime_failure",
+  "reason": "string",
+  "next_provider_timeout_seconds": 45
+}
+```
+
+Rules:
+
+- A mutation-required task must not spend an entire long provider turn with zero
+  mutation receipts before recovery.
+- Streaming provider adapters must enforce this with interruptible I/O polling,
+  not by checking a deadline only before a blocking stdout read.
+- Recovery must be primitive, not fixture-specific: compact the prompt, preserve
+  observed public API shapes, prefer additive source/test changes, and ask for
+  the smallest receipt-producing tool batch.
+- If recovery still produces no tool receipts, classify the run as a
+  runtime/controller progress failure rather than a completed coding attempt.
+
+### `project_operator_context_packet`
+
+Input:
+
+```json
+{
+  "task_id": "string",
+  "project_root": "string",
+  "context_receipts": ["receipt_ref"],
+  "checkpoint_memory_receipt": "receipt_ref | null",
+  "validation_command": "string",
+  "handoff_paths": ["string"],
+  "memory_row_id": "string"
+}
+```
+
+Output:
+
+```json
+{
+  "type": "project_operator_context_packet_v1",
+  "active_stage": "product_mutation | operator_surface_mutation | test_mutation | validation | semantic_closeout | checkpoint_handoff | memory_closure",
+  "allowed_next_tools": "string",
+  "stage_goal": "string",
+  "stage_stop_condition": "string",
+  "context_receipts": [],
+  "public_shape_lines_to_preserve": [],
+  "product_slice_gaps": [],
+  "compact_observation": "string"
+}
+```
+
+Rules:
+
+- The first model edit turn for checkpointed project/operator work should see a
+  compact packet, not a full workflow dump.
+- The packet must preserve baseline API/CLI shapes as evidence, not as
+  fixture-specific hardcoding.
+- The packet should route the model to the next smallest stage action and keep
+  handoff/memory closure behind validation and semantic closeout evidence.
+
+### `first_mutation_artifact_lane`
+
+Input:
+
+```json
+{
+  "type": "project_operator_context_packet_v1",
+  "active_stage": "product_mutation | operator_surface_mutation | test_mutation",
+  "allowed_next_tools": "file_write | file_patch | controlled command_run edit batch",
+  "provider_timeout_seconds": 75
+}
+```
+
+Output:
+
+```json
+{
+  "type": "first_mutation_artifact_lane_receipt_v1",
+  "tool_receipts": [],
+  "successful_mutation": true
+}
+```
+
+Rules:
+
+- This lane exists to avoid sending checkpointed project work directly into a
+  broad open native tool loop for the first mutation.
+- The model receives a minimal edit-engine system prompt and must return only
+  `{"tool_calls":[...]}`.
+- Reads, validation, handoff, and memory closure are forbidden in this lane.
+- If no safe mutation is possible from the packet, the lane returns no mutation
+  and the controller may fall back to the normal staged loop.
 
 Output:
 
@@ -355,6 +485,47 @@ Rules:
 - Exit code zero is validation evidence, not full task success by itself.
 - Timeout is a structured validation failure.
 
+### `semantic_closeout_probe`
+
+Input:
+
+```json
+{
+  "task_contract_ref": "receipt-ref",
+  "journal_ref": "receipt-ref",
+  "validated_after_mutation": true,
+  "operator_surface_requirements": ["cli | report | import | export | round_trip | public_api"],
+  "project_root": "string"
+}
+```
+
+Output receipt:
+
+```json
+{
+  "type": "semantic_closeout_probe_receipt_v1",
+  "status": "passed | failed | skipped | blocked",
+  "commands": ["string"],
+  "covered_requirements": ["string"],
+  "missing_requirements": ["string"],
+  "after_validation": true
+}
+```
+
+Rules:
+
+- Run only after post-mutation validation has passed.
+- Required when a project/operator task asks for CLI, report, import, export,
+  round-trip, or public API behavior.
+- Probes are product evidence, not hidden judge fixtures. They should exercise
+  the public/operator surface that the task itself requested.
+- A passing validation command does not satisfy this stage unless it also
+  explicitly exercises the requested operator/public behavior.
+- Failed probes route to `failure_diagnosis` and then the earliest safe
+  product/operator/test repair state.
+- Handoff and memory closure are forbidden while required semantic closeout
+  probes are missing.
+
 ### `failure_diagnosis`
 
 Input:
@@ -550,10 +721,17 @@ Rules:
 | `coding_task_contract` | `final_receipt_synthesis` | Explanation-only task or no mutation required. |
 | `coding_task_contract` | `context_pack_builder` | Existing context is required or locally discoverable. |
 | `coding_task_contract` | `implementation_entry_gate` | Context-free creation fast path is valid. |
-| `context_pack_builder` | `implementation_entry_gate` | Context selected or fast path confirmed. |
+| `context_pack_builder` | `project_operator_context_packet` | Checkpointed project/operator work has bounded context and needs staged action. |
+| `context_pack_builder` | `implementation_entry_gate` | Context selected or fast path confirmed for non-project-operator work. |
 | `context_pack_builder` | `partial_blocked` | Required context missing and not inferable. |
-| `implementation_entry_gate` | `file_mutation_executor` | Mutation required and safe action exists. |
+| `project_operator_context_packet` | `implementation_entry_gate` | Compact staged action packet created. |
+| `implementation_entry_gate` | `tool_progress_watchdog` | Mutation required and safe action exists. |
 | `implementation_entry_gate` | `failure_diagnosis` | Proposed action violates gate. |
+| `tool_progress_watchdog` | `first_mutation_artifact_lane` | Checkpointed project/operator work needs its first source/test/operator mutation. |
+| `tool_progress_watchdog` | `file_mutation_executor` | Provider produced a receipt-bearing tool call or compact recovery is active outside the first-mutation lane. |
+| `tool_progress_watchdog` | `failure_diagnosis` | Provider turn exceeded the first-receipt deadline without usable tool receipts. |
+| `first_mutation_artifact_lane` | `file_mutation_executor` | Constrained edit artifact produced mutation tool calls. |
+| `first_mutation_artifact_lane` | `failure_diagnosis` | Artifact is empty, malformed, unsafe, or only proposes forbidden non-mutation work. |
 | `file_mutation_executor` | `receipt_journal` | Mutation receipt produced. |
 | `file_mutation_executor` | `failure_diagnosis` | Mutation failed. |
 | `receipt_journal` | `public_interface_verifier` | Public surface check required. |
@@ -561,8 +739,12 @@ Rules:
 | `receipt_journal` | `final_receipt_synthesis` | Required receipts are satisfied and no validation required. |
 | `public_interface_verifier` | `validation_runner` | Surface verified or skipped. |
 | `public_interface_verifier` | `failure_diagnosis` | Surface gap found. |
-| `validation_runner` | `final_receipt_synthesis` | Validation passed or user only requested run status. |
+| `validation_runner` | `semantic_closeout_probe` | Validation passed and operator/public behavior evidence is required. |
+| `validation_runner` | `final_receipt_synthesis` | Validation passed, no semantic closeout is required, or user only requested run status. |
 | `validation_runner` | `failure_diagnosis` | Validation failed or timed out. |
+| `semantic_closeout_probe` | `checkpoint_handoff` | Required semantic probes passed and handoff is required. |
+| `semantic_closeout_probe` | `final_receipt_synthesis` | Required semantic probes passed and no handoff is required. |
+| `semantic_closeout_probe` | `failure_diagnosis` | Probe failed, timed out, or missed a requested surface. |
 | `failure_diagnosis` | `tool_retry_reflection` | Failure is malformed or incorrect tool call. |
 | `failure_diagnosis` | `doom_loop_interrupt` | Repeated no-progress signature detected. |
 | `failure_diagnosis` | `bounded_repair_loop` | Safe repair exists. |
@@ -579,6 +761,8 @@ Forbidden transitions:
 
 - `implementation_entry_gate -> final_receipt_synthesis` when mutation is required and no mutation receipt exists
 - `validation_runner -> final_receipt_synthesis` when validation was run before mutation and no post-mutation validation exists
+- `validation_runner -> checkpoint_handoff` when required semantic closeout probes are missing
+- `semantic_closeout_probe -> final_receipt_synthesis` when requested operator/public behavior has no probe receipt
 - `failure_diagnosis -> final_receipt_synthesis` without repair, blocker, or budget failure receipt
 - `bounded_repair_loop -> final_receipt_synthesis` without a new satisfying receipt or terminal blocker
 
@@ -639,19 +823,26 @@ Eval/comparison workflows should allow `installed_cli_binary`, `workspace_cli_bi
 
 | Eval level | Required primitives |
 |---|---|
-| Level 1 | `coding_task_contract`, `implementation_entry_gate`, `file_mutation_executor`, `receipt_journal`, `final_receipt_synthesis` |
+| Level 1 | `coding_task_contract`, `implementation_entry_gate`, `tool_progress_watchdog`, `file_mutation_executor`, `receipt_journal`, `final_receipt_synthesis` |
 | Level 2 | Level 1 plus `context_pack_builder` for simple existing-file patches |
 | Level 3 | Level 2 plus `validation_runner` |
 | Level 4 | Level 3 plus `failure_diagnosis` and basic `bounded_repair_loop` |
 | Level 5 | Level 4 plus `public_interface_verifier` adapters |
 | Level 6 | Level 5 plus `checkpoint_handoff` and project context capture |
 | Level 7 | Level 6 plus stronger context selection and multi-file mutation receipts |
-| Level 8 | Level 7 plus `tool_retry_reflection` and `doom_loop_interrupt` |
+| Level 8 | Level 7 plus `project_operator_context_packet`, `first_mutation_artifact_lane`, `semantic_closeout_probe`, `tool_retry_reflection`, and `doom_loop_interrupt` |
 | Level 9+ | Level 8 plus long-horizon planning, architecture checkpoints, memory retrieval, and multi-slice orchestration |
 
 Promotion rule:
 
 A higher-level eval cannot be considered healthy if it regresses lower-level evals. If Level N breaks Level 1 or Level 2, the Level N change is invalid unless it exposes a previously hidden primitive bug and the fix preserves lower-level behavior.
+
+Lower-profile smoke rule:
+
+- After any coding runtime/workflow/tooling patch, run one smoke attempt for every profile lower than or equal to the highest touched profile.
+- Before promotion, run five attempts for every affected and lower profile.
+- Before reliability claims, run twenty attempts for the claimed profile.
+- If a lower profile regresses, stop higher-profile work and patch activation boundaries first.
 
 ## Implementation phases
 

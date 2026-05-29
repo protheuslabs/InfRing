@@ -1,0 +1,163 @@
+{
+  "version": "coding_profile_activation_matrix_v1",
+  "owner": "orchestration",
+  "purpose": "Machine-readable profile activation contract for primitive-first coding workflow development.",
+  "profiles": [
+    {
+      "profile": 0,
+      "id": "micro_direct_mutation",
+      "purpose": "Fully specified create/write/patch with no discovery or validation."
+    },
+    {
+      "profile": 1,
+      "id": "deterministic_local_action",
+      "purpose": "Deterministic local action sequence without live provider reasoning."
+    },
+    {
+      "profile": 2,
+      "id": "bounded_existing_project_edit",
+      "purpose": "Small existing-project edit with bounded context and owner-source mutation."
+    },
+    {
+      "profile": 3,
+      "id": "validated_repair_edit",
+      "purpose": "Bounded edit plus validation, failure diagnosis, and bounded repair."
+    },
+    {
+      "profile": 4,
+      "id": "project_slice",
+      "purpose": "Multi-file source/test/operator slice with staged completion evidence."
+    },
+    {
+      "profile": 5,
+      "id": "checkpointed_project_operator",
+      "purpose": "Project-operator slice with checkpoint/context memory and closure artifacts."
+    },
+    {
+      "profile": 6,
+      "id": "long_horizon_project",
+      "purpose": "Multi-slice roadmap, architecture, memory retrieval, and resumable operation."
+    }
+  ],
+  "activation_contract": {
+    "higher_profile_must_not_block_lower_profile": true,
+    "lower_profile_smoke_required_for_higher_profile_changes": true,
+    "case_specific_hardcoding_allowed": false,
+    "eval_specific_behavior_allowed_only_in_eval_fixtures": true,
+    "promotion_attempts_per_affected_or_lower_profile": 5,
+    "reliability_attempts_per_profile": 20
+  },
+  "primitive_activation": [
+    {
+      "id": "coding_task_contract",
+      "profile_min": 0,
+      "may_block_lower_profiles": false,
+      "activation": "always_classify_never_mutate"
+    },
+    {
+      "id": "implementation_entry_gate",
+      "profile_min": 0,
+      "may_block_lower_profiles": true,
+      "activation": "mutation_required_tasks_cannot_finalize_without_mutation_receipt"
+    },
+    {
+      "id": "file_mutation_executor",
+      "profile_min": 0,
+      "may_block_lower_profiles": false,
+      "activation": "execute_requested_file_write_or_patch_with_receipts"
+    },
+    {
+      "id": "context_pack_builder",
+      "profile_min": 2,
+      "may_block_lower_profiles": false,
+      "activation": "only_when_existing_project_context_is_required"
+    },
+    {
+      "id": "bounded_direct_edit_lane",
+      "profile_min": 2,
+      "may_block_lower_profiles": false,
+      "activation": "bounded_file_context_small_edit_no_project_stage_controller"
+    },
+    {
+      "id": "public_interface_verifier",
+      "profile_min": 2,
+      "may_block_lower_profiles": false,
+      "activation": "only_when_prompt_tests_or_probe_define_public_surface"
+    },
+    {
+      "id": "validation_runner",
+      "profile_min": 3,
+      "may_block_lower_profiles": false,
+      "activation": "after_mutation_when_validation_is_requested_or_required"
+    },
+    {
+      "id": "bounded_repair_loop",
+      "profile_min": 3,
+      "may_block_lower_profiles": false,
+      "activation": "only_after_failed_receipt_evidence"
+    },
+    {
+      "id": "controlled_shell_edit_batch",
+      "profile_min": 4,
+      "may_block_lower_profiles": false,
+      "activation": "multi_file_project_slice_or_explicit_profile_opt_in_only"
+    },
+    {
+      "id": "staged_execution_controller",
+      "profile_min": 4,
+      "may_block_lower_profiles": false,
+      "activation": "project_slice_stage_order_only"
+    },
+    {
+      "id": "completion_evidence_gate",
+      "profile_min": 4,
+      "may_block_lower_profiles": false,
+      "activation": "multi_requirement_project_slice_only"
+    },
+    {
+      "id": "capability_evidence_gate",
+      "profile_min": 5,
+      "may_block_lower_profiles": false,
+      "activation": "durable_checkpoint_operator_tasks_only"
+    },
+    {
+      "id": "checkpoint_memory_bootstrap",
+      "profile_min": 5,
+      "may_block_lower_profiles": false,
+      "activation": "checkpoint_or_resume_context_declared"
+    },
+    {
+      "id": "checkpoint_memory_write",
+      "profile_min": 5,
+      "may_block_lower_profiles": false,
+      "activation": "closure_after_mutation_validation_and_checkpoint_receipt"
+    },
+    {
+      "id": "architecture_bootstrap",
+      "profile_min": 6,
+      "may_block_lower_profiles": false,
+      "activation": "project_initialization_or_architecture_decision_required"
+    }
+  ],
+  "smoke_policy": {
+    "after_patch": {
+      "attempts_per_lower_or_equal_profile": 1,
+      "block_on_lower_profile_regression": true
+    },
+    "before_promotion": {
+      "attempts_per_lower_or_equal_profile": 5,
+      "block_on_lower_profile_regression": true
+    },
+    "before_reliability_claim": {
+      "attempts_per_profile": 20,
+      "block_on_any_failure": true
+    }
+  },
+  "known_violation_classes": [
+    "higher_profile_guard_blocks_lower_profile",
+    "global_prompt_policy_changes_lower_profile_behavior",
+    "tool_schema_gap_creates_repair_loop",
+    "final_artifact_missing_despite_receipt_journal_progress",
+    "eval_specific_case_leaks_into_runtime"
+  ]
+}

@@ -17,6 +17,16 @@
       "native_coding_useful_work_eval_v1"
     ],
     "review_question": "Can this higher-level coding change slow, narrow, or break any lower-level primitive consumer?"
+    ,
+    "profile_smoke_policy": {
+      "source": "coding_profile_activation_matrix_v1",
+      "matrix_path": "orchestration/src/control_plane/workflows/lab/composites/coding/coding_profile_activation_matrix.json",
+      "after_patch_attempts_per_lower_or_equal_profile": 1,
+      "before_promotion_attempts_per_lower_or_equal_profile": 5,
+      "before_reliability_claim_attempts_per_profile": 20,
+      "block_on_lower_profile_regression": true,
+      "rule": "When a change touches profile N, profiles 0..N must run at least one smoke attempt before accepting the patch. Higher-profile work stops on any lower-profile regression."
+    }
   },
   "gates": [
     {

@@ -9,9 +9,11 @@ use crate::native_evidence::{
     native_tool_is_probable_micro_direct_write_task, native_tool_needs_artifact_finalization,
     native_tool_needs_public_report_finalization, native_tool_prompt_evidence_gaps,
     native_tool_prompt_expected_memory_row_id, native_tool_prompt_has_multiple_requirements,
-    native_tool_prompt_project_root, native_tool_prompt_required_changed_paths,
+    native_tool_prompt_memory_cli_pattern, native_tool_prompt_project_root,
+    native_tool_prompt_required_changed_paths,
     native_tool_prompt_requires_memory_write, native_tool_prompt_requires_product_mutation,
-    native_tool_prompt_requires_test_changes, native_tool_prompt_requires_validation_command,
+    native_tool_prompt_requires_multi_file_product_slice, native_tool_prompt_requires_test_changes,
+    native_tool_prompt_requires_validation_command, native_tool_product_slice_gaps,
     native_tool_should_synthesize_micro_final, native_tool_unique_code_path_mentions,
 };
 use crate::native_prompt_policy::{
@@ -19,6 +21,7 @@ use crate::native_prompt_policy::{
     native_tool_context_to_mutation_retry_prompt, native_tool_empty_retry_prompt,
     native_tool_failed_validation_repair_hint, native_tool_initial_prompt,
     native_tool_missing_test_change_repair_hint, native_tool_orchestration_prompt_text,
+    native_tool_mutation_only_recovery_prompt,
     native_tool_public_reasoning_finalization_prompt, native_tool_public_reasoning_metadata,
     native_tool_recovery_prompt,
 };
@@ -38,6 +41,7 @@ use crate::telemetry::{ReceiptEvent, ReceiptSpan};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -422,9 +426,9 @@ impl AgentContract {
             bounded_direct_edit_task && native_tool_bounded_fast_edit_preflight_enabled(&self.metadata);
         let first_edit_batch_contract = bounded_fast_edit_preflight
             && native_tool_first_edit_batch_contract_enabled(&self.metadata);
-        let incremental_edit_loop = bounded_fast_edit_preflight
-            && native_tool_incremental_edit_loop_enabled(&self.metadata);
         let mut next_provider_timeout_seconds: Option<u64> = None;
+        let mut mutation_only_recovery_pending = false;
+        let mut mutation_only_recovery_reason: Option<String> = None;
         if bounded_direct_edit_task {
             prompt = native_tool_bounded_direct_edit_initial_prompt(
                 &self.metadata,
@@ -483,24 +487,7 @@ impl AgentContract {
                         }),
                     );
                 }
-                let local_context_pack_bootstrap = bounded_direct_edit_task
-                    && native_tool_local_context_pack_builder_enabled(&self.metadata);
-                let compact_bootstrap = !local_context_pack_bootstrap
-                    && bounded_direct_edit_task
-                    && native_tool_compact_bounded_edit_bootstrap_applies(
-                        &self.metadata,
-                        &self.initial_prompt,
-                    );
-                let observation = if local_context_pack_bootstrap {
-                    native_tool_local_context_pack_observation_prompt(&self.metadata, &all_receipts)
-                } else if compact_bootstrap {
-                    native_tool_compact_bounded_edit_bootstrap_observation_prompt(
-                        &self.metadata,
-                        &all_receipts,
-                    )
-                } else {
-                    native_tool_observation_prompt(&all_receipts)
-                };
+                let observation = native_tool_observation_prompt(&all_receipts);
                 let preflight_ready = bounded_fast_edit_preflight
                     && native_tool_has_successful_read_context_receipt(&all_receipts);
                 let default_bootstrap_rule = if preflight_ready {
@@ -518,21 +505,74 @@ impl AgentContract {
                     default_bootstrap_rule,
                 );
                 let edit_owner_hint = native_tool_edit_owner_hint(&all_receipts);
-                prompt = if local_context_pack_bootstrap {
-                    format!(
-                        "User task:\n{}\n\n{bootstrap_rule}{edit_owner_hint}\n\nLocal context pack:\n{observation}\n\nUse the local context pack as the model-facing summary. Full receipts remain retained by the runtime. Return only JSON tool_calls for the smallest safe file_write/file_patch mutation next, followed by requested validation/probe command_run calls. Return a structured blocker only if the context pack proves local completion is unsafe.",
-                        self.initial_prompt.trim()
-                    )
-                } else if compact_bootstrap {
-                    format!(
-                        "User task:\n{}\n\n{bootstrap_rule}{edit_owner_hint}\n\nCompact native tool observations:\n{observation}",
-                        self.initial_prompt.trim()
-                    )
-                } else {
-                    format!(
-                        "{prompt}\n\n{bootstrap_rule}{edit_owner_hint}\n\nNative tool observations:\n{observation}"
-                    )
-                };
+                prompt = format!(
+                    "{prompt}\n\n{bootstrap_rule}{edit_owner_hint}\n\nNative tool observations:\n{observation}"
+                );
+            }
+        }
+        if native_tool_checkpointed_project_operator_tool_loop_active(
+            &self.metadata,
+            &self.initial_prompt,
+        ) && !native_tool_has_successful_memory_context_command(&all_receipts)
+        {
+            let memory_context_started = Instant::now();
+            native_tool_persist_runtime_timeline_event(
+                &self.metadata,
+                &self.initial_prompt,
+                "checkpoint_memory_context_start",
+                native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                json!({ "stage": "checkpoint_memory_context" }),
+            );
+            if let Some(memory_receipt) =
+                native_tool_auto_memory_context_receipt(&dispatcher, &self.initial_prompt, &all_receipts)
+            {
+                native_tool_persist_runtime_timeline_event(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    "checkpoint_memory_context_end",
+                    native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                    json!({
+                        "duration_ms": native_tool_bounded_patch_elapsed_ms(memory_context_started),
+                        "status": memory_receipt.status,
+                        "success": memory_receipt.result.get("success").cloned().unwrap_or(Value::Null),
+                    }),
+                );
+                all_receipts.push(memory_receipt);
+                native_tool_persist_run_journal(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    "checkpoint_memory_context",
+                    provider_call_count,
+                    &all_receipts,
+                    None,
+                    None,
+                );
+                if native_tool_compact_mutation_entry_packet_enabled(&self.metadata)
+                    && !native_tool_has_successful_mutation(&all_receipts)
+                {
+                    let mutation_packet = native_tool_mutation_entry_packet(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &all_receipts,
+                    );
+                    prompt = native_tool_context_to_mutation_retry_prompt(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "",
+                        &mutation_packet,
+                        0,
+                    );
+                }
+            } else {
+                native_tool_persist_runtime_timeline_event(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    "checkpoint_memory_context_skipped",
+                    native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                    json!({
+                        "duration_ms": native_tool_bounded_patch_elapsed_ms(memory_context_started),
+                    }),
+                );
             }
         }
         if !micro_direct_write_task && native_tool_requires_successful_mutation(&self.metadata) {
@@ -628,10 +668,157 @@ impl AgentContract {
                         "Runtime bootstrap context was collected before the first model call. Continue from this already-read context and return only JSON tool calls next. If the source/test files needed for this bounded edit are already present in the observations, do not repeat file_list/file_read; make the smallest file_write/file_patch mutation, then validate when requested.",
                     )
                 };
-                prompt = format!(
-                    "{}\n\n{}\n\nNative tool observations:\n{}",
-                    self.initial_prompt, bootstrap_rule, observation
+                if native_tool_compact_mutation_entry_packet_enabled(&self.metadata) {
+                    let mutation_packet = native_tool_mutation_entry_packet(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &all_receipts,
+                    );
+                    prompt = native_tool_context_to_mutation_retry_prompt(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "",
+                        &mutation_packet,
+                        0,
+                    );
+                } else {
+                    prompt = format!(
+                        "{}\n\n{}\n\nNative tool observations:\n{}",
+                        self.initial_prompt, bootstrap_rule, observation
+                    );
+                }
+            }
+        }
+        if native_tool_checkpointed_project_operator_tool_loop_active(
+            &self.metadata,
+            &self.initial_prompt,
+        ) && !native_tool_has_successful_mutation(&all_receipts)
+        {
+            if let Some(stage) = native_tool_current_live_stage(&self.initial_prompt, &all_receipts) {
+                let observation = native_tool_observation_prompt(&all_receipts);
+                prompt = native_tool_checkpointed_project_stage_prompt(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    &all_receipts,
+                    stage,
+                    &observation,
+                    1,
                 );
+                native_tool_persist_runtime_timeline_event(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    "project_operator_context_packet_ready",
+                    native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                    json!({
+                        "stage": stage,
+                        "receipt_count": all_receipts.len(),
+                    }),
+                );
+                if native_tool_project_operator_first_mutation_lane_enabled(&self.metadata, stage) {
+                    let mut lane_metadata = self.metadata.clone();
+                    if let Some(object) = lane_metadata.as_object_mut() {
+                        object.insert(
+                            "provider_timeout_seconds".to_string(),
+                            json!(native_tool_project_operator_first_mutation_provider_timeout_seconds(
+                                &self.metadata,
+                            )),
+                        );
+                        object.insert("provider_stream_until_tool_calls".to_string(), json!(true));
+                        object.insert("omit_ollama_thinking_flags".to_string(), json!(true));
+                    }
+                    provider_call_count += 1;
+                    let lane_request = ProviderRequest {
+                        prompt: native_tool_project_operator_first_mutation_prompt(
+                            &prompt,
+                            stage,
+                        ),
+                        system: Some(native_tool_project_operator_first_mutation_system()),
+                        tools: tools.to_vec(),
+                        model: self.model.clone(),
+                        metadata: lane_metadata,
+                    };
+                    match provider.stream_complete(&lane_request) {
+                        Ok(stream) => {
+                            let lane_response = stream.response;
+                            let mut lane_receipts = Vec::new();
+                            for call in parse_native_tool_calls(&lane_response.output)
+                                .into_iter()
+                                .take(native_tool_project_operator_first_mutation_max_calls(
+                                    &self.metadata,
+                                ))
+                            {
+                                let receipt = if let Some(blocked) =
+                                    native_tool_live_stage_blocked_receipt(
+                                        &self.metadata,
+                                        &self.initial_prompt,
+                                        &all_receipts,
+                                        &call,
+                                    ) {
+                                    blocked
+                                } else {
+                                    dispatcher.dispatch(native_tool_call_with_prompt_defaults(
+                                        call,
+                                        &self.initial_prompt,
+                                    ))
+                                };
+                                lane_receipts.push(receipt.clone());
+                                all_receipts.push(receipt);
+                            }
+                            native_tool_persist_run_journal(
+                                &self.metadata,
+                                &self.initial_prompt,
+                                "project_operator_first_mutation_artifact_lane",
+                                provider_call_count,
+                                &all_receipts,
+                                Some(&lane_response.output),
+                                None,
+                            );
+                            native_tool_persist_runtime_timeline_event(
+                                &self.metadata,
+                                &self.initial_prompt,
+                                "project_operator_first_mutation_artifact_lane_end",
+                                native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                                json!({
+                                    "stage": stage,
+                                    "receipt_count": lane_receipts.len(),
+                                    "successful_mutation": native_tool_has_successful_mutation(&all_receipts),
+                                }),
+                            );
+                            if !lane_receipts.is_empty() {
+                                let observation = native_tool_observation_prompt(&lane_receipts);
+                                prompt = format!(
+                                    "{}\n\nFirst mutation artifact lane observations:\n{}",
+                                    native_tool_checkpointed_project_stage_prompt(
+                                        &self.metadata,
+                                        &self.initial_prompt,
+                                        &all_receipts,
+                                        native_tool_current_live_stage(
+                                            &self.initial_prompt,
+                                            &all_receipts,
+                                        )
+                                        .unwrap_or(stage),
+                                        &native_tool_observation_prompt(&all_receipts),
+                                        1,
+                                    ),
+                                    observation
+                                );
+                            }
+                        }
+                        Err(error) if native_tool_provider_error_is_timeout(&error) => {
+                            native_tool_persist_runtime_timeline_event(
+                                &self.metadata,
+                                &self.initial_prompt,
+                                "project_operator_first_mutation_artifact_lane_timeout",
+                                native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                                json!({
+                                    "stage": stage,
+                                    "error": error.message,
+                                }),
+                            );
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
             }
         }
 
@@ -670,14 +857,49 @@ impl AgentContract {
             ) && turn_idx == 0
                 && native_tool_has_successful_read_context_receipt(&all_receipts)
                 && !native_tool_has_successful_mutation(&all_receipts);
-            let incremental_edit_turn = incremental_edit_loop
-                && turn_idx == 0
-                && native_tool_has_successful_read_context_receipt(&all_receipts)
-                && !native_tool_has_successful_mutation(&all_receipts);
             let first_edit_batch_turn = first_edit_batch_contract
                 && native_tool_has_successful_read_context_receipt(&all_receipts)
                 && !native_tool_has_successful_mutation(&all_receipts);
+            let mutation_only_recovery_turn =
+                mutation_only_recovery_pending
+                    && native_tool_mutation_only_recovery_enabled(&self.metadata)
+                    && !native_tool_has_successful_mutation(&all_receipts);
+            let compact_bootstrap_mutation_turn =
+                native_tool_compact_mutation_entry_packet_enabled(&self.metadata)
+                    && native_tool_requires_successful_mutation(&self.metadata)
+                    && native_tool_has_successful_read_context_receipt(&all_receipts)
+                    && !native_tool_has_successful_mutation(&all_receipts)
+                    && !first_edit_batch_turn
+                    && !staged_edit_turn
+                    && !mutation_only_recovery_turn;
+            let mutation_only_recovery_reason_for_turn = if mutation_only_recovery_turn {
+                mutation_only_recovery_pending = false;
+                mutation_only_recovery_reason
+                    .take()
+                    .unwrap_or_else(|| "mutation_only_recovery_before_required_mutation".to_string())
+            } else {
+                String::new()
+            };
             let mut request_metadata = self.metadata.clone();
+            let mut provider_turn_timeout_seconds =
+                native_tool_provider_turn_timeout_seconds(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    turn_idx,
+                );
+            if native_tool_first_receipt_watchdog_enabled(&self.metadata, &self.initial_prompt)
+                && provider_call_count <= 1
+                && !native_tool_has_successful_mutation(&all_receipts)
+            {
+                provider_turn_timeout_seconds = provider_turn_timeout_seconds.min(
+                    native_tool_first_receipt_deadline_seconds(&self.metadata, &self.initial_prompt),
+                );
+            }
+            if let Value::Object(object) = &mut request_metadata {
+                object
+                    .entry("provider_timeout_seconds".to_string())
+                    .or_insert_with(|| json!(provider_turn_timeout_seconds));
+            }
             if let Some(timeout_seconds) = next_provider_timeout_seconds.take() {
                 if let Value::Object(object) = &mut request_metadata {
                     object.insert(
@@ -693,14 +915,30 @@ impl AgentContract {
                     object.insert("provider_stream_until_tool_calls".to_string(), json!(true));
                 }
             }
-            let request_prompt = if first_edit_batch_turn {
-                    native_tool_first_edit_batch_prompt(
+            let request_prompt = if mutation_only_recovery_turn {
+                    let mutation_packet =
+                        native_tool_mutation_entry_packet(&self.metadata, &self.initial_prompt, &all_receipts);
+                    native_tool_mutation_only_recovery_prompt(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &mutation_only_recovery_reason_for_turn,
+                        &mutation_packet,
+                    )
+                } else if compact_bootstrap_mutation_turn {
+                    let mutation_packet = native_tool_mutation_entry_packet(
                         &self.metadata,
                         &self.initial_prompt,
                         &all_receipts,
+                    );
+                    native_tool_context_to_mutation_retry_prompt(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "",
+                        &mutation_packet,
+                        turn_idx as u64,
                     )
-                } else if incremental_edit_turn {
-                    native_tool_incremental_edit_prompt(
+                } else if first_edit_batch_turn {
+                    native_tool_first_edit_batch_prompt(
                         &self.metadata,
                         &self.initial_prompt,
                         &all_receipts,
@@ -714,16 +952,18 @@ impl AgentContract {
                 } else {
                     prompt.clone()
                 };
-            let request_system = if first_edit_batch_turn {
+            let request_system = if mutation_only_recovery_turn || compact_bootstrap_mutation_turn {
+                native_tool_mutation_only_recovery_system()
+            } else if first_edit_batch_turn {
                 native_tool_first_edit_batch_system()
-            } else if incremental_edit_turn {
-                native_tool_incremental_edit_system()
             } else if staged_edit_turn {
                 native_tool_staged_edit_system()
             } else {
                 system.clone()
             };
-            let request_tools = if first_edit_batch_turn {
+            let request_tools = if mutation_only_recovery_turn || compact_bootstrap_mutation_turn {
+                native_tool_mutation_recovery_tools(&self.metadata, tools)
+            } else if first_edit_batch_turn {
                 native_tool_bounded_fast_edit_preflight_tools(tools)
             } else if staged_edit_turn {
                 native_tool_staged_edit_tools(tools)
@@ -752,7 +992,7 @@ impl AgentContract {
                     "tool_count": request.tools.len(),
                     "stream_until_tool_calls": stream_until_tool_calls,
                     "staged_edit_turn": staged_edit_turn,
-                    "incremental_edit_turn": incremental_edit_turn,
+                    "mutation_only_recovery_turn": mutation_only_recovery_turn,
                 }),
             );
             let provider_turn_started = Instant::now();
@@ -787,7 +1027,7 @@ impl AgentContract {
                     "status": if provider_result.is_ok() { "ok" } else { "error" },
                     "stream_until_tool_calls": stream_until_tool_calls,
                     "staged_edit_turn": staged_edit_turn,
-                    "incremental_edit_turn": incremental_edit_turn,
+                    "mutation_only_recovery_turn": mutation_only_recovery_turn,
                     "stream_diagnostics": provider_result
                         .as_ref()
                         .ok()
@@ -839,7 +1079,10 @@ impl AgentContract {
                         && !micro_direct_write_task
                         && !native_tool_has_successful_mutation(&all_receipts)
                         && provider_call_count <= 1
-                        && native_tool_first_turn_timeout_recovery_enabled(&self.metadata) =>
+                        && native_tool_first_receipt_watchdog_enabled(
+                            &self.metadata,
+                            &self.initial_prompt,
+                        ) =>
                 {
                     if all_receipts.is_empty() {
                         let bootstrap_receipts = native_tool_bootstrap_context_receipts(
@@ -869,6 +1112,11 @@ impl AgentContract {
                             error.message.as_str(),
                             &observation,
                         );
+                        mutation_only_recovery_pending = true;
+                        mutation_only_recovery_reason = Some(format!(
+                            "first_turn_timeout_before_required_mutation:{}",
+                            error.message.chars().take(180).collect::<String>()
+                        ));
                         if bounded_direct_edit_task
                             && native_tool_prompt_requires_pre_mutation_validation(
                                 &self.initial_prompt,
@@ -981,12 +1229,34 @@ impl AgentContract {
             {
                 native_tool_prioritize_pre_mutation_validation_calls(&mut calls);
             }
-            let mutation_batch_scheduler = bounded_direct_edit_task
-                && native_tool_mutation_batch_scheduler_enabled(&self.metadata);
-            if mutation_batch_scheduler {
-                native_tool_schedule_mutation_batch(&mut calls);
-            }
             if calls.is_empty() {
+                if native_tool_checkpointed_project_has_live_stage(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    &all_receipts,
+                ) && empty_tool_retry_count < empty_tool_retry_limit
+                {
+                    empty_tool_retry_count += 1;
+                    if let Some(stage) =
+                        native_tool_current_live_stage(&self.initial_prompt, &all_receipts)
+                    {
+                        let observation = native_tool_observation_prompt(&all_receipts);
+                        prompt = native_tool_checkpointed_project_stage_prompt(
+                            &self.metadata,
+                            &self.initial_prompt,
+                            &all_receipts,
+                            stage,
+                            &format!(
+                                "Previous response did not emit native tool calls:\n{}\n\nCurrent receipts:\n{}",
+                                response.output,
+                                observation
+                            ),
+                            empty_tool_retry_count as usize,
+                        );
+                        last_response = Some(response);
+                        continue;
+                    }
+                }
                 if all_receipts.is_empty() && empty_tool_retry_count < empty_tool_retry_limit {
                     empty_tool_retry_count += 1;
                     prompt = native_tool_empty_retry_prompt(
@@ -1037,7 +1307,17 @@ impl AgentContract {
                     && empty_tool_retry_count < empty_tool_retry_limit
                 {
                     empty_tool_retry_count += 1;
-                    let observation = native_tool_observation_prompt(&all_receipts);
+                    let observation = if native_tool_compact_mutation_entry_packet_enabled(
+                        &self.metadata,
+                    ) {
+                        native_tool_mutation_entry_packet(
+                            &self.metadata,
+                            &self.initial_prompt,
+                            &all_receipts,
+                        )
+                    } else {
+                        native_tool_observation_prompt(&all_receipts)
+                    };
                     prompt = native_tool_context_to_mutation_retry_prompt(
                         &self.metadata,
                         &self.initial_prompt,
@@ -1079,6 +1359,9 @@ impl AgentContract {
                     && native_tool_has_successful_read_context_receipt(&all_receipts)
                     && !native_tool_has_successful_mutation(&all_receipts)
                     && native_tool_call_is_context_only(&call);
+                let compact_mutation_context_blocked = compact_bootstrap_mutation_turn
+                    && !native_tool_has_successful_mutation(&all_receipts)
+                    && native_tool_call_is_context_only(&call);
                 let first_edit_batch_command_blocked = first_edit_batch_turn
                     && !native_tool_has_successful_mutation(&all_receipts)
                     && !native_tool_has_successful_mutation(&turn_receipts)
@@ -1092,47 +1375,110 @@ impl AgentContract {
                     && native_tool_call_is_product_mutation(&call)
                     && !native_tool_prompt_explicit_new_file_allowed(&self.initial_prompt)
                     && !native_tool_call_targets_observed_product_path(&call, &all_receipts);
-                let receipt = if let Some(blocked) = native_tool_live_stage_blocked_receipt(
+                let shell_edit_paths = native_tool_controlled_shell_edit_batch_paths(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    &call,
+                );
+                let shell_edit_command = !shell_edit_paths.is_empty()
+                    && !native_tool_has_successful_mutation(&all_receipts);
+                let unresolved_owner_source_blocked =
+                    native_tool_unresolved_owner_source_first_blocked_receipt(
+                        &all_receipts,
+                        &call,
+                        &shell_edit_paths,
+                    );
+                let pre_dispatch_receipts = if shell_edit_command {
+                    Some(all_receipts.clone())
+                } else {
+                    None
+                };
+                let shell_edit_python_shape_snapshots = if shell_edit_command {
+                    native_tool_shell_edit_python_shape_snapshots(&shell_edit_paths)
+                } else {
+                    std::collections::BTreeMap::new()
+                };
+                let receipt = if let Some(blocked) = unresolved_owner_source_blocked {
+                    blocked
+                } else if !shell_edit_command {
+                    if let Some(blocked) = native_tool_live_stage_blocked_receipt(
                     &self.metadata,
                     &self.initial_prompt,
                     &all_receipts,
                     &call,
-                ) {
-                    blocked
+                    ) {
+                        blocked
+                    } else if let Some(blocked) =
+                        native_tool_preserved_api_write_blocked_receipt(&self.initial_prompt, &call)
+                    {
+                        blocked
+                    } else if let Some(blocked) =
+                        native_tool_python_existing_shape_blocked_receipt(&self.initial_prompt, &call)
+                    {
+                        blocked
+                    } else if let Some(blocked) =
+                        native_tool_atomic_dependent_edit_blocked_receipt(&all_receipts, &call)
+                    {
+                        blocked
+                    } else if let Some(blocked) = native_tool_python_src_prefix_import_blocked_receipt(
+                        &self.initial_prompt,
+                        &call,
+                    ) {
+                        blocked
+                    } else if compact_mutation_context_blocked {
+                        native_tool_compact_mutation_context_blocked_receipt(call)
+                    } else if preflight_context_blocked {
+                        native_tool_bounded_fast_edit_preflight_context_blocked_receipt(call)
+                    } else if first_edit_batch_command_blocked {
+                        native_tool_first_edit_batch_command_blocked_receipt(call)
+                    } else if staged_edit_context_blocked {
+                        native_tool_staged_edit_context_blocked_receipt(call)
+                    } else if staged_edit_command_blocked {
+                        native_tool_staged_edit_command_blocked_receipt(call)
+                    } else if edit_owner_blocked {
+                        native_tool_edit_owner_blocked_receipt(call, &all_receipts)
+                    } else if context_blocked {
+                        native_tool_product_repair_context_blocked_receipt(call, &[], &all_receipts)
+                    } else {
+                        dispatcher.dispatch(call)
+                    }
                 } else if let Some(blocked) =
-                    native_tool_preserved_api_write_blocked_receipt(&self.initial_prompt, &call)
+                    native_tool_shell_edit_batch_blocked_receipt(&call, &shell_edit_paths)
                 {
                     blocked
-                } else if let Some(blocked) =
-                    native_tool_atomic_dependent_edit_blocked_receipt(&all_receipts, &call)
-                {
-                    blocked
-                } else if mutation_batch_scheduler
-                    && native_tool_export_surface_waiting_for_product_source(&self.initial_prompt, &all_receipts, &call)
-                {
-                    native_tool_export_surface_waiting_for_product_source_receipt(call)
-                } else if let Some(blocked) = native_tool_python_src_prefix_import_blocked_receipt(
-                    &self.initial_prompt,
-                    &call,
-                ) {
-                    blocked
-                } else if preflight_context_blocked {
-                    native_tool_bounded_fast_edit_preflight_context_blocked_receipt(call)
-                } else if first_edit_batch_command_blocked {
-                    native_tool_first_edit_batch_command_blocked_receipt(call)
-                } else if staged_edit_context_blocked {
-                    native_tool_staged_edit_context_blocked_receipt(call)
-                } else if staged_edit_command_blocked {
-                    native_tool_staged_edit_command_blocked_receipt(call)
-                } else if edit_owner_blocked {
-                    native_tool_edit_owner_blocked_receipt(call, &all_receipts)
-                } else if context_blocked {
-                    native_tool_product_repair_context_blocked_receipt(call, &[], &all_receipts)
                 } else {
                     dispatcher.dispatch(call)
                 };
                 turn_receipts.push(receipt.clone());
-                all_receipts.push(receipt);
+                all_receipts.push(receipt.clone());
+                if shell_edit_command && native_tool_command_receipt_success(&receipt) {
+                    if let Some(blocked) = native_tool_shell_edit_python_existing_shape_blocked_receipt(
+                        &receipt.call_id,
+                        &shell_edit_python_shape_snapshots,
+                    ) {
+                        turn_receipts.push(blocked.clone());
+                        all_receipts.push(blocked);
+                        continue;
+                    }
+                    if let Some(blocked) = native_tool_shell_edit_preserved_api_blocked_receipt(
+                        &receipt.call_id,
+                        &self.initial_prompt,
+                        &shell_edit_python_shape_snapshots,
+                    ) {
+                        turn_receipts.push(blocked.clone());
+                        all_receipts.push(blocked);
+                        continue;
+                    }
+                    let synthetic_receipts = native_tool_synthesize_shell_edit_mutation_receipts(
+                        &receipt.call_id,
+                        &shell_edit_paths,
+                        pre_dispatch_receipts.as_deref().unwrap_or(&[]),
+                    );
+                    for synthetic in synthetic_receipts {
+                        turn_receipts.push(synthetic.clone());
+                        all_receipts.push(synthetic);
+                    }
+                }
             }
             native_tool_persist_runtime_timeline_event(
                 &self.metadata,
@@ -1157,10 +1503,35 @@ impl AgentContract {
                 Some(&response.output),
                 None,
             );
+            if native_tool_requires_successful_mutation(&self.metadata)
+                && !native_tool_has_successful_mutation(&all_receipts)
+                && native_tool_mutation_only_recovery_enabled(&self.metadata)
+            {
+                if let Some(reason) =
+                    native_tool_turn_premature_validation_blocker_reason(&turn_receipts)
+                {
+                    let mutation_packet =
+                        native_tool_mutation_entry_packet(&self.metadata, &self.initial_prompt, &all_receipts);
+                    prompt = native_tool_mutation_only_recovery_prompt(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &reason,
+                        &mutation_packet,
+                    );
+                    mutation_only_recovery_pending = true;
+                    mutation_only_recovery_reason = Some(reason);
+                    last_response = Some(response);
+                    continue;
+                }
+            }
             if native_tool_has_successful_mutation(&turn_receipts) {
                 let auto_validation_started = Instant::now();
-                if let Some(validation_receipt) =
-                    native_tool_auto_validation_receipt(&dispatcher, &self.initial_prompt, &all_receipts)
+                if !native_tool_should_defer_auto_validation_for_stage(
+                    &self.initial_prompt,
+                    &all_receipts,
+                ) {
+                    if let Some(validation_receipt) =
+                        native_tool_auto_validation_receipt(&dispatcher, &self.initial_prompt, &all_receipts)
                 {
                     turn_receipts.push(validation_receipt.clone());
                     all_receipts.push(validation_receipt);
@@ -1183,6 +1554,7 @@ impl AgentContract {
                         Some(&response.output),
                         None,
                     );
+                }
                 }
             }
             if native_tool_should_synthesize_micro_final(
@@ -1218,8 +1590,13 @@ impl AgentContract {
             }
             if native_tool_synthesize_final_after_successful_validation(&self.metadata)
                 && native_tool_has_successful_mutation(&all_receipts)
-                && native_tool_has_successful_validation_command(&all_receipts)
+                && native_tool_has_successful_validation_after_latest_mutation(&all_receipts)
                 && native_tool_prompt_evidence_gaps(&self.initial_prompt, &all_receipts).is_empty()
+                && !native_tool_checkpointed_project_has_live_stage(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    &all_receipts,
+                )
             {
                 if bounded_direct_edit_task {
                     let direct_tool_call_count = all_receipts.len();
@@ -1284,6 +1661,24 @@ impl AgentContract {
                 );
                 last_response = Some(response);
                 continue;
+            }
+            if native_tool_checkpointed_project_operator_tool_loop_active(
+                &self.metadata,
+                &self.initial_prompt,
+            ) {
+                if let Some(stage) = native_tool_current_live_stage(&self.initial_prompt, &all_receipts)
+                {
+                    prompt = native_tool_checkpointed_project_stage_prompt(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &all_receipts,
+                        stage,
+                        &observation,
+                        native_tool_turn_number_usize(turn_idx),
+                    );
+                    last_response = Some(response);
+                    continue;
+                }
             }
             prompt = format!(
                 "{}\n\nAssistant tool request turn {}:\n{}\n\nNative tool observations:\n{}\n\n{}",
@@ -1368,19 +1763,22 @@ impl AgentContract {
                 ));
             }
         }
-        if let Some(validation_receipt) =
-            native_tool_auto_validation_receipt(&dispatcher, &self.initial_prompt, &all_receipts)
+        if !native_tool_should_defer_auto_validation_for_stage(&self.initial_prompt, &all_receipts)
         {
-            all_receipts.push(validation_receipt);
-            native_tool_persist_run_journal(
-                &self.metadata,
-                &self.initial_prompt,
-                "auto_validation",
-                provider_call_count,
-                &all_receipts,
-                Some(&response.output),
-                None,
-            );
+            if let Some(validation_receipt) =
+                native_tool_auto_validation_receipt(&dispatcher, &self.initial_prompt, &all_receipts)
+            {
+                all_receipts.push(validation_receipt);
+                native_tool_persist_run_journal(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    "auto_validation",
+                    provider_call_count,
+                    &all_receipts,
+                    Some(&response.output),
+                    None,
+                );
+            }
         }
         let auto_handoff_receipts = native_tool_auto_workflow_artifact_receipts(
             &dispatcher,
@@ -1438,7 +1836,12 @@ impl AgentContract {
             || completion_evidence_finalization)
             && native_tool_synthesize_final_after_successful_validation(&self.metadata)
             && native_tool_has_successful_mutation(&all_receipts)
-            && native_tool_has_successful_validation_command(&all_receipts)
+            && native_tool_has_successful_validation_after_latest_mutation(&all_receipts)
+            && !native_tool_checkpointed_project_has_live_stage(
+                &self.metadata,
+                &self.initial_prompt,
+                &all_receipts,
+            )
         {
             response = native_tool_synthetic_completion_evidence_response(
                 &response,
@@ -1622,7 +2025,12 @@ impl AgentContract {
         }
         if native_tool_synthesize_final_after_successful_validation(&self.metadata)
             && native_tool_has_successful_mutation(&all_receipts)
-            && native_tool_has_successful_validation_command(&all_receipts)
+            && native_tool_has_successful_validation_after_latest_mutation(&all_receipts)
+            && !native_tool_checkpointed_project_has_live_stage(
+                &self.metadata,
+                &self.initial_prompt,
+                &all_receipts,
+            )
         {
             response = native_tool_synthetic_completion_evidence_response(
                 &response,
@@ -1697,6 +2105,10 @@ impl AgentContract {
                         native_tool_product_repair_context_blocked_receipt(call, &[], &all_receipts)
                     } else if let Some(blocked) =
                         native_tool_preserved_api_write_blocked_receipt(&self.initial_prompt, &call)
+                    {
+                        blocked
+                    } else if let Some(blocked) =
+                        native_tool_python_existing_shape_blocked_receipt(&self.initial_prompt, &call)
                     {
                         blocked
                     } else if let Some(blocked) =
@@ -2231,6 +2643,170 @@ fn native_tool_wall_timeout(metadata: &Value) -> Option<Duration> {
     }
 }
 
+fn native_tool_provider_turn_timeout_seconds(
+    metadata: &Value,
+    original_prompt: &str,
+    turn_idx: u64,
+) -> u64 {
+    if native_tool_checkpointed_project_operator_tool_loop_active(metadata, original_prompt) {
+        let key = if turn_idx == 0 {
+            "checkpointed_tool_loop_initial_provider_timeout_seconds"
+        } else {
+            "checkpointed_tool_loop_provider_timeout_seconds"
+        };
+        return native_tool_success_criteria_u64(metadata, key)
+            .unwrap_or(if turn_idx == 0 { 180 } else { 120 })
+            .clamp(30, 240);
+    }
+    native_tool_success_criteria_u64(metadata, "provider_timeout_seconds")
+        .unwrap_or(120)
+        .clamp(15, 600)
+}
+
+fn native_tool_success_criteria_u64(metadata: &Value, key: &str) -> Option<u64> {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get(key))
+        .and_then(Value::as_u64)
+}
+
+fn native_tool_checkpointed_project_operator_tool_loop_active(
+    metadata: &Value,
+    original_prompt: &str,
+) -> bool {
+    let enabled = metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("checkpointed_project_operator_tool_loop_enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !enabled {
+        return false;
+    }
+    let lower = original_prompt.to_ascii_lowercase();
+    native_tool_prompt_mentions_any(
+        &lower,
+        &["checkpoint", "handoff", "resume token", "memory row", "project context"],
+    ) && native_tool_prompt_mentions_any(
+        &lower,
+        &["existing project", "project root", "local project", "validation command"],
+    )
+}
+
+fn native_tool_auto_memory_context_receipt(
+    dispatcher: &NativeToolDispatcher,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> Option<NativeToolReceipt> {
+    if native_tool_has_successful_memory_context_command(receipts) {
+        return None;
+    }
+    let project_root = native_tool_prompt_project_root(original_prompt)?;
+    let memory_cli_pattern = native_tool_prompt_memory_cli_pattern(original_prompt)?;
+    let prior_memory_row_id = native_tool_prompt_prior_memory_row_id(original_prompt)
+        .or_else(|| native_tool_prompt_expected_memory_row_id(original_prompt))?;
+    let command = native_tool_memory_cli_command_from_pattern(
+        &memory_cli_pattern,
+        &format!(
+            "checkpoint get --id={}",
+            native_tool_shell_quote(&prior_memory_row_id)
+        ),
+    );
+    Some(dispatcher.dispatch(crate::native_tools::NativeToolCall {
+        id: "runtime_checkpoint_memory_context_get".to_string(),
+        name: "command_run".to_string(),
+        args: json!({
+            "cwd": project_root,
+            "cmd": ["sh", "-c", command],
+            "timeout_seconds": 90,
+            "max_output_bytes": 12000
+        }),
+    }))
+}
+
+fn native_tool_prompt_prior_memory_row_id(original_prompt: &str) -> Option<String> {
+    for line in original_prompt.lines() {
+        let lower = line.to_ascii_lowercase();
+        if lower.contains("prior memory row id") || lower.contains("previous memory row id") {
+            return line
+                .split_once(':')
+                .map(|(_, value)| {
+                    value
+                        .trim()
+                        .trim_matches(|ch: char| {
+                            matches!(
+                                ch,
+                                '"' | '\'' | '`' | ',' | '.' | ';' | '(' | ')' | '[' | ']'
+                            )
+                        })
+                        .to_string()
+                })
+                .filter(|value| !value.is_empty());
+        }
+    }
+    None
+}
+
+fn native_tool_memory_cli_command_from_pattern(pattern: &str, command: &str) -> String {
+    if pattern.contains("<command>") {
+        pattern.replace("<command>", command)
+    } else {
+        format!("{} {}", pattern.trim(), command)
+    }
+}
+
+fn native_tool_shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn native_tool_has_successful_memory_context_command(receipts: &[NativeToolReceipt]) -> bool {
+    receipts
+        .iter()
+        .any(|receipt| native_tool_receipt_is_memory_context(receipt) && receipt.status == "ok")
+}
+
+fn native_tool_receipt_is_memory_context(receipt: &NativeToolReceipt) -> bool {
+    receipt.call_id == "runtime_checkpoint_memory_context_get"
+        || (receipt.tool_name == "command_run"
+            && receipt
+                .result
+                .get("command")
+                .and_then(Value::as_array)
+                .map(|command| {
+                    command
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .or_else(|| {
+                    receipt
+                        .result
+                        .get("cmd")
+                        .and_then(|cmd| {
+                            cmd.as_str().map(str::to_string).or_else(|| {
+                                cmd.as_array().map(|parts| {
+                                    parts
+                                        .iter()
+                                        .filter_map(Value::as_str)
+                                        .collect::<Vec<_>>()
+                                        .join(" ")
+                                })
+                            })
+                        })
+                })
+                .map(|command| {
+                    let lower = command.to_ascii_lowercase();
+                    lower.contains("checkpoint get") && lower.contains("memory")
+                })
+                .unwrap_or(false))
+}
+
+fn native_tool_prompt_mentions_any(prompt_lower: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| prompt_lower.contains(needle))
+}
+
 fn native_tool_stream_until_tool_calls_enabled(metadata: &Value, bounded_direct_edit_task: bool) -> bool {
     metadata
         .get("native_success_criteria")
@@ -2284,6 +2860,43 @@ fn native_tool_first_turn_timeout_recovery_enabled(metadata: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn native_tool_first_receipt_watchdog_enabled(metadata: &Value, original_prompt: &str) -> bool {
+    native_tool_first_turn_timeout_recovery_enabled(metadata)
+        || native_tool_prompt_looks_checkpointed_project_operator(original_prompt)
+        || native_tool_checkpointed_project_operator_tool_loop_active(metadata, original_prompt)
+}
+
+fn native_tool_first_receipt_deadline_seconds(metadata: &Value, original_prompt: &str) -> u64 {
+    if let Ok(raw) = std::env::var("INFRING_FIRST_RECEIPT_DEADLINE_SECONDS") {
+        if let Ok(parsed) = raw.parse::<u64>() {
+            return parsed.clamp(10, 120);
+        }
+    }
+
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|criteria| {
+            criteria
+                .get("first_receipt_deadline_seconds")
+                .or_else(|| criteria.get("first_turn_timeout_seconds"))
+        })
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| {
+            if native_tool_prompt_looks_checkpointed_project_operator(original_prompt)
+                || native_tool_checkpointed_project_operator_tool_loop_active(
+                    metadata,
+                    original_prompt,
+                )
+            {
+                45
+            } else {
+                60
+            }
+        })
+        .clamp(10, 120)
+}
+
 fn native_tool_first_turn_timeout_recovery_prompt(
     metadata: &Value,
     original_prompt: &str,
@@ -2293,7 +2906,7 @@ fn native_tool_first_turn_timeout_recovery_prompt(
     let rule = native_tool_orchestration_prompt_text(
         metadata,
         "first_turn_timeout_recovery_rule",
-        "The first model call timed out before mutation. Continue with a smaller patch-only native tool turn. Use the already gathered runtime observations; do not call file_list/file_read again unless the validation output names a new missing file. Return only JSON tool_calls. Make the smallest file_write/file_patch source/test mutation that satisfies the requested local code change, then run requested validation. If the task is genuinely blocked, return a structured blocker instead of more exploration.",
+        "The first model call timed out before mutation. Continue with a smaller patch-only native tool turn. Use the already gathered runtime observations; do not call file_list/file_read again unless the validation output names a new missing file. Return only JSON tool_calls. Make the smallest additive file_write/file_patch source/test mutation that satisfies the requested local code change, preserve observed public API/class constructor fields and baseline CLI behavior, add/keep baseline preservation tests when preservation is part of the task, then run requested validation. If the task is genuinely blocked, return a structured blocker instead of more exploration.",
     );
     format!(
         "{}\n\n{}\n\nTimeout reason:\n{}\n\nRuntime bootstrap observations:\n{}",
@@ -2340,24 +2953,6 @@ fn native_tool_first_edit_batch_contract_enabled(metadata: &Value) -> bool {
         .unwrap_or(false)
 }
 
-fn native_tool_incremental_edit_loop_enabled(metadata: &Value) -> bool {
-    metadata
-        .get("native_success_criteria")
-        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
-        .and_then(|value| value.get("incremental_edit_loop"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn native_tool_mutation_batch_scheduler_enabled(metadata: &Value) -> bool {
-    metadata
-        .get("native_success_criteria")
-        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
-        .and_then(|value| value.get("mutation_batch_scheduler"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
 fn native_tool_staged_edit_controller_enabled(metadata: &Value, _bounded_direct_edit_task: bool) -> bool {
     metadata
         .get("native_success_criteria")
@@ -2365,6 +2960,948 @@ fn native_tool_staged_edit_controller_enabled(metadata: &Value, _bounded_direct_
         .and_then(|value| value.get("staged_edit_controller"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
+}
+
+fn native_tool_mutation_only_recovery_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| {
+            value
+                .get("mutation_only_recovery_gate_enabled")
+                .or_else(|| value.get("premature_validation_recovery_gate_enabled"))
+        })
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_controlled_shell_edit_batch_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("controlled_shell_edit_batch_enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_compact_mutation_entry_packet_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("compact_mutation_entry_packet_enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_mutation_recovery_tools(metadata: &Value, tools: &[String]) -> Vec<String> {
+    if !native_tool_controlled_shell_edit_batch_enabled(metadata) {
+        return native_tool_staged_edit_tools(tools);
+    }
+    let filtered = tools
+        .iter()
+        .filter(|tool| {
+            matches!(
+                tool.trim().to_ascii_lowercase().as_str(),
+                "file_write"
+                    | "write_file"
+                    | "workspace.write"
+                    | "workspace_write"
+                    | "file_patch"
+                    | "patch_file"
+                    | "workspace.patch"
+                    | "workspace_patch"
+                    | "command_run"
+                    | "run_command"
+                    | "command.run"
+                    | "shell.run"
+                    | "shell_run"
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if filtered.is_empty() {
+        native_tool_staged_edit_tools(tools)
+    } else {
+        filtered
+    }
+}
+
+fn native_tool_mutation_entry_packet(
+    metadata: &Value,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> String {
+    if !native_tool_compact_mutation_entry_packet_enabled(metadata) {
+        return native_tool_observation_prompt(receipts);
+    }
+
+    let project_root = native_tool_prompt_project_root(original_prompt)
+        .unwrap_or_else(|| "the local project root".to_string());
+    let project_root_path = PathBuf::from(&project_root);
+    let mut paths = Vec::new();
+    let mut file_contents: Vec<(i32, String, String)> = Vec::new();
+    let mut memory_context_sections = Vec::<String>::new();
+    for receipt in receipts.iter().filter(|receipt| receipt.status == "ok") {
+        if native_tool_receipt_is_memory_context(receipt) {
+            if let Some(stdout) = receipt.result.get("stdout").and_then(Value::as_str) {
+                let brief = native_tool_mutation_entry_memory_context_brief(stdout);
+                if !brief.trim().is_empty() {
+                    memory_context_sections.push(brief);
+                }
+            }
+        }
+        if let Some(entries) = receipt.result.get("entries").and_then(Value::as_array) {
+            for entry in entries {
+                if entry
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .map(|kind| kind == "file")
+                    .unwrap_or(true)
+                {
+                    if let Some(path) = native_tool_packet_value_path(entry) {
+                        native_tool_push_unique_string(
+                            &mut paths,
+                            native_tool_mutation_entry_display_path(&project_root_path, &path),
+                        );
+                    }
+                }
+            }
+        }
+        if let Some(files) = receipt.result.get("files").and_then(Value::as_array) {
+            for file in files {
+                if let Some(path) = native_tool_packet_value_path(file) {
+                    let display_path =
+                        native_tool_mutation_entry_display_path(&project_root_path, &path);
+                    native_tool_push_unique_string(&mut paths, display_path.clone());
+                    if let Some(content) = file.get("content").and_then(Value::as_str) {
+                        file_contents.push((
+                            native_tool_mutation_entry_path_score(&display_path),
+                            display_path,
+                            native_tool_mutation_entry_content_brief(content),
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(path) = receipt.result.get("path").and_then(Value::as_str) {
+            let display_path = native_tool_mutation_entry_display_path(&project_root_path, path);
+            native_tool_push_unique_string(&mut paths, display_path.clone());
+            if let Some(content) = receipt.result.get("content").and_then(Value::as_str) {
+                file_contents.push((
+                    native_tool_mutation_entry_path_score(&display_path),
+                    display_path,
+                    native_tool_mutation_entry_content_brief(content),
+                ));
+            }
+        }
+    }
+
+    paths.sort_by_key(|path| native_tool_mutation_entry_path_score(path));
+    paths.dedup();
+    file_contents.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    let mut seen_content_paths = Vec::new();
+    let content_sections = file_contents
+        .into_iter()
+        .filter_map(|(_, path, content)| {
+            if seen_content_paths.iter().any(|existing| existing == &path) {
+                return None;
+            }
+            native_tool_push_unique_string(&mut seen_content_paths, path.clone());
+            Some(format!("--- {path}\n{content}"))
+        })
+        .take(4)
+        .collect::<Vec<_>>();
+    let candidate_paths = paths
+        .into_iter()
+        .filter(|path| !native_tool_mutation_entry_path_looks_generated(path))
+        .take(32)
+        .collect::<Vec<_>>();
+    let required_batch_shape =
+        native_tool_mutation_entry_required_batch_shape(
+            original_prompt,
+            &candidate_paths,
+            native_tool_mutation_entry_controller_stage(
+                metadata,
+                original_prompt,
+                receipts,
+                &candidate_paths,
+            ),
+        );
+    let controller_stage = native_tool_mutation_entry_controller_stage(
+        metadata,
+        original_prompt,
+        receipts,
+        &candidate_paths,
+    );
+    format!(
+        "Compact mutation-entry packet:\n\
+Project root: {project_root}\n\
+Controller stage: {controller_stage}\n\
+Allowed next tools: file_write, file_patch, or one controlled command_run shell edit batch.\n\
+Forbidden next tools: validation/non-edit command_run, file_read, file_read_many, file_list, file_stat, final answer, prose.\n\
+Goal: complete only the current controller stage before validation or closure.\n\n\
+Required next batch shape:\n{required_batch_shape}\n\n\
+Observed candidate paths:\n{}\n\n\
+Checkpoint memory context:\n{}\n\n\
+Observed file contents:\n{}",
+        if candidate_paths.is_empty() {
+            "- none".to_string()
+        } else {
+            candidate_paths
+                .iter()
+                .take(8)
+                .map(|path| format!("- {path}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        },
+        if memory_context_sections.is_empty() {
+            "- none".to_string()
+        } else {
+            memory_context_sections
+                .iter()
+                .take(2)
+                .map(|section| section.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        },
+        if content_sections.is_empty() {
+            "- no compact file contents available".to_string()
+        } else {
+            content_sections.join("\n\n")
+        }
+    )
+}
+
+fn native_tool_mutation_entry_display_path(project_root: &Path, path: &str) -> String {
+    let path_buf = PathBuf::from(path);
+    if let Ok(relative) = path_buf.strip_prefix(project_root) {
+        return relative.display().to_string();
+    }
+    path.to_string()
+}
+
+fn native_tool_mutation_entry_content_brief(content: &str) -> String {
+    let compact = content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if trimmed.starts_with("import ")
+                || trimmed.starts_with("from ")
+                || trimmed.starts_with("class ")
+                || trimmed.starts_with("def ")
+                || trimmed.starts_with("@dataclass")
+                || trimmed.contains("add_parser")
+            {
+                Some(line)
+            } else {
+                None
+            }
+        })
+        .take(14)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if compact.trim().is_empty() {
+        content.chars().take(320).collect::<String>()
+    } else {
+        compact.chars().take(420).collect::<String>()
+    }
+}
+
+fn native_tool_mutation_entry_memory_context_brief(stdout: &str) -> String {
+    let compact = stdout
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if trimmed.starts_with('{')
+                || trimmed.starts_with('[')
+                || trimmed.contains("checkpoint")
+                || trimmed.contains("resume")
+                || trimmed.contains("changed")
+                || trimmed.contains("validation")
+                || trimmed.contains("next")
+                || trimmed.contains("path")
+            {
+                Some(trimmed)
+            } else {
+                None
+            }
+        })
+        .take(18)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let source = if compact.trim().is_empty() {
+        stdout.trim()
+    } else {
+        compact.trim()
+    };
+    source.chars().take(1400).collect::<String>()
+}
+
+fn native_tool_mutation_entry_controller_stage<'a>(
+    metadata: &Value,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+    candidate_paths: &'a [String],
+) -> &'static str {
+    if !native_tool_checkpointed_project_operator_tool_loop_active(metadata, original_prompt) {
+        return "product_mutation";
+    }
+    if !native_tool_has_successful_mutation(receipts) {
+        return "product_source_slice";
+    }
+
+    let prompt_lower = original_prompt.to_ascii_lowercase();
+    let changed_paths = native_tool_changed_paths(receipts);
+    let changed_test_paths = native_tool_mutation_entry_role_paths(&changed_paths, "test");
+    let changed_operator_paths =
+        native_tool_mutation_entry_role_paths(&changed_paths, "operator_surface");
+    let changed_export_paths = native_tool_mutation_entry_role_paths(&changed_paths, "export_surface");
+
+    let wants_operator_surface = native_tool_prompt_mentions_any(
+        &prompt_lower,
+        &[
+            "cli",
+            "operator",
+            "report",
+            "import",
+            "export",
+            "roundtrip",
+            "round-trip",
+            "public api",
+            "surface",
+        ],
+    ) || !native_tool_merge_role_paths(
+        &native_tool_mutation_entry_role_paths(candidate_paths, "operator_surface"),
+        &native_tool_mutation_entry_role_paths(candidate_paths, "export_surface"),
+    )
+    .is_empty();
+    if wants_operator_surface
+        && changed_operator_paths.is_empty()
+        && changed_export_paths.is_empty()
+    {
+        return "operator_surface_slice";
+    }
+
+    let wants_tests = native_tool_prompt_mentions_any(
+        &prompt_lower,
+        &["test", "validation", "verify", "regression", "baseline preservation"],
+    );
+    if wants_tests && changed_test_paths.is_empty() {
+        return "test_slice";
+    }
+
+    "product_mutation"
+}
+
+fn native_tool_mutation_entry_required_batch_shape(
+    original_prompt: &str,
+    paths: &[String],
+    controller_stage: &str,
+) -> String {
+    let product_sources = native_tool_mutation_entry_role_paths(paths, "product_source");
+    let operator_surfaces = native_tool_mutation_entry_role_paths(paths, "operator_surface");
+    let test_paths = native_tool_mutation_entry_role_paths(paths, "test");
+    let export_surfaces = native_tool_mutation_entry_role_paths(paths, "export_surface");
+    let prompt_lower = original_prompt.to_ascii_lowercase();
+    let wants_tests = prompt_lower.contains("test")
+        || prompt_lower.contains("validation")
+        || prompt_lower.contains("verify");
+    let wants_operator = prompt_lower.contains("cli")
+        || prompt_lower.contains("operator")
+        || prompt_lower.contains("report")
+        || prompt_lower.contains("import")
+        || prompt_lower.contains("export")
+        || prompt_lower.contains("roundtrip")
+        || prompt_lower.contains("round-trip");
+    let wants_multi_file = native_tool_prompt_requires_multi_file_product_slice(&prompt_lower);
+    let edit_mode_line = if wants_multi_file {
+        match controller_stage {
+            "product_source_slice" => "- For this product-source stage, prefer one command_run shell edit batch using cat > path <<'EOF' heredocs for only source/model/store/service files.",
+            "operator_surface_slice" => "- For this operator-surface stage, prefer one command_run shell edit batch using cat > path <<'EOF' heredocs for only CLI/report/import/export files.",
+            "test_slice" => "- For this test stage, prefer one command_run shell edit batch using cat > path <<'EOF' heredocs for only test files.",
+            _ => "- For multi-file slices, prefer one command_run shell edit batch using cat > path <<'EOF' heredocs for all required source/operator/test files.",
+        }
+    } else {
+        "- Prefer file_write/file_patch for small single-file edits."
+    };
+    if controller_stage == "product_source_slice" {
+        let product_line = native_tool_mutation_entry_candidates_line(
+            "product_source",
+            &product_sources,
+            "required now; implement the durable/domain/store/service behavior in source code",
+        );
+        return format!(
+            "{edit_mode_line}\n\
+- Stage: product_source_slice.\n\
+- Mutate product/source files only. Do not write tests, checkpoint receipts, or memory rows in this stage.\n\
+- If persistence, reporting, import/export, or checkpoint continuation is requested, add the underlying source model/store/service behavior here.\n\
+{product_line}"
+        );
+    }
+    if controller_stage == "operator_surface_slice" {
+        let operator_line = native_tool_mutation_entry_candidates_line(
+            "operator_or_export_surface",
+            &native_tool_merge_role_paths(&operator_surfaces, &export_surfaces),
+            "required now; expose the changed behavior through CLI/operator/report/import/export code",
+        );
+        return format!(
+            "{edit_mode_line}\n\
+- Stage: operator_surface_slice.\n\
+- Mutate operator-facing source only. Do not write tests, checkpoint receipts, or memory rows in this stage.\n\
+- Add the smallest public CLI/report/import/export surface needed to exercise the product behavior.\n\
+{operator_line}"
+        );
+    }
+    if controller_stage == "test_slice" {
+        let test_line = native_tool_mutation_entry_candidates_line(
+            "test",
+            &test_paths,
+            "required now; cover product behavior, operator surface, and baseline preservation",
+        );
+        return format!(
+            "{edit_mode_line}\n\
+- Stage: test_slice.\n\
+- Mutate focused tests only. Do not write checkpoint receipts or memory rows in this stage.\n\
+- Cover the newly added behavior plus any baseline behavior the task says must be preserved.\n\
+{test_line}"
+        );
+    }
+    let product_line = native_tool_mutation_entry_candidates_line(
+        "product_source",
+        &product_sources,
+        "required first; implement the actual behavior in a source module",
+    );
+    let operator_line = native_tool_mutation_entry_candidates_line(
+        "operator_or_export_surface",
+        &native_tool_merge_role_paths(&operator_surfaces, &export_surfaces),
+        if wants_operator {
+            "required when the task asks for CLI/report/operator/import/export behavior"
+        } else {
+            "include only if needed to expose the changed behavior"
+        },
+    );
+    let test_line = native_tool_mutation_entry_candidates_line(
+        "focused_test",
+        &test_paths,
+        if wants_tests {
+            "required when tests or validation evidence are requested"
+        } else {
+            "include when a focused regression test is the smallest proof"
+        },
+    );
+    format!(
+        "- Return one JSON object only: {{\"tool_calls\":[...]}}.\n\
+- Mutate source/operator/test files before validation or final answer.\n\
+- {edit_mode_line}\n\
+- Never run validation before mutation.\n\
+{}\n{}\n{}\n\
+Example:\n\
+{{\"tool_calls\":[{{\"id\":\"edit_batch\",\"name\":\"command_run\",\"arguments\":{{\"cmd\":\"cat > src/pkg/module.py <<'EOF'\\n<full file>\\nEOF\\ncat > tests/test_feature.py <<'EOF'\\n<full test>\\nEOF\",\"timeout_seconds\":20}}}}]}}",
+        product_line, operator_line, test_line
+    )
+}
+
+fn native_tool_mutation_entry_role_paths(paths: &[String], role: &str) -> Vec<String> {
+    paths
+        .iter()
+        .filter(|path| match role {
+            "product_source" => {
+                native_tool_mutation_entry_path_is_code(path)
+                    && !native_tool_mutation_entry_path_is_test(path)
+                    && !native_tool_mutation_entry_path_is_export_surface(path)
+                    && !native_tool_mutation_entry_path_is_operator_surface(path)
+            }
+            "operator_surface" => native_tool_mutation_entry_path_is_operator_surface(path),
+            "test" => native_tool_mutation_entry_path_is_test(path),
+            "export_surface" => native_tool_mutation_entry_path_is_export_surface(path),
+            _ => false,
+        })
+        .take(6)
+        .cloned()
+        .collect()
+}
+
+fn native_tool_merge_role_paths(left: &[String], right: &[String]) -> Vec<String> {
+    let mut merged = Vec::new();
+    for path in left.iter().chain(right.iter()) {
+        native_tool_push_unique_string(&mut merged, path.clone());
+    }
+    merged
+}
+
+fn native_tool_mutation_entry_candidates_line(
+    role: &str,
+    paths: &[String],
+    instruction: &str,
+) -> String {
+    if paths.is_empty() {
+        format!("- {role}: {instruction}; candidates: infer from observed source tree.")
+    } else {
+        format!(
+            "- {role}: {instruction}; candidates: {}",
+            paths
+                .iter()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+fn native_tool_mutation_entry_path_is_code(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".py")
+        || lower.ends_with(".rs")
+        || lower.ends_with(".ts")
+        || lower.ends_with(".tsx")
+        || lower.ends_with(".js")
+        || lower.ends_with(".jsx")
+        || lower.ends_with(".go")
+        || lower.ends_with(".java")
+        || lower.ends_with(".rb")
+}
+
+fn native_tool_mutation_entry_path_is_test(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.starts_with("tests/")
+        || lower.contains("/tests/")
+        || lower.contains("_test.")
+        || lower.contains("test_")
+        || lower.contains(".test.")
+        || lower.contains(".spec.")
+}
+
+fn native_tool_mutation_entry_path_is_operator_surface(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.contains("cli")
+        || lower.contains("cmd")
+        || lower.contains("main.")
+        || lower.contains("operator")
+        || lower.contains("report")
+        || lower.contains("app.")
+        || lower.contains("bin/")
+}
+
+fn native_tool_mutation_entry_path_is_export_surface(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with("__init__.py")
+        || lower.ends_with("mod.rs")
+        || lower.ends_with("lib.rs")
+        || lower.ends_with("index.ts")
+        || lower.ends_with("index.tsx")
+        || lower.ends_with("index.js")
+        || lower.ends_with("index.jsx")
+}
+
+fn native_tool_packet_value_path(value: &Value) -> Option<String> {
+    value
+        .get("relative_path")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("path").and_then(Value::as_str))
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+}
+
+fn native_tool_mutation_entry_path_score(path: &str) -> i32 {
+    let lower = path.to_ascii_lowercase();
+    let mut score = 100;
+    if lower.starts_with("src/") || lower.contains("/src/") {
+        score -= 30;
+    }
+    if lower.starts_with("tests/") || lower.contains("/tests/") || lower.contains("test") {
+        score -= 20;
+    }
+    if lower.ends_with(".py")
+        || lower.ends_with(".rs")
+        || lower.ends_with(".ts")
+        || lower.ends_with(".tsx")
+        || lower.ends_with(".js")
+        || lower.ends_with(".jsx")
+        || lower.ends_with(".go")
+        || lower.ends_with(".java")
+        || lower.ends_with(".rb")
+    {
+        score -= 10;
+    }
+    if lower.contains("__pycache__")
+        || lower.ends_with(".pyc")
+        || lower.contains("/target/")
+        || lower.contains("/node_modules/")
+    {
+        score += 200;
+    }
+    score
+}
+
+fn native_tool_mutation_entry_path_looks_generated(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.contains("__pycache__")
+        || lower.ends_with(".pyc")
+        || lower.contains("/target/")
+        || lower.contains("/node_modules/")
+}
+
+fn native_tool_push_unique_string(values: &mut Vec<String>, value: String) {
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
+fn native_tool_controlled_shell_edit_batch_paths(
+    metadata: &Value,
+    original_prompt: &str,
+    call: &NativeToolCall,
+) -> Vec<PathBuf> {
+    if !native_tool_controlled_shell_edit_batch_enabled(metadata)
+        || !native_tool_profile_allows(metadata, original_prompt, 4)
+        || !native_tool_call_is_command_run(call)
+    {
+        return Vec::new();
+    }
+    let Some(command_text) = native_tool_command_call_text(&call.args) else {
+        return Vec::new();
+    };
+    if native_tool_command_text_looks_like_validation(&command_text) {
+        return Vec::new();
+    }
+    let project_root = native_tool_prompt_project_root(original_prompt)
+        .map(PathBuf::from)
+        .or_else(|| native_tool_command_call_cwd(&call.args));
+    let Some(project_root) = project_root else {
+        return Vec::new();
+    };
+    let mut paths = Vec::new();
+    for raw_path in native_tool_shell_edit_write_path_candidates(&command_text) {
+        let candidate = if Path::new(&raw_path).is_absolute() {
+            PathBuf::from(raw_path)
+        } else {
+            project_root.join(raw_path)
+        };
+        if native_tool_path_is_within_root(&candidate, &project_root)
+            && native_tool_shell_edit_path_is_safe_source_path(&candidate)
+            && !paths.iter().any(|existing| existing == &candidate)
+        {
+            paths.push(candidate);
+        }
+    }
+    paths
+}
+
+fn native_tool_selected_profile(metadata: &Value, original_prompt: &str) -> u8 {
+    let lane = native_tool_coding_task_lane(metadata, original_prompt);
+    match &*lane {
+        "new_file_fast_path" | "micro_direct_mutation" => 0,
+        "deterministic_local_action" => 1,
+        "existing_project_patch" | "bounded_existing_project_edit" | "implementation_slice" => 2,
+        "validation_repair" | "validated_repair_edit" => 3,
+        "multi_file_slice" | "project_slice" => 4,
+        "checkpointed_project_operator" | "long_run_project_operator" => 5,
+        "long_horizon_project" => 6,
+        _ => 2,
+    }
+}
+
+fn native_tool_profile_allows(metadata: &Value, original_prompt: &str, min_profile: u8) -> bool {
+    native_tool_selected_profile(metadata, original_prompt) >= min_profile
+}
+
+fn native_tool_shell_edit_batch_blocked_receipt(
+    call: &NativeToolCall,
+    shell_edit_paths: &[PathBuf],
+) -> Option<NativeToolReceipt> {
+    if !native_tool_call_is_command_run(call) || !shell_edit_paths.is_empty() {
+        return None;
+    }
+    Some(NativeToolReceipt {
+        call_id: call.id.clone(),
+        tool_name: call.name.trim().to_ascii_lowercase(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "controlled_shell_edit_batch",
+            "reason": "command_run_before_mutation_must_be_shell_edit_batch",
+            "required_next_tool": "file_write_or_file_patch_or_shell_edit_batch"
+        }),
+        error: Some("command_run_before_mutation_must_be_shell_edit_batch".to_string()),
+    })
+}
+
+fn native_tool_command_receipt_success(receipt: &NativeToolReceipt) -> bool {
+    receipt.status == "ok"
+        && receipt.tool_name == "command_run"
+        && receipt
+            .result
+            .get("success")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+}
+
+fn native_tool_command_call_text(args: &Value) -> Option<String> {
+    if let Some(raw) = args
+        .get("cmd")
+        .or_else(|| args.get("command"))
+        .and_then(Value::as_str)
+    {
+        return Some(raw.to_string());
+    }
+    let values = args
+        .get("cmd")
+        .or_else(|| args.get("command"))
+        .and_then(Value::as_array)?;
+    let parts = values
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if parts.len() >= 3 && parts[0].ends_with("sh") && parts[1] == "-lc" {
+        return Some(parts[2].clone());
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" "))
+    }
+}
+
+fn native_tool_command_call_cwd(args: &Value) -> Option<PathBuf> {
+    args.get("cwd")
+        .or_else(|| args.get("path"))
+        .or_else(|| args.get("working_directory"))
+        .or_else(|| args.get("working_dir"))
+        .or_else(|| args.get("workdir"))
+        .or_else(|| args.get("directory"))
+        .or_else(|| args.get("dir"))
+        .or_else(|| args.get("project_root"))
+        .or_else(|| args.get("root"))
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+}
+
+fn native_tool_command_text_looks_like_validation(command_text: &str) -> bool {
+    let lower = command_text.to_ascii_lowercase();
+    lower.contains("unittest")
+        || lower.contains("pytest")
+        || lower.contains("cargo test")
+        || lower.contains("npm test")
+        || lower.contains("go test")
+        || lower.contains("validation")
+}
+
+fn native_tool_shell_edit_write_path_candidates(command_text: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    for line in command_text.lines() {
+        let trimmed = line.trim();
+        for marker in ["cat >", "cat  >", "tee "] {
+            if let Some((_, rest)) = trimmed.split_once(marker) {
+                if let Some(path) = native_tool_shell_edit_first_path_token(rest) {
+                    native_tool_push_unique_string(&mut paths, path);
+                }
+            }
+        }
+        if trimmed.starts_with("cat <<") || trimmed.starts_with("cat  <<") {
+            if let Some((_, rest)) = trimmed.rsplit_once('>') {
+                if let Some(path) = native_tool_shell_edit_first_path_token(rest) {
+                    native_tool_push_unique_string(&mut paths, path);
+                }
+            }
+        }
+        for marker in ["Path(", "pathlib.Path("] {
+            if let Some((_, rest)) = trimmed.split_once(marker) {
+                if let Some(path) = native_tool_shell_edit_quoted_path_before(rest, ")") {
+                    if trimmed.contains(".write_text")
+                        || trimmed.contains(".write_bytes")
+                        || trimmed.contains(".write(")
+                    {
+                        native_tool_push_unique_string(&mut paths, path);
+                    }
+                }
+            }
+        }
+        if let Some((_, rest)) = trimmed.split_once("open(") {
+            if trimmed.contains(", \"w")
+                || trimmed.contains(", 'w")
+                || trimmed.contains(",\"w")
+                || trimmed.contains(",'w")
+            {
+                if let Some(path) = native_tool_shell_edit_quoted_path_before(rest, ",") {
+                    native_tool_push_unique_string(&mut paths, path);
+                }
+            }
+        }
+    }
+    paths
+}
+
+fn native_tool_shell_edit_quoted_path_before(rest: &str, delimiter: &str) -> Option<String> {
+    let rest = rest.trim_start();
+    let quote = rest.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let body = &rest[quote.len_utf8()..];
+    let end = body.find(quote)?;
+    let path = &body[..end];
+    let after = body[end + quote.len_utf8()..].trim_start();
+    if !after.starts_with(delimiter) {
+        return None;
+    }
+    if path.trim().is_empty() {
+        None
+    } else {
+        Some(path.trim().to_string())
+    }
+}
+
+fn native_tool_shell_edit_first_path_token(rest: &str) -> Option<String> {
+    let mut rest = rest.trim();
+    if let Some(stripped) = rest.strip_prefix("-a ") {
+        rest = stripped.trim();
+    }
+    let before_heredoc = rest.split("<<").next().unwrap_or(rest);
+    let token = before_heredoc
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim_end_matches(';')
+        .trim();
+    if token.is_empty() || token == ">" || token.starts_with('&') || token.starts_with('|') {
+        None
+    } else {
+        Some(token.to_string())
+    }
+}
+
+fn native_tool_path_is_within_root(path: &Path, root: &Path) -> bool {
+    let normalized_path = native_tool_normalize_path_without_fs(path);
+    let normalized_root = native_tool_normalize_path_without_fs(root);
+    normalized_path.starts_with(&normalized_root)
+}
+
+fn native_tool_normalize_path_without_fs(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        use std::path::Component;
+        match component {
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::CurDir => {}
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn native_tool_shell_edit_path_is_safe_source_path(path: &Path) -> bool {
+    let Some(path) = path.to_str() else {
+        return false;
+    };
+    !native_tool_mutation_entry_path_looks_generated(path)
+        && (native_tool_mutation_entry_path_is_code(path)
+            || native_tool_mutation_entry_path_is_test(path)
+            || path.ends_with(".md")
+            || path.ends_with(".json")
+            || path.ends_with(".txt"))
+}
+
+fn native_tool_synthesize_shell_edit_mutation_receipts(
+    command_call_id: &str,
+    paths: &[PathBuf],
+    previous_receipts: &[NativeToolReceipt],
+) -> Vec<NativeToolReceipt> {
+    paths
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, path)| {
+            let bytes = fs::read(path).ok()?;
+            let new_hash = native_tool_sha256_hex(&bytes);
+            let previous_hash = native_tool_previous_content_hash(previous_receipts, path);
+            if previous_hash.as_deref() == Some(new_hash.as_str()) {
+                return None;
+            }
+            Some(NativeToolReceipt {
+                call_id: format!("{command_call_id}_shell_edit_mutation_{}", idx + 1),
+                tool_name: "file_write".to_string(),
+                status: "ok".to_string(),
+                duration_ms: 0,
+                result: json!({
+                    "path": path.display().to_string(),
+                    "created": previous_hash.is_none(),
+                    "overwritten": previous_hash.is_some(),
+                    "previous_content_hash": previous_hash,
+                    "new_content_hash": new_hash,
+                    "bytes_written": bytes.len(),
+                    "synthesized_from_command_run": command_call_id,
+                    "controlled_shell_edit_batch": true
+                }),
+                error: None,
+            })
+        })
+        .collect()
+}
+
+fn native_tool_previous_content_hash(
+    receipts: &[NativeToolReceipt],
+    target_path: &Path,
+) -> Option<String> {
+    let target = target_path.to_string_lossy();
+    for receipt in receipts.iter().rev() {
+        if let Some(files) = receipt.result.get("files").and_then(Value::as_array) {
+            for file in files {
+                if file
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .map(|path| path == target)
+                    .unwrap_or(false)
+                {
+                    return file
+                        .get("content_hash")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                }
+            }
+        }
+        if receipt
+            .result
+            .get("path")
+            .and_then(Value::as_str)
+            .map(|path| path == target)
+            .unwrap_or(false)
+        {
+            if let Some(hash) = receipt.result.get("new_content_hash").and_then(Value::as_str) {
+                return Some(hash.to_string());
+            }
+            if let Some(hash) = receipt.result.get("content_hash").and_then(Value::as_str) {
+                return Some(hash.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn native_tool_sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
+}
+
+fn native_tool_mutation_only_recovery_system() -> String {
+        "Mutation-only recovery turn.\n\
+Return only JSON tool_calls.\n\
+Use file_patch/file_write, or one command_run only when it is a shell edit batch that writes project files.\n\
+No validation command/read/list/stat/resolve/prose/final answer.\n\
+Runtime will run validation after a successful mutation."
+        .to_string()
 }
 
 fn native_tool_staged_edit_system() -> String {
@@ -2428,35 +3965,6 @@ Return only JSON tool_calls.\n\
 Use file_patch/file_write before command_run.\n\
 No read/list/stat/resolve; blocker only if receipts prove unsafe."
         .to_string()
-}
-
-fn native_tool_incremental_edit_system() -> String {
-    "Incremental local coding loop.\n\
-Use the normal native tools and return JSON tool_calls when acting.\n\
-Prefer the smallest useful product edit from receipt-backed context, then validation.\n\
-Ask for more context only when receipts are insufficient for a safe mutation."
-        .to_string()
-}
-
-fn native_tool_incremental_edit_prompt(
-    metadata: &Value,
-    original_prompt: &str,
-    receipts: &[NativeToolReceipt],
-) -> String {
-    let observation = native_tool_observation_prompt(receipts);
-    let owner_hint = native_tool_edit_owner_hint(receipts);
-    let rule = native_tool_orchestration_prompt_text(
-        metadata,
-        "incremental_edit_loop_rule",
-        "Use receipt-backed context to make the smallest safe product/API edit now. Keep existing public behavior unless the task requires changing it. Prefer file_patch for existing files and only create new files when that is the cleanest design. Run or request validation after mutation; do not spend another turn on broad discovery unless a receipt-backed blocker remains.",
-    );
-    format!(
-        "User task:\n{}\n\n{}\n{}\n\nReceipt-backed context and validation evidence:\n{}",
-        original_prompt.trim(),
-        rule,
-        owner_hint.trim(),
-        observation
-    )
 }
 
 fn native_tool_first_edit_batch_prompt(
@@ -2600,6 +4108,89 @@ fn native_tool_atomic_dependent_edit_blocked_receipt(
     })
 }
 
+fn native_tool_unresolved_owner_source_first_blocked_receipt(
+    receipts: &[NativeToolReceipt],
+    call: &NativeToolCall,
+    shell_edit_paths: &[PathBuf],
+) -> Option<NativeToolReceipt> {
+    let unresolved_paths = native_tool_unresolved_preserved_api_additive_patch_paths(receipts);
+    if unresolved_paths.is_empty()
+        || native_tool_call_targets_unresolved_owner_source(call, shell_edit_paths, &unresolved_paths)
+    {
+        return None;
+    }
+    let blocks_file_mutation = native_tool_call_is_file_mutation(call);
+    let blocks_shell_mutation = !shell_edit_paths.is_empty();
+    let blocks_validation = native_tool_call_is_validation_or_probe_command(call);
+    if !blocks_file_mutation && !blocks_shell_mutation && !blocks_validation {
+        return None;
+    }
+    Some(NativeToolReceipt {
+        call_id: call.id.clone(),
+        tool_name: call.name.trim().to_ascii_lowercase(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "unresolved_owner_source_first_guard",
+            "reason": "resolve_owner_source_before_dependent_edits_or_validation",
+            "unresolved_product_source_paths": unresolved_paths,
+            "attempted_path": native_tool_call_path_arg(call),
+            "attempted_shell_edit_paths": shell_edit_paths,
+            "required_next_tool": "file_patch_or_file_write_on_unresolved_product_source_owner"
+        }),
+        error: Some("resolve_owner_source_before_dependent_edits_or_validation".to_string()),
+    })
+}
+
+fn native_tool_call_targets_unresolved_owner_source(
+    call: &NativeToolCall,
+    shell_edit_paths: &[PathBuf],
+    unresolved_paths: &[String],
+) -> bool {
+    if let Some(path) = native_tool_call_path_arg(call) {
+        if unresolved_paths
+            .iter()
+            .any(|unresolved| native_tool_paths_same_or_suffix(unresolved, &path))
+        {
+            return true;
+        }
+    }
+    shell_edit_paths.iter().any(|path| {
+        let path = path.display().to_string();
+        unresolved_paths
+            .iter()
+            .any(|unresolved| native_tool_paths_same_or_suffix(unresolved, &path))
+    })
+}
+
+fn native_tool_call_is_file_mutation(call: &NativeToolCall) -> bool {
+    matches!(
+        call.name.trim().to_ascii_lowercase().as_str(),
+        "file_write"
+            | "write_file"
+            | "workspace.write"
+            | "workspace_write"
+            | "file_patch"
+            | "patch_file"
+            | "workspace.patch"
+            | "workspace_patch"
+    )
+}
+
+fn native_tool_call_is_validation_or_probe_command(call: &NativeToolCall) -> bool {
+    if !native_tool_call_is_command_run(call) {
+        return false;
+    }
+    let Some(command_text) = native_tool_command_call_text(&call.args) else {
+        return false;
+    };
+    let lower = command_text.to_ascii_lowercase();
+    native_tool_command_text_looks_like_validation(&command_text)
+        || lower.contains("semantic_probe")
+        || lower.contains("pytest")
+        || lower.contains("unittest")
+}
+
 fn native_tool_unresolved_preserved_api_additive_patch_paths(
     receipts: &[NativeToolReceipt],
 ) -> Vec<String> {
@@ -2613,6 +4204,33 @@ fn native_tool_unresolved_preserved_api_additive_patch_paths(
         if receipt.error.as_deref() == Some("preserved_api_existing_source_requires_additive_patch")
         {
             if let Some(path) = path {
+                if !unresolved
+                    .iter()
+                    .any(|existing| native_tool_paths_same_or_suffix(existing, &path))
+                {
+                    unresolved.push(path);
+                }
+            }
+            continue;
+        }
+        if receipt.error.as_deref() == Some("shell_edit_existing_source_requires_additive_patch") {
+            if let Some(changed_blocks) = receipt
+                .result
+                .get("changed_public_api_blocks")
+                .and_then(Value::as_array)
+            {
+                for block in changed_blocks.iter().filter_map(Value::as_str) {
+                    let Some((block_path, _name)) = block.rsplit_once(':') else {
+                        continue;
+                    };
+                    if !unresolved
+                        .iter()
+                        .any(|existing| native_tool_paths_same_or_suffix(existing, block_path))
+                    {
+                        unresolved.push(block_path.to_string());
+                    }
+                }
+            } else if let Some(path) = path {
                 if !unresolved
                     .iter()
                     .any(|existing| native_tool_paths_same_or_suffix(existing, &path))
@@ -3509,7 +5127,7 @@ fn native_tool_bounded_patch_artifact_lane(
     let completion_evidence_ready = native_tool_prompt_evidence_gaps(original_prompt, &receipts)
         .is_empty()
         && (!native_tool_prompt_requires_validation_command(&original_prompt.to_ascii_lowercase())
-            || native_tool_has_successful_validation_command(&receipts));
+            || native_tool_has_successful_validation_after_latest_mutation(&receipts));
     let repair_reasons =
         native_tool_runtime_repair_reasons(metadata, original_prompt, &response.output, &receipts);
     if !completion_evidence_ready
@@ -3536,7 +5154,7 @@ fn native_tool_bounded_patch_artifact_lane(
 
     if native_tool_prompt_evidence_gaps(original_prompt, &receipts).is_empty()
         && (!native_tool_prompt_requires_validation_command(&original_prompt.to_ascii_lowercase())
-            || native_tool_has_successful_validation_command(&receipts))
+            || native_tool_has_successful_validation_after_latest_mutation(&receipts))
     {
         receipts.push(native_tool_bounded_patch_artifact_success_receipt(json!({
             "artifact_profile": artifact_profile.as_str(),
@@ -4385,8 +6003,9 @@ fn native_tool_recovery_or_partial_progress(
         &receipts,
     );
     let completed_after_recovery = native_tool_has_successful_mutation(&receipts)
-        && native_tool_has_successful_validation_command(&receipts)
-        && native_tool_prompt_evidence_gaps(original_prompt, &receipts).is_empty();
+        && native_tool_has_successful_validation_after_latest_mutation(&receipts)
+        && native_tool_prompt_evidence_gaps(original_prompt, &receipts).is_empty()
+        && !native_tool_checkpointed_project_has_live_stage(metadata, original_prompt, &receipts);
     if completed_after_recovery {
         response = native_tool_synthetic_completion_evidence_response(
             &response,
@@ -4431,6 +6050,7 @@ fn native_tool_runtime_repair_reasons(
 ) -> Vec<String> {
     let mut reasons =
         native_tool_artifact_repair_reasons(metadata, original_prompt, output, receipts);
+    let prompt_lower = original_prompt.to_ascii_lowercase();
     if native_tool_requires_successful_mutation(metadata)
         && native_tool_prompt_requires_product_mutation(&original_prompt.to_ascii_lowercase())
         && !native_tool_has_successful_mutation(receipts)
@@ -4440,9 +6060,132 @@ fn native_tool_runtime_repair_reasons(
     {
         reasons.push("missing_product_mutation_receipt".to_string());
     }
+    for path in native_tool_prompt_required_handoff_artifact_paths(original_prompt) {
+        if !native_tool_has_successful_mutation_for_suffix(receipts, &path)
+            && !reasons
+                .iter()
+                .any(|reason| reason == &format!("missing_changed_path:{path}"))
+        {
+            reasons.push(format!("missing_changed_path:{path}"));
+        }
+    }
+    for path in native_tool_unresolved_preserved_api_additive_patch_paths(receipts) {
+        if !reasons
+            .iter()
+            .any(|reason| reason == &format!("unresolved_owner_source_path:{path}"))
+        {
+            reasons.push(format!("unresolved_owner_source_path:{path}"));
+        }
+    }
+    if native_tool_prompt_requires_validation_command(&prompt_lower)
+        && !native_tool_has_successful_validation_after_latest_mutation(receipts)
+    {
+        let failed_validation_refs = native_tool_failed_validation_command_refs(receipts);
+        if failed_validation_refs.is_empty() {
+            if !reasons
+                .iter()
+                .any(|reason| reason == "missing_validation_command_receipt")
+            {
+                reasons.push("missing_validation_command_receipt".to_string());
+            }
+        } else {
+            reasons.extend(failed_validation_refs);
+        }
+        reasons.extend(native_tool_failed_validation_import_repair_reasons(
+            original_prompt,
+            receipts,
+        ));
+    }
+    if native_tool_prompt_requires_memory_write(&prompt_lower)
+        && !native_tool_has_successful_memory_write_command(
+            receipts,
+            native_tool_prompt_expected_memory_row_id(original_prompt).as_deref(),
+            original_prompt,
+        )
+        && !reasons
+            .iter()
+            .any(|reason| reason.starts_with("missing_memory_write_receipt"))
+    {
+        reasons.push("missing_memory_write_receipt".to_string());
+    }
     reasons.sort();
     reasons.dedup();
     reasons
+}
+
+fn native_tool_failed_validation_import_repair_reasons(
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> Vec<String> {
+    let details = native_tool_failed_validation_receipt_details(receipts);
+    if details == "<none>" {
+        return Vec::new();
+    }
+    let mut reasons = Vec::new();
+    for (symbol, module) in native_tool_python_cannot_import_name_errors(&details) {
+        if let Some(path) = native_tool_prompt_python_module_path(original_prompt, &module) {
+            reasons.push(format!("missing_imported_module:{module}:{path}"));
+        }
+        reasons.push(format!(
+            "missing_public_interface_verification:{module}:{symbol}"
+        ));
+    }
+    reasons.sort();
+    reasons.dedup();
+    reasons
+}
+
+fn native_tool_python_cannot_import_name_errors(text: &str) -> Vec<(String, String)> {
+    let mut pairs = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("cannot import name '") {
+        let after_start = &rest[start + "cannot import name '".len()..];
+        let Some(symbol_end) = after_start.find('\'') else {
+            break;
+        };
+        let symbol = after_start[..symbol_end].trim();
+        let after_symbol = &after_start[symbol_end + 1..];
+        let Some(from_start) = after_symbol.find(" from '") else {
+            rest = after_symbol;
+            continue;
+        };
+        let after_from = &after_symbol[from_start + " from '".len()..];
+        let Some(module_end) = after_from.find('\'') else {
+            break;
+        };
+        let module = after_from[..module_end].trim();
+        if native_tool_python_identifier(symbol)
+            && module
+                .split('.')
+                .all(|part| native_tool_python_identifier(part))
+            && !pairs
+                .iter()
+                .any(|(existing_symbol, existing_module)| {
+                    existing_symbol == symbol && existing_module == module
+                })
+        {
+            pairs.push((symbol.to_string(), module.to_string()));
+        }
+        rest = &after_from[module_end + 1..];
+    }
+    pairs
+}
+
+fn native_tool_prompt_python_module_path(original_prompt: &str, module: &str) -> Option<String> {
+    let project_root = native_tool_prompt_project_root(original_prompt)?;
+    let root = PathBuf::from(project_root);
+    let rel = module.replace('.', "/");
+    let candidates = [
+        root.join("src").join(format!("{rel}.py")),
+        root.join(format!("{rel}.py")),
+        root.join("src").join(&rel).join("__init__.py"),
+        root.join(&rel).join("__init__.py"),
+    ];
+    candidates
+        .iter()
+        .find(|path| path.exists())
+        .or_else(|| candidates.first())
+        .map(|path| path.display().to_string())
 }
 
 fn native_tool_repair_reasons_include_product_mutation(repair_reasons: &[String]) -> bool {
@@ -4456,6 +6199,8 @@ fn native_tool_repair_reasons_include_product_slice(repair_reasons: &[String]) -
         reason.starts_with("incomplete_product_slice")
             || reason.starts_with("missing_product_source_evidence:")
             || reason.starts_with("missing_public_interface_verification:")
+            || reason.starts_with("missing_imported_module:")
+            || reason.starts_with("unresolved_owner_source_path:")
     })
 }
 
@@ -4466,7 +6211,9 @@ fn native_tool_repair_reasons_require_product_work(repair_reasons: &[String]) ->
             || reason.starts_with("incomplete_product_slice")
             || reason.starts_with("missing_product_source_evidence:")
             || reason.starts_with("missing_public_interface_verification:")
+            || reason.starts_with("missing_imported_module:")
             || reason.starts_with("missing_changed_path:")
+            || reason.starts_with("unresolved_owner_source_path:")
     })
 }
 
@@ -4734,6 +6481,9 @@ fn native_tool_product_source_stage_satisfied(
     {
         return false;
     }
+    if !native_tool_product_slice_gaps(original_prompt, receipts).is_empty() {
+        return false;
+    }
     true
 }
 
@@ -4781,8 +6531,35 @@ fn native_tool_live_stage_repair_reasons(
 ) -> Vec<String> {
     let mut reasons = native_tool_prompt_evidence_gaps(original_prompt, receipts)
         .into_iter()
-        .filter(|reason| reason.starts_with("missing_changed_path:"))
+        .filter(|reason| {
+            reason.starts_with("missing_changed_path:")
+                || reason.starts_with("missing_product_source_evidence:")
+                || reason.starts_with("incomplete_product_slice")
+                || reason.starts_with("missing_public_interface_verification:")
+                || reason.starts_with("missing_validation_command_receipt")
+                || reason.starts_with("failed_validation_command_receipt:")
+                || reason.starts_with("missing_memory_write_receipt")
+        })
         .collect::<Vec<_>>();
+    reasons.extend(native_tool_semantic_closeout_gaps(original_prompt, receipts));
+    for path in native_tool_prompt_required_handoff_artifact_paths(original_prompt) {
+        if !native_tool_has_successful_mutation_for_suffix(receipts, &path) {
+            reasons.push(format!("missing_changed_path:{path}"));
+        }
+    }
+    if native_tool_prompt_requires_memory_write(&original_prompt.to_ascii_lowercase())
+        && !native_tool_has_successful_memory_write_command(
+            receipts,
+            native_tool_prompt_expected_memory_row_id(original_prompt).as_deref(),
+            original_prompt,
+        )
+    {
+        reasons.push("missing_memory_write_receipt".to_string());
+    }
+    reasons.extend(native_tool_failed_validation_import_repair_reasons(
+        original_prompt,
+        receipts,
+    ));
     for path in native_tool_preserved_api_source_paths_from_workspace(original_prompt) {
         if !native_tool_changed_paths_include(receipts, &path) {
             reasons.push(format!("missing_changed_path:{path}"));
@@ -4801,7 +6578,11 @@ fn native_tool_bounded_direct_edit_required_evidence_gaps(
     let mut gaps = native_tool_prompt_evidence_gaps(original_prompt, receipts)
         .into_iter()
         .filter(|reason| {
-            reason == "missing_test_change_receipt" || reason.starts_with("missing_changed_path:")
+            reason == "missing_test_change_receipt"
+                || reason.starts_with("missing_changed_path:")
+                || reason.starts_with("missing_product_source_evidence:")
+                || reason.starts_with("incomplete_product_slice")
+                || reason.starts_with("missing_public_interface_verification:")
         })
         .collect::<Vec<_>>();
     if native_tool_prompt_requires_test_changes(&prompt_lower)
@@ -4813,7 +6594,7 @@ fn native_tool_bounded_direct_edit_required_evidence_gaps(
         gaps.push("missing_test_change_receipt".to_string());
     }
     if native_tool_prompt_requires_validation_command(&prompt_lower)
-        && !native_tool_has_successful_validation_command(receipts)
+        && !native_tool_has_successful_validation_after_latest_mutation(receipts)
     {
         let failed_validation_refs = native_tool_failed_validation_command_refs(receipts);
         if failed_validation_refs.is_empty() {
@@ -4911,10 +6692,8 @@ fn native_tool_has_unmutated_required_repair_path(
     repair_reasons: &[String],
     receipts: &[NativeToolReceipt],
 ) -> bool {
-    repair_reasons
-        .iter()
-        .filter_map(|reason| reason.strip_prefix("missing_changed_path:"))
-        .filter(|path| !path.contains("checkpoint_") && !path.contains("handoff"))
+    native_tool_required_repair_paths(repair_reasons)
+        .into_iter()
         .any(|path| !native_tool_has_successful_mutation_for_suffix(receipts, path))
 }
 
@@ -4986,74 +6765,6 @@ fn native_tool_prioritize_pre_mutation_validation_calls(calls: &mut Vec<NativeTo
     *calls = validation_calls;
 }
 
-fn native_tool_schedule_mutation_batch(calls: &mut Vec<NativeToolCall>) {
-    if calls.len() < 2 || !calls.iter().any(native_tool_call_is_mutation) {
-        return;
-    }
-    let mut implementation_source_mutations = Vec::new();
-    let mut other_product_mutations = Vec::new();
-    let mut export_surface_mutations = Vec::new();
-    let mut validation_or_command_calls = Vec::new();
-    let mut context_or_other_calls = Vec::new();
-    for call in calls.drain(..) {
-        if native_tool_call_is_implementation_source_mutation(&call) {
-            implementation_source_mutations.push(call);
-        } else if native_tool_call_is_export_surface_mutation(&call) {
-            export_surface_mutations.push(call);
-        } else if native_tool_call_is_product_mutation(&call) {
-            other_product_mutations.push(call);
-        } else if native_tool_call_is_command_run(&call) {
-            validation_or_command_calls.push(call);
-        } else {
-            context_or_other_calls.push(call);
-        }
-    }
-    implementation_source_mutations.extend(other_product_mutations);
-    implementation_source_mutations.extend(export_surface_mutations);
-    implementation_source_mutations.extend(validation_or_command_calls);
-    implementation_source_mutations.extend(context_or_other_calls);
-    *calls = implementation_source_mutations;
-}
-
-fn native_tool_call_is_implementation_source_mutation(call: &NativeToolCall) -> bool {
-    if !native_tool_call_is_mutation(call) {
-        return false;
-    }
-    native_tool_call_path_arg(call)
-        .map(native_tool_path_is_implementation_source_path)
-        .unwrap_or(false)
-}
-
-fn native_tool_export_surface_waiting_for_product_source(
-    original_prompt: &str,
-    receipts: &[NativeToolReceipt],
-    call: &NativeToolCall,
-) -> bool {
-    native_tool_prompt_requires_product_mutation(&original_prompt.to_ascii_lowercase())
-        && !native_tool_has_successful_implementation_source_mutation(receipts)
-        && native_tool_call_is_export_surface_mutation(call)
-}
-
-fn native_tool_export_surface_waiting_for_product_source_receipt(
-    call: NativeToolCall,
-) -> NativeToolReceipt {
-    let path = native_tool_call_path_arg(&call).map(str::to_string);
-    let tool_name = call.name.trim().to_ascii_lowercase();
-    NativeToolReceipt {
-        call_id: call.id,
-        tool_name,
-        status: "error".to_string(),
-        duration_ms: 0,
-        result: json!({
-            "blocked_by": "mutation_batch_scheduler",
-            "reason": "export_surface_requires_product_source_mutation_first",
-            "path": path,
-            "required_next_tool": "file_patch_or_file_write_on_product_source"
-        }),
-        error: Some("export_surface_requires_product_source_mutation_first".to_string()),
-    }
-}
-
 fn native_tool_product_repair_context_blocked_receipt(
     call: NativeToolCall,
     repair_reasons: &[String],
@@ -5080,13 +6791,49 @@ fn native_tool_product_repair_context_blocked_receipt(
     }
 }
 
+fn native_tool_compact_mutation_context_blocked_receipt(
+    call: NativeToolCall,
+) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: call.id,
+        tool_name: call.name.trim().to_ascii_lowercase(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "compact_mutation_entry_controller",
+            "reason": "compact_mutation_entry_requires_mutation_or_memory_context_before_more_discovery",
+            "required_next_tool": "file_write_or_file_patch_or_controlled_shell_edit_batch"
+        }),
+        error: Some(
+            "compact_mutation_entry_requires_mutation_or_memory_context_before_more_discovery"
+                .to_string(),
+        ),
+    }
+}
+
 fn native_tool_missing_changed_paths(repair_reasons: &[String]) -> Vec<String> {
-    repair_reasons
-        .iter()
-        .filter_map(|reason| reason.strip_prefix("missing_changed_path:"))
-        .filter(|path| !path.contains("checkpoint_") && !path.contains("handoff"))
+    native_tool_required_repair_paths(repair_reasons)
+        .into_iter()
         .map(str::to_string)
         .collect()
+}
+
+fn native_tool_required_repair_paths(repair_reasons: &[String]) -> Vec<&str> {
+    repair_reasons
+        .iter()
+        .filter_map(|reason| {
+            reason
+                .strip_prefix("missing_changed_path:")
+                .or_else(|| reason.strip_prefix("unresolved_owner_source_path:"))
+                .or_else(|| native_tool_missing_imported_module_repair_path(reason))
+        })
+        .filter(|path| !path.contains("checkpoint_") && !path.contains("handoff"))
+        .collect()
+}
+
+fn native_tool_missing_imported_module_repair_path(reason: &str) -> Option<&str> {
+    let rest = reason.strip_prefix("missing_imported_module:")?;
+    rest.rsplit_once(':').map(|(_module, path)| path)
 }
 
 fn native_tool_observed_test_paths(receipts: &[NativeToolReceipt]) -> Vec<String> {
@@ -5139,11 +6886,29 @@ fn native_tool_apply_project_relative_file_paths(call: &mut NativeToolCall, proj
     let Some(args) = call.args.as_object_mut() else {
         return;
     };
+    if !args.contains_key("path")
+        && matches!(
+            call.name.trim().to_ascii_lowercase().as_str(),
+            "file_patch" | "patch_file" | "workspace.patch" | "workspace_patch"
+        )
+    {
+        if let Some(diff_path) = args
+            .get("patch")
+            .and_then(Value::as_str)
+            .and_then(native_tool_unified_diff_target_path)
+        {
+            args.insert(
+                "path".to_string(),
+                json!(native_tool_project_relative_path(&diff_path, project_root)),
+            );
+        }
+    }
     let path_keys = [
         "path",
         "file_path",
         "filepath",
         "target_path",
+        "target_file_path",
         "target",
         "file",
         "absolute_path",
@@ -5184,6 +6949,29 @@ fn native_tool_project_relative_path(path: &str, project_root: &str) -> String {
     }
     let path = path.trim_start_matches("./");
     format!("{}/{}", project_root.trim_end_matches('/'), path)
+}
+
+fn native_tool_unified_diff_target_path(patch: &str) -> Option<String> {
+    for line in patch.lines() {
+        let trimmed = line.trim();
+        if let Some(path) = trimmed.strip_prefix("+++ b/") {
+            return Some(path.trim().to_string());
+        }
+        if let Some(path) = trimmed.strip_prefix("+++ ") {
+            let path = path.trim();
+            if path != "/dev/null" {
+                return Some(path.trim_start_matches("b/").to_string());
+            }
+        }
+        if let Some(rest) = trimmed.strip_prefix("diff --git ") {
+            let mut parts = rest.split_whitespace();
+            let _old = parts.next();
+            if let Some(new_path) = parts.next() {
+                return Some(new_path.trim_start_matches("b/").to_string());
+            }
+        }
+    }
+    None
 }
 
 fn native_tool_call_is_file_path_tool(call: &NativeToolCall) -> bool {
@@ -5289,6 +7077,9 @@ fn native_tool_live_stage_blocked_receipt(
     if native_tool_is_probable_micro_direct_write_task(metadata, original_prompt) {
         return None;
     }
+    if !native_tool_profile_allows(metadata, original_prompt, 4) {
+        return None;
+    }
     if !native_tool_staged_execution_controller_enabled(metadata) {
         return None;
     }
@@ -5310,6 +7101,27 @@ fn native_tool_current_live_stage(
     receipts: &[NativeToolReceipt],
 ) -> Option<&'static str> {
     let prompt_lower = original_prompt.to_ascii_lowercase();
+    if native_tool_prompt_looks_checkpointed_project_operator(original_prompt) {
+        if native_tool_prompt_requires_product_mutation(&prompt_lower)
+            && !native_tool_checkpointed_product_slice_stage_satisfied(original_prompt, receipts)
+        {
+            return Some("product_mutation");
+        }
+        if native_tool_prompt_wants_operator_surface(original_prompt)
+            && !native_tool_has_successful_operator_surface_mutation(receipts)
+        {
+            return Some("operator_surface_mutation");
+        }
+        if native_tool_prompt_requires_test_changes(&prompt_lower)
+            && !native_tool_has_successful_test_mutation(receipts)
+        {
+            return Some("test_mutation");
+        }
+        if !native_tool_failed_validation_import_repair_reasons(original_prompt, receipts).is_empty()
+        {
+            return Some("validation_repair");
+        }
+    }
     if native_tool_has_successful_product_mutation(receipts)
         && native_tool_prompt_requires_test_changes(&prompt_lower)
         && !native_tool_has_successful_test_mutation(receipts)
@@ -5326,14 +7138,19 @@ fn native_tool_current_live_stage(
     {
         return Some("test_mutation");
     }
+    if !native_tool_failed_validation_import_repair_reasons(original_prompt, receipts).is_empty() {
+        return Some("validation_repair");
+    }
     if native_tool_prompt_requires_validation_command(&prompt_lower)
-        && !native_tool_has_successful_validation_command(receipts)
+        && !native_tool_has_successful_validation_after_latest_mutation(receipts)
     {
         return Some("validation");
     }
-    if native_tool_prompt_required_changed_paths(original_prompt)
+    if !native_tool_semantic_closeout_gaps(original_prompt, receipts).is_empty() {
+        return Some("semantic_closeout");
+    }
+    if native_tool_prompt_required_handoff_artifact_paths(original_prompt)
         .into_iter()
-        .filter(|path| native_tool_path_is_handoff_artifact(path))
         .any(|path| !native_tool_has_successful_mutation_for_suffix(receipts, &path))
     {
         return Some("checkpoint_handoff");
@@ -5350,6 +7167,556 @@ fn native_tool_current_live_stage(
     None
 }
 
+fn native_tool_prompt_looks_checkpointed_project_operator(original_prompt: &str) -> bool {
+    let lower = original_prompt.to_ascii_lowercase();
+    native_tool_prompt_mentions_any(
+        &lower,
+        &["checkpoint", "handoff", "resume token", "memory row", "project context"],
+    ) && native_tool_prompt_mentions_any(
+        &lower,
+        &["existing project", "project root", "local project", "validation command"],
+    )
+}
+
+fn native_tool_prompt_wants_operator_surface(original_prompt: &str) -> bool {
+    let lower = original_prompt.to_ascii_lowercase();
+    native_tool_prompt_mentions_any(
+        &lower,
+        &[
+            "cli",
+            "operator",
+            "report",
+            "import",
+            "export",
+            "roundtrip",
+            "round-trip",
+            "public api",
+            "surface",
+        ],
+    )
+}
+
+fn native_tool_prompt_requires_semantic_closeout(original_prompt: &str) -> bool {
+    native_tool_prompt_looks_checkpointed_project_operator(original_prompt)
+        && native_tool_prompt_wants_operator_surface(original_prompt)
+}
+
+fn native_tool_semantic_closeout_gaps(
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> Vec<String> {
+    if !native_tool_prompt_requires_semantic_closeout(original_prompt)
+        || !native_tool_has_successful_validation_after_latest_mutation(receipts)
+    {
+        return Vec::new();
+    }
+
+    let prompt_lower = original_prompt.to_ascii_lowercase();
+    let mut gaps = Vec::new();
+    if !native_tool_has_successful_semantic_closeout_command_after_latest_validation(receipts) {
+        gaps.push("missing_operator_semantic_probe_receipt".to_string());
+    }
+    if native_tool_prompt_mentions_any(&prompt_lower, &["report", "summary"])
+        && !native_tool_has_successful_semantic_command_matching_after_latest_validation(
+            receipts,
+            &["report", "summary"],
+        )
+    {
+        gaps.push("missing_report_semantic_probe_receipt".to_string());
+    }
+    if native_tool_prompt_mentions_any(
+        &prompt_lower,
+        &["import", "export", "roundtrip", "round-trip"],
+    ) && !native_tool_has_successful_semantic_command_matching_after_latest_validation(
+        receipts,
+        &["import", "export", "roundtrip", "round-trip"],
+    ) {
+        gaps.push("missing_roundtrip_semantic_probe_receipt".to_string());
+    }
+    gaps.sort();
+    gaps.dedup();
+    gaps
+}
+
+fn native_tool_has_successful_product_source_foundation_mutation(
+    receipts: &[NativeToolReceipt],
+) -> bool {
+    let changed = native_tool_changed_paths(receipts);
+    !native_tool_mutation_entry_role_paths(&changed, "product_source").is_empty()
+}
+
+fn native_tool_checkpointed_product_slice_stage_satisfied(
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> bool {
+    native_tool_has_successful_product_source_foundation_mutation(receipts)
+        && native_tool_product_slice_gaps(original_prompt, receipts).is_empty()
+}
+
+fn native_tool_has_successful_operator_surface_mutation(receipts: &[NativeToolReceipt]) -> bool {
+    let changed = native_tool_changed_paths(receipts);
+    !native_tool_merge_role_paths(
+        &native_tool_mutation_entry_role_paths(&changed, "operator_surface"),
+        &native_tool_mutation_entry_role_paths(&changed, "export_surface"),
+    )
+    .is_empty()
+}
+
+fn native_tool_should_defer_auto_validation_for_stage(
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> bool {
+    matches!(
+        native_tool_current_live_stage(original_prompt, receipts),
+        Some("product_mutation" | "operator_surface_mutation" | "test_mutation")
+    )
+}
+
+fn native_tool_checkpointed_project_has_live_stage(
+    metadata: &Value,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> bool {
+    (native_tool_checkpointed_project_operator_tool_loop_active(metadata, original_prompt)
+        || native_tool_prompt_looks_checkpointed_project_operator(original_prompt))
+        && native_tool_current_live_stage(original_prompt, receipts).is_some()
+}
+
+fn native_tool_turn_number_usize(turn_idx: u64) -> usize {
+    usize::try_from(turn_idx.saturating_add(1)).unwrap_or(usize::MAX)
+}
+
+fn native_tool_checkpointed_project_stage_prompt(
+    metadata: &Value,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+    stage: &str,
+    observation: &str,
+    turn_number: usize,
+) -> String {
+    let packet = native_tool_project_operator_context_packet(
+        metadata,
+        original_prompt,
+        receipts,
+        stage,
+        observation,
+        turn_number,
+    );
+    format!(
+        "Use the compact project-operator context packet below. Emit native tool calls for this stage only.\n{}",
+        serde_json::to_string_pretty(&packet).unwrap_or_else(|_| "{}".to_string())
+    )
+}
+
+fn native_tool_project_operator_context_packet(
+    metadata: &Value,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+    stage: &str,
+    observation: &str,
+    turn_number: usize,
+) -> Value {
+    let project_root = native_tool_prompt_project_root(original_prompt)
+        .unwrap_or_else(|| "<unknown_project_root>".to_string());
+    let validation_command = native_tool_prompt_validation_shell_command(original_prompt)
+        .unwrap_or_else(|| "<run the prompt-specified validation command>".to_string());
+    let handoff_paths = native_tool_prompt_required_handoff_artifact_paths(original_prompt);
+    let memory_row_id = native_tool_prompt_expected_memory_row_id(original_prompt)
+        .unwrap_or_else(|| "<expected_memory_row_id>".to_string());
+    let memory_cli = native_tool_prompt_memory_cli_pattern(original_prompt)
+        .unwrap_or_else(|| "<prompt-specified memory CLI>".to_string());
+    json!({
+        "controller": "project_operator_context_packet_v1",
+        "turn": turn_number,
+        "active_stage": stage,
+        "project_root": project_root,
+        "task_excerpt": native_tool_checkpointed_project_task_excerpt(original_prompt),
+        "allowed_next_tools": native_tool_checkpointed_project_stage_allowed_tools(stage),
+        "stage_goal": native_tool_checkpointed_project_stage_goal(stage),
+        "stage_stop_condition": native_tool_checkpointed_project_stage_stop_condition(stage),
+        "changed_paths": native_tool_changed_paths(receipts),
+        "repair_reasons": native_tool_live_stage_repair_reasons(original_prompt, receipts),
+        "product_slice_gaps": native_tool_product_slice_gaps(original_prompt, receipts),
+        "semantic_closeout_gaps": native_tool_semantic_closeout_gaps(original_prompt, receipts),
+        "handoff_paths": handoff_paths,
+        "validation_command": validation_command,
+        "memory_row_id": memory_row_id,
+        "memory_cli": memory_cli,
+        "failed_validation": native_tool_failed_validation_receipt_details(receipts),
+        "context_receipts": native_tool_project_operator_receipt_summary(receipts),
+        "public_shape_lines_to_preserve": native_tool_project_operator_public_shape_lines(receipts),
+        "compact_observation": native_tool_project_operator_compact_observation(
+            metadata,
+            observation,
+        ),
+        "rules": [
+            "Complete only active_stage.",
+            "Use the compact context packet as the source of truth for the next action.",
+            "Do not restart planning.",
+            "Preserve observed public API/class constructor fields and existing CLI behavior unless the task explicitly asks for a breaking change.",
+            "Prefer additive product/source changes over rewrites.",
+            "Do not run validation before product/operator/test stages are complete.",
+            "Do not treat validation as terminal when operator/public semantic closeout, handoff, or memory closure is still required.",
+            "Do not close memory or handoff before validation and required semantic closeout probes pass.",
+            "If blocked, return the smallest receipt-backed blocker instead of broad exploration."
+        ],
+        "winning_runtime_pattern": [
+            "read compact local context and checkpoint memory",
+            "mutate product source additively",
+            "mutate operator surface additively",
+            "add tests that cover new behavior and baseline preservation",
+            "validate",
+            "run semantic operator probes",
+            "write handoff and memory closure receipts"
+        ],
+        "workflow_profile": metadata
+            .get("workflow")
+            .and_then(|workflow| workflow.get("id"))
+            .cloned()
+            .unwrap_or(Value::Null)
+    })
+}
+
+fn native_tool_project_operator_receipt_summary(
+    receipts: &[NativeToolReceipt],
+) -> Vec<Value> {
+    receipts
+        .iter()
+        .rev()
+        .take(16)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|receipt| {
+            json!({
+                "call_id": receipt.call_id.clone(),
+                "tool": receipt.tool_name.clone(),
+                "status": receipt.status.clone(),
+                "path": native_tool_project_operator_receipt_path_hint(receipt),
+                "command": native_tool_receipt_command_text(receipt),
+                "error": receipt.error.clone(),
+            })
+        })
+        .collect()
+}
+
+fn native_tool_project_operator_receipt_path_hint(
+    receipt: &NativeToolReceipt,
+) -> Option<String> {
+    [
+        "path",
+        "file_path",
+        "absolute_path",
+        "relative_path",
+        "target_path",
+        "cwd",
+    ]
+    .into_iter()
+    .find_map(|key| {
+        receipt
+            .result
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    })
+    .or_else(|| {
+        receipt
+            .result
+            .pointer("/args/path")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    })
+    .or_else(|| {
+        receipt
+            .result
+            .pointer("/arguments/path")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    })
+}
+
+fn native_tool_project_operator_public_shape_lines(
+    receipts: &[NativeToolReceipt],
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    for receipt in receipts {
+        if receipt.status != "ok" {
+            continue;
+        }
+        let mut corpus = String::new();
+        native_tool_project_operator_append_text_fragments(
+            &receipt.result,
+            &mut corpus,
+            60_000,
+        );
+        for line in corpus.lines() {
+            let trimmed = line.trim();
+            if native_tool_project_operator_looks_public_shape_line(trimmed) {
+                lines.push(trimmed.chars().take(220).collect::<String>());
+            }
+            if lines.len() >= 48 {
+                break;
+            }
+        }
+        if lines.len() >= 48 {
+            break;
+        }
+    }
+    lines.sort();
+    lines.dedup();
+    lines.truncate(32);
+    lines
+}
+
+fn native_tool_project_operator_append_text_fragments(
+    value: &Value,
+    out: &mut String,
+    max_chars: usize,
+) {
+    if out.chars().count() >= max_chars {
+        return;
+    }
+    match value {
+        Value::String(text) => {
+            if text.contains('\n')
+                || native_tool_project_operator_looks_public_shape_line(text.trim())
+            {
+                let remaining = max_chars.saturating_sub(out.chars().count());
+                if remaining > 0 {
+                    out.push_str(&text.chars().take(remaining).collect::<String>());
+                    out.push('\n');
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                native_tool_project_operator_append_text_fragments(item, out, max_chars);
+                if out.chars().count() >= max_chars {
+                    break;
+                }
+            }
+        }
+        Value::Object(object) => {
+            for value in object.values() {
+                native_tool_project_operator_append_text_fragments(value, out, max_chars);
+                if out.chars().count() >= max_chars {
+                    break;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn native_tool_project_operator_looks_public_shape_line(line: &str) -> bool {
+    if line.is_empty() || line.len() > 260 {
+        return false;
+    }
+    let lower = line.to_ascii_lowercase();
+    line.starts_with("class ")
+        || line.starts_with("def ")
+        || line.starts_with("fn ")
+        || line.starts_with("pub fn ")
+        || line.starts_with("struct ")
+        || line.starts_with("pub struct ")
+        || line.starts_with("enum ")
+        || line.starts_with("pub enum ")
+        || line.starts_with("interface ")
+        || line.starts_with("type ")
+        || line.starts_with("export ")
+        || lower.contains("@dataclass")
+        || lower.contains("argumentparser")
+        || lower.contains("add_parser(")
+        || lower.contains("subparsers")
+}
+
+fn native_tool_project_operator_compact_observation(
+    metadata: &Value,
+    observation: &str,
+) -> String {
+    if !native_tool_project_operator_context_packet_enabled(metadata) {
+        return observation.to_string();
+    }
+    let max_chars = native_tool_success_criteria_u64(
+        metadata,
+        "project_operator_context_packet_max_observation_chars",
+    )
+    .unwrap_or(6000)
+    .clamp(1000, 20_000) as usize;
+    observation.chars().take(max_chars).collect()
+}
+
+fn native_tool_project_operator_context_packet_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|criteria| criteria.get("project_operator_context_packet_enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn native_tool_project_operator_first_mutation_lane_enabled(
+    metadata: &Value,
+    stage: &str,
+) -> bool {
+    matches!(
+        stage,
+        "product_mutation" | "operator_surface_mutation" | "test_mutation"
+    ) && metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|criteria| criteria.get("project_operator_first_mutation_artifact_lane_enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+fn native_tool_project_operator_first_mutation_provider_timeout_seconds(
+    metadata: &Value,
+) -> u64 {
+    native_tool_success_criteria_u64(
+        metadata,
+        "project_operator_first_mutation_provider_timeout_seconds",
+    )
+    .unwrap_or(75)
+    .clamp(20, 180)
+}
+
+fn native_tool_project_operator_first_mutation_max_calls(metadata: &Value) -> usize {
+    native_tool_success_criteria_u64(metadata, "project_operator_first_mutation_max_calls")
+        .unwrap_or(4)
+        .clamp(1, 8) as usize
+}
+
+fn native_tool_project_operator_first_mutation_system() -> String {
+    "You are a constrained code edit engine. Return exactly one JSON object with a tool_calls array. Do not write prose, markdown, analysis, or a final answer. Prefer concrete file_write/file_patch edits or one controlled command_run shell edit batch. Preserve existing public API shape unless the task explicitly asks for a breaking change."
+        .to_string()
+}
+
+fn native_tool_project_operator_first_mutation_prompt(stage_prompt: &str, stage: &str) -> String {
+    format!(
+        "{stage_prompt}\n\nFIRST_MUTATION_ARTIFACT_LANE:\n\
+- Active stage: {stage}\n\
+- Return JSON only: {{\"tool_calls\":[...]}}.\n\
+- The first tool call must mutate files for the active stage.\n\
+- Allowed mutation tools: file_write, file_patch, or one controlled command_run heredoc edit batch.\n\
+- Do not call read/list/stat tools in this lane; context is already provided.\n\
+- Do not run validation, write handoff artifacts, or write memory rows in this lane.\n\
+- Preserve public_shape_lines_to_preserve and existing CLI behavior unless the task explicitly says otherwise.\n\
+- If no safe mutation is possible from the packet, return {{\"tool_calls\":[]}}."
+    )
+}
+
+fn native_tool_checkpointed_project_stage_allowed_tools(stage: &str) -> &'static str {
+    match stage {
+        "product_mutation" => {
+            "file_write, file_patch, or one controlled shell edit batch against product source files"
+        }
+        "operator_surface_mutation" => {
+            "file_write, file_patch, or one controlled shell edit batch against CLI/report/import/export surface files"
+        }
+        "test_mutation" => "file_write or file_patch against tests",
+        "validation_repair" => {
+            "file_write or file_patch against the module/file named by the failed validation import error"
+        }
+        "validation" => {
+            "command_run for validation, or file_patch/file_write only to repair failed validation"
+        }
+        "semantic_closeout" => {
+            "command_run for product/operator semantic probes, or file_patch/file_write only to repair a failed semantic probe"
+        }
+        "checkpoint_handoff" => {
+            "file_write or file_patch for the required checkpoint/handoff artifact"
+        }
+        "memory_closure" => "command_run using the prompt-specified memory CLI",
+        _ => "the smallest native tool call needed for the active stage",
+    }
+}
+
+fn native_tool_checkpointed_project_stage_goal(stage: &str) -> &'static str {
+    match stage {
+        "product_mutation" => {
+            "Implement the missing durable product slice in source files before validation. Preserve observed public API/class constructor fields and baseline behavior; prefer additive changes."
+        }
+        "operator_surface_mutation" => {
+            "Expose the completed product slice through the requested operator-facing CLI/report/import/export surface without removing existing CLI commands or outputs."
+        }
+        "test_mutation" => {
+            "Add regression tests for the completed product and operator surface plus baseline preservation of existing behavior."
+        }
+        "validation_repair" => {
+            "Repair the smallest failed-validation edge, such as defining/exporting the missing imported symbol in the resolved module file."
+        }
+        "validation" => {
+            "Run validation after the latest mutation, or make the smallest repair indicated by failed validation output."
+        }
+        "semantic_closeout" => {
+            "Run the smallest product/operator probe commands that demonstrate the requested public or operator-facing behavior after validation."
+        }
+        "checkpoint_handoff" => {
+            "Write the required checkpoint handoff artifact with changed files, validation result, risks, and next checkpoint."
+        }
+        "memory_closure" => {
+            "Write the required checkpoint memory row with changed files, validation result, risks, and next checkpoint."
+        }
+        _ => "Complete the current stage with the smallest receipt-backed action.",
+    }
+}
+
+fn native_tool_checkpointed_project_stage_stop_condition(stage: &str) -> &'static str {
+    match stage {
+        "product_mutation" => {
+            "Stop after additive source receipts satisfy product slice evidence while preserving observed public API shape; do not validate yet."
+        }
+        "operator_surface_mutation" => {
+            "Stop after operator-surface mutation receipts exist and existing operator paths remain represented; do not validate yet."
+        }
+        "test_mutation" => {
+            "Stop after test mutation receipts exist for both new behavior and baseline preservation; do not validate yet."
+        }
+        "validation_repair" => {
+            "Stop after the failed-validation target module has been patched; validation will rerun next."
+        }
+        "validation" => "Stop after validation passes after the latest mutation.",
+        "semantic_closeout" => {
+            "Stop after successful product/operator semantic probe receipts cover the requested surface."
+        }
+        "checkpoint_handoff" => "Stop after the checkpoint/handoff artifact write receipt exists.",
+        "memory_closure" => "Stop after the expected memory row write command receipt exists.",
+        _ => "Stop when the current stage receipt exists.",
+    }
+}
+
+fn native_tool_checkpointed_project_task_excerpt(original_prompt: &str) -> String {
+    let mut selected = Vec::new();
+    for line in original_prompt.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let starts_numbered_requirement = trimmed
+            .chars()
+            .next()
+            .map(|ch| ch.is_ascii_digit())
+            .unwrap_or(false)
+            && trimmed.contains('.');
+        if trimmed.starts_with("Goal:")
+            || trimmed.starts_with("Workflow requirements:")
+            || trimmed.starts_with("Completion guardrails:")
+            || starts_numbered_requirement
+        {
+            selected.push(trimmed.to_string());
+        }
+        if selected.join("\n").len() > 1800 {
+            break;
+        }
+    }
+    if selected.is_empty() {
+        native_tool_compact_text(original_prompt)
+    } else {
+        selected.join("\n")
+    }
+}
+
 fn native_tool_staged_repair_blocked_receipt(
     metadata: &Value,
     original_prompt: &str,
@@ -5358,6 +7725,9 @@ fn native_tool_staged_repair_blocked_receipt(
     call: &NativeToolCall,
 ) -> Option<NativeToolReceipt> {
     if native_tool_is_probable_micro_direct_write_task(metadata, original_prompt) {
+        return None;
+    }
+    if !native_tool_profile_allows(metadata, original_prompt, 4) {
         return None;
     }
     if !native_tool_staged_execution_controller_enabled(metadata) {
@@ -5388,6 +7758,8 @@ fn native_tool_stage_block_reason(
     let has_context = native_tool_has_successful_context_receipt(receipts);
     let read_context_count = native_tool_successful_read_context_count(receipts);
     let has_product_source = native_tool_product_source_stage_satisfied(original_prompt, receipts);
+    let checkpointed_project_operator =
+        native_tool_prompt_looks_checkpointed_project_operator(original_prompt);
     let needs_requested_pre_mutation_validation =
         native_tool_prompt_requires_pre_mutation_validation(original_prompt)
             && !native_tool_has_any_validation_command(receipts);
@@ -5395,11 +7767,21 @@ fn native_tool_stage_block_reason(
         "product_mutation" => {
             if native_tool_call_targets_handoff_artifact(call) {
                 Some("staged_controller_requires_product_source_before_checkpoint_handoff")
+            } else if native_tool_call_is_memory_context_retrieval(call) {
+                None
             } else if native_tool_call_is_memory_closure(call) {
                 Some("staged_controller_requires_product_source_before_memory_closure")
             } else if needs_requested_pre_mutation_validation && native_tool_call_is_mutation(call)
             {
                 Some("staged_controller_requires_requested_validation_before_mutation")
+            } else if checkpointed_project_operator && native_tool_call_is_context_only(call) {
+                Some("staged_controller_requires_product_source_mutation_before_more_context")
+            } else if checkpointed_project_operator && native_tool_call_is_test_mutation(call) {
+                Some("staged_controller_requires_product_source_mutation_before_test_mutation")
+            } else if checkpointed_project_operator
+                && native_tool_call_is_operator_surface_mutation(call)
+            {
+                Some("staged_controller_requires_product_source_mutation_before_operator_surface")
             } else if native_tool_call_is_test_mutation(call) {
                 None
             } else if !has_product_source
@@ -5428,6 +7810,23 @@ fn native_tool_stage_block_reason(
                 None
             }
         }
+        "operator_surface_mutation" => {
+            if native_tool_call_is_operator_surface_mutation(call) {
+                None
+            } else if native_tool_call_targets_handoff_artifact(call) {
+                Some("staged_controller_requires_operator_surface_before_checkpoint_handoff")
+            } else if native_tool_call_is_memory_closure(call) {
+                Some("staged_controller_requires_operator_surface_before_memory_closure")
+            } else if native_tool_call_is_command_run(call) {
+                Some("staged_controller_requires_operator_surface_mutation_before_command")
+            } else if native_tool_call_is_context_only(call) {
+                Some("staged_controller_requires_operator_surface_mutation_before_more_context")
+            } else if native_tool_call_is_mutation(call) {
+                Some("staged_controller_requires_operator_surface_mutation_now")
+            } else {
+                Some("staged_controller_requires_operator_surface_mutation_now")
+            }
+        }
         "test_mutation" => {
             if native_tool_call_is_test_mutation(call) {
                 None
@@ -5441,6 +7840,8 @@ fn native_tool_stage_block_reason(
                 Some("staged_controller_requires_test_file_write_or_patch_before_memory_closure")
             } else if native_tool_call_is_mutation(call) {
                 Some("staged_controller_requires_test_file_write_or_patch_now_for_requested_tests")
+            } else if checkpointed_project_operator && native_tool_call_is_context_only(call) {
+                Some("staged_controller_requires_test_file_write_or_patch_now_for_requested_tests")
             } else if native_tool_call_is_context_only(call)
                 && native_tool_observed_test_paths(receipts).is_empty()
                 && native_tool_successful_read_context_count_after_first_mutation(receipts) < 2
@@ -5448,6 +7849,27 @@ fn native_tool_stage_block_reason(
                 None
             } else {
                 Some("staged_controller_requires_test_file_write_or_patch_now_for_requested_tests")
+            }
+        }
+        "validation_repair" => {
+            if native_tool_call_targets_failed_validation_import_repair_path(
+                original_prompt,
+                receipts,
+                call,
+            ) {
+                None
+            } else if native_tool_call_is_command_run(call) {
+                Some("staged_controller_requires_failed_validation_import_patch_before_command")
+            } else if native_tool_call_targets_handoff_artifact(call) {
+                Some("staged_controller_requires_failed_validation_import_patch_before_checkpoint_handoff")
+            } else if native_tool_call_is_memory_closure(call) {
+                Some("staged_controller_requires_failed_validation_import_patch_before_memory_closure")
+            } else if native_tool_call_is_context_only(call) {
+                Some("staged_controller_requires_failed_validation_import_patch_before_more_context")
+            } else if native_tool_call_is_mutation(call) {
+                Some("staged_controller_requires_failed_validation_import_patch_to_target_module")
+            } else {
+                Some("staged_controller_requires_failed_validation_import_patch_to_target_module")
             }
         }
         "validation" => {
@@ -5476,6 +7898,25 @@ fn native_tool_stage_block_reason(
                 Some("staged_controller_requires_validation_command_or_validation_repair")
             }
         }
+        "semantic_closeout" => {
+            if native_tool_call_targets_handoff_artifact(call) {
+                Some("staged_controller_requires_semantic_closeout_before_checkpoint_handoff")
+            } else if native_tool_call_is_memory_closure(call) {
+                Some("staged_controller_requires_semantic_closeout_before_memory_closure")
+            } else if native_tool_call_is_semantic_closeout_command(call) {
+                None
+            } else if native_tool_call_is_mutation(call)
+                && native_tool_has_failed_semantic_closeout_command_after_latest_validation(receipts)
+            {
+                None
+            } else if native_tool_call_is_mutation(call) {
+                Some("staged_controller_requires_semantic_probe_before_repair_mutation")
+            } else if native_tool_call_is_context_only(call) {
+                Some("staged_controller_requires_semantic_closeout_probe_before_more_context")
+            } else {
+                Some("staged_controller_requires_product_operator_semantic_probe")
+            }
+        }
         "checkpoint_handoff" => {
             if native_tool_call_targets_handoff_artifact(call) {
                 None
@@ -5492,6 +7933,41 @@ fn native_tool_stage_block_reason(
         }
         _ => None,
     }
+}
+
+fn native_tool_prompt_required_handoff_artifact_paths(original_prompt: &str) -> Vec<String> {
+    let mut paths = native_tool_prompt_required_changed_paths(original_prompt)
+        .into_iter()
+        .filter(|path| native_tool_path_is_handoff_artifact(path))
+        .collect::<Vec<_>>();
+    for raw in original_prompt.split_whitespace() {
+        let candidate = raw.trim_matches(|ch: char| {
+            ch == '`'
+                || ch == '"'
+                || ch == '\''
+                || ch == '.'
+                || ch == ','
+                || ch == ';'
+                || ch == ':'
+                || ch == ')'
+                || ch == '('
+                || ch == ']'
+                || ch == '['
+                || ch == '}'
+                || ch == '{'
+        });
+        let lower = candidate.replace('\\', "/").to_ascii_lowercase();
+        if candidate.contains('/')
+            && lower.ends_with(".json")
+            && native_tool_path_is_handoff_artifact(&lower)
+            && !paths.iter().any(|path| path == candidate)
+        {
+            paths.push(candidate.to_string());
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 fn native_tool_path_is_handoff_artifact(path: &str) -> bool {
@@ -5596,6 +8072,110 @@ fn native_tool_has_any_validation_command(receipts: &[NativeToolReceipt]) -> boo
         .any(|receipt| receipt.status == "ok" && receipt.tool_name == "command_run")
 }
 
+fn native_tool_has_successful_semantic_closeout_command_after_latest_validation(
+    receipts: &[NativeToolReceipt],
+) -> bool {
+    native_tool_semantic_command_after_latest_validation(receipts, None, true)
+}
+
+fn native_tool_has_successful_semantic_command_matching_after_latest_validation(
+    receipts: &[NativeToolReceipt],
+    needles: &[&str],
+) -> bool {
+    native_tool_semantic_command_after_latest_validation(receipts, Some(needles), true)
+}
+
+fn native_tool_has_failed_semantic_closeout_command_after_latest_validation(
+    receipts: &[NativeToolReceipt],
+) -> bool {
+    native_tool_semantic_command_after_latest_validation(receipts, None, false)
+}
+
+fn native_tool_semantic_command_after_latest_validation(
+    receipts: &[NativeToolReceipt],
+    needles: Option<&[&str]>,
+    require_success: bool,
+) -> bool {
+    let Some(validation_index) = native_tool_latest_successful_validation_index(receipts) else {
+        return false;
+    };
+    let start = validation_index.saturating_add(1);
+    receipts.iter().skip(start).any(|receipt| {
+        if receipt.tool_name != "command_run" {
+            return false;
+        }
+        if require_success && receipt.status != "ok" {
+            return false;
+        }
+        if !require_success && receipt.status != "error" {
+            return false;
+        }
+        if native_tool_receipt_looks_validation_command(receipt)
+            || native_tool_receipt_looks_memory_command(receipt)
+        {
+            return false;
+        }
+        let command_text = native_tool_receipt_command_text(receipt);
+        needles
+            .map(|required| required.iter().any(|needle| command_text.contains(needle)))
+            .unwrap_or(true)
+    })
+}
+
+fn native_tool_latest_successful_validation_index(receipts: &[NativeToolReceipt]) -> Option<usize> {
+    receipts.iter().rposition(|receipt| {
+        receipt.status == "ok"
+            && receipt.tool_name == "command_run"
+            && native_tool_receipt_looks_validation_command(receipt)
+    })
+}
+
+fn native_tool_receipt_looks_validation_command(receipt: &NativeToolReceipt) -> bool {
+    let text = native_tool_receipt_command_text(receipt);
+    if text.contains("test")
+        && (text.contains("unittest")
+            || text.contains("pytest")
+            || text.contains("ran ")
+            || text.contains("passed")
+            || text.contains("failures")
+            || text.contains("errors"))
+    {
+        return true;
+    }
+    native_tool_prompt_mentions_any(
+        &text,
+        &[
+            "unittest",
+            "pytest",
+            "cargo test",
+            "cargo nextest",
+            "npm test",
+            "pnpm test",
+            "yarn test",
+            "go test",
+            "mvn test",
+            "gradle test",
+        ],
+    )
+}
+
+fn native_tool_receipt_looks_memory_command(receipt: &NativeToolReceipt) -> bool {
+    let text = native_tool_receipt_command_text(receipt);
+    text.contains("memory-cli") || (text.contains("checkpoint") && text.contains("memory"))
+}
+
+fn native_tool_has_successful_validation_after_latest_mutation(
+    receipts: &[NativeToolReceipt],
+) -> bool {
+    let Some(latest_mutation_index) = receipts.iter().rposition(|receipt| {
+        receipt.status == "ok"
+            && matches!(receipt.tool_name.as_str(), "file_write" | "file_patch")
+    }) else {
+        return native_tool_has_successful_validation_command(receipts);
+    };
+    native_tool_has_successful_validation_command(&receipts[latest_mutation_index + 1..])
+}
+
 fn native_tool_call_is_mutation(call: &NativeToolCall) -> bool {
     matches!(
         call.name.trim().to_ascii_lowercase().as_str(),
@@ -5624,6 +8204,62 @@ fn native_tool_call_is_test_mutation(call: &NativeToolCall) -> bool {
         || lower.contains("test_")
 }
 
+fn native_tool_call_is_operator_surface_mutation(call: &NativeToolCall) -> bool {
+    if !native_tool_call_is_mutation(call) {
+        return false;
+    }
+    let Some(path) = native_tool_call_path_arg(call) else {
+        return false;
+    };
+    native_tool_mutation_entry_path_is_operator_surface(path)
+        || native_tool_mutation_entry_path_is_export_surface(path)
+}
+
+fn native_tool_call_targets_failed_validation_import_repair_path(
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+    call: &NativeToolCall,
+) -> bool {
+    if !native_tool_call_is_mutation(call) {
+        return false;
+    }
+    let Some(path) = native_tool_call_path_arg(call) else {
+        return false;
+    };
+    let normalized_path = path.replace('\\', "/").to_ascii_lowercase();
+    native_tool_failed_validation_import_repair_reasons(original_prompt, receipts)
+        .into_iter()
+        .filter_map(|reason| native_tool_missing_imported_module_repair_path(&reason).map(str::to_string))
+        .any(|target| {
+            let target = target.replace('\\', "/").to_ascii_lowercase();
+            normalized_path.ends_with(&target) || target.ends_with(&normalized_path)
+        })
+}
+
+fn native_tool_call_is_semantic_closeout_command(call: &NativeToolCall) -> bool {
+    if !native_tool_call_is_command_run(call) || native_tool_call_is_memory_closure(call) {
+        return false;
+    }
+    let args = serde_json::to_string(&call.args)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    !native_tool_prompt_mentions_any(
+        &args,
+        &[
+            "unittest",
+            "pytest",
+            "cargo test",
+            "cargo nextest",
+            "npm test",
+            "pnpm test",
+            "yarn test",
+            "go test",
+            "mvn test",
+            "gradle test",
+        ],
+    )
+}
+
 fn native_tool_call_is_memory_closure(call: &NativeToolCall) -> bool {
     if !native_tool_call_is_command_run(call) {
         return false;
@@ -5631,7 +8267,52 @@ fn native_tool_call_is_memory_closure(call: &NativeToolCall) -> bool {
     let args = serde_json::to_string(&call.args)
         .unwrap_or_default()
         .to_ascii_lowercase();
-    args.contains("memory-cli") || (args.contains("checkpoint") && args.contains("memory"))
+    if !(args.contains("memory-cli") || (args.contains("checkpoint") && args.contains("memory"))) {
+        return false;
+    }
+    native_tool_command_text_contains_any(
+        &args,
+        &[
+            " ingest",
+            " write",
+            " set",
+            " put",
+            " update",
+            " append",
+            " checkpoint write",
+            "--content",
+            "--tags",
+        ],
+    )
+}
+
+fn native_tool_call_is_memory_context_retrieval(call: &NativeToolCall) -> bool {
+    if !native_tool_call_is_command_run(call) || native_tool_call_is_memory_closure(call) {
+        return false;
+    }
+    let args = serde_json::to_string(&call.args)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !(args.contains("memory-cli") || (args.contains("checkpoint") && args.contains("memory"))) {
+        return false;
+    }
+    native_tool_command_text_contains_any(
+        &args,
+        &[
+            " get",
+            " read",
+            " recall",
+            " search",
+            " retrieve",
+            " show",
+            " list",
+            " query",
+        ],
+    )
+}
+
+fn native_tool_command_text_contains_any(command_text: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| command_text.contains(needle))
 }
 
 fn native_tool_stage_blocked_repair_receipt(
@@ -5656,6 +8337,14 @@ fn native_tool_stage_blocked_repair_receipt(
                 "file_write_or_file_patch_to_test_path"
             } else if !missing_changed_paths.is_empty() {
                 "file_write_or_file_patch_to_missing_changed_path"
+            } else if repair_reasons
+                .iter()
+                .any(|reason| {
+                    reason.starts_with("missing_product_source_evidence:")
+                        || reason.starts_with("incomplete_product_slice")
+                })
+            {
+                "file_write_or_file_patch_for_missing_product_slice"
             } else {
                 "file_write_or_file_patch_or_command_run_for_required_stage"
             },
@@ -5664,6 +8353,43 @@ fn native_tool_stage_blocked_repair_receipt(
         }),
         error: Some(reason.to_string()),
     }
+}
+
+fn native_tool_turn_premature_validation_blocker_reason(
+    receipts: &[NativeToolReceipt],
+) -> Option<String> {
+    receipts.iter().find_map(|receipt| {
+        if receipt.status != "error" || receipt.tool_name != "command_run" {
+            return None;
+        }
+        let reason = receipt
+            .error
+            .as_deref()
+            .or_else(|| receipt.result.get("reason").and_then(Value::as_str))
+            .unwrap_or("");
+        let required_next_tool = receipt
+            .result
+            .get("required_next_tool")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let validation_before_mutation =
+            reason == "runtime_runs_validation_after_mutation"
+                || reason == "first_edit_batch_requires_mutation_before_command"
+                || reason == "staged_controller_requires_product_source_mutation_before_command"
+                || reason == "staged_controller_requires_test_file_write_or_patch_before_validation"
+                || (reason.contains("mutation") && reason.contains("before_command"))
+                || reason.contains("before_validation")
+                || required_next_tool.starts_with("file_write_or_file_patch");
+        if validation_before_mutation {
+            Some(if reason.is_empty() {
+                "premature_validation_before_mutation".to_string()
+            } else {
+                reason.to_string()
+            })
+        } else {
+            None
+        }
+    })
 }
 
 fn native_tool_call_targets_unrelated_repair_path(
@@ -5687,7 +8413,11 @@ fn native_tool_call_targets_unrelated_repair_path(
     }
     let mut required = repair_reasons
         .iter()
-        .filter_map(|reason| reason.strip_prefix("missing_changed_path:"))
+        .filter_map(|reason| {
+            reason
+                .strip_prefix("missing_changed_path:")
+                .or_else(|| native_tool_missing_imported_module_repair_path(reason))
+        })
         .filter(|path| !path.contains("checkpoint_") && !path.contains("handoff"))
         .map(|path| path.to_ascii_lowercase())
         .collect::<Vec<_>>();
@@ -5810,6 +8540,362 @@ fn native_tool_proposed_python_content_after_call(
     }
 }
 
+fn native_tool_python_existing_shape_blocked_receipt(
+    original_prompt: &str,
+    call: &NativeToolCall,
+) -> Option<NativeToolReceipt> {
+    if !matches!(
+        call.name.trim().to_ascii_lowercase().as_str(),
+        "file_write"
+            | "write_file"
+            | "workspace.write"
+            | "workspace_write"
+            | "file_patch"
+            | "patch_file"
+            | "workspace.patch"
+            | "workspace_patch"
+    ) {
+        return None;
+    }
+    let lower_prompt = original_prompt.to_ascii_lowercase();
+    if native_tool_prompt_mentions_any(
+        &lower_prompt,
+        &[
+            "remove field",
+            "delete field",
+            "drop field",
+            "rename field",
+            "remove class",
+            "delete class",
+            "drop class",
+            "breaking change",
+        ],
+    ) {
+        return None;
+    }
+    let path = native_tool_call_path_arg(call)?;
+    if !path.to_ascii_lowercase().ends_with(".py") {
+        return None;
+    }
+    let Ok(existing) = std::fs::read_to_string(path) else {
+        return None;
+    };
+    let before = native_tool_python_annotated_class_fields(&existing);
+    if before.is_empty() {
+        return None;
+    }
+    let content = native_tool_proposed_python_content_after_call(call, &existing)?;
+    let after = native_tool_python_annotated_class_fields(&content);
+    let mut removed_classes = Vec::new();
+    let mut removed_fields = Vec::new();
+    for (class_name, fields) in before {
+        let Some(after_fields) = after.get(&class_name) else {
+            removed_classes.push(class_name);
+            continue;
+        };
+        for field in fields {
+            if !after_fields.iter().any(|candidate| candidate == &field) {
+                removed_fields.push(format!("{}.{}", class_name, field));
+            }
+        }
+    }
+    if removed_classes.is_empty() && removed_fields.is_empty() {
+        return None;
+    }
+    Some(NativeToolReceipt {
+        call_id: call.id.clone(),
+        tool_name: call.name.trim().to_ascii_lowercase(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "python_existing_shape_guardrail",
+            "reason": "python_existing_class_shape_requires_additive_patch",
+            "path": path,
+            "removed_classes": removed_classes,
+            "removed_fields": removed_fields,
+            "required_next_tool": "file_patch_or_file_write_that_preserves_existing_python_class_fields"
+        }),
+        error: Some("python_existing_class_shape_requires_additive_patch".to_string()),
+    })
+}
+
+fn native_tool_shell_edit_python_shape_snapshots(
+    paths: &[PathBuf],
+) -> std::collections::BTreeMap<
+    String,
+    (
+        Option<Vec<u8>>,
+        std::collections::BTreeMap<String, Vec<String>>,
+    ),
+> {
+    let mut snapshots = std::collections::BTreeMap::new();
+    for path in paths {
+        let display = path.display().to_string();
+        let content = std::fs::read(path).ok();
+        let shape = if display.to_ascii_lowercase().ends_with(".py") {
+            content
+                .as_ref()
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                .map(native_tool_python_annotated_class_fields)
+                .unwrap_or_default()
+        } else {
+            std::collections::BTreeMap::new()
+        };
+        snapshots.insert(display, (content, shape));
+    }
+    snapshots
+}
+
+fn native_tool_shell_edit_python_existing_shape_blocked_receipt(
+    command_call_id: &str,
+    snapshots: &std::collections::BTreeMap<
+        String,
+        (
+            Option<Vec<u8>>,
+            std::collections::BTreeMap<String, Vec<String>>,
+        ),
+    >,
+) -> Option<NativeToolReceipt> {
+    if snapshots.is_empty() {
+        return None;
+    }
+    let mut removed_classes = Vec::new();
+    let mut removed_fields = Vec::new();
+    let mut restored_paths = Vec::new();
+    let mut deleted_new_paths = Vec::new();
+    for (path, (_before_content, before_shape)) in snapshots {
+        if before_shape.is_empty() {
+            continue;
+        }
+        let after_content = std::fs::read_to_string(path).unwrap_or_default();
+        let after_shape = native_tool_python_annotated_class_fields(&after_content);
+        for (class_name, fields) in before_shape {
+            let Some(after_fields) = after_shape.get(class_name) else {
+                removed_classes.push(format!("{path}:{class_name}"));
+                continue;
+            };
+            for field in fields {
+                if !after_fields.iter().any(|candidate| candidate == field) {
+                    removed_fields.push(format!("{path}:{class_name}.{field}"));
+                }
+            }
+        }
+    }
+    if removed_classes.is_empty() && removed_fields.is_empty() {
+        return None;
+    }
+    for (path, (before_content, _before_shape)) in snapshots {
+        match before_content {
+            Some(bytes) => {
+                let _ = std::fs::write(path, bytes);
+                restored_paths.push(path.clone());
+            }
+            None => {
+                if Path::new(path).exists() {
+                    let _ = std::fs::remove_file(path);
+                    deleted_new_paths.push(path.clone());
+                }
+            }
+        }
+    }
+    Some(NativeToolReceipt {
+        call_id: format!("{command_call_id}_python_shape_guard"),
+        tool_name: "command_run".to_string(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "shell_edit_python_existing_shape_guardrail",
+            "reason": "shell_edit_existing_python_class_shape_requires_additive_patch",
+            "removed_classes": removed_classes,
+            "removed_fields": removed_fields,
+            "restored_paths": restored_paths,
+            "deleted_new_paths": deleted_new_paths,
+            "required_next_tool": "file_patch_or_controlled_shell_edit_batch_that_preserves_existing_python_class_fields"
+        }),
+        error: Some("shell_edit_existing_python_class_shape_requires_additive_patch".to_string()),
+    })
+}
+
+fn native_tool_shell_edit_preserved_api_blocked_receipt(
+    command_call_id: &str,
+    original_prompt: &str,
+    snapshots: &std::collections::BTreeMap<
+        String,
+        (
+            Option<Vec<u8>>,
+            std::collections::BTreeMap<String, Vec<String>>,
+        ),
+    >,
+) -> Option<NativeToolReceipt> {
+    let names = native_tool_prompt_preserved_api_names(original_prompt);
+    if names.is_empty() || snapshots.is_empty() {
+        return None;
+    }
+    let mut changed = Vec::new();
+    let mut restored_paths = Vec::new();
+    for (path, (before_content, _before_shape)) in snapshots {
+        let Some(before_bytes) = before_content else {
+            continue;
+        };
+        let Ok(before) = std::str::from_utf8(before_bytes) else {
+            continue;
+        };
+        let Ok(after) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for name in &names {
+            let Some(before_block) = native_tool_python_api_block(before, name) else {
+                continue;
+            };
+            let Some(after_block) = native_tool_python_api_block(&after, name) else {
+                changed.push(format!("{path}:{name}"));
+                continue;
+            };
+            if native_tool_preserved_api_behavior_signature(&before_block)
+                != native_tool_preserved_api_behavior_signature(&after_block)
+            {
+                changed.push(format!("{path}:{name}"));
+            }
+        }
+    }
+    if changed.is_empty() {
+        return None;
+    }
+    let changed_owner_path = changed
+        .iter()
+        .find_map(|entry| entry.rsplit_once(':').map(|(path, _name)| path.to_string()));
+    for (path, (before_content, _before_shape)) in snapshots {
+        if let Some(bytes) = before_content {
+            let _ = std::fs::write(path, bytes);
+            restored_paths.push(path.clone());
+        }
+    }
+    Some(NativeToolReceipt {
+        call_id: format!("{command_call_id}_preserved_api_guard"),
+        tool_name: "command_run".to_string(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "shell_edit_preserved_api_guardrail",
+            "reason": "shell_edit_existing_source_requires_additive_patch",
+            "changed_public_api_blocks": changed,
+            "path": changed_owner_path,
+            "restored_paths": restored_paths,
+            "required_next_tool": "file_patch_or_file_write_that_preserves_existing_api_blocks_and_adds_missing_imported_symbols"
+        }),
+        error: Some("shell_edit_existing_source_requires_additive_patch".to_string()),
+    })
+}
+
+fn native_tool_python_annotated_class_fields(
+    text: &str,
+) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut result = std::collections::BTreeMap::new();
+    let mut current_name: Option<String> = None;
+    let mut current_indent = 0usize;
+    let mut current_fields: Vec<String> = Vec::new();
+
+    for raw_line in text.lines() {
+        let line = raw_line.trim_end();
+        let trimmed = line.trim_start();
+        let indent = line.len().saturating_sub(trimmed.len());
+
+        if let Some(class_name) = native_tool_python_class_name(trimmed) {
+            if let Some(previous_name) = current_name.take() {
+                if !current_fields.is_empty() {
+                    result.insert(previous_name, std::mem::take(&mut current_fields));
+                } else {
+                    current_fields.clear();
+                }
+            }
+            current_name = Some(class_name);
+            current_indent = indent;
+            continue;
+        }
+
+        if current_name.is_none() {
+            continue;
+        }
+        if !trimmed.is_empty() && indent <= current_indent {
+            if let Some(previous_name) = current_name.take() {
+                if !current_fields.is_empty() {
+                    result.insert(previous_name, std::mem::take(&mut current_fields));
+                } else {
+                    current_fields.clear();
+                }
+            }
+            continue;
+        }
+        if let Some(field_name) = native_tool_python_annotated_field_name(trimmed) {
+            if !current_fields.iter().any(|field| field == &field_name) {
+                current_fields.push(field_name);
+            }
+        }
+    }
+
+    if let Some(previous_name) = current_name {
+        if !current_fields.is_empty() {
+            result.insert(previous_name, current_fields);
+        }
+    }
+    result
+}
+
+fn native_tool_python_class_name(trimmed: &str) -> Option<String> {
+    let rest = trimmed.strip_prefix("class ")?;
+    let name = rest
+        .split(|ch: char| ch == '(' || ch == ':' || ch.is_whitespace())
+        .next()
+        .unwrap_or("")
+        .trim();
+    if native_tool_python_identifier(name) {
+        Some(name.to_string())
+    } else {
+        None
+    }
+}
+
+fn native_tool_python_annotated_field_name(trimmed: &str) -> Option<String> {
+    if trimmed.is_empty()
+        || trimmed.starts_with('#')
+        || trimmed.starts_with('@')
+        || trimmed.starts_with("def ")
+        || trimmed.starts_with("async def ")
+        || trimmed.starts_with("class ")
+        || trimmed.starts_with("return ")
+        || trimmed.starts_with("if ")
+        || trimmed.starts_with("for ")
+        || trimmed.starts_with("while ")
+        || trimmed.starts_with("with ")
+    {
+        return None;
+    }
+    let colon = trimmed.find(':')?;
+    let equals = trimmed.find('=').unwrap_or(usize::MAX);
+    let open_paren = trimmed.find('(').unwrap_or(usize::MAX);
+    if colon > equals || colon > open_paren {
+        return None;
+    }
+    let name = trimmed[..colon].trim();
+    if name.contains('.') || name.contains(' ') || name.contains('\t') {
+        return None;
+    }
+    if native_tool_python_identifier(name) {
+        Some(name.to_string())
+    } else {
+        None
+    }
+}
+
+fn native_tool_python_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
 fn native_tool_preserved_api_write_blocked_receipt(
     original_prompt: &str,
     call: &NativeToolCall,
@@ -5867,7 +8953,7 @@ fn native_tool_preserved_api_write_blocked_receipt(
             "reason": "preserved_api_existing_source_requires_additive_patch",
             "path": path,
             "preserved_api_names": changed,
-            "required_next_tool": "file_patch_or_file_write_that_keeps_preserved_api_block_identical"
+            "required_next_tool": "file_patch_or_file_write_that_preserves_existing_api_blocks_and_adds_missing_imported_symbols"
         }),
         error: Some("preserved_api_existing_source_requires_additive_patch".to_string()),
     })
@@ -6055,258 +9141,36 @@ fn native_tool_compact_text(text: &str) -> String {
     }
 }
 
-fn native_tool_compact_bounded_edit_bootstrap_enabled(metadata: &Value) -> bool {
-    metadata
-        .get("native_success_criteria")
-        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
-        .and_then(|value| value.get("compact_bounded_edit_bootstrap"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn native_tool_compact_bounded_edit_bootstrap_applies(metadata: &Value, original_prompt: &str) -> bool {
-    if !native_tool_compact_bounded_edit_bootstrap_enabled(metadata) {
-        return false;
-    }
-    let max_explicit_paths = metadata
-        .get("native_success_criteria")
-        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
-        .and_then(|value| value.get("compact_bounded_edit_bootstrap_max_explicit_paths"))
-        .and_then(Value::as_u64)
-        .unwrap_or(2) as usize;
-    let explicit_paths = native_tool_unique_code_path_mentions(original_prompt);
-    !explicit_paths.is_empty() && explicit_paths.len() <= max_explicit_paths
-}
-
-fn native_tool_local_context_pack_builder_enabled(metadata: &Value) -> bool {
-    metadata
-        .get("native_success_criteria")
-        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
-        .and_then(|value| value.get("local_context_pack_builder"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn native_tool_local_context_pack_observation_prompt(
-    metadata: &Value,
-    receipts: &[NativeToolReceipt],
-) -> String {
-    let file_char_budget = metadata
-        .get("native_success_criteria")
-        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
-        .and_then(|value| value.get("local_context_pack_file_chars"))
-        .and_then(Value::as_u64)
-        .unwrap_or(2600) as usize;
-    let command_char_budget = metadata
-        .get("native_success_criteria")
-        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
-        .and_then(|value| value.get("local_context_pack_command_chars"))
-        .and_then(Value::as_u64)
-        .unwrap_or(1800) as usize;
-    let max_files = metadata
-        .get("native_success_criteria")
-        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
-        .and_then(|value| value.get("local_context_pack_max_files"))
-        .and_then(Value::as_u64)
-        .unwrap_or(8) as usize;
-
-    let mut files = Vec::new();
-    let mut commands = Vec::new();
-    for receipt in receipts {
-        if receipt.status != "ok" {
-            continue;
-        }
-        match receipt.tool_name.as_str() {
-            "file_read" => {
-                if let Some(file) = native_tool_context_pack_file_capsule(
-                    &receipt.result,
-                    file_char_budget,
-                ) {
-                    files.push(file);
-                }
-            }
-            "file_read_many" => {
-                if let Some(items) = receipt.result.get("files").and_then(Value::as_array) {
-                    for item in items {
-                        if let Some(file) =
-                            native_tool_context_pack_file_capsule(item, file_char_budget)
-                        {
-                            files.push(file);
-                        }
-                    }
-                }
-            }
-            "command_run" => {
-                commands.push(native_tool_context_pack_command_capsule(
-                    &receipt.result,
-                    command_char_budget,
-                ));
-            }
-            _ => {}
-        }
-    }
-    files.truncate(max_files);
-    json!({
-        "schema": "local_context_pack_v1",
-        "files": files,
-        "commands": commands,
-        "instruction": "Use file capsules as authoritative local context. Preserve existing behavior described by failing validation. Mutate implementation/source before export surfaces when both are needed. After mutation, rerun requested validation/probe commands."
-    })
-    .to_string()
-}
-
-fn native_tool_context_pack_file_capsule(result: &Value, max_chars: usize) -> Option<Value> {
-    let path = result.get("path").and_then(Value::as_str)?;
-    let content = result.get("content").and_then(Value::as_str).unwrap_or("");
-    Some(json!({
-        "path": path,
-        "role": native_tool_context_pack_file_role(path),
-        "start_line": result.get("start_line").cloned().unwrap_or(Value::Null),
-        "end_line": result.get("end_line").cloned().unwrap_or(Value::Null),
-        "total_lines": result.get("total_lines").cloned().unwrap_or(Value::Null),
-        "content_excerpt": native_tool_context_pack_head_text(content, max_chars),
-        "truncated": content.chars().count() > max_chars,
-    }))
-}
-
-fn native_tool_context_pack_command_capsule(result: &Value, max_chars: usize) -> Value {
-    let stdout = result.get("stdout").and_then(Value::as_str).unwrap_or("");
-    let stderr = result.get("stderr").and_then(Value::as_str).unwrap_or("");
-    json!({
-        "cwd": result.get("cwd").and_then(Value::as_str),
-        "cmd": result.get("cmd").cloned().unwrap_or(Value::Null),
-        "success": result.get("success").and_then(Value::as_bool),
-        "exit_code": result.get("exit_code").cloned().unwrap_or(Value::Null),
-        "timed_out": result.get("timed_out").and_then(Value::as_bool),
-        "stdout_excerpt": native_tool_tail_text(stdout, max_chars / 2),
-        "stderr_excerpt": native_tool_tail_text(stderr, max_chars),
-    })
-}
-
-fn native_tool_context_pack_file_role(path: &str) -> &'static str {
-    let lower = path.to_ascii_lowercase();
-    if lower.contains("/test")
-        || lower.contains("\\test")
-        || lower.contains("tests/")
-        || lower.contains("test_")
-        || lower.ends_with("_test.py")
-        || lower.ends_with(".test.js")
-        || lower.ends_with(".spec.js")
-        || lower.ends_with(".test.ts")
-        || lower.ends_with(".spec.ts")
-    {
-        "test"
-    } else if lower.ends_with("__init__.py")
-        || lower.contains("mod.rs")
-        || lower.contains("index.ts")
-        || lower.contains("index.js")
-    {
-        "export_surface"
-    } else if lower.ends_with(".toml")
-        || lower.ends_with(".json")
-        || lower.ends_with(".yaml")
-        || lower.ends_with(".yml")
-    {
-        "config"
-    } else {
-        "source"
-    }
-}
-
-fn native_tool_context_pack_head_text(text: &str, max_chars: usize) -> String {
-    if text.chars().count() <= max_chars {
-        text.to_string()
-    } else {
-        format!("{}...<truncated>", text.chars().take(max_chars).collect::<String>())
-    }
-}
-
-fn native_tool_tail_text(text: &str, max_chars: usize) -> String {
-    let count = text.chars().count();
-    if count <= max_chars {
-        text.to_string()
-    } else {
-        format!(
-            "<truncated>...{}",
-            text.chars()
-                .skip(count.saturating_sub(max_chars))
-                .collect::<String>()
-        )
-    }
-}
-
-fn native_tool_compact_bounded_edit_bootstrap_observation_prompt(
-    metadata: &Value,
-    receipts: &[NativeToolReceipt],
-) -> String {
-    let per_receipt_budget = metadata
-        .get("native_success_criteria")
-        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
-        .and_then(|value| value.get("compact_bounded_edit_bootstrap_result_chars"))
-        .and_then(Value::as_u64)
-        .unwrap_or(1400) as usize;
-    let observations = receipts
-        .iter()
-        .map(|receipt| {
-            json!({
-                "call_id": &receipt.call_id,
-                "tool_name": &receipt.tool_name,
-                "status": &receipt.status,
-                "path": native_tool_receipt_result_path(&receipt.result),
-                "error": &receipt.error,
-                "result_preview": native_tool_compact_receipt_result_preview(&receipt.result, per_receipt_budget),
-            })
-        })
-        .collect::<Vec<_>>();
-    json!({
-        "native_tool_observations_compact": observations,
-        "instruction": "Use these compact receipt summaries as authoritative. Full receipts are retained by the runtime. Continue with the smallest safe file_write/file_patch mutation next, followed by requested validation/probe command_run calls."
-    })
-    .to_string()
-}
-
-fn native_tool_receipt_result_path(result: &Value) -> Option<String> {
-    for pointer in ["/path", "/file/path", "/target/path", "/cwd"] {
-        if let Some(path) = result.pointer(pointer).and_then(Value::as_str) {
-            if !path.trim().is_empty() {
-                return Some(path.to_string());
-            }
-        }
-    }
-    result
-        .get("paths")
-        .and_then(Value::as_array)
-        .and_then(|paths| paths.iter().find_map(Value::as_str))
-        .map(str::to_string)
-}
-
-fn native_tool_compact_receipt_result_preview(result: &Value, max_chars: usize) -> String {
-    let serialized = serde_json::to_string(result).unwrap_or_else(|_| result.to_string());
-    let compact = serialized.split_whitespace().collect::<Vec<_>>().join(" ");
-    if compact.chars().count() <= max_chars {
-        compact
-    } else {
-        format!(
-            "{}...<truncated>",
-            compact.chars().take(max_chars).collect::<String>()
-        )
-    }
-}
-
 fn native_tool_prioritize_repair_calls(calls: &mut [NativeToolCall], repair_reasons: &[String]) {
+    let owner_source_paths = native_tool_unresolved_owner_source_paths(repair_reasons);
     let needs_test_change = repair_reasons
         .iter()
         .any(|reason| reason == "missing_test_change_receipt");
     let needs_missing_path = repair_reasons
         .iter()
-        .any(|reason| reason.starts_with("missing_changed_path:"));
+        .any(|reason| {
+            reason.starts_with("missing_changed_path:")
+                || reason.starts_with("missing_imported_module:")
+                || reason.starts_with("unresolved_owner_source_path:")
+        });
     let needs_product_work = native_tool_repair_reasons_require_product_work(repair_reasons);
     let needs_validation_repair = native_tool_repair_reasons_include_validation(repair_reasons);
-    if !(needs_test_change || needs_missing_path || needs_product_work || needs_validation_repair) {
+    if !(needs_test_change
+        || needs_missing_path
+        || needs_product_work
+        || needs_validation_repair
+        || !owner_source_paths.is_empty())
+    {
         return;
     }
     calls.sort_by_key(|call| {
-        if needs_test_change && !needs_missing_path && native_tool_call_is_test_mutation(call) {
+        if native_tool_call_targets_required_owner_source_path(call, &owner_source_paths) {
+            0
+        } else if !owner_source_paths.is_empty() && native_tool_call_is_command_run(call) {
+            4
+        } else if !owner_source_paths.is_empty() && native_tool_call_is_mutation(call) {
+            1
+        } else if needs_test_change && !needs_missing_path && native_tool_call_is_test_mutation(call) {
             0
         } else if native_tool_call_is_mutation(call) {
             1
@@ -6319,33 +9183,42 @@ fn native_tool_prioritize_repair_calls(calls: &mut [NativeToolCall], repair_reas
 }
 
 fn native_tool_completion_repair_tools(tools: &[String], repair_reasons: &[String]) -> Vec<String> {
-    if native_tool_repair_reasons_include_failed_validation(repair_reasons) {
+    if repair_reasons
+        .iter()
+        .any(|reason| reason.starts_with("unresolved_owner_source_path:"))
+    {
         let filtered = tools
             .iter()
             .filter(|tool| {
-                let lower = tool.to_ascii_lowercase();
-                lower.contains("file_read")
-                    || lower.contains("file_read_many")
-                    || lower.contains("workspace.read")
-                    || lower.contains("file_write")
-                    || lower.contains("workspace.write")
-                    || lower.contains("file_patch")
-                    || lower.contains("workspace.patch")
-                    || lower.contains("command_run")
-                    || lower.contains("command.run")
+                matches!(
+                    tool.trim().to_ascii_lowercase().as_str(),
+                    "file_write"
+                        | "write_file"
+                        | "workspace.write"
+                        | "workspace_write"
+                        | "file_patch"
+                        | "patch_file"
+                        | "workspace.patch"
+                        | "workspace_patch"
+                )
             })
             .cloned()
             .collect::<Vec<_>>();
-        if !filtered.is_empty() {
-            return filtered;
-        }
+        return if filtered.is_empty() {
+            tools.to_vec()
+        } else {
+            filtered
+        };
     }
     let missing_test_only = repair_reasons
         .iter()
         .any(|reason| reason == "missing_test_change_receipt")
         && !repair_reasons
             .iter()
-            .any(|reason| reason.starts_with("missing_changed_path:"))
+            .any(|reason| {
+                reason.starts_with("missing_changed_path:")
+                    || reason.starts_with("missing_imported_module:")
+            })
         && !native_tool_repair_reasons_include_validation(repair_reasons)
         && !native_tool_repair_reasons_include_product_mutation(repair_reasons)
         && !native_tool_repair_reasons_include_product_slice(repair_reasons);
@@ -6367,6 +9240,32 @@ fn native_tool_completion_repair_tools(tools: &[String], repair_reasons: &[Strin
     }
 }
 
+fn native_tool_unresolved_owner_source_paths(repair_reasons: &[String]) -> Vec<String> {
+    repair_reasons
+        .iter()
+        .filter_map(|reason| {
+            reason
+                .strip_prefix("unresolved_owner_source_path:")
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+fn native_tool_call_targets_required_owner_source_path(
+    call: &NativeToolCall,
+    owner_source_paths: &[String],
+) -> bool {
+    if owner_source_paths.is_empty() {
+        return false;
+    }
+    let Some(path) = native_tool_call_path_arg(call) else {
+        return false;
+    };
+    owner_source_paths
+        .iter()
+        .any(|owner_path| native_tool_paths_same_or_suffix(owner_path, &path))
+}
+
 fn native_tool_completion_evidence_repair_loop(
     provider: &Arc<dyn crate::provider::ProviderClient>,
     dispatcher: &NativeToolDispatcher,
@@ -6381,13 +9280,41 @@ fn native_tool_completion_evidence_repair_loop(
     mut repair_reasons: Vec<String>,
 ) -> Result<(ProviderResponse, Vec<NativeToolReceipt>, u64), ProviderError> {
     let max_turns = native_tool_completion_evidence_repair_max_turns(metadata);
-    let mut prompt = native_tool_completion_evidence_repair_prompt(
+    let mut prompt = if native_tool_checkpointed_project_operator_tool_loop_active(
         metadata,
         original_prompt,
-        &response.output,
-        &receipts,
-        &repair_reasons,
-    );
+    ) {
+        if let Some(stage) = native_tool_current_live_stage(original_prompt, &receipts) {
+            native_tool_checkpointed_project_stage_prompt(
+                metadata,
+                original_prompt,
+                &receipts,
+                stage,
+                &format!(
+                    "Initial repair reasons:\n{}\n\nLatest assistant output:\n{}",
+                    repair_reasons.join("\n"),
+                    response.output
+                ),
+                0,
+            )
+        } else {
+            native_tool_completion_evidence_repair_prompt(
+                metadata,
+                original_prompt,
+                &response.output,
+                &receipts,
+                &repair_reasons,
+            )
+        }
+    } else {
+        native_tool_completion_evidence_repair_prompt(
+            metadata,
+            original_prompt,
+            &response.output,
+            &receipts,
+            &repair_reasons,
+        )
+    };
     for turn_idx in 0..max_turns {
         provider_call_count += 1;
         let product_mutation_missing =
@@ -6413,7 +9340,12 @@ fn native_tool_completion_evidence_repair_loop(
             Ok(response) => response,
             Err(error) if native_tool_provider_error_is_timeout(&error) => {
                 let completed_with_receipts = native_tool_has_successful_mutation(&receipts)
-                    && native_tool_has_successful_validation_command(&receipts)
+                    && native_tool_has_successful_validation_after_latest_mutation(&receipts)
+                    && !native_tool_checkpointed_project_has_live_stage(
+                        metadata,
+                        original_prompt,
+                        &receipts,
+                    )
                     && native_tool_runtime_repair_reasons(
                         metadata,
                         original_prompt,
@@ -6457,13 +9389,40 @@ fn native_tool_completion_evidence_repair_loop(
             if product_mutation_missing || product_slice_incomplete {
                 break;
             }
-            prompt = native_tool_completion_evidence_repair_prompt(
+            prompt = if native_tool_checkpointed_project_operator_tool_loop_active(
                 metadata,
                 original_prompt,
-                &response.output,
-                &receipts,
-                &repair_reasons,
-            );
+            ) {
+                if let Some(stage) = native_tool_current_live_stage(original_prompt, &receipts) {
+                    native_tool_checkpointed_project_stage_prompt(
+                        metadata,
+                        original_prompt,
+                        &receipts,
+                        stage,
+                        &format!(
+                            "No tool calls were emitted. Remaining repair reasons:\n{}",
+                            repair_reasons.join("\n")
+                        ),
+                        native_tool_turn_number_usize(turn_idx),
+                    )
+                } else {
+                    native_tool_completion_evidence_repair_prompt(
+                        metadata,
+                        original_prompt,
+                        &response.output,
+                        &receipts,
+                        &repair_reasons,
+                    )
+                }
+            } else {
+                native_tool_completion_evidence_repair_prompt(
+                    metadata,
+                    original_prompt,
+                    &response.output,
+                    &receipts,
+                    &repair_reasons,
+                )
+            };
             continue;
         }
         native_tool_prioritize_repair_calls(&mut calls, &repair_reasons);
@@ -6483,7 +9442,36 @@ fn native_tool_completion_evidence_repair_loop(
             .take(native_tool_max_calls_per_turn(metadata))
         {
             let call = native_tool_call_with_prompt_defaults(call, original_prompt);
-            let receipt = if let Some(blocked) = native_tool_staged_repair_blocked_receipt(
+            let shell_edit_paths =
+                native_tool_controlled_shell_edit_batch_paths(metadata, original_prompt, &call);
+            let shell_edit_command = product_work_required && !shell_edit_paths.is_empty();
+            let unresolved_owner_source_blocked =
+                native_tool_unresolved_owner_source_first_blocked_receipt(
+                    &receipts,
+                    &call,
+                    &shell_edit_paths,
+                );
+            let pre_dispatch_receipts = if shell_edit_command {
+                Some(receipts.clone())
+            } else {
+                None
+            };
+            let shell_edit_python_shape_snapshots = if shell_edit_command {
+                native_tool_shell_edit_python_shape_snapshots(&shell_edit_paths)
+            } else {
+                std::collections::BTreeMap::new()
+            };
+            let receipt = if let Some(blocked) = unresolved_owner_source_blocked {
+                blocked
+            } else if shell_edit_command {
+                if let Some(blocked) =
+                    native_tool_shell_edit_batch_blocked_receipt(&call, &shell_edit_paths)
+                {
+                    blocked
+                } else {
+                    dispatcher.dispatch(call)
+                }
+            } else if let Some(blocked) = native_tool_staged_repair_blocked_receipt(
                 metadata,
                 original_prompt,
                 &repair_reasons,
@@ -6518,6 +9506,10 @@ fn native_tool_completion_evidence_repair_loop(
             {
                 blocked
             } else if let Some(blocked) =
+                native_tool_python_existing_shape_blocked_receipt(original_prompt, &call)
+            {
+                blocked
+            } else if let Some(blocked) =
                 native_tool_atomic_dependent_edit_blocked_receipt(&receipts, &call)
             {
                 blocked
@@ -6529,7 +9521,35 @@ fn native_tool_completion_evidence_repair_loop(
                 dispatcher.dispatch(call)
             };
             turn_receipts.push(receipt.clone());
-            receipts.push(receipt);
+            receipts.push(receipt.clone());
+            if shell_edit_command && native_tool_command_receipt_success(&receipt) {
+                if let Some(blocked) = native_tool_shell_edit_python_existing_shape_blocked_receipt(
+                    &receipt.call_id,
+                    &shell_edit_python_shape_snapshots,
+                ) {
+                    turn_receipts.push(blocked.clone());
+                    receipts.push(blocked);
+                    continue;
+                }
+                if let Some(blocked) = native_tool_shell_edit_preserved_api_blocked_receipt(
+                    &receipt.call_id,
+                    original_prompt,
+                    &shell_edit_python_shape_snapshots,
+                ) {
+                    turn_receipts.push(blocked.clone());
+                    receipts.push(blocked);
+                    continue;
+                }
+                let synthetic_receipts = native_tool_synthesize_shell_edit_mutation_receipts(
+                    &receipt.call_id,
+                    &shell_edit_paths,
+                    pre_dispatch_receipts.as_deref().unwrap_or(&[]),
+                );
+                for synthetic in synthetic_receipts {
+                    turn_receipts.push(synthetic.clone());
+                    receipts.push(synthetic);
+                }
+            }
         }
         response = next_response;
         repair_reasons = native_tool_runtime_repair_reasons(
@@ -6556,18 +9576,55 @@ fn native_tool_completion_evidence_repair_loop(
             "completion_evidence_repair_turn_rule",
             "Continue repairing only the remaining uncovered requirements from this native tool task. Return JSON tool calls, or return a structured blocker only when local completion is genuinely blocked.",
         );
-        prompt = format!(
-            "{}\n\nRepair turn {} produced observations:\n{}\n\nFailed validation receipt details:\n{}\n\nRemaining uncovered requirements:\n{}\n\nRequired repair actions:\n{}\n\nTest mutation repair hint:\n{}\n\nFailed validation repair hint:\n{}\n\n{}",
+        prompt = if native_tool_checkpointed_project_operator_tool_loop_active(
+            metadata,
             original_prompt,
-            turn_idx + 1,
-            observation,
-            failed_validation_details,
-            repair_reasons.join("\n"),
-            repair_actions,
-            test_change_repair_hint,
-            failed_validation_repair_hint,
-            repair_turn_rule
-        );
+        ) {
+            if let Some(stage) = native_tool_current_live_stage(original_prompt, &receipts) {
+                native_tool_checkpointed_project_stage_prompt(
+                    metadata,
+                    original_prompt,
+                    &receipts,
+                    stage,
+                    &format!(
+                        "Repair turn {} observations:\n{}\n\nRemaining uncovered requirements:\n{}\n\nRequired repair actions:\n{}\n\nTest mutation repair hint:\n{}\n\nFailed validation repair hint:\n{}",
+                        turn_idx + 1,
+                        observation,
+                        repair_reasons.join("\n"),
+                        repair_actions,
+                        test_change_repair_hint,
+                        failed_validation_repair_hint
+                    ),
+                    native_tool_turn_number_usize(turn_idx),
+                )
+            } else {
+                format!(
+                    "{}\n\nRepair turn {} produced observations:\n{}\n\nFailed validation receipt details:\n{}\n\nRemaining uncovered requirements:\n{}\n\nRequired repair actions:\n{}\n\nTest mutation repair hint:\n{}\n\nFailed validation repair hint:\n{}\n\n{}",
+                    original_prompt,
+                    turn_idx + 1,
+                    observation,
+                    failed_validation_details,
+                    repair_reasons.join("\n"),
+                    repair_actions,
+                    test_change_repair_hint,
+                    failed_validation_repair_hint,
+                    repair_turn_rule
+                )
+            }
+        } else {
+            format!(
+                "{}\n\nRepair turn {} produced observations:\n{}\n\nFailed validation receipt details:\n{}\n\nRemaining uncovered requirements:\n{}\n\nRequired repair actions:\n{}\n\nTest mutation repair hint:\n{}\n\nFailed validation repair hint:\n{}\n\n{}",
+                original_prompt,
+                turn_idx + 1,
+                observation,
+                failed_validation_details,
+                repair_reasons.join("\n"),
+                repair_actions,
+                test_change_repair_hint,
+                failed_validation_repair_hint,
+                repair_turn_rule
+            )
+        };
     }
     Ok((response, receipts, provider_call_count))
 }
@@ -6805,7 +9862,7 @@ fn native_tool_auto_validation_receipt(
 ) -> Option<NativeToolReceipt> {
     let prompt_lower = original_prompt.to_ascii_lowercase();
     if !native_tool_prompt_requires_validation_command(&prompt_lower)
-        || native_tool_has_successful_validation_command(receipts)
+        || native_tool_has_successful_validation_after_latest_mutation(receipts)
     {
         return None;
     }

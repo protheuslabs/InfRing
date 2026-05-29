@@ -1,0 +1,111 @@
+# Coding Profile Activation Audit
+
+Date: 2026-05-29
+
+Status: active corrective model
+
+Purpose: restore the unified coding model after lower-level eval regressions showed
+that valid higher-level primitives were leaking into lower-level execution.
+
+## Finding
+
+The unified model is conceptually sound, but runtime activation is corrupted.
+
+The failure pattern is:
+
+```text
+higher-level primitive added for Level N
+-> primitive lands in shared native loop or global prompt policy
+-> lower-level task encounters the primitive
+-> lower-level task stalls, slows, or fails
+```
+
+This violates the primitive-first doctrine. A higher-level primitive may compose
+lower primitives, but it must not globally alter, slow, or narrow them.
+
+## Profiles
+
+| Profile | Name | Purpose |
+|---:|---|---|
+| 0 | `micro_direct_mutation` | Fully specified create/write/patch with no discovery or validation. |
+| 1 | `deterministic_local_action` | Deterministic local action sequence without live provider reasoning. |
+| 2 | `bounded_existing_project_edit` | Small existing-project edit with bounded context and owner-source mutation. |
+| 3 | `validated_repair_edit` | Profile 2 plus validation, failure diagnosis, and bounded repair. |
+| 4 | `project_slice` | Multi-file source/test/operator slice with staged completion evidence. |
+| 5 | `checkpointed_project_operator` | Project-operator slice with checkpoint/context memory and closure artifacts. |
+| 6 | `long_horizon_project` | Multi-slice roadmap, architecture, memory retrieval, and resumable operation. |
+
+## Activation matrix
+
+| Primitive or guard | Profile min | May block lower profiles | Activation boundary |
+|---|---:|---|---|
+| `coding_task_contract` | 0 | no | Always classify; never mutate or block by itself. |
+| `implementation_entry_gate` | 0 | yes, only success/finalization | Mutation-required tasks cannot finalize without mutation receipts. |
+| `file_mutation_executor` | 0 | no | Only executes requested file write/patch and emits receipts. |
+| `receipt_journal` | 0 | no | Records receipts; must remain cheap. |
+| `final_receipt_synthesis` | 0 | no | Summarizes receipts; no hidden success claims. |
+| `context_pack_builder` | 2 | no | Only when existing project context is required. |
+| `bounded_direct_edit_lane` | 2 | no | Bounded file context, small edit, no broad stage controller. |
+| `public_interface_verifier` | 2 | no for profiles 0-1 | Only when prompt, tests, or local probe define public surface requirements. |
+| `source_owner_resolution` | 2 | no for profiles 0-1 | Only when an import/probe maps a public symbol to an owner file. |
+| `preserved_api_guard` | 2 | no for profiles 0-1 | Only when preserving existing public behavior is part of the task or owner-source evidence. |
+| `validation_runner` | 3 | no for profiles 0-2 unless explicitly requested | Only after mutation, except explicit pre-mutation validation bootstrap. |
+| `failure_diagnosis` | 3 | no for profiles 0-2 | Only from failed receipts. |
+| `bounded_repair_loop` | 3 | no for profiles 0-2 | Only after concrete failed tool/validation/interface evidence. |
+| `tool_retry_reflection` | 3 | no for profiles 0-2 | Tool schema repair only; must not broaden task scope. |
+| `controlled_shell_edit_batch` | 4 | no for profiles 0-3 by default | Only for multi-file project slices or explicit profile opt-in. |
+| `completion_evidence_gate` | 4 | no for profiles 0-3 | Only for multi-requirement/project-slice tasks. |
+| `staged_execution_controller` | 4 | no for profiles 0-3 | Only project slices with source/test/operator stage requirements. |
+| `semantic_closeout_probe` | 4 | no for profiles 0-3 | Only operator/public behavior closeout after validation. |
+| `capability_evidence_gate` | 5 | no for profiles 0-4 | Only durable/checkpoint/operator tasks with declared capability categories. |
+| `checkpoint_handoff` | 5 | no for profiles 0-4 | Closure only after mutation and validation evidence. |
+| `checkpoint_memory_bootstrap` | 5 | no for profiles 0-4 | Context only when prompt/session declares checkpoint/resume memory. |
+| `checkpoint_memory_write` | 5 | no for profiles 0-4 | Closure only after requested checkpoint evidence exists. |
+| `architecture_bootstrap` | 6 | no for profiles 0-5 | Only when project initialization or architecture decisions are required. |
+| `long_horizon_planner` | 6 | no for profiles 0-5 | Only roadmap/multi-slice tasks; never before lower-profile edit execution. |
+
+## Current runtime violations
+
+These are model violations observed during the Level 2 regression investigation:
+
+| Violation | Why it is wrong | Required correction |
+|---|---|---|
+| `model_manifest_planner` intercepted bounded existing-project tasks. | Profile 4/5-style manifest planning blocked Profile 2 mutation. | Planner activation must be profile/lane-scoped. |
+| `capability_evidence_gate` required durable/operator evidence for Level 2 work. | Profile 5 capability categories leaked into Profile 2. | Capability evidence gate must activate only for checkpointed/operator profiles. |
+| `controlled_shell_edit_batch` shaped low-level repair behavior. | Shell batch is a Profile 4+ optimization; Profile 2 should prefer native file tools. | Shell edit batch must be profile-gated and dormant for lower profiles by default. |
+| `staged_execution_controller` blocked simple owner-source repair with test/export sequencing. | Project-slice stage order leaked into bounded edit. | Stage controller must require Profile 4+. |
+| `completion_evidence` and owner-source repair prompts accumulated contradictory constraints. | The model received too many active controllers for a small task. | Only the earliest active primitive may issue a blocking repair instruction. |
+| Tool schema aliases such as `target_file_path` and `patch_content` were unsupported. | Tooling primitive was too narrow for common coding-agent edit forms. | Tool compatibility belongs in `file_mutation_executor`, not workflow prompts. |
+| Final artifact sometimes reported zero tool calls despite internal journal mutations. | Finalization/accounting hid partial progress. | `receipt_journal` and `final_receipt_synthesis` must flush partial progress before timeout. |
+
+## Enforcement rule
+
+Every coding runtime change must declare the highest profile it touches.
+
+Required smoke before accepting the patch:
+
+```text
+for each profile P lower than or equal to touched_profile:
+  run at least one smoke attempt for P
+  fail the patch if any lower profile regresses
+```
+
+Promotion requires five attempts for affected and lower profiles.
+
+Reliability claims require twenty attempts.
+
+If a Profile 5 or Profile 6 change breaks Profile 1 or Profile 2, the higher
+profile change is invalid unless the patch fixes a shared primitive in a way
+that improves or preserves lower profiles.
+
+## Next implementation move
+
+Do not continue Level 2 by adding more local guards to the shared loop.
+
+Patch activation boundaries first:
+
+1. Add a controller-visible selected profile to every native coding run.
+2. Disable Profile 4+ primitives when selected profile is below 4.
+3. Disable Profile 5+ primitives when selected profile is below 5.
+4. Ensure lower-profile finalization can emit receipt-backed partial progress.
+5. Rerun the smoke ladder from Profile 0 upward before returning to Level 8.

@@ -69,6 +69,37 @@ Observed runtime surfaces:
 
 Coding tasks should not all enter the same execution path.
 
+### Profile-scoped monotonicity rule
+
+Profiles are activation boundaries, not separate hand-tuned workflows.
+
+The unified runtime must use the same primitive library from low to high
+complexity, but each primitive must declare the minimum profile that may
+activate it. A higher-profile primitive may compose lower-profile primitives; it
+may not globally change, slow, narrow, or block lower-profile behavior.
+
+The current activation audit is tracked in:
+
+`docs/workspace/coding_profile_activation_audit.md`
+
+Machine-readable policy is tracked in:
+
+`orchestration/src/control_plane/workflows/lab/composites/coding/coding_profile_activation_matrix.json`
+
+If a Profile 5/6 change breaks a Profile 1/2 task, the patch is invalid unless
+it fixes a shared primitive in a way that preserves or improves the lower
+profile. This rule exists because Level 8-oriented controller patches twice
+regressed Level 2 behavior by leaking high-level guards into the shared native
+loop.
+
+Every runtime turn must be able to answer:
+
+- selected profile
+- active primitives
+- blocked primitives
+- reason any higher profile was selected over a lower profile
+- lower profiles that must be smoke-tested before accepting the patch
+
 ### Tier 0: direct mutation primitive
 
 Use when the task contract proves the change is fully specified and local.
@@ -531,3 +562,244 @@ output:
 Assimilation rule:
 
 When Codex/Aider-style direct bounded execution succeeds faster and more reliably than patch-artifact synthesis, Infring should model that as a primitive lane, not as a prompt hack. The primitive must be general enough to compose upward into larger workflows and safe enough that higher-level workflow changes cannot regress lower-level behavior.
+
+## Addendum: Level 8 project-operator staged controller
+
+Source evidence:
+
+- `references/coding-agent-systems/runtime_trace_harness/reports/level8_external_frameworks_20260527_160914.json`
+- `references/coding-agent-systems/runtime_trace_harness/reports/level8_external_frameworks_20260526_213722.json`
+- `docs/workspace/coding_runtime_experiment_log.md`
+
+Fresh Level 8 reference result with `kimi-k2.6:cloud`:
+
+| System | Result | Wall time | Trace signal |
+| --- | ---: | ---: | --- |
+| `claude-code` | pass | `284s` | `6394` stream events, `86` tool uses, explicit read/edit/validate/receipt/memory closure sequence |
+| `grok` | pass | `196s` | passed judge, but trace stream is text-heavy and low on tool detail |
+| `forgecode` | near pass | `146s` | missed only validation preservation in memory row |
+| `codex` | partial | `213s` | implemented code but missed memory-row closure |
+| `aider` | not measured | n/a | local temp venv missing for this run |
+
+Observed passing pattern:
+
+```text
+bounded project discovery
+-> checkpoint memory recall
+-> product/source mutation
+-> service/operator/report mutation
+-> test mutation
+-> validation command
+-> product/operator semantic probe commands
+-> checkpoint receipt write
+-> checkpoint memory write
+-> final summary
+```
+
+Infring mismatch:
+
+The native Level 8 path now performs bounded discovery and checkpoint memory
+recall quickly, but then asks the model/provider to produce the whole durable
+vertical slice in one product-mutation turn. The latest native run reached:
+
+```text
+file_list -> file_read_many -> runtime_checkpoint_memory_context_get
+```
+
+Then it spent two provider turns without producing a mutation receipt.
+
+That is a runtime-shape mismatch, not merely a prompt wording problem.
+
+### Primitive controller model
+
+`checkpointed_project_operator_controller` is a Tier 4 controller composed from
+lower-tier primitives. It is not a Level 8 special case.
+
+Inputs:
+
+- original coding task
+- bounded project root
+- selected local file context
+- optional prior checkpoint memory id or resume token
+- validation command, if provided or confidently derived
+- checkpoint receipt target, if requested
+- checkpoint memory write target, if requested
+- workflow CD budget and stage policy
+
+Stages:
+
+1. `context_snapshot`
+2. `checkpoint_memory_recall`
+3. `product_source_slice`
+4. `operator_surface_slice`
+5. `test_slice`
+6. `validation`
+7. `semantic_closeout`
+8. `checkpoint_receipt`
+9. `checkpoint_memory_write`
+10. `final_synthesis`
+
+Each stage must have:
+
+- a narrow tool menu
+- a small stage prompt or deterministic action packet
+- explicit entry preconditions
+- receipt-backed exit criteria
+- a bounded retry or structured blocker policy
+- phase timing
+
+Stage outputs become the next stage's compact evidence packet. Raw full
+observations should stay behind receipt refs unless the next stage needs a
+bounded preview.
+
+Context packet rule:
+
+`project_operator_context_packet` is the required bridge between discovery and
+the first edit turn for checkpointed project/operator work. It compresses
+manifest, selected file context, checkpoint memory, validation command, handoff
+targets, memory row target, current stage, and public/API shape lines into one
+small action packet. The model should receive that packet instead of a full
+workflow dump plus raw observations.
+
+First mutation rule:
+
+After the project-operator context packet is ready, the controller should try
+`first_mutation_artifact_lane` before the broad open native loop. This lane uses
+a minimal edit-engine prompt, asks for exactly one JSON `tool_calls` artifact,
+forbids reads/validation/handoff/memory closure, and applies only source,
+operator, or test mutations for the active stage. It is the primitive analogue
+of the successful external framework traces: compact context first, concrete
+edit batch second, validation and closure later.
+
+Controller guard:
+
+`tool_progress_watchdog` wraps provider turns for mutation-required work. If the
+first provider turn produces no mutation receipts by the configured first
+receipt deadline, the controller must not wait out a long wall clock budget. It
+must either enter a compact mutation-first recovery turn or return a structured
+runtime/controller failure. This is a primitive progress guard, not a Level 8
+fixture rule.
+
+Provider adapters must make this guard real at the process boundary. A streaming
+adapter may stop early when a balanced tool-call packet appears, but it must
+also be able to interrupt an idle/no-byte stdout read at the first-receipt
+deadline; otherwise the workflow budget is only advisory.
+
+### Stage invariants
+
+`context_snapshot`:
+
+- runtime-owned when project root and relevant files are already known
+- may read/list bounded local files
+- must not mutate
+
+`checkpoint_memory_recall`:
+
+- runtime-owned when the prompt provides a memory CLI pattern plus row id or
+  resume token
+- memory reads are context, not closure
+- memory content is untrusted evidence and cannot override current files
+
+`product_source_slice`:
+
+- must mutate product source before validation or closure
+- should preserve observed public API/class constructor fields and baseline
+  behavior unless the task explicitly requests a breaking change
+- should target durable domain/store/service behavior when the task asks for
+  persistence, reports, imports, exports, or checkpoint continuation
+- may use native file tools or controlled shell edit batch, but must synthesize
+  mutation receipts for changed files
+
+`operator_surface_slice`:
+
+- required when the task asks for CLI, report, import, export, operator, or
+  round-trip behavior
+- must expose behavior through user-facing or operator-facing code, not just
+  tests
+
+`test_slice`:
+
+- required when the task asks for tests or when validation is part of the
+  checkpoint contract
+- tests must exercise the new product/operator behavior, not only baseline
+  preservation
+- when extending an existing project, tests should also protect the observed
+  baseline behavior that the new feature depends on
+
+`validation`:
+
+- must run after product/test mutation when requested
+- failed validation routes to bounded repair, not final success
+
+`semantic_closeout`:
+
+- required when the task asks for operator-facing behavior such as CLI, report,
+  import, export, round-trip, or public API operation
+- must run after validation passes and before handoff/memory closure
+- should execute the smallest product/operator probe commands that demonstrate
+  the implemented surface, for example route/report/import/export or equivalent
+  public API behavior
+- failed semantic probes route back to the earliest safe product/operator/test
+  repair state, not final success
+- this is a generic product-evidence stage, not a hidden eval judge or
+  fixture-specific checker
+
+`checkpoint_receipt`:
+
+- must run after product/test/validation evidence exists
+- must summarize changed files, validation result, known risks, and next
+  checkpoint when requested
+
+`checkpoint_memory_write`:
+
+- closure-only stage
+- must run after validation and checkpoint receipt when those are required
+- must preserve validation result and changed-file evidence
+
+`final_synthesis`:
+
+- must not claim success without receipt-backed mutation, validation, receipt,
+  and memory evidence required by the task
+
+### Tool-menu policy
+
+The controller should narrow tools by stage:
+
+| Stage family | Allowed tools |
+| --- | --- |
+| context | `file_list`, `file_read`, `file_read_many`, bounded `command_run` for memory recall |
+| product/operator/test mutation | `file_write`, `file_patch`, controlled shell-edit `command_run` |
+| validation | validation `command_run` |
+| semantic closeout | bounded product/operator `command_run` probes, then repair mutations only if a probe fails |
+| closure | `file_write` for receipt artifacts, memory CLI `command_run` for memory write |
+
+The controller must not expose broad discovery, validation, and closure tools
+inside the same open-ended product-mutation turn unless the model has already
+produced valid mutation receipts.
+
+### Patch implication
+
+The next runtime patch should not add more Level 8 prompt text. It should add a
+generic staged controller that:
+
+1. Keeps runtime-owned context and memory recall outside the model turn.
+2. Splits product mutation into small source/operator/test stages.
+3. Runs semantic product/operator closeout probes after validation and before
+   handoff/memory closure when the task asks for an operator-facing surface.
+4. Gives each stage a narrow tool menu and compact packet.
+5. Advances only on receipts, not model claims.
+6. Stops with a structured blocker when a stage cannot satisfy its exit
+   contract.
+
+This model preserves primitive-first composition:
+
+```text
+Tier 0 mutation primitives
+-> Tier 2 bounded edit/tool loop
+-> Tier 3 validation/repair
+-> Tier 4 checkpointed project-operator controller
+```
+
+It also prevents the earlier regression pattern where Level 8 changes broke
+lower levels: higher tiers may orchestrate lower tiers, but may not alter their
+primitive contracts or inject eval-specific behavior into them.

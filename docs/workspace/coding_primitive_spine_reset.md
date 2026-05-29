@@ -19,6 +19,18 @@ New coding behavior should be added only as:
 
 If a Level N eval failure requires changing Level 1 behavior, the patch is invalid unless it improves a lower-level primitive monotonically.
 
+Profile activation is now the enforcement surface. Each primitive must declare a
+minimum profile and must be dormant below that profile. Higher-level primitives
+must not sit in the shared loop as global blockers.
+
+Activation audit:
+
+`docs/workspace/coding_profile_activation_audit.md`
+
+Machine-readable activation matrix:
+
+`orchestration/src/control_plane/workflows/lab/composites/coding/coding_profile_activation_matrix.json`
+
 ## Minimal coding spine
 
 The native coding workflow should rebuild upward from this spine:
@@ -60,3 +72,4 @@ This is intentionally independent of the large workflow artifact contract. It ma
 - Do not make Python-only behavior a global primitive without a language/profile boundary.
 - Do not add more case-specific prose to the big coding workflow as the primary fix.
 - Do not promote higher-level evals while lower-level mutation entry is unstable.
+- Do not accept a higher-profile patch until lower-profile smoke has run.
