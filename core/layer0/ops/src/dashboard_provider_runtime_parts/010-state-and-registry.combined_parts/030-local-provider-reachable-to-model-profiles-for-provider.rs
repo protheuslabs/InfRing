@@ -32,7 +32,8 @@ pub fn provider_supports_chat(provider_id: &str, base_url: &str) -> bool {
         "openai" | "frontier_provider" | "google" | "groq" | "moonshot" | "xai" | "openrouter"
         | "deepseek" | "together" | "fireworks" | "perplexity" | "mistral" | "ollama"
         | "llama.cpp" => !cleaned.is_empty(),
-        "claude-code" | "cohere" | "auto" => false,
+        "claude-code" => true,
+        "cohere" | "auto" => false,
         _ => !cleaned.is_empty(),
     }
 }

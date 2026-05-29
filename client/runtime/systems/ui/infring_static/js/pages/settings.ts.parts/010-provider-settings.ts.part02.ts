@@ -67,7 +67,12 @@
 
     async loadProviders() {
       try {
-        var data = await InfringAPI.get('/api/providers');
+        var data;
+        try {
+          data = await InfringAPI.get('/api/shell-socket/providers');
+        } catch(socketErr) {
+          data = await InfringAPI.get('/api/providers');
+        }
         this.providers = data.providers || [];
         for (var i = 0; i < this.providers.length; i++) {
           var p = this.providers[i];

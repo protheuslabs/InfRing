@@ -16,6 +16,7 @@ export type ShellSocketCapabilityId =
   | 'login_session'
   | 'logout_session'
   | 'list_models'
+  | 'list_providers'
   | 'discover_models'
   | 'download_model'
   | 'upsert_custom_model'
@@ -23,6 +24,7 @@ export type ShellSocketCapabilityId =
   | 'save_provider_key'
   | 'remove_provider_key'
   | 'test_provider'
+  | 'complete_provider'
   | 'set_provider_url'
   | 'start_provider_oauth'
   | 'poll_provider_oauth'
@@ -119,6 +121,7 @@ export const SHELL_SOCKET_ROUTES: ReadonlyArray<ShellSocketRouteDefinition> = Ob
   { capabilityId: 'login_session', method: 'POST', path: '/api/shell-socket/auth/login' },
   { capabilityId: 'logout_session', method: 'POST', path: '/api/shell-socket/auth/logout' },
   { capabilityId: 'list_models', method: 'GET', path: '/api/shell-socket/models', queryParams: ['cursor', 'limit'] },
+  { capabilityId: 'list_providers', method: 'GET', path: '/api/shell-socket/providers', queryParams: ['cursor', 'limit'] },
   { capabilityId: 'discover_models', method: 'POST', path: '/api/shell-socket/models/discover' },
   { capabilityId: 'download_model', method: 'POST', path: '/api/shell-socket/models/download' },
   { capabilityId: 'upsert_custom_model', method: 'POST', path: '/api/shell-socket/models/custom' },
@@ -126,6 +129,7 @@ export const SHELL_SOCKET_ROUTES: ReadonlyArray<ShellSocketRouteDefinition> = Ob
   { capabilityId: 'save_provider_key', method: 'POST', path: '/api/shell-socket/providers/{provider_id}/key', pathParams: ['provider_id'] },
   { capabilityId: 'remove_provider_key', method: 'POST', path: '/api/shell-socket/providers/{provider_id}/key/remove', pathParams: ['provider_id'] },
   { capabilityId: 'test_provider', method: 'POST', path: '/api/shell-socket/providers/{provider_id}/test', pathParams: ['provider_id'] },
+  { capabilityId: 'complete_provider', method: 'POST', path: '/api/shell-socket/providers/{provider_id}/complete', pathParams: ['provider_id'] },
   { capabilityId: 'set_provider_url', method: 'POST', path: '/api/shell-socket/providers/{provider_id}/url', pathParams: ['provider_id'] },
   { capabilityId: 'start_provider_oauth', method: 'POST', path: '/api/shell-socket/providers/{provider_id}/oauth/start', pathParams: ['provider_id'] },
   { capabilityId: 'poll_provider_oauth', method: 'POST', path: '/api/shell-socket/providers/{provider_id}/oauth/poll', pathParams: ['provider_id'] },
@@ -331,6 +335,10 @@ export class ShellSocketGatewayClient {
     return this.request<T>('list_models', { query });
   }
 
+  listProviders<T = unknown>(query: { cursor?: string; limit?: number } = {}): Promise<T> {
+    return this.request<T>('list_providers', { query });
+  }
+
   discoverModels<T = unknown>(request: unknown): Promise<T> {
     return this.request<T>('discover_models', { body: request });
   }
@@ -357,6 +365,10 @@ export class ShellSocketGatewayClient {
 
   testProvider<T = unknown>(providerId: string, request: unknown = {}): Promise<T> {
     return this.request<T>('test_provider', { query: { provider_id: providerId }, body: request });
+  }
+
+  completeProvider<T = unknown>(providerId: string, request: unknown): Promise<T> {
+    return this.request<T>('complete_provider', { query: { provider_id: providerId }, body: request });
   }
 
   setProviderUrl<T = unknown>(providerId: string, request: unknown): Promise<T> {

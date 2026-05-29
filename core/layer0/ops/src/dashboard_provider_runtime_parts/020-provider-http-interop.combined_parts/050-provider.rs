@@ -198,3 +198,181 @@ pub fn test_provider(root: &Path, provider_id: &str) -> Value {
         }
     }
 }
+
+pub fn complete_provider(root: &Path, provider_id: &str, request: &Value) -> Value {
+    let provider = normalize_provider_id(provider_id);
+    let started = Instant::now();
+    let prompt = clean_text(
+        request.get("prompt").and_then(Value::as_str).unwrap_or(""),
+        65536,
+    );
+    if prompt.trim().is_empty() {
+        return json!({
+            "ok": false,
+            "status": "error",
+            "provider": provider,
+            "error": "prompt_required",
+            "latency_ms": started.elapsed().as_millis() as i64
+        });
+    }
+    if provider != "claude-code" {
+        return json!({
+            "ok": false,
+            "status": "error",
+            "provider": provider,
+            "error": "provider_completion_unsupported",
+            "latency_ms": started.elapsed().as_millis() as i64
+        });
+    }
+
+    let _ = root;
+    if !command_exists("claude") {
+        return json!({
+            "ok": false,
+            "status": "error",
+            "provider": provider,
+            "error": "claude_code_cli_not_detected",
+            "latency_ms": started.elapsed().as_millis() as i64
+        });
+    }
+
+    let system = clean_text(
+        request.get("system").and_then(Value::as_str).unwrap_or(""),
+        16384,
+    );
+    let model = clean_text(
+        request
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("claude-code/sonnet"),
+        240,
+    );
+    let full_prompt = if system.trim().is_empty() {
+        prompt
+    } else {
+        format!("{system}\n\n{prompt}")
+    };
+    let timeout_seconds = request
+        .get("timeout_seconds")
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            request
+                .pointer("/metadata/provider_timeout_seconds")
+                .and_then(Value::as_u64)
+        })
+        .or_else(|| {
+            std::env::var("INFRING_PROVIDER_TIMEOUT_SECONDS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+        })
+        .unwrap_or(120)
+        .clamp(1, 3600);
+    let binary = std::env::var("INFRING_CLAUDE_CODE_BIN")
+        .unwrap_or_else(|_| "claude".to_string());
+    let mut child = match Command::new(&binary)
+        .arg("-p")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => {
+            return json!({
+                "ok": false,
+                "status": "error",
+                "provider": provider,
+                "model": model,
+                "error": clean_text(&format!("claude_code_spawn_failed:{error}"), 280),
+                "latency_ms": started.elapsed().as_millis() as i64
+            });
+        }
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        if let Err(error) = stdin.write_all(full_prompt.as_bytes()) {
+            let _ = child.kill();
+            return json!({
+                "ok": false,
+                "status": "error",
+                "provider": provider,
+                "model": model,
+                "error": clean_text(&format!("claude_code_stdin_write_failed:{error}"), 280),
+                "latency_ms": started.elapsed().as_millis() as i64
+            });
+        }
+    }
+    match wait_for_dashboard_provider_process(
+        child,
+        std::time::Duration::from_secs(timeout_seconds),
+    ) {
+        Ok(output) => {
+            let stdout = clean_text(&String::from_utf8_lossy(&output.stdout), 65536);
+            let stderr = clean_text(&String::from_utf8_lossy(&output.stderr), 2048);
+            if output.status.success() {
+                json!({
+                    "ok": true,
+                    "status": "ok",
+                    "provider": provider,
+                    "model": model,
+                    "output": stdout.trim(),
+                    "usage_tokens": stdout.split_whitespace().count() as i64,
+                    "latency_ms": started.elapsed().as_millis() as i64
+                })
+            } else {
+                json!({
+                    "ok": false,
+                    "status": "error",
+                    "provider": provider,
+                    "model": model,
+                    "error": clean_text(
+                        &format!(
+                            "claude_code_completion_failed:status={}:stderr={}",
+                            output.status.code().unwrap_or(-1),
+                            stderr
+                        ),
+                        280
+                    ),
+                    "latency_ms": started.elapsed().as_millis() as i64
+                })
+            }
+        }
+        Err(error) => json!({
+            "ok": false,
+            "status": "error",
+            "provider": provider,
+            "model": model,
+            "error": error,
+            "latency_ms": started.elapsed().as_millis() as i64
+        }),
+    }
+}
+
+fn wait_for_dashboard_provider_process(
+    child: std::process::Child,
+    timeout: std::time::Duration,
+) -> Result<std::process::Output, String> {
+    let pid = child.id();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(result) => result.map_err(|error| clean_text(&format!("provider_wait_failed:{error}"), 280)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            let _ = Command::new("kill")
+                .arg("-TERM")
+                .arg(pid.to_string())
+                .status();
+            if rx.recv_timeout(std::time::Duration::from_secs(5)).is_err() {
+                let _ = Command::new("kill")
+                    .arg("-KILL")
+                    .arg(pid.to_string())
+                    .status();
+            }
+            Err(format!("provider_completion_timeout:timeout_seconds={}", timeout.as_secs()))
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("provider_wait_channel_disconnected".to_string())
+        }
+    }
+}

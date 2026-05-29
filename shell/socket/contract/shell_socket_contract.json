@@ -1088,6 +1088,37 @@
       ]
     },
     {
+      "id": "list_providers",
+      "purpose": "Display a bounded provider catalog for shell provider settings without exposing provider secrets, provider processes, raw provider responses, or routing authority.",
+      "route_class": "bounded_search_query",
+      "request_shape": "ProviderCatalogWindowRequest",
+      "response_shape": "ProviderCatalogProjection",
+      "default_projection": "ProviderCatalogProjection",
+      "cursor_required": false,
+      "detail_ref_required": true,
+      "capability_or_lease_required": true,
+      "audit_receipt_required": true,
+      "nexus_checkpoint_required": true,
+      "conduit_scrambler_posture": "strong_scrambler",
+      "owner_of_truth": "kernel_provider_config_authority",
+      "shell_may_hold": [
+        "providers",
+        "default_provider",
+        "routing_policy",
+        "next_cursor",
+        "detail_refs",
+        "receipt_ref"
+      ],
+      "shell_must_not_hold": [
+        "provider_secret",
+        "secret_storage_truth",
+        "raw_provider_response",
+        "provider_process_handle",
+        "model_policy_truth",
+        "routing_policy_truth"
+      ]
+    },
+    {
       "id": "discover_models",
       "purpose": "Request provider/local model discovery through Gateway controls and return only a bounded discovery summary.",
       "route_class": "request_ingress",
@@ -1276,6 +1307,39 @@
         "raw_provider_response",
         "probe_body",
         "routing_policy_truth"
+      ]
+    },
+    {
+      "id": "complete_provider",
+      "purpose": "Submit provider completion work through Gateway controls so shells and agents can use providers without owning provider processes, secrets, or raw responses.",
+      "route_class": "request_ingress",
+      "request_shape": "ProviderCompletionRequest",
+      "response_shape": "ProviderCompletionProjection",
+      "default_projection": "ProviderCompletionProjection",
+      "cursor_required": false,
+      "detail_ref_required": true,
+      "capability_or_lease_required": true,
+      "audit_receipt_required": true,
+      "nexus_checkpoint_required": true,
+      "conduit_scrambler_posture": "strong_scrambler",
+      "owner_of_truth": "kernel_provider_execution_authority",
+      "shell_may_hold": [
+        "provider",
+        "model",
+        "status",
+        "output",
+        "usage_tokens",
+        "latency_ms",
+        "error",
+        "receipt_ref"
+      ],
+      "shell_must_not_hold": [
+        "provider_secret",
+        "raw_provider_response",
+        "provider_process_handle",
+        "routing_policy_truth",
+        "secret_storage_truth",
+        "unbounded_prompt_body"
       ]
     },
     {

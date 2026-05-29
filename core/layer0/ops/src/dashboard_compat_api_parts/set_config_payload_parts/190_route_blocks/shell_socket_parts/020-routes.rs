@@ -63,6 +63,19 @@ fn handle_shell_socket_routes(
         }
         return Some(CompatApiResponse { status: 200, payload });
     }
+    if method == "GET" && parts == ["providers"] {
+        let mut payload = crate::dashboard_provider_runtime::providers_payload(root, snapshot);
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("next_cursor".to_string(), Value::Null);
+            obj.insert("detail_refs".to_string(), json!({"providers": "provider_catalog:default"}));
+            obj.insert(
+                "receipt_ref".to_string(),
+                json!(shell_socket_receipt_ref("list_providers", &json!({"path": path}))),
+            );
+            obj.insert("correlation_id".to_string(), json!("shell_socket.provider_catalog"));
+        }
+        return Some(CompatApiResponse { status: 200, payload });
+    }
     if method == "POST" && parts == ["models", "discover"] {
         let request = serde_json::from_slice::<Value>(body).unwrap_or_else(|_| json!({}));
         let input = clean_text(
@@ -251,6 +264,27 @@ fn handle_shell_socket_routes(
                 "error": authority.get("error").cloned().unwrap_or(Value::Null),
                 "receipt_ref": shell_socket_receipt_ref("test_provider", &json!({"provider": provider_id})),
                 "correlation_id": "shell_socket.test_provider"
+            }),
+        });
+    }
+    if method == "POST" && parts.len() == 3 && parts[0] == "providers" && parts[2] == "complete" {
+        let provider_id = normalize_provider_route_id(&parts[1]);
+        let request = serde_json::from_slice::<Value>(body).unwrap_or_else(|_| json!({}));
+        let authority = crate::dashboard_provider_runtime::complete_provider(root, &provider_id, &request);
+        let ok = authority.get("ok").and_then(Value::as_bool).unwrap_or(false);
+        return Some(CompatApiResponse {
+            status: if ok { 200 } else { 400 },
+            payload: json!({
+                "ok": ok,
+                "status": authority.get("status").cloned().unwrap_or_else(|| if ok { json!("ok") } else { json!("error") }),
+                "provider": authority.get("provider").cloned().unwrap_or_else(|| json!(provider_id)),
+                "model": authority.get("model").cloned().unwrap_or(Value::Null),
+                "output": authority.get("output").cloned().unwrap_or(Value::Null),
+                "usage_tokens": authority.get("usage_tokens").cloned().unwrap_or_else(|| json!(0)),
+                "latency_ms": authority.get("latency_ms").cloned().unwrap_or_else(|| json!(0)),
+                "error": authority.get("error").cloned().unwrap_or(Value::Null),
+                "receipt_ref": shell_socket_receipt_ref("complete_provider", &json!({"provider": provider_id})),
+                "correlation_id": "shell_socket.complete_provider"
             }),
         });
     }

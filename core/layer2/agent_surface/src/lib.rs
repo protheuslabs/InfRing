@@ -36,8 +36,8 @@ pub use native_tools::{
     NativeToolReceipt,
 };
 pub use provider::{
-    LocalEchoProvider, ProviderClient, ProviderClientRegistry, ProviderError, ProviderErrorCode,
-    ProviderRequest, ProviderResponse,
+    ClaudeCodeGatewayProvider, LocalEchoProvider, ProviderClient, ProviderClientRegistry,
+    ProviderError, ProviderErrorCode, ProviderRequest, ProviderResponse,
 };
 pub use rbac_memory::{
     memory_read_allowed, memory_write_allowed, permission_manifest_from_value,

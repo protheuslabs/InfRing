@@ -284,6 +284,157 @@ impl ProviderClient for OllamaCliProvider {
     }
 }
 
+#[derive(Default)]
+pub struct ClaudeCodeGatewayProvider;
+
+impl ProviderClient for ClaudeCodeGatewayProvider {
+    fn provider_id(&self) -> &'static str {
+        "claude-code"
+    }
+
+    fn complete(&self, request: &ProviderRequest) -> Result<ProviderResponse, ProviderError> {
+        if request.prompt.trim().is_empty() {
+            return Err(ProviderError::new(
+                ProviderErrorCode::InvalidRequest,
+                "prompt_required",
+            ));
+        }
+        let base_url = provider_gateway_base_url().ok_or_else(|| {
+            ProviderError::new(
+                ProviderErrorCode::Unavailable,
+                "provider_gateway_url_missing",
+            )
+        })?;
+        let model = request
+            .model
+            .clone()
+            .unwrap_or_else(|| "claude-code/sonnet".to_string());
+        let timeout_seconds = provider_timeout_from_request(request)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(120)
+            .clamp(1, 3600);
+        let url = format!("{base_url}/api/shell-socket/providers/claude-code/complete");
+        let body = json!({
+            "prompt": request.prompt.clone(),
+            "system": request.system.clone(),
+            "model": model.clone(),
+            "tools": request.tools.clone(),
+            "metadata": request.metadata.clone(),
+            "timeout_seconds": timeout_seconds,
+        });
+        let output = post_provider_gateway_json(&url, &body, timeout_seconds)?;
+        let parsed = serde_json::from_slice::<Value>(&output.stdout).map_err(|error| {
+            ProviderError::new(
+                ProviderErrorCode::Unavailable,
+                format!("provider_gateway_invalid_json:{error}"),
+            )
+        })?;
+        if !output.status.success() || !parsed.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+            return Err(ProviderError::new(
+                ProviderErrorCode::Unavailable,
+                parsed
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("provider_gateway_completion_failed"),
+            ));
+        }
+        let provider = parsed
+            .get("provider")
+            .and_then(Value::as_str)
+            .unwrap_or(self.provider_id())
+            .to_string();
+        let model = parsed
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or(model.as_str())
+            .to_string();
+        let output_text = parsed
+            .get("output")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        Ok(ProviderResponse {
+            provider,
+            model,
+            output: output_text.clone(),
+            usage_tokens: parsed
+                .get("usage_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or_else(|| output_text.split_whitespace().count() as u64),
+            raw: json!({
+                "ok": true,
+                "gateway_route": "/api/shell-socket/providers/claude-code/complete",
+                "receipt_ref": parsed.get("receipt_ref").cloned().unwrap_or(Value::Null),
+                "correlation_id": parsed.get("correlation_id").cloned().unwrap_or(Value::Null),
+                "latency_ms": parsed.get("latency_ms").cloned().unwrap_or(Value::Null),
+            }),
+        })
+    }
+}
+
+fn provider_gateway_base_url() -> Option<String> {
+    for key in [
+        "INFRING_PROVIDER_GATEWAY_URL",
+        "INFRING_SHELL_SOCKET_GATEWAY_URL",
+        "INFRING_GATEWAY_URL",
+    ] {
+        let Ok(value) = std::env::var(key) else {
+            continue;
+        };
+        let cleaned = value.trim().trim_end_matches('/').to_string();
+        if !cleaned.is_empty() {
+            return Some(cleaned);
+        }
+    }
+    Some("http://127.0.0.1:4173".to_string())
+}
+
+fn post_provider_gateway_json(
+    url: &str,
+    body: &Value,
+    timeout_seconds: u64,
+) -> Result<std::process::Output, ProviderError> {
+    let mut child = Command::new("curl")
+        .arg("-sS")
+        .arg("--max-time")
+        .arg(timeout_seconds.to_string())
+        .arg("-X")
+        .arg("POST")
+        .arg("-H")
+        .arg("Content-Type: application/json")
+        .arg("--data-binary")
+        .arg("@-")
+        .arg(url)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            let code = if error.kind() == std::io::ErrorKind::NotFound {
+                ProviderErrorCode::Unavailable
+            } else {
+                ProviderErrorCode::InvalidRequest
+            };
+            ProviderError::new(code, format!("provider_gateway_curl_spawn_failed:{error}"))
+        })?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(body.to_string().as_bytes())
+            .map_err(|error| {
+                ProviderError::new(
+                    ProviderErrorCode::Unavailable,
+                    format!("provider_gateway_stdin_write_failed:{error}"),
+                )
+            })?;
+    }
+    child.wait_with_output().map_err(|error| {
+        ProviderError::new(
+            ProviderErrorCode::Unavailable,
+            format!("provider_gateway_wait_failed:{error}"),
+        )
+    })
+}
+
 #[derive(Debug)]
 struct StreamingProcessOutput {
     stdout: String,
