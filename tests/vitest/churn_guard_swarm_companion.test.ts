@@ -143,4 +143,27 @@ describe('swarm companion churn guard', () => {
     expect(payload.summary.commit_gate_pass).toBe(true);
     expect(payload.summary.pass).toBe(true);
   });
+
+  test('commit gate evaluates staged contents instead of unrelated unstaged churn', () => {
+    const repoRoot = createFixtureRepo();
+    tempDirs.push(repoRoot);
+    fs.appendFileSync(path.join(repoRoot, 'docs/workspace/SRS.md'), '\n- staged governance note\n');
+    execSync('git add docs/workspace/SRS.md', { cwd: repoRoot });
+    fs.mkdirSync(path.join(repoRoot, 'local/workspace/memory'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, 'local/workspace/memory/dashboard-ui-noise.log'), 'unstaged\n');
+
+    const result = runGuard(repoRoot, [
+      '--strict=1',
+      '--commit-gate=1',
+      '--allow-governance-doc-churn=1',
+    ]);
+    expect(result.status).toBe(0);
+
+    const payload = parseJsonOutput(result.stdout) ?? parseJsonOutput(result.stderr);
+    expect(payload).not.toBeNull();
+    expect(payload.summary.scope).toBe('staged');
+    expect(payload.summary.total).toBe(1);
+    expect(payload.summary.commit_gate_pass).toBe(true);
+    expect(payload.summary.pass).toBe(true);
+  });
 });

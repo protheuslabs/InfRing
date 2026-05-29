@@ -149,6 +149,21 @@ function parseStatus() {
     });
 }
 
+function parseStagedStatus() {
+  const raw = execSync('git diff --cached --name-status --find-renames', { encoding: 'utf8' });
+  if (!raw.trim()) return [];
+  return raw
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const parts = line.split('\t');
+      const code = parts[0] || '';
+      const path = code.startsWith('R') && parts.length >= 3 ? parts[2] : parts[1] || '';
+      const status = code.startsWith('R') ? 'R ' : `${code.slice(0, 1) || '?'} `;
+      return { status, path, category: classifyPath(path) };
+    });
+}
+
 function isDeleted(status) {
   return status.includes('D');
 }
@@ -374,8 +389,8 @@ function toMarkdown(payload) {
 function main() {
   const started = Date.now();
   const args = parseArgs(process.argv.slice(2));
-  const rows = parseStatus();
-  const sessionChurnSignals = detectSessionChurnSignals();
+  const rows = args.commitGate ? parseStagedStatus() : parseStatus();
+  const sessionChurnSignals = args.commitGate ? [] : detectSessionChurnSignals();
   const likelyUnstagedMoves = detectLikelyUnstagedMoves(rows);
   const allowedAssurancePhysicalDomainMoves = likelyUnstagedMoves.filter(
     isAllowedAssurancePhysicalDomainMove,
@@ -406,6 +421,7 @@ function main() {
   const summary = {
     strict: args.strict,
     commit_gate: args.commitGate,
+    scope: args.commitGate ? 'staged' : 'worktree',
     total: rows.length,
     local_simulation_churn: rows.filter((r) => r.category === 'local_simulation_churn').length,
     lensmap_churn: rows.filter((r) => r.category === 'lensmap_churn').length,
