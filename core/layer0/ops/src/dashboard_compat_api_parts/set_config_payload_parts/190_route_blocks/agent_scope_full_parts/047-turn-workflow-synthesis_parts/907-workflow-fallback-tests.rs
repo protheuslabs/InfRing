@@ -423,6 +423,105 @@
     }
 
     #[test]
+    fn title_shell_tool_evidence_fallback_is_repaired_from_evidence_snippet() {
+        let mut workflow = json!({
+            "response": "How AI is Transforming Scientific Discovery While Keeping Humans at the Center.",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": true,
+                "status": "tool_evidence_fallback_used",
+                "diagnostic_reject_reason": "final_response_verifier_contract:answer_units_not_traceable_to_evidence",
+                "diagnostic_invalid_excerpt": "The recorded evidence for May 2026 includes a Stanford HAI piece on how AI is transforming scientific discovery while keeping humans at the center."
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "evidence_refs": [{
+                "title": "Agentic AI production trends",
+                "locator": "https://example.test/agentic-ai-production",
+                "snippet": "Agentic AI in May 2026 has moved past the hype cycle into enterprise deployment, with vendors emphasizing orchestration, security controls, and production reliability."
+            }]
+        })];
+
+        let title_shell = "How AI is Transforming Scientific Discovery While Keeping Humans at the Center.";
+        assert!(response_is_low_information_tool_evidence_fallback(title_shell));
+        let salvaged = fallback_evidence_snippet_sentence_from_tools(
+            "Give me an update on the AI agentic landscape in May 2026.",
+            &tools,
+            "final_response_verifier_contract:answer_units_not_traceable_to_evidence",
+        );
+        assert!(!salvaged.is_empty(), "{salvaged}");
+
+        let repaired = maybe_repair_runtime_tool_evidence_fallback_from_reject_excerpt(
+            &mut workflow,
+            "Give me an update on the AI agentic landscape in May 2026.",
+            &tools,
+        );
+
+        assert!(repaired);
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(
+            response.contains("enterprise deployment")
+                || response.contains("production reliability")
+                || response.contains("orchestration"),
+            "{response}"
+        );
+        assert_ne!(
+            response,
+            "How AI is Transforming Scientific Discovery While Keeping Humans at the Center."
+        );
+    }
+
+    #[test]
+    fn low_information_tool_evidence_fallback_is_repaired_from_evidence_snippet_when_excerpt_is_gap_note() {
+        let mut workflow = json!({
+            "response": "My recommendation is to treat the current evidence as insufficient for a direct source-backed conclusion. Coverage gaps still matter for: European Union, United States federal government, FedRAMP, StateRAMP, GDPR.",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": true,
+                "status": "tool_evidence_fallback_used",
+                "diagnostic_reject_reason": "final_response_verifier_contract:status_before_answer",
+                "diagnostic_invalid_excerpt": "I don't have sufficient specific evidence in my current retrieval results to give you a concrete, source-backed picture of 2026 data-residency and sovereignty requirements for SaaS sales into Europe and the US public sector."
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "evidence_refs": [{
+                "title": "EU sovereignty pressure",
+                "locator": "https://example.test/eu-sovereignty-pressure",
+                "snippet": "European procurement and sovereignty pressure is increasing around localization expectations, transfer controls, and cloud-provider risk assessments for regulated buyers."
+            }]
+        })];
+
+        let repaired = maybe_repair_runtime_tool_evidence_fallback_from_reject_excerpt(
+            &mut workflow,
+            "Research data-residency and sovereignty requirements that matter for SaaS buyers in 2026. I want the practical picture for selling into Europe and the US public sector.",
+            &tools,
+        );
+
+        assert!(repaired);
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(
+            response.contains("localization expectations")
+                || response.contains("transfer controls")
+                || response.contains("risk assessments"),
+            "{response}"
+        );
+        assert!(
+            !response.starts_with("My recommendation is to treat the current evidence as insufficient"),
+            "{response}"
+        );
+    }
+
+    #[test]
     fn tool_input_required_coverage_becomes_synthesis_lanes() {
         let input = json!({
             "query": "Compare AlphaTool and BetaTool for current research workflows.",
