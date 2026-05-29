@@ -16,10 +16,52 @@
       ],
       "parent_receives": "terminal_artifact_only_refs_for_internals"
     },
-    "child_workflow_calls": [],
+    "child_workflow_calls": [
+      {
+        "capability": "research_objective_normalization",
+        "workflow_id": "research_objective_normalization",
+        "input_contract": "research_objective_normalization_input_envelope_v1",
+        "output_artifact": "research_objective_brief_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      },
+      {
+        "capability": "research_evidence_acquisition",
+        "workflow_id": "research_evidence_acquisition",
+        "input_contract": "research_evidence_acquisition_input_envelope_v1",
+        "output_artifact": "research_evidence_pack_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      },
+      {
+        "capability": "research_answer_synthesis",
+        "workflow_id": "research_answer_synthesis",
+        "input_contract": "research_answer_synthesis_input_envelope_v1",
+        "output_artifact": "research_answer_draft_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      },
+      {
+        "capability": "research_answer_verification",
+        "workflow_id": "research_answer_verification",
+        "input_contract": "research_answer_verification_input_envelope_v1",
+        "output_artifact": "research_answer_verification_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      }
+    ],
     "non_goals": [
       "do_not_treat_full_research_workflow_as_primitive",
       "do_not_expose_retrieval_internals_to_parent"
+    ]
+  },
+  "workflow_composition": {
+    "primitive_level": 1,
+    "composed_of_workflow_ids": [
+      "research_objective_normalization",
+      "research_evidence_acquisition",
+      "research_answer_synthesis",
+      "research_answer_verification"
     ]
   },
   "default": false,
@@ -52,6 +94,20 @@
       "research_golden_regression_pass",
       "proof_issue_cannot_be_solved_in_tooling_evidence_or_rubric_space"
     ],
+    "active_exception": {
+      "reason": "explicit_operator_reason: split the official research workflow into smaller child workflow CDs for maintainability while preserving the existing gate and finalization semantics.",
+      "allowed_changes": [
+        "child_workflow_decomposition_metadata",
+        "child_workflow_registry_entries",
+        "child_workflow_capability_contracts"
+      ],
+      "preserve": [
+        "existing_gate_order_and_meaning",
+        "single_terminal_artifact_return",
+        "tool_request_observation_final_answer_lifecycle",
+        "low_evidence_fallback_acceptance_semantics"
+      ]
+    },
     "non_goals": [
       "do_not_tune_gate_logic_to_golden_cases",
       "do_not_hardcode_research_domains",

@@ -1223,6 +1223,101 @@ fn turn_workflow_direct_response_path(
     "first_gate_unresolved"
 }
 
+fn workflow_selected_name(selected_workflow: &Value) -> String {
+    clean_text(
+        selected_workflow
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        120,
+    )
+}
+
+fn workflow_child_definition_from_selected(selected_workflow: &Value, workflow_id: &str) -> Value {
+    let workflow_id = clean_text(workflow_id, 120);
+    if workflow_id.is_empty() {
+        return json!({});
+    }
+    selected_workflow
+        .pointer(&format!("/child_workflow_definitions/{workflow_id}"))
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}))
+}
+
+fn workflow_active_research_child_id(
+    selected_workflow: &Value,
+    response_tools: &[Value],
+    requires_final_llm: bool,
+    final_stage_status: &str,
+    direct_response_path: &str,
+) -> String {
+    let selected_name = workflow_selected_name(selected_workflow);
+    if selected_name != "research_synthesize_verify_v1" {
+        return String::new();
+    }
+    let status = clean_text(final_stage_status, 120);
+    if status == "pending_final_llm" || requires_final_llm {
+        return "research_answer_synthesis".to_string();
+    }
+    if !status.is_empty()
+        && status != "no_post_synthesis_required"
+        && status != "presented"
+        && status != "initial"
+    {
+        return "research_answer_verification".to_string();
+    }
+    if !response_tools.is_empty()
+        || direct_response_path.contains("pending_tool")
+        || direct_response_path.contains("pending_llm_tool_choice")
+    {
+        return "research_evidence_acquisition".to_string();
+    }
+    "research_objective_normalization".to_string()
+}
+
+fn workflow_active_child_runtime_payload(
+    selected_workflow: &Value,
+    response_tools: &[Value],
+    requires_final_llm: bool,
+    final_stage_status: &str,
+    direct_response_path: &str,
+) -> Value {
+    let active_id = workflow_active_research_child_id(
+        selected_workflow,
+        response_tools,
+        requires_final_llm,
+        final_stage_status,
+        direct_response_path,
+    );
+    if active_id.is_empty() {
+        return json!({});
+    }
+    let child = workflow_child_definition_from_selected(selected_workflow, &active_id);
+    if !child.is_object() {
+        return json!({});
+    }
+    let phase_reason = if active_id == "research_objective_normalization" {
+        "pre_tool_goal_normalization"
+    } else if active_id == "research_evidence_acquisition" {
+        "tool_execution_and_evidence_packaging"
+    } else if active_id == "research_answer_synthesis" {
+        "evidence_to_answer_draft"
+    } else {
+        "answer_verification_and_terminal_projection"
+    };
+    json!({
+        "name": active_id,
+        "description": child.get("description").cloned().unwrap_or_else(|| json!("")),
+        "workflow_type": child.get("workflow_type").cloned().unwrap_or_else(|| json!("")),
+        "source_path": child.get("source_path").cloned().unwrap_or_else(|| json!("")),
+        "phase_reason": phase_reason,
+        "final_output_contract": child.get("final_output_contract").cloned().unwrap_or_else(|| json!({})),
+        "workflow_source_of_truth_contract": child.get("workflow_source_of_truth_contract").cloned().unwrap_or_else(|| json!({})),
+        "workflow_composition_contract": child.get("workflow_composition_contract").cloned().unwrap_or_else(|| json!({}))
+    })
+}
+
 fn turn_workflow_metadata(
     workflow_mode: &str,
     response_tools: &[Value],
@@ -1244,9 +1339,6 @@ fn turn_workflow_metadata(
         turn_workflow_requires_final_llm(response_tools, workflow_events, draft_response);
     let tool_gate = workflow_turn_tool_decision_tree(message);
     let contract = default_workflow_tool_menu_contract();
-    let selected_workflow = selected_turn_workflow(workflow_mode);
-    let synthesis_input =
-        workflow_synthesis_input_for_final_response(message, response_tools, &selected_workflow);
     let final_gate_id = workflow_final_gate_id(&contract);
     let final_stage_status = if requires_final_llm {
         "pending_final_llm"
@@ -1255,6 +1347,19 @@ fn turn_workflow_metadata(
     };
     let visibility = turn_workflow_visibility(final_stage_status);
     let direct_response_path = turn_workflow_direct_response_path(workflow_mode, workflow_events);
+    let mut selected_workflow = selected_turn_workflow(workflow_mode);
+    let active_child_workflow = workflow_active_child_runtime_payload(
+        &selected_workflow,
+        response_tools,
+        requires_final_llm,
+        final_stage_status,
+        direct_response_path,
+    );
+    if active_child_workflow.is_object() && !active_child_workflow.as_object().unwrap().is_empty() {
+        selected_workflow["active_child_workflow"] = active_child_workflow.clone();
+    }
+    let synthesis_input =
+        workflow_synthesis_input_for_final_response(message, response_tools, &selected_workflow);
     json!({
         "contract": "agent_workflow_library_v1",
         "current_stage": visibility
@@ -1296,7 +1401,18 @@ fn turn_workflow_metadata(
         "failure_summary": clean_text(&response_tools_failure_reason_for_user(response_tools, 4), 2_000),
         "workflow_control": {
             "mode": "tool_menu_interface_v1",
-            "direct_response_path": direct_response_path
+            "direct_response_path": direct_response_path,
+            "active_child_workflow_id": clean_text(
+                active_child_workflow.get("name").and_then(Value::as_str).unwrap_or(""),
+                120,
+            ),
+            "active_child_phase_reason": clean_text(
+                active_child_workflow
+                    .get("phase_reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                160,
+            )
         },
         "system_events": workflow_events,
         "stage_statuses": turn_workflow_stage_rows(workflow_mode, response_tools, workflow_events, draft_response),
@@ -1346,6 +1462,34 @@ fn set_turn_workflow_final_stage_status(workflow: &mut Value, status: &str) {
                 row["status"] = Value::String(clean_text(status, 80));
             }
         }
+    }
+    let selected_workflow = workflow
+        .get("selected_workflow")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let active_child = workflow_active_child_runtime_payload(
+        &selected_workflow,
+        &[],
+        matches!(clean_text(status, 120).as_str(), "pending_final_llm"),
+        status,
+        workflow
+            .pointer("/workflow_control/direct_response_path")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    );
+    if active_child.is_object() && !active_child.as_object().unwrap().is_empty() {
+        workflow["selected_workflow"]["active_child_workflow"] = active_child.clone();
+        workflow["workflow_control"]["active_child_workflow_id"] = Value::String(clean_text(
+            active_child.get("name").and_then(Value::as_str).unwrap_or(""),
+            120,
+        ));
+        workflow["workflow_control"]["active_child_phase_reason"] = Value::String(clean_text(
+            active_child
+                .get("phase_reason")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            160,
+        ));
     }
 }
 
@@ -1759,6 +1903,67 @@ mod workflow_control_tests {
         assert!(prompt.contains("A natural-language answer at this gate is invalid"));
         assert!(!prompt.contains("present exactly one gate"));
         assert!(!prompt.contains("If Yes, continue"));
+    }
+
+    #[test]
+    fn research_workflow_projects_active_child_synthesis_contract() {
+        let workflow = turn_workflow_metadata(
+            "workflow=research_synthesize_verify_v1",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "result": "Battery chemistry and protein design examples were retrieved."
+            })],
+            &[],
+            "",
+            "What are some scientific breakthroughs in 2026?",
+        );
+        assert_eq!(
+            workflow
+                .pointer("/selected_workflow/active_child_workflow/name")
+                .and_then(Value::as_str),
+            Some("research_answer_synthesis")
+        );
+        assert_eq!(
+            workflow
+                .pointer("/workflow_control/active_child_workflow_id")
+                .and_then(Value::as_str),
+            Some("research_answer_synthesis")
+        );
+        assert_eq!(
+            workflow
+                .pointer("/synthesis_input/final_output_contract/schema_version")
+                .and_then(Value::as_str),
+            Some("research_answer_synthesis_final_output_contract_v1")
+        );
+    }
+
+    #[test]
+    fn research_workflow_final_stage_promotes_verification_child() {
+        let mut workflow = turn_workflow_metadata(
+            "workflow=research_synthesize_verify_v1",
+            &[json!({
+                "name": "batch_query",
+                "status": "ok",
+                "result": "Battery chemistry and protein design examples were retrieved."
+            })],
+            &[],
+            "",
+            "What are some scientific breakthroughs in 2026?",
+        );
+        set_turn_workflow_final_stage_status(&mut workflow, "synthesized");
+        assert_eq!(
+            workflow
+                .pointer("/selected_workflow/active_child_workflow/name")
+                .and_then(Value::as_str),
+            Some("research_answer_verification")
+        );
+        assert_eq!(
+            workflow
+                .pointer("/workflow_control/active_child_workflow_id")
+                .and_then(Value::as_str),
+            Some("research_answer_verification")
+        );
     }
 
     #[test]

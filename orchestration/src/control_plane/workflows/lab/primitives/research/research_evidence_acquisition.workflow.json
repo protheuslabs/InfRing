@@ -1,0 +1,211 @@
+{
+  "name": "research_evidence_acquisition",
+  "workflow_type": "control_plane_orchestration_workflow",
+  "workflow_role": "assistant_response_workflow",
+  "default": false,
+  "description": "Primitive for planned retrieval, evidence packaging, coverage-gap recovery, and citation-ready evidence pack assembly.",
+  "stages": [
+    "retrieval_plan_bind",
+    "provider_query_execution",
+    "candidate_selection",
+    "materialization_and_claim_extraction",
+    "coverage_gap_recovery",
+    "evidence_packaging"
+  ],
+  "workflow_composition": {
+    "primitive_level": 0,
+    "composed_of_workflow_ids": []
+  },
+  "final_response_policy": "control_plane_packaged_response",
+  "final_output_contract": {
+    "schema_version": "research_evidence_acquisition_final_output_contract_v1",
+    "source": "workflow_cd",
+    "visible_chat_source": "llm_final_answer_only",
+    "required_summary_fields": [
+      "retrieval_plan",
+      "query_metadata",
+      "provider_summary",
+      "evidence_pack",
+      "evidence_refs",
+      "evidence_coverage",
+      "artifact_refs"
+    ],
+    "internal_streams": [
+      "workflow_state",
+      "agent_internal_notes",
+      "tool_trace",
+      "eval_trace"
+    ],
+    "quality_contract": {
+      "answer_user_goal": "gather answerable evidence, not final prose",
+      "coverage_awareness": "record covered, weak, and missing lanes explicitly",
+      "source_boundary": "keep provider diagnostics separate from source evidence"
+    }
+  },
+  "research_evidence_acquisition_contract": {
+    "version": "research_evidence_acquisition_v1",
+    "required_fields": [
+      "retrieval_plan",
+      "provider_summary",
+      "evidence_pack",
+      "evidence_refs",
+      "evidence_coverage",
+      "query_metadata"
+    ],
+    "quality_rules": [
+      "use_broad_then_targeted_recovery_without_prompt_hardcoding",
+      "preserve_source_identity_and_citation_renderability",
+      "separate_candidate_supply_from_usable_evidence"
+    ],
+    "non_goals": [
+      "do_not_emit_final_user_answer",
+      "do_not_treat_provider_status_as_source_evidence",
+      "do_not_force_specific_provider_mix"
+    ]
+  },
+  "gate_contract": "control_plane_lifecycle_v1",
+  "observation_lifecycle_contract": {
+    "version": "run_observation_lifecycle_v1",
+    "policy_ref": "orchestration/config/run_observation_lifecycle_policy.json",
+    "purpose": "Record compact research retrieval and evidence-pack events for later synthesis and diagnostics.",
+    "required_lanes": [
+      "compact_ledger",
+      "artifact_ref_retention",
+      "failure_lifecycle_archive",
+      "hot_ring_buffer"
+    ],
+    "non_goals": [
+      "do_not_hide_provider_degradation",
+      "do_not_store_raw_tool_payloads",
+      "do_not_finalize_visible_user_answer_here"
+    ]
+  },
+  "typed_execution_contract": {
+    "gate_kind": "structured_control_plane_gate",
+    "input_kind": "multiple_choice_or_text_input",
+    "allowed_transitions": [
+      "retrieval_plan_bind->provider_query_execution",
+      "provider_query_execution->candidate_selection",
+      "candidate_selection->materialization_and_claim_extraction",
+      "materialization_and_claim_extraction->coverage_gap_recovery",
+      "coverage_gap_recovery->evidence_packaging",
+      "evidence_packaging->completed",
+      "provider_query_execution->blocked"
+    ],
+    "timeout_ms": 60000,
+    "retry_policy": {
+      "max_retries": 1,
+      "on_failure": "recover_or_escalate"
+    },
+    "terminal_states": [
+      "completed",
+      "blocked",
+      "needs_input",
+      "failed",
+      "aborted"
+    ],
+    "telemetry_streams": [
+      "workflow_state",
+      "agent_internal_notes",
+      "tool_trace",
+      "eval_trace",
+      "final_answer"
+    ],
+    "tool_family_contracts": [
+      "workspace",
+      "web",
+      "memory",
+      "agent",
+      "shell",
+      "browser"
+    ],
+    "visible_chat_policy": "llm_final_only_no_system_injection",
+    "run_budgets": {
+      "max_stages": 10,
+      "max_model_turns": 2,
+      "max_tool_calls": 8,
+      "token_budget": 12000,
+      "loop_signature_detector": "research_evidence_acquisition_v1"
+    }
+  },
+  "workflow_source_of_truth_contract": {
+    "interaction_source": "json_workflow_spec",
+    "rust_reader_role": "validate_execute_trace_only",
+    "hardcoded_interaction_behavior_allowed": false,
+    "json_owns": [
+      "interaction_gates",
+      "gate_options",
+      "gate_transitions",
+      "tool_family_menus",
+      "tool_input_schemas",
+      "confirmation_states",
+      "loopbacks",
+      "final_output_contract"
+    ],
+    "rust_owns": [
+      "json_loading",
+      "schema_validation",
+      "state_transition_execution",
+      "tool_execution_handoff",
+      "receipt_binding",
+      "trace_export",
+      "kernel_policy_enforcement"
+    ]
+  },
+  "interaction_gate_contract": {
+    "version": "llm_toolbox_gate_contract_v1",
+    "tool_family_menu_stage": "gate_2_tool_family_menu",
+    "tool_request_payload_stage": "gate_4_request_payload_input",
+    "tool_observation_stage": "tool_observation",
+    "final_answer_stage": "gate_6_llm_final_output",
+    "recovery_stage": "coverage_gap_recovery",
+    "gates": [
+      {
+        "stage": "gate_1_need_tool_access_menu",
+        "parser_kind": "need_tools",
+        "true_values": ["yes", "y", "true", "t", "1"],
+        "false_values": ["no", "n", "false", "f", "0"]
+      },
+      {
+        "stage": "gate_2_tool_family_menu",
+        "parser_kind": "tool_family",
+        "choice_base": 1
+      },
+      {
+        "stage": "gate_3_tool_menu",
+        "parser_kind": "tool_name"
+      },
+      {
+        "stage": "gate_4_request_payload_input",
+        "parser_kind": "request_payload"
+      },
+      {
+        "stage": "gate_5_post_tool_menu",
+        "parser_kind": "post_tool",
+        "finish_values": ["finish", "done", "submit"],
+        "another_tool_values": ["another", "another tool", "use another tool"]
+      }
+    ]
+  },
+  "workflow_composition_contract": {
+    "version": "workflow_composition_contract_v1",
+    "cd_kind": "primitive",
+    "returns_exactly_one_terminal_artifact": true,
+    "terminal_artifact_contract": {
+      "artifact_schema": "workflow_terminal_artifact_v1",
+      "allowed_kinds": [
+        "completed_final_answer",
+        "clarification_request",
+        "structured_failure",
+        "delegated_workflow_result"
+      ],
+      "parent_receives": "terminal_artifact_only_refs_for_internals"
+    },
+    "child_workflow_calls": [],
+    "non_goals": [
+      "do_not_write_final_user_answer",
+      "do_not_hide_retrieval_failures",
+      "do_not_hardcode_domains_or_query_types"
+    ]
+  }
+}

@@ -1211,7 +1211,23 @@ fn workflow_synthesis_input_for_final_response(
     response_tools: &[Value],
     selected_workflow: &Value,
 ) -> Value {
-    let final_output_contract = selected_workflow
+    let active_child_workflow = selected_workflow
+        .get("active_child_workflow")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let final_output_contract = active_child_workflow
+        .get("final_output_contract")
+        .filter(|value| value.is_object())
+        .cloned()
+        .or_else(|| {
+            selected_workflow
+                .get("final_output_contract")
+                .filter(|value| value.is_object())
+                .cloned()
+        })
+        .unwrap_or_else(|| json!({}));
+    let parent_final_output_contract = selected_workflow
         .get("final_output_contract")
         .cloned()
         .unwrap_or_else(|| json!({}));
@@ -1219,6 +1235,12 @@ fn workflow_synthesis_input_for_final_response(
         "schema_version": "live_synthesis_input_v1",
         "source": "dashboard_tool_observation_handoff",
         "user_goal": clean_text(message, 1_200),
+        "active_child_workflow": active_child_workflow,
+        "active_contract_source": if final_output_contract == parent_final_output_contract {
+            "parent_workflow"
+        } else {
+            "child_workflow"
+        },
         "research_brief": derived_research_brief_for_tools(message, response_tools),
         "evidence_needs": derived_evidence_needs_for_tools(message, response_tools),
         "tool_result_quality": synthesis_tool_result_quality(response_tools),
@@ -1228,7 +1250,8 @@ fn workflow_synthesis_input_for_final_response(
         "answer_units": synthesis_answer_units_for_tools(message, response_tools, 8),
         "response_plan": synthesis_response_plan_for_tools(message, response_tools),
         "coverage_gaps": synthesis_coverage_gaps(response_tools),
-        "final_output_contract": final_output_contract
+        "final_output_contract": final_output_contract,
+        "parent_final_output_contract": parent_final_output_contract
     })
 }
 

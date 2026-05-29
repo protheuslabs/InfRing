@@ -1,0 +1,206 @@
+{
+  "name": "research_answer_verification",
+  "workflow_type": "control_plane_orchestration_workflow",
+  "workflow_role": "assistant_response_workflow",
+  "default": false,
+  "description": "Primitive for verifying research answer drafts against evidence, coverage, final package citation refs, and bounded low-evidence recovery semantics.",
+  "stages": [
+    "draft_bind",
+    "evidence_traceability_check",
+    "coverage_and_gap_check",
+    "citation_package_check",
+    "retry_or_accept_decision",
+    "terminal_artifact_packaging"
+  ],
+  "workflow_composition": {
+    "primitive_level": 0,
+    "composed_of_workflow_ids": []
+  },
+  "final_response_policy": "control_plane_packaged_response",
+  "final_output_contract": {
+    "schema_version": "research_answer_verification_final_output_contract_v1",
+    "source": "workflow_cd",
+    "visible_chat_source": "llm_final_answer_only",
+    "required_summary_fields": [
+      "verifier_status",
+      "verifier_checks",
+      "retry_reason_if_any",
+      "accepted_terminal_artifact",
+      "artifact_refs"
+    ],
+    "internal_streams": [
+      "workflow_state",
+      "agent_internal_notes",
+      "tool_trace",
+      "eval_trace"
+    ],
+    "quality_contract": {
+      "answer_user_goal": "accept only drafts that answer the user's research goal with honest evidence posture",
+      "evidence_discipline": "require traceable answer units or explicit bounded low-evidence posture",
+      "visibility": "keep verifier markers internal and preserve only accepted final output for chat"
+    }
+  },
+  "research_answer_verification_contract": {
+    "version": "research_answer_verification_v1",
+    "required_fields": [
+      "verifier_status",
+      "verifier_checks",
+      "accepted_terminal_artifact"
+    ],
+    "quality_rules": [
+      "do_not_accept_source_inventory_as_the_answer",
+      "require_evidence_traceability_or_bounded_low_evidence_posture",
+      "preserve_citation_refs_when_citable_evidence_exists"
+    ],
+    "non_goals": [
+      "do_not_expose_internal_verifier_banners",
+      "do_not_change_user_visible_format_requirements",
+      "do_not_hide_rejected_drafts_from_telemetry"
+    ]
+  },
+  "gate_contract": "control_plane_lifecycle_v1",
+  "observation_lifecycle_contract": {
+    "version": "run_observation_lifecycle_v1",
+    "policy_ref": "orchestration/config/run_observation_lifecycle_policy.json",
+    "purpose": "Record compact final-answer verifier outcomes and retry reasons for research turns.",
+    "required_lanes": [
+      "compact_ledger",
+      "artifact_ref_retention",
+      "failure_lifecycle_archive",
+      "hot_ring_buffer"
+    ],
+    "non_goals": [
+      "do_not_hide_rejection_reasons",
+      "do_not_store_raw_tool_payloads",
+      "do_not_inject_system_chat_text"
+    ]
+  },
+  "typed_execution_contract": {
+    "gate_kind": "structured_control_plane_gate",
+    "input_kind": "multiple_choice_or_text_input",
+    "allowed_transitions": [
+      "draft_bind->evidence_traceability_check",
+      "evidence_traceability_check->coverage_and_gap_check",
+      "coverage_and_gap_check->citation_package_check",
+      "citation_package_check->retry_or_accept_decision",
+      "retry_or_accept_decision->terminal_artifact_packaging",
+      "terminal_artifact_packaging->completed",
+      "draft_bind->blocked"
+    ],
+    "timeout_ms": 30000,
+    "retry_policy": {
+      "max_retries": 1,
+      "on_failure": "recover_or_escalate"
+    },
+    "terminal_states": [
+      "completed",
+      "blocked",
+      "needs_input",
+      "failed",
+      "aborted"
+    ],
+    "telemetry_streams": [
+      "workflow_state",
+      "agent_internal_notes",
+      "tool_trace",
+      "eval_trace",
+      "final_answer"
+    ],
+    "tool_family_contracts": [
+      "workspace",
+      "web",
+      "memory",
+      "agent",
+      "shell",
+      "browser"
+    ],
+    "visible_chat_policy": "llm_final_only_no_system_injection",
+    "run_budgets": {
+      "max_stages": 8,
+      "max_model_turns": 2,
+      "max_tool_calls": 2,
+      "token_budget": 10000,
+      "loop_signature_detector": "research_answer_verification_v1"
+    }
+  },
+  "workflow_source_of_truth_contract": {
+    "interaction_source": "json_workflow_spec",
+    "rust_reader_role": "validate_execute_trace_only",
+    "hardcoded_interaction_behavior_allowed": false,
+    "json_owns": [
+      "interaction_gates",
+      "gate_options",
+      "gate_transitions",
+      "tool_family_menus",
+      "tool_input_schemas",
+      "confirmation_states",
+      "loopbacks",
+      "final_output_contract"
+    ],
+    "rust_owns": [
+      "json_loading",
+      "schema_validation",
+      "state_transition_execution",
+      "tool_execution_handoff",
+      "receipt_binding",
+      "trace_export",
+      "kernel_policy_enforcement"
+    ]
+  },
+  "interaction_gate_contract": {
+    "version": "llm_toolbox_gate_contract_v1",
+    "tool_family_menu_stage": "gate_2_tool_family_menu",
+    "tool_request_payload_stage": "gate_4_request_payload_input",
+    "tool_observation_stage": "tool_observation",
+    "final_answer_stage": "gate_6_llm_final_output",
+    "recovery_stage": "retry_or_accept_decision",
+    "gates": [
+      {
+        "stage": "gate_1_need_tool_access_menu",
+        "parser_kind": "need_tools",
+        "true_values": ["yes", "y", "true", "t", "1"],
+        "false_values": ["no", "n", "false", "f", "0"]
+      },
+      {
+        "stage": "gate_2_tool_family_menu",
+        "parser_kind": "tool_family",
+        "choice_base": 1
+      },
+      {
+        "stage": "gate_3_tool_menu",
+        "parser_kind": "tool_name"
+      },
+      {
+        "stage": "gate_4_request_payload_input",
+        "parser_kind": "request_payload"
+      },
+      {
+        "stage": "gate_5_post_tool_menu",
+        "parser_kind": "post_tool",
+        "finish_values": ["finish", "done", "submit"],
+        "another_tool_values": ["another", "another tool", "use another tool"]
+      }
+    ]
+  },
+  "workflow_composition_contract": {
+    "version": "workflow_composition_contract_v1",
+    "cd_kind": "primitive",
+    "returns_exactly_one_terminal_artifact": true,
+    "terminal_artifact_contract": {
+      "artifact_schema": "workflow_terminal_artifact_v1",
+      "allowed_kinds": [
+        "completed_final_answer",
+        "clarification_request",
+        "structured_failure",
+        "delegated_workflow_result"
+      ],
+      "parent_receives": "terminal_artifact_only_refs_for_internals"
+    },
+    "child_workflow_calls": [],
+    "non_goals": [
+      "do_not_perform_new_search_here",
+      "do_not_force_specific_visible_format",
+      "do_not_accept_untraceable_decision_claims"
+    ]
+  }
+}

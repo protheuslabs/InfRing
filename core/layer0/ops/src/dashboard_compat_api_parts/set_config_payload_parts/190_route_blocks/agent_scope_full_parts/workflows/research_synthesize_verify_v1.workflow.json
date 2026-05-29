@@ -16,7 +16,40 @@
       ],
       "parent_receives": "terminal_artifact_only_refs_for_internals"
     },
-    "child_workflow_calls": [],
+    "child_workflow_calls": [
+      {
+        "capability": "research_objective_normalization",
+        "workflow_id": "research_objective_normalization",
+        "input_contract": "research_objective_normalization_input_envelope_v1",
+        "output_artifact": "research_objective_brief_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      },
+      {
+        "capability": "research_evidence_acquisition",
+        "workflow_id": "research_evidence_acquisition",
+        "input_contract": "research_evidence_acquisition_input_envelope_v1",
+        "output_artifact": "research_evidence_pack_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      },
+      {
+        "capability": "research_answer_synthesis",
+        "workflow_id": "research_answer_synthesis",
+        "input_contract": "research_answer_synthesis_input_envelope_v1",
+        "output_artifact": "research_answer_draft_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      },
+      {
+        "capability": "research_answer_verification",
+        "workflow_id": "research_answer_verification",
+        "input_contract": "research_answer_verification_input_envelope_v1",
+        "output_artifact": "research_answer_verification_artifact_v1",
+        "return_policy": "return_single_terminal_artifact_to_parent",
+        "internal_trace_visibility": "refs_only"
+      }
+    ],
     "non_goals": [
       "do_not_treat_full_research_workflow_as_primitive_yet",
       "do_not_expose_retrieval_internals_to_parent",
@@ -24,7 +57,7 @@
     ]
   },
   "default": false,
-  "description": "Research capability CD. Owns web-research tool menus, retrieval recovery, evidence-aware final synthesis, and verifier policy. Composite parents receive one terminal artifact plus refs.",
+  "description": "Research capability CD. Owns web-research tool menus and preserves the stable parent lifecycle while delegating maintainable sub-capabilities for objective normalization, evidence acquisition, synthesis, and verification. Composite parents receive one terminal artifact plus refs.",
   "stages": [
     "research_intake",
     "research_tool_family_menu",

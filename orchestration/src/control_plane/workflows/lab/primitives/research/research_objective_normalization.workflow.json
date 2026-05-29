@@ -1,0 +1,211 @@
+{
+  "name": "research_objective_normalization",
+  "workflow_type": "control_plane_orchestration_workflow",
+  "workflow_role": "assistant_response_workflow",
+  "default": false,
+  "description": "Primitive for normalizing a raw research request into an explicit research brief, coverage lanes, and answerability contract.",
+  "stages": [
+    "goal_capture",
+    "objective_normalization",
+    "coverage_lane_projection",
+    "constraint_projection",
+    "query_metadata_projection",
+    "brief_packaging"
+  ],
+  "workflow_composition": {
+    "primitive_level": 0,
+    "composed_of_workflow_ids": []
+  },
+  "final_response_policy": "control_plane_packaged_response",
+  "final_output_contract": {
+    "schema_version": "research_objective_normalization_final_output_contract_v1",
+    "source": "workflow_cd",
+    "visible_chat_source": "llm_final_answer_only",
+    "required_summary_fields": [
+      "user_goal",
+      "research_brief",
+      "required_coverage",
+      "freshness_need",
+      "query_metadata",
+      "answer_shape",
+      "artifact_refs"
+    ],
+    "internal_streams": [
+      "workflow_state",
+      "agent_internal_notes",
+      "tool_trace",
+      "eval_trace"
+    ],
+    "quality_contract": {
+      "answer_user_goal": "normalize the user's actual research objective without answering it yet",
+      "coverage_explicitness": "surface entities, facets, freshness needs, and comparison lanes explicitly when they matter",
+      "format_freedom": "do not hardcode any topic-specific answer format"
+    }
+  },
+  "research_objective_normalization_contract": {
+    "version": "research_objective_normalization_v1",
+    "required_fields": [
+      "user_goal",
+      "research_brief",
+      "required_coverage",
+      "query_metadata",
+      "freshness_need",
+      "answer_shape"
+    ],
+    "quality_rules": [
+      "preserve_user_goal_without_domain_hardcoding",
+      "extract_coverage_lanes_as_entities_facets_time_window_source_class",
+      "separate_broad_discovery_from_targeted_gap_fill_needs"
+    ],
+    "non_goals": [
+      "do_not_perform_retrieval_here",
+      "do_not_invent_answer_facts",
+      "do_not_force_output_format"
+    ]
+  },
+  "gate_contract": "control_plane_lifecycle_v1",
+  "observation_lifecycle_contract": {
+    "version": "run_observation_lifecycle_v1",
+    "policy_ref": "orchestration/config/run_observation_lifecycle_policy.json",
+    "purpose": "Record compact research-brief normalization decisions without storing raw chain-of-thought.",
+    "required_lanes": [
+      "compact_ledger",
+      "artifact_ref_retention",
+      "failure_lifecycle_archive",
+      "hot_ring_buffer"
+    ],
+    "non_goals": [
+      "do_not_hide_current_failures",
+      "do_not_store_raw_tool_payloads",
+      "do_not_answer_the_user_goal_here"
+    ]
+  },
+  "typed_execution_contract": {
+    "gate_kind": "structured_control_plane_gate",
+    "input_kind": "multiple_choice_or_text_input",
+    "allowed_transitions": [
+      "goal_capture->objective_normalization",
+      "objective_normalization->coverage_lane_projection",
+      "coverage_lane_projection->constraint_projection",
+      "constraint_projection->query_metadata_projection",
+      "query_metadata_projection->brief_packaging",
+      "brief_packaging->completed",
+      "goal_capture->blocked"
+    ],
+    "timeout_ms": 30000,
+    "retry_policy": {
+      "max_retries": 0,
+      "on_failure": "return_structured_failure"
+    },
+    "terminal_states": [
+      "completed",
+      "blocked",
+      "needs_input",
+      "failed",
+      "aborted"
+    ],
+    "telemetry_streams": [
+      "workflow_state",
+      "agent_internal_notes",
+      "tool_trace",
+      "eval_trace",
+      "final_answer"
+    ],
+    "tool_family_contracts": [
+      "workspace",
+      "web",
+      "memory",
+      "agent",
+      "shell",
+      "browser"
+    ],
+    "visible_chat_policy": "llm_final_only_no_system_injection",
+    "run_budgets": {
+      "max_stages": 8,
+      "max_model_turns": 1,
+      "max_tool_calls": 2,
+      "token_budget": 8000,
+      "loop_signature_detector": "research_objective_normalization_v1"
+    }
+  },
+  "workflow_source_of_truth_contract": {
+    "interaction_source": "json_workflow_spec",
+    "rust_reader_role": "validate_execute_trace_only",
+    "hardcoded_interaction_behavior_allowed": false,
+    "json_owns": [
+      "interaction_gates",
+      "gate_options",
+      "gate_transitions",
+      "tool_family_menus",
+      "tool_input_schemas",
+      "confirmation_states",
+      "loopbacks",
+      "final_output_contract"
+    ],
+    "rust_owns": [
+      "json_loading",
+      "schema_validation",
+      "state_transition_execution",
+      "tool_execution_handoff",
+      "receipt_binding",
+      "trace_export",
+      "kernel_policy_enforcement"
+    ]
+  },
+  "interaction_gate_contract": {
+    "version": "llm_toolbox_gate_contract_v1",
+    "tool_family_menu_stage": "gate_2_tool_family_menu",
+    "tool_request_payload_stage": "gate_4_request_payload_input",
+    "tool_observation_stage": "tool_observation",
+    "final_answer_stage": "gate_6_llm_final_output",
+    "recovery_stage": "brief_packaging",
+    "gates": [
+      {
+        "stage": "gate_1_need_tool_access_menu",
+        "parser_kind": "need_tools",
+        "true_values": ["yes", "y", "true", "t", "1"],
+        "false_values": ["no", "n", "false", "f", "0"]
+      },
+      {
+        "stage": "gate_2_tool_family_menu",
+        "parser_kind": "tool_family",
+        "choice_base": 1
+      },
+      {
+        "stage": "gate_3_tool_menu",
+        "parser_kind": "tool_name"
+      },
+      {
+        "stage": "gate_4_request_payload_input",
+        "parser_kind": "request_payload"
+      },
+      {
+        "stage": "gate_5_post_tool_menu",
+        "parser_kind": "post_tool",
+        "finish_values": ["finish", "done", "submit"],
+        "another_tool_values": ["another", "another tool", "use another tool"]
+      }
+    ]
+  },
+  "workflow_composition_contract": {
+    "version": "workflow_composition_contract_v1",
+    "cd_kind": "primitive",
+    "returns_exactly_one_terminal_artifact": true,
+    "terminal_artifact_contract": {
+      "artifact_schema": "workflow_terminal_artifact_v1",
+      "allowed_kinds": [
+        "completed_final_answer",
+        "clarification_request",
+        "structured_failure",
+        "delegated_workflow_result"
+      ],
+      "parent_receives": "terminal_artifact_only_refs_for_internals"
+    },
+    "child_workflow_calls": [],
+    "non_goals": [
+      "do_not_perform_live_retrieval",
+      "do_not_answer_the_research_question_directly",
+      "do_not_smuggle_domain_specific_templates"
+    ]
+  }
+}

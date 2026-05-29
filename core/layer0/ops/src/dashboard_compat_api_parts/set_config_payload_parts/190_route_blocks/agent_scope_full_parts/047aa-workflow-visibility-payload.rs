@@ -245,6 +245,28 @@ fn workflow_visibility_payload(response_workflow: &Value, response_finalization:
         .or_else(|| response_workflow.get("system_chat_injection_used"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let active_child_workflow_id = clean_text(
+        response_workflow
+            .pointer("/workflow_control/active_child_workflow_id")
+            .or_else(|| {
+                response_workflow.pointer("/selected_workflow/active_child_workflow/name")
+            })
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        120,
+    );
+    let active_child_phase_reason = clean_text(
+        response_workflow
+            .pointer("/workflow_control/active_child_phase_reason")
+            .or_else(|| {
+                response_workflow.pointer(
+                    "/selected_workflow/active_child_workflow/phase_reason",
+                )
+            })
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        180,
+    );
 
     json!({
         "contract": "workflow_visibility_payload_v1",
@@ -256,6 +278,8 @@ fn workflow_visibility_payload(response_workflow: &Value, response_finalization:
         "formats": formats,
         "workflow_trace": workflow_visibility_trace_payload(response_workflow, response_finalization),
         "selected_workflow_id": clean_text(response_workflow.pointer("/selected_workflow/name").and_then(Value::as_str).unwrap_or(""), 80),
+        "active_child_workflow_id": active_child_workflow_id,
+        "active_child_phase_reason": active_child_phase_reason,
         "stage_count": response_workflow.get("stage_statuses").and_then(Value::as_array).map(|rows| rows.len()).unwrap_or(0),
         "finalization_status": clean_text(response_finalization.get("outcome").and_then(Value::as_str).unwrap_or(""), 180),
         "diagnostics_only": true,

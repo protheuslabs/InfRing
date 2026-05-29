@@ -1,6 +1,20 @@
-fn workflow_json_final_chat_is_llm_only(response_workflow: &Value) -> bool {
+fn workflow_effective_final_output_contract(response_workflow: &Value) -> Value {
     response_workflow
-        .pointer("/selected_workflow/final_output_contract/visible_chat_source")
+        .pointer("/selected_workflow/active_child_workflow/final_output_contract")
+        .filter(|value| value.is_object())
+        .cloned()
+        .or_else(|| {
+            response_workflow
+                .pointer("/selected_workflow/final_output_contract")
+                .filter(|value| value.is_object())
+                .cloned()
+        })
+        .unwrap_or_else(|| json!({}))
+}
+
+fn workflow_json_final_chat_is_llm_only(response_workflow: &Value) -> bool {
+    workflow_effective_final_output_contract(response_workflow)
+        .get("visible_chat_source")
         .and_then(Value::as_str)
         == Some("llm_final_answer_only")
         || response_workflow

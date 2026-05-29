@@ -14,6 +14,17 @@ struct WorkflowDefinition {
     source_path: String,
 }
 
+#[derive(Clone, Debug)]
+struct AuxiliaryWorkflowDefinition {
+    name: String,
+    workflow_type: String,
+    description: String,
+    workflow_composition_contract: Value,
+    workflow_source_of_truth_contract: Value,
+    final_output_contract: Value,
+    source_path: String,
+}
+
 
 fn workflow_definition_to_json(definition: &WorkflowDefinition) -> Value {
     json!({
@@ -27,6 +38,18 @@ fn workflow_definition_to_json(definition: &WorkflowDefinition) -> Value {
         "workflow_composition_contract": definition.workflow_composition_contract,
         "workflow_source_of_truth_contract": definition.workflow_source_of_truth_contract,
         "tool_menu_interface_contract": definition.tool_menu_interface_contract,
+        "final_output_contract": definition.final_output_contract,
+        "source_path": definition.source_path
+    })
+}
+
+fn auxiliary_workflow_definition_to_json(definition: &AuxiliaryWorkflowDefinition) -> Value {
+    json!({
+        "name": definition.name,
+        "workflow_type": definition.workflow_type,
+        "description": definition.description,
+        "workflow_composition_contract": definition.workflow_composition_contract,
+        "workflow_source_of_truth_contract": definition.workflow_source_of_truth_contract,
         "final_output_contract": definition.final_output_contract,
         "source_path": definition.source_path
     })
@@ -380,10 +403,8 @@ fn parse_workflow_definition(source_path: &str, raw_spec: &str) -> Option<Workfl
     let workflow_source_of_truth_contract = parsed
         .get("workflow_source_of_truth_contract")
         .filter(|value| value.is_object())
-        .cloned()?;
-    if !workflow_source_of_truth_contract_is_complete(&workflow_source_of_truth_contract) {
-        return None;
-    }
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let tool_menu_interface_contract = parsed
         .get("tool_menu_interface_contract")
         .filter(|value| value.is_object())
@@ -467,6 +488,123 @@ fn workflow_spec_sources_from_disk() -> Vec<(String, String)> {
     Vec::new()
 }
 
+fn auxiliary_workflow_spec_directory_candidates() -> Vec<std::path::PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(dir) = std::env::var("INFRING_AUX_WORKFLOW_DIR") {
+        candidates.push(std::path::PathBuf::from(dir));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("orchestration/src/control_plane/workflows"));
+    }
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    if let Some(repo_root) = manifest_dir.ancestors().nth(3) {
+        candidates.push(repo_root.join("orchestration/src/control_plane/workflows"));
+    }
+    candidates
+}
+
+fn collect_recursive_workflow_specs(
+    dir: &std::path::Path,
+    out: &mut Vec<(String, String)>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut paths = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    paths.sort();
+    for path in paths {
+        if path.is_dir() {
+            collect_recursive_workflow_specs(&path, out);
+            continue;
+        }
+        let is_workflow_json = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.ends_with(".workflow.json"))
+            .unwrap_or(false);
+        if !is_workflow_json {
+            continue;
+        }
+        let Some(raw) = std::fs::read_to_string(&path).ok() else {
+            continue;
+        };
+        out.push((path.to_string_lossy().to_string(), raw));
+    }
+}
+
+fn auxiliary_workflow_spec_sources_from_disk() -> Vec<(String, String)> {
+    for dir in auxiliary_workflow_spec_directory_candidates() {
+        let mut sources = Vec::new();
+        collect_recursive_workflow_specs(&dir, &mut sources);
+        if !sources.is_empty() {
+            return sources;
+        }
+    }
+    Vec::new()
+}
+
+fn parse_auxiliary_workflow_definition(
+    source_path: &str,
+    raw_spec: &str,
+) -> Option<AuxiliaryWorkflowDefinition> {
+    let parsed: Value = serde_json::from_str(raw_spec).ok()?;
+    let name = clean_text(parsed.get("name").and_then(Value::as_str).unwrap_or(""), 80);
+    if name.is_empty() {
+        return None;
+    }
+    let workflow_type = clean_text(parsed.get("workflow_type").and_then(Value::as_str)?, 80);
+    if workflow_type.is_empty() {
+        return None;
+    }
+    let description = clean_text(
+        parsed
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        600,
+    );
+    let workflow_composition_contract = parsed
+        .get("workflow_composition_contract")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let workflow_source_of_truth_contract = parsed
+        .get("workflow_source_of_truth_contract")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let final_output_contract = parsed
+        .get("final_output_contract")
+        .filter(|value| value.is_object())
+        .cloned()
+        .or_else(|| {
+            parsed
+                .get("tool_menu_interface_contract")
+                .and_then(Value::as_object)
+                .and_then(|contract| contract.get("gates"))
+                .and_then(Value::as_object)
+                .and_then(|gates| {
+                    gates.values().find_map(|gate| {
+                        gate.get("final_output_contract")
+                            .filter(|value| value.is_object())
+                            .cloned()
+                    })
+                })
+        })?;
+    Some(AuxiliaryWorkflowDefinition {
+        name,
+        workflow_type,
+        description,
+        workflow_composition_contract,
+        workflow_source_of_truth_contract,
+        final_output_contract,
+        source_path: source_path.to_string(),
+    })
+}
+
 fn load_workflow_library() -> Vec<WorkflowDefinition> {
     let parsed = workflow_spec_sources_from_disk()
         .into_iter()
@@ -480,6 +618,15 @@ fn load_workflow_library() -> Vec<WorkflowDefinition> {
 
 fn workflow_library_registry() -> Vec<WorkflowDefinition> {
     load_workflow_library()
+}
+
+fn auxiliary_workflow_registry() -> Vec<AuxiliaryWorkflowDefinition> {
+    auxiliary_workflow_spec_sources_from_disk()
+        .into_iter()
+        .filter_map(|(source_path, raw_spec)| {
+            parse_auxiliary_workflow_definition(&source_path, &raw_spec)
+        })
+        .collect::<Vec<_>>()
 }
 
 fn workflow_definition_by_name(name: &str) -> Option<WorkflowDefinition> {
@@ -496,6 +643,45 @@ fn default_workflow_definition() -> Option<WorkflowDefinition> {
     workflow_library_registry()
         .into_iter()
         .find(|row| row.default_workflow)
+}
+
+fn auxiliary_workflow_definition_by_name(name: &str) -> Option<AuxiliaryWorkflowDefinition> {
+    let cleaned = clean_text(name, 80);
+    if cleaned.is_empty() {
+        return None;
+    }
+    auxiliary_workflow_registry()
+        .into_iter()
+        .find(|row| row.name.eq_ignore_ascii_case(&cleaned))
+}
+
+fn child_workflow_definition_json_by_name(name: &str) -> Option<Value> {
+    workflow_definition_by_name(name)
+        .map(|definition| workflow_definition_to_json(&definition))
+        .or_else(|| {
+            auxiliary_workflow_definition_by_name(name)
+                .map(|definition| auxiliary_workflow_definition_to_json(&definition))
+        })
+}
+
+fn workflow_child_workflow_definitions(contract: &Value) -> Value {
+    let mut definitions = serde_json::Map::<String, Value>::new();
+    let Some(child_calls) = contract.get("child_workflow_calls").and_then(Value::as_array) else {
+        return Value::Object(definitions);
+    };
+    for call in child_calls {
+        let child_id = clean_text(
+            call.get("workflow_id").and_then(Value::as_str).unwrap_or(""),
+            120,
+        );
+        if child_id.is_empty() || definitions.contains_key(&child_id) {
+            continue;
+        }
+        if let Some(definition) = child_workflow_definition_json_by_name(&child_id) {
+            definitions.insert(child_id, definition);
+        }
+    }
+    Value::Object(definitions)
 }
 
 fn turn_workflow_library_catalog() -> Vec<Value> {
@@ -576,6 +762,7 @@ fn selected_turn_workflow(workflow_mode: &str) -> Value {
         "workflow_source_of_truth_contract": selected.workflow_source_of_truth_contract,
         "tool_menu_interface_contract": selected.tool_menu_interface_contract,
         "final_output_contract": selected.final_output_contract,
+        "child_workflow_definitions": workflow_child_workflow_definitions(&selected.workflow_composition_contract),
         "source_path": selected.source_path
     })
 }
@@ -857,6 +1044,64 @@ mod workflow_reader_tests {
         assert!(
             !has_web_search,
             "research CD should use evidence-packet batch_query or URL-specific web_fetch"
+        );
+    }
+
+    #[test]
+    fn auxiliary_workflow_registry_includes_research_synthesis_child() {
+        let child = auxiliary_workflow_definition_by_name("research_answer_synthesis");
+        assert!(
+            child.is_some(),
+            "expected research child workflow in auxiliary registry; directories={:?}",
+            auxiliary_workflow_spec_directory_candidates()
+        );
+    }
+
+    #[test]
+    fn auxiliary_workflow_parser_accepts_research_synthesis_file() {
+        let (source_path, raw_spec) = auxiliary_workflow_spec_sources_from_disk()
+            .into_iter()
+            .find(|(source_path, _)| source_path.ends_with("research_answer_synthesis.workflow.json"))
+            .expect("research synthesis workflow spec on disk");
+        let parsed = parse_auxiliary_workflow_definition(&source_path, &raw_spec);
+        assert!(
+            parsed.is_some(),
+            "failed to parse auxiliary research child workflow from {source_path}"
+        );
+    }
+
+    #[test]
+    fn workflow_reader_loads_auxiliary_research_child_workflow_contracts() {
+        let selected = selected_turn_workflow("workflow=research_synthesize_verify_v1");
+        assert_eq!(
+            selected
+                .pointer("/child_workflow_definitions/research_answer_synthesis/name")
+                .and_then(Value::as_str),
+            Some("research_answer_synthesis")
+        );
+        assert_eq!(
+            selected
+                .pointer(
+                    "/child_workflow_definitions/research_answer_synthesis/final_output_contract/schema_version"
+                )
+                .and_then(Value::as_str),
+            Some("research_answer_synthesis_final_output_contract_v1")
+        );
+        assert_eq!(
+            selected
+                .pointer(
+                    "/child_workflow_definitions/research_answer_verification/final_output_contract/schema_version"
+                )
+                .and_then(Value::as_str),
+            Some("research_answer_verification_final_output_contract_v1")
+        );
+        assert_eq!(
+            selected
+                .pointer(
+                    "/child_workflow_definitions/research_evidence_acquisition/final_output_contract/schema_version"
+                )
+                .and_then(Value::as_str),
+            Some("research_evidence_acquisition_final_output_contract_v1")
         );
     }
 
