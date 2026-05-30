@@ -24,7 +24,16 @@ for (const entry of entries) {
     }
   }
 }
-if (entries.length < scripts.length) {
+if (policy.policy?.compact_operator_registry_is_canonical) {
+  const operatorEntries = entries.filter((entry) => entry.operator_surface === true);
+  const minimum = Number(policy.minimum_operator_registry_entries || 0);
+  if (operatorEntries.length < minimum) {
+    violations.push({ kind: 'operator_registry_below_minimum', operator_entries: operatorEntries.length, expected_minimum: minimum });
+  }
+  if (!runner.includes('packageScripts')) {
+    violations.push({ kind: 'runner_missing_package_script_backing_lookup' });
+  }
+} else if (entries.length < scripts.length) {
   violations.push({ kind: 'registry_smaller_than_package_scripts', registry_entries: entries.length, package_scripts: scripts.length });
 }
 const traceId = `validation:${new Date().toISOString()}:${process.pid}`;
@@ -38,6 +47,7 @@ const payload = {
   generated_at: new Date().toISOString(),
   policy_path: policyPath,
   registry_entries: entries.length,
+  registry_role: policy.policy?.compact_operator_registry_is_canonical ? 'compact_operator_surface' : 'package_script_mirror',
   package_scripts: scripts.length,
   violations
 };

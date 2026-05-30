@@ -29,6 +29,7 @@
     "command_entries",
     "compat_command_entries",
     "operator_surface_entries",
+    "hidden_package_script_backing_entries",
     "workflow_files",
     "required_ci_checks",
     "core_local_artifacts",
@@ -50,6 +51,7 @@
     "red": {
       "dirty_paths": 250,
       "command_entries": 1200,
+      "operator_surface_entries": 100,
       "npm_scripts": 1000,
       "required_ci_checks": 35,
       "workflow_files": 65,
@@ -69,6 +71,7 @@
     "yellow": {
       "dirty_paths": 50,
       "command_entries": 900,
+      "operator_surface_entries": 80,
       "npm_scripts": 700,
       "required_ci_checks": 25,
       "workflow_files": 45,

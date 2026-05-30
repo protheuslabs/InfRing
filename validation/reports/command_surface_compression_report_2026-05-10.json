@@ -1,151 +1,109 @@
 {
-  "trace_id": "validation:2026-05-16T17:51:34.630Z:31780",
-  "span_id": "span:command_surface_compression:31780",
+  "trace_id": "validation:2026-05-30T19:51:01.576Z:65982",
+  "span_id": "span:command_surface_compression:65982",
   "parent_span_id": null,
   "source_domain": "validation",
   "type": "command_surface_compression_report",
-  "generated_at": "2026-05-16T17:51:34.631Z",
+  "generated_at": "2026-05-30T19:51:01.576Z",
   "registry_path": "/Users/jay/.openclaw/workspace/tools/commands/command_registry.json",
+  "registry_role": "compact_operator_surface",
   "counts": {
-    "total": 1180,
+    "total": 75,
+    "package_scripts": 1185,
+    "hidden_package_script_backing_entries": 1110,
     "by_domain": {
-      "validation": 547,
-      "gateway": 27,
-      "workspace_ops": 434,
-      "kernel": 74,
-      "release_governance": 34,
-      "installer": 7,
-      "conduit": 2,
-      "observability": 47,
-      "governance": 6,
-      "security": 2
+      "workspace_ops": 11,
+      "gateway": 9,
+      "installer": 4,
+      "kernel": 5,
+      "security": 2,
+      "observability": 19,
+      "release_governance": 13,
+      "validation": 12
     },
     "by_work_gate": {
-      "reliability": 674,
-      "simplification": 51,
-      "real_work": 455
+      "real_work": 4,
+      "simplification": 18,
+      "reliability": 53
     },
     "by_lifecycle": {
-      "compatibility_alias": 1054,
-      "curated_operator_command": 93,
-      "canonical_entrypoint": 20,
-      "active": 13
+      "canonical_entrypoint": 18,
+      "curated_operator_command": 57
     },
     "by_prefix": {
-      "account": 1,
-      "actuation": 8,
-      "adaptive": 2,
-      "alias": 3,
-      "anti-sabotage": 3,
-      "assimilation": 6,
-      "authority": 4,
-      "autonomy": 28,
-      "autophagy": 7,
-      "autotest": 7,
-      "benchmark": 1,
-      "blk": 2,
-      "budget": 5,
-      "build": 5,
-      "capability": 2,
-      "chaos": 2,
-      "claws": 3,
       "cmd": 1,
       "commands": 2,
-      "compliance": 3,
-      "continuity": 7,
-      "coverage": 4,
-      "creative": 1,
-      "cryonics": 3,
-      "dashboard": 6,
-      "deploy": 2,
-      "dev": 1,
-      "distributed": 1,
-      "docs": 1,
-      "dr": 3,
-      "dual-brain": 2,
-      "echo": 3,
-      "economy": 2,
-      "effect": 1,
-      "evolution": 4,
-      "execution": 2,
-      "explain": 1,
-      "explanation": 3,
-      "finance": 6,
-      "forge": 3,
-      "formal": 2,
-      "foundation": 5,
-      "fractal": 6,
-      "fusion": 2,
-      "gateway": 3,
-      "git": 2,
-      "guard": 2,
-      "handoff": 2,
-      "hardware": 8,
-      "helix": 9,
-      "impact": 4,
-      "infring": 10,
-      "infringctl": 1,
-      "infringd": 1,
+      "workspace": 2,
+      "ops": 57,
+      "git": 1,
+      "gateway": 2,
       "install": 1,
-      "integrity": 3,
-      "js": 2,
-      "key": 6,
-      "lane": 2,
-      "learning": 2,
-      "lint": 1,
-      "local": 4,
-      "memory": 21,
-      "metrics": 6,
-      "nursery": 1,
-      "obsidian": 4,
-      "ops": 580,
-      "orchestron": 1,
-      "organ": 3,
-      "outreach": 2,
-      "passport": 5,
-      "platform": 1,
-      "polyglot": 2,
       "postinstall": 1,
-      "postmortem": 1,
-      "primitives": 6,
-      "proactive": 2,
-      "profile": 1,
-      "redteam": 6,
-      "reflexes": 1,
-      "research": 1,
-      "resonance": 1,
-      "routing": 5,
-      "runtime": 7,
-      "safety": 1,
-      "schema": 1,
-      "security": 37,
-      "self-audit": 1,
-      "selfhost": 4,
-      "selfimprove": 4,
-      "sensory": 27,
-      "soul": 3,
-      "start": 1,
-      "state": 5,
-      "strategy": 1,
-      "supply-chain": 1,
-      "symbiosis": 9,
-      "test": 163,
-      "tooling": 3,
-      "ts": 3,
-      "typecheck": 1,
-      "visualizer": 1,
-      "weaver": 3,
-      "workflow": 10,
-      "workspace": 5,
-      "world-model": 1,
-      "xai": 7,
-      "zero-permission": 1
+      "security": 1,
+      "memory": 1,
+      "build": 1,
+      "infring": 4,
+      "metrics": 1
     }
   },
   "largest_prefixes": [
     {
       "prefix": "ops",
-      "count": 580
+      "count": 57
+    },
+    {
+      "prefix": "infring",
+      "count": 4
+    },
+    {
+      "prefix": "commands",
+      "count": 2
+    },
+    {
+      "prefix": "gateway",
+      "count": 2
+    },
+    {
+      "prefix": "workspace",
+      "count": 2
+    },
+    {
+      "prefix": "build",
+      "count": 1
+    },
+    {
+      "prefix": "cmd",
+      "count": 1
+    },
+    {
+      "prefix": "git",
+      "count": 1
+    },
+    {
+      "prefix": "install",
+      "count": 1
+    },
+    {
+      "prefix": "memory",
+      "count": 1
+    },
+    {
+      "prefix": "metrics",
+      "count": 1
+    },
+    {
+      "prefix": "postinstall",
+      "count": 1
+    },
+    {
+      "prefix": "security",
+      "count": 1
+    }
+  ],
+  "largest_hidden_backing_prefixes": [
+    {
+      "prefix": "ops",
+      "count": 536
     },
     {
       "prefix": "test",
@@ -153,7 +111,7 @@
     },
     {
       "prefix": "security",
-      "count": 37
+      "count": 36
     },
     {
       "prefix": "autonomy",
@@ -165,11 +123,7 @@
     },
     {
       "prefix": "memory",
-      "count": 21
-    },
-    {
-      "prefix": "infring",
-      "count": 10
+      "count": 20
     },
     {
       "prefix": "workflow",
@@ -228,11 +182,11 @@
       "count": 6
     },
     {
-      "prefix": "key",
+      "prefix": "infring",
       "count": 6
     },
     {
-      "prefix": "metrics",
+      "prefix": "key",
       "count": 6
     },
     {
@@ -248,11 +202,11 @@
       "count": 5
     },
     {
-      "prefix": "build",
+      "prefix": "foundation",
       "count": 5
     },
     {
-      "prefix": "foundation",
+      "prefix": "metrics",
       "count": 5
     },
     {
@@ -262,186 +216,14 @@
     {
       "prefix": "routing",
       "count": 5
+    },
+    {
+      "prefix": "state",
+      "count": 5
     }
   ],
-  "retirement_candidate_count": 100,
-  "retirement_candidates_sample": [
-    {
-      "id": "account:create",
-      "domain": "validation",
-      "work_gate": "reliability",
-      "lifecycle": "compatibility_alias",
-      "owner": "validation"
-    },
-    {
-      "id": "actuation:defrag:run",
-      "domain": "gateway",
-      "work_gate": "simplification",
-      "lifecycle": "compatibility_alias",
-      "owner": "gateway"
-    },
-    {
-      "id": "actuation:defrag:status",
-      "domain": "validation",
-      "work_gate": "simplification",
-      "lifecycle": "compatibility_alias",
-      "owner": "validation"
-    },
-    {
-      "id": "actuation:disposable:acquire-session",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "actuation:disposable:register-account",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "actuation:disposable:register-proxy",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "actuation:subexec:gc",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "actuation:universal:run",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "actuation:universal:status",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "adaptive:runtime:status",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "adaptive:runtime:tick",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "alias:vault:consume-code",
-      "domain": "workspace_ops",
-      "work_gate": "reliability",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "alias:vault:issue",
-      "domain": "workspace_ops",
-      "work_gate": "reliability",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "alias:vault:route-code",
-      "domain": "workspace_ops",
-      "work_gate": "reliability",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "anti-sabotage:snapshot",
-      "domain": "workspace_ops",
-      "work_gate": "reliability",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "anti-sabotage:verify",
-      "domain": "workspace_ops",
-      "work_gate": "reliability",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "anti-sabotage:watch",
-      "domain": "workspace_ops",
-      "work_gate": "reliability",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "assimilation:assess",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "assimilation:habit-adapter:train",
-      "domain": "gateway",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "gateway"
-    },
-    {
-      "id": "assimilation:record-use",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "assimilation:rollback",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "assimilation:run",
-      "domain": "workspace_ops",
-      "work_gate": "real_work",
-      "lifecycle": "compatibility_alias",
-      "owner": "workspace_ops"
-    },
-    {
-      "id": "assimilation:status",
-      "domain": "validation",
-      "work_gate": "reliability",
-      "lifecycle": "compatibility_alias",
-      "owner": "validation"
-    },
-    {
-      "id": "authority:branch:evaluate",
-      "domain": "validation",
-      "work_gate": "reliability",
-      "lifecycle": "compatibility_alias",
-      "owner": "validation"
-    },
-    {
-      "id": "authority:branch:handoff",
-      "domain": "validation",
-      "work_gate": "reliability",
-      "lifecycle": "compatibility_alias",
-      "owner": "validation"
-    }
-  ],
+  "retirement_candidate_count": 0,
+  "retirement_candidates_sample": [],
   "recommendations": [
     "Prefer command-runner-first entrypoints over direct package script expansion.",
     "Retire or hide advisory/manual/legacy commands from default operator surfaces.",

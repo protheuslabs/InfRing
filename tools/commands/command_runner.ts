@@ -34,6 +34,32 @@ type Registry = {
 function registry(): Registry {
   return JSON.parse(fs.readFileSync(path.join(ROOT, REGISTRY_PATH), 'utf8'));
 }
+function packageScripts(): Record<string, string> {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  return pkg.scripts && typeof pkg.scripts === 'object' ? pkg.scripts : {};
+}
+function syntheticPackageEntry(id: string, command: string): Entry {
+  return {
+    id,
+    group: id.split(':')[0] || 'unknown',
+    command,
+    lifecycle: 'package_script_compatibility',
+    owner: 'package_json_compatibility_surface',
+    domain: 'compatibility',
+    work_gate: 'manual_compatibility',
+    description: 'Compatibility package script backing entry. Prefer curated operator-surface commands when available.',
+    operator_surface: false,
+  };
+}
+function expandedEntries(data: Registry, includeCompat: boolean): Entry[] {
+  if (!includeCompat) return data.entries;
+  const scripts = packageScripts();
+  const seen = new Set(data.entries.map((entry) => entry.id));
+  const synthetic = Object.entries(scripts)
+    .filter(([id]) => !seen.has(id))
+    .map(([id, command]) => syntheticPackageEntry(id, String(command)));
+  return [...data.entries, ...synthetic];
+}
 function quote(arg: string): string {
   if (/^[A-Za-z0-9_./:=@%+-]+$/.test(arg)) return arg;
   return "'" + arg.replace(/'/g, "'\\''") + "'";
@@ -113,7 +139,8 @@ function main(): void {
       includeCompat: flag(args, '--include-compat') === '1',
       operatorSurface: flag(args, '--operator-surface') !== '0',
     };
-    const rows = data.entries.filter((entry) => {
+    const sourceEntries = expandedEntries(data, filters.includeCompat);
+    const rows = sourceEntries.filter((entry) => {
       if (!filters.includeCompat && filters.operatorSurface && entry.operator_surface !== true) return false;
       if (!filters.includeCompat && filters.operatorSurface && entry.lifecycle === 'compatibility_alias' && !entry.operator_surface) return false;
       if (!filters.includeCompat && !filters.operatorSurface && entry.lifecycle === 'compatibility_alias') return false;
@@ -128,7 +155,10 @@ function main(): void {
   }
   if (first === 'info') {
     const id = args[1] || '';
-    const entry = data.entries.find((row) => row.id === id);
+    const entry = data.entries.find((row) => row.id === id) || (() => {
+      const command = packageScripts()[id];
+      return command ? syntheticPackageEntry(id, command) : undefined;
+    })();
     if (!entry) {
       console.error(`Unknown command id: ${id}`);
       process.exit(2);
@@ -137,26 +167,38 @@ function main(): void {
     return;
   }
   if (first === 'groups') {
-    const domains = data.entries.reduce((acc: Record<string, number>, entry) => {
+    const sourceEntries = expandedEntries(data, true);
+    const domains = sourceEntries.reduce((acc: Record<string, number>, entry) => {
       const key = entry.domain || 'unclassified';
       acc[key] = (acc[key] || 0) + 1;
       return acc;
     }, {});
-    const workGates = data.entries.reduce((acc: Record<string, number>, entry) => {
+    const workGates = sourceEntries.reduce((acc: Record<string, number>, entry) => {
       const key = entry.work_gate || 'unclassified';
       acc[key] = (acc[key] || 0) + 1;
       return acc;
     }, {});
-    console.log(JSON.stringify({ ok: true, type: 'command_registry_groups', entrypoint: entrypoint(data), script_count: data.script_count, group_counts: data.group_counts, domains, work_gates: workGates }, null, 2));
+    console.log(JSON.stringify({ ok: true, type: 'command_registry_groups', entrypoint: entrypoint(data), script_count: data.script_count, registry_entries: data.entries.length, expanded_entry_count: sourceEntries.length, group_counts: data.group_counts, domains, work_gates: workGates }, null, 2));
     return;
   }
   const entry = data.entries.find((row) => row.id === first);
   if (!entry) {
-    console.error(`Unknown command id: ${first}`);
-    const suggestions = suggestedIds(data.entries, first);
-    if (suggestions.length) console.error(`Suggested operator-surface commands: ${suggestions.join(', ')}`);
-    usage();
-    process.exit(2);
+    const scripts = packageScripts();
+    const compatCommand = scripts[first];
+    if (compatCommand) {
+      const result = spawnSync('npm', ['run', '-s', first, '--', ...args.slice(1)], { cwd: ROOT, stdio: 'inherit', env: process.env });
+      if (result.error) {
+        console.error(result.error.message);
+        process.exit(1);
+      }
+      process.exit(typeof result.status === 'number' ? result.status : 1);
+    } else {
+      console.error(`Unknown command id: ${first}`);
+      const suggestions = suggestedIds(data.entries, first);
+      if (suggestions.length) console.error(`Suggested operator-surface commands: ${suggestions.join(', ')}`);
+      usage();
+      process.exit(2);
+    }
   }
   const forwarded = args.slice(1);
   const command = forwarded.length ? `${entry.command} ${forwarded.map(quote).join(' ')}` : entry.command;

@@ -139,11 +139,15 @@ function commandMetrics(policy: Json) {
   const entries = Array.isArray(registry?.entries) ? registry.entries : Array.isArray(registry?.commands) ? registry.commands : [];
   const compat = entries.filter((row: Json) => String(row.lifecycle || row.status || '').includes('compat'));
   const operator = entries.filter((row: Json) => row.operator_surface === true || String(row.lifecycle || '').includes('operator_surface'));
+  const npmScriptCount = Object.keys(packageJson?.scripts || {}).length;
+  const hiddenPackageScriptBackingEntries = Math.max(0, npmScriptCount - entries.length);
   return {
-    npm_scripts: Object.keys(packageJson?.scripts || {}).length,
+    npm_scripts: npmScriptCount,
     command_entries: entries.length,
-    compat_command_entries: compat.length,
+    compat_command_entries: compat.length + hiddenPackageScriptBackingEntries,
     operator_surface_entries: operator.length,
+    hidden_package_script_backing_entries: hiddenPackageScriptBackingEntries,
+    registry_role: registry?.registry_role || 'package_script_mirror',
     metadata_curated_count: Number(registry?.metadata_curated_count || 0),
   };
 }
@@ -482,7 +486,7 @@ function run(argv: string[]): number {
       'Use safe commit workspace flow before risky operations.',
       'Split unrelated dirty state before release, history rewrite, or large refactors.',
     ]),
-    dimension(policy, 'command_surface', 'command_entries', commands.command_entries, commands, [
+    dimension(policy, 'command_surface', 'operator_surface_entries', commands.operator_surface_entries, commands, [
       'Curate the operator command surface and hide compatibility aliases by default.',
       'Prefer tools/commands command runner over raw npm script discovery.',
     ]),
@@ -540,6 +544,7 @@ function run(argv: string[]): number {
     command_entries: commands.command_entries,
     compat_command_entries: commands.compat_command_entries,
     operator_surface_entries: commands.operator_surface_entries,
+    hidden_package_script_backing_entries: commands.hidden_package_script_backing_entries,
     workflow_files: ci.workflow_files,
     required_ci_checks: ci.required_ci_checks,
     core_local_artifacts: artifacts.core_local_artifacts,

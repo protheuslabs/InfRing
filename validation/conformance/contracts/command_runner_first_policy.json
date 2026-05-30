@@ -4,6 +4,7 @@
   "owner_domain": "validation.conformance",
   "registry_path": "tools/commands/command_registry.json",
   "runner_path": "tools/commands/command_runner.ts",
+  "minimum_operator_registry_entries": 75,
   "required_runner_capabilities": [
     "list",
     "groups",
@@ -24,6 +25,7 @@
   "policy": {
     "command_runner_is_default_agent_navigation_surface": true,
     "package_json_scripts_are_compatibility_backing_store": true,
+    "compact_operator_registry_is_canonical": true,
     "new_operator_commands_should_enter_registry_first": true,
     "default_list_hides_compatibility_aliases": true
   }
