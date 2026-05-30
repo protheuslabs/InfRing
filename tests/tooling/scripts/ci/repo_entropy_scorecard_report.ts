@@ -137,7 +137,7 @@ function commandMetrics(policy: Json) {
   const registry = readJson(String(artifacts.command_registry || 'tools/commands/command_registry.json'));
   const entries = Array.isArray(registry?.entries) ? registry.entries : Array.isArray(registry?.commands) ? registry.commands : [];
   const compat = entries.filter((row: Json) => String(row.lifecycle || row.status || '').includes('compat'));
-  const operator = entries.filter((row: Json) => String(row.lifecycle || '').includes('operator_surface'));
+  const operator = entries.filter((row: Json) => row.operator_surface === true || String(row.lifecycle || '').includes('operator_surface'));
   return {
     npm_scripts: Object.keys(packageJson?.scripts || {}).length,
     command_entries: entries.length,
@@ -219,6 +219,116 @@ function duplicateSurfaceMetrics(policy: Json) {
   return {
     duplicate_surface_roots: active.length,
     active_duplicate_surfaces: active,
+  };
+}
+
+function generatedArtifactMetrics(policy: Json) {
+  const patterns = Array.isArray(policy.generated_artifact_patterns)
+    ? policy.generated_artifact_patterns.map(String)
+    : ['000-combined.rs', '.combined_parts/', '.combined_parts', '_parts/000-combined.rs', 'combined_parts/'];
+  const tracked = safeGit(['ls-files']).split(/\r?\n/).filter(Boolean);
+  const matches = tracked.filter((rel) => patterns.some((pattern) => rel.includes(pattern)));
+  const byPattern: Json = {};
+  for (const pattern of patterns) {
+    byPattern[pattern] = matches.filter((rel) => rel.includes(pattern)).length;
+  }
+  return {
+    tracked_generated_artifacts: matches.length,
+    patterns,
+    by_pattern: byPattern,
+    sample: matches.slice(0, 30),
+  };
+}
+
+function installerMonolithMetrics(policy: Json) {
+  const files = Array.isArray(policy.installer_monolith_files)
+    ? policy.installer_monolith_files.map(String)
+    : ['install.sh', 'install.ps1'];
+  const rows = files.map((rel) => {
+    const abs = path.join(root, rel);
+    let bytes = 0;
+    try {
+      bytes = fs.statSync(abs).size;
+    } catch {
+      bytes = 0;
+    }
+    return { path: rel, bytes };
+  });
+  return {
+    installer_monolith_bytes: rows.reduce((sum, row) => sum + row.bytes, 0),
+    files: rows,
+    next_split: rows.sort((a, b) => b.bytes - a.bytes)[0]?.path || null,
+  };
+}
+
+function testLifecycleMetrics(policy: Json) {
+  const registry = readJson(String(policy?.source_artifacts?.test_lifecycle_registry || 'validation/tests/contracts/validation_test_lifecycle_registry.json'));
+  const entries = Array.isArray(registry?.entries) ? registry.entries : [];
+  const debtClasses = new Set(
+    (Array.isArray(policy.test_lifecycle_debt_classifications)
+      ? policy.test_lifecycle_debt_classifications
+      : ['temporary_scaffold', 'temporary_monitor', 'runtime_crutch', 'one_time_closure_guard']
+    ).map(String)
+  );
+  const now = Date.now();
+  const byClass: Json = {};
+  let debt = 0;
+  let overdue = 0;
+  const overdueSample: Json[] = [];
+  const debtSample: Json[] = [];
+  for (const entry of entries) {
+    const classification = String(entry.classification || 'unclassified');
+    byClass[classification] = Number(byClass[classification] || 0) + 1;
+    if (debtClasses.has(classification)) {
+      debt += 1;
+      if (debtSample.length < 20) {
+        debtSample.push({
+          gate_id: entry.gate_id || entry.id || 'unknown',
+          classification,
+          expires_after: entry.expires_after || null,
+          migration_target: entry.migration_target || null,
+        });
+      }
+      const expiry = Date.parse(String(entry.expires_after || ''));
+      if (Number.isFinite(expiry) && expiry < now) {
+        overdue += 1;
+        if (overdueSample.length < 20) {
+          overdueSample.push({
+            gate_id: entry.gate_id || entry.id || 'unknown',
+            classification,
+            expires_after: entry.expires_after,
+            delete_when: entry.delete_when || null,
+          });
+        }
+      }
+    }
+  }
+  return {
+    test_lifecycle_entries: entries.length,
+    test_scaffold_debt: debt,
+    test_lifecycle_overdue: overdue,
+    by_classification: byClass,
+    debt_sample: debtSample,
+    overdue_sample: overdueSample,
+  };
+}
+
+function realWorkGapMetrics(policy: Json) {
+  const proof = readJson(String(policy?.source_artifacts?.real_work_workflow_proof || 'core/local/artifacts/real_work_workflow_proof_current.json'));
+  const proofPolicy = readJson('validation/proof_packs/real_work_workflow_proof_policy.json') || {};
+  const ready = Number(proof?.ready_lane_count || 0);
+  const readyUserVisible = Number(proof?.user_visible_ready_lane_count || 0);
+  const minReady = Number(proofPolicy.minimum_ready_lanes || 6);
+  const minUserVisible = Number(proofPolicy.minimum_user_visible_lanes || 4);
+  return {
+    real_work_missing_ready_lanes: Math.max(0, minReady - ready),
+    real_work_missing_user_visible_lanes: Math.max(0, minUserVisible - readyUserVisible),
+    ready_lane_count: ready,
+    minimum_ready_lanes: minReady,
+    user_visible_ready_lane_count: readyUserVisible,
+    minimum_user_visible_lanes: minUserVisible,
+    proof_ok: proof?.ok === true,
+    proof_path: String(policy?.source_artifacts?.real_work_workflow_proof || 'core/local/artifacts/real_work_workflow_proof_current.json'),
   };
 }
 
@@ -360,6 +470,10 @@ function run(argv: string[]): number {
   const artifacts = artifactMetrics(policy);
   const guards = guardMetrics(policy);
   const duplicates = duplicateSurfaceMetrics(policy);
+  const generatedArtifacts = generatedArtifactMetrics(policy);
+  const installerMonolith = installerMonolithMetrics(policy);
+  const testLifecycle = testLifecycleMetrics(policy);
+  const realWorkGap = realWorkGapMetrics(policy);
   const loc = effectiveLocMetrics(policy);
 
   const dimensions: Dimension[] = [
@@ -390,6 +504,22 @@ function run(argv: string[]): number {
     dimension(policy, 'duplicate_surfaces', 'duplicate_surface_roots', duplicates.duplicate_surface_roots, duplicates, [
       'Give duplicate roots explicit compatibility status, owner, and retirement date.',
       'Do not allow old and new surfaces to both look canonical indefinitely.',
+    ]),
+    dimension(policy, 'generated_artifact_residue', 'tracked_generated_artifacts', generatedArtifacts.tracked_generated_artifacts, generatedArtifacts, [
+      'Classify tracked generated/split artifacts as canonical source, required mirror, or obsolete.',
+      'Ignore or regenerate mirrors instead of treating every combined/split output as source.',
+    ]),
+    dimension(policy, 'installer_monolith', 'installer_monolith_bytes', installerMonolith.installer_monolith_bytes, installerMonolith, [
+      'Continue splitting installer logic behind stable dispatch points while preserving installer behavior.',
+      'Move platform-specific repair/preflight code into installer modules with smoke evidence.',
+    ]),
+    dimension(policy, 'test_lifecycle_debt', 'test_scaffold_debt', testLifecycle.test_scaffold_debt, testLifecycle, [
+      'Retire expired temporary scaffolds and runtime crutches, or migrate them into self-enforcing runtime mechanisms.',
+      'Require every temporary monitor to have success criteria, owner, and retirement action.',
+    ]),
+    dimension(policy, 'real_work_gap', 'real_work_missing_ready_lanes', realWorkGap.real_work_missing_ready_lanes, realWorkGap, [
+      'Prioritize practical user-visible proof lanes before adding more internal governance machinery.',
+      'Keep at least installer, gateway, workspace/tooling, security remediation, and operator workflows ready.',
     ]),
   ];
 
@@ -422,6 +552,12 @@ function run(argv: string[]): number {
     guard_scripts: guards.guard_scripts,
     gate_registry_entries: guards.gate_registry_entries,
     duplicate_surface_roots: duplicates.duplicate_surface_roots,
+    tracked_generated_artifacts: generatedArtifacts.tracked_generated_artifacts,
+    installer_monolith_bytes: installerMonolith.installer_monolith_bytes,
+    test_scaffold_debt: testLifecycle.test_scaffold_debt,
+    test_lifecycle_overdue: testLifecycle.test_lifecycle_overdue,
+    real_work_missing_ready_lanes: realWorkGap.real_work_missing_ready_lanes,
+    real_work_missing_user_visible_lanes: realWorkGap.real_work_missing_user_visible_lanes,
   };
   const trackedMetrics = Array.isArray(policy.tracked_metrics)
     ? policy.tracked_metrics.map(String)

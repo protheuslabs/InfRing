@@ -42,6 +42,12 @@ const requiredSummaryKeys = [
   'guard_scripts',
   'gate_registry_entries',
   'duplicate_surface_roots',
+  'tracked_generated_artifacts',
+  'installer_monolith_bytes',
+  'test_scaffold_debt',
+  'test_lifecycle_overdue',
+  'real_work_missing_ready_lanes',
+  'real_work_missing_user_visible_lanes',
 ];
 for (const key of requiredSummaryKeys) {
   if (typeof report.summary?.[key] !== 'number') violations.push(`missing_numeric_summary_${key}`);
@@ -102,6 +108,11 @@ if (
     typeof worktreeDimension?.details?.dirty_untracked !== 'number')
 ) {
   violations.push('worktree_churn_missing_status_breakdown');
+}
+if (policy?.policy?.blob_pressure_must_cover_generated_installer_tests_and_real_work === true) {
+  for (const name of ['generated_artifact_residue', 'installer_monolith', 'test_lifecycle_debt', 'real_work_gap']) {
+    if (!dimensions.some((row) => row.name === name)) violations.push(`missing_blob_pressure_dimension_${name}`);
+  }
 }
 
 const generatedAt = new Date().toISOString();

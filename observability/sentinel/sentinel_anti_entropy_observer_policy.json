@@ -17,14 +17,17 @@
     "ci_surface_sprawl",
     "install_health",
     "command_surface_entropy",
-    "real_work_proof_health"
+    "real_work_proof_health",
+    "repo_blob_pressure"
   ],
   "freshness_budgets_hours": {
     "kernel_sentinel_worktree_danger_current.json": 24,
     "kernel_sentinel_feedback_summary_current.json": 24,
     "windows_installer_contract_guard_current.json": 168,
     "command_operator_surface_guard_current.json": 168,
-    "real_work_workflow_proof_guard_current.json": 168
+    "real_work_workflow_proof_guard_current.json": 168,
+    "repo_entropy_scorecard_current.json": 168,
+    "repo_entropy_scorecard_guard_current.json": 168
   },
   "thresholds": {
     "maximum_required_ci_workflows": 30,

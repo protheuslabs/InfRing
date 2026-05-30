@@ -13,7 +13,11 @@
     "artifact_pressure",
     "loc_growth",
     "guard_surface",
-    "duplicate_surfaces"
+    "duplicate_surfaces",
+    "generated_artifact_residue",
+    "installer_monolith",
+    "test_lifecycle_debt",
+    "real_work_gap"
   ],
   "tracked_metrics": [
     "dirty_paths",
@@ -34,7 +38,13 @@
     "effective_loc_delta_pct",
     "guard_scripts",
     "gate_registry_entries",
-    "duplicate_surface_roots"
+    "duplicate_surface_roots",
+    "tracked_generated_artifacts",
+    "installer_monolith_bytes",
+    "test_scaffold_debt",
+    "test_lifecycle_overdue",
+    "real_work_missing_ready_lanes",
+    "real_work_missing_user_visible_lanes"
   ],
   "thresholds": {
     "red": {
@@ -48,7 +58,13 @@
       "effective_loc_delta_pct": 10,
       "guard_scripts": 240,
       "gate_registry_entries": 220,
-      "duplicate_surface_roots": 2
+      "duplicate_surface_roots": 2,
+      "tracked_generated_artifacts": 650,
+      "installer_monolith_bytes": 524288,
+      "test_scaffold_debt": 60,
+      "test_lifecycle_overdue": 25,
+      "real_work_missing_ready_lanes": 4,
+      "real_work_missing_user_visible_lanes": 3
     },
     "yellow": {
       "dirty_paths": 50,
@@ -61,9 +77,32 @@
       "effective_loc_delta_pct": 3,
       "guard_scripts": 160,
       "gate_registry_entries": 150,
-      "duplicate_surface_roots": 1
+      "duplicate_surface_roots": 1,
+      "tracked_generated_artifacts": 250,
+      "installer_monolith_bytes": 262144,
+      "test_scaffold_debt": 25,
+      "test_lifecycle_overdue": 5,
+      "real_work_missing_ready_lanes": 1,
+      "real_work_missing_user_visible_lanes": 1
     }
   },
+  "generated_artifact_patterns": [
+    "000-combined.rs",
+    ".combined_parts/",
+    ".combined_parts",
+    "_parts/000-combined.rs",
+    "combined_parts/"
+  ],
+  "installer_monolith_files": [
+    "install.sh",
+    "install.ps1"
+  ],
+  "test_lifecycle_debt_classifications": [
+    "temporary_scaffold",
+    "temporary_monitor",
+    "runtime_crutch",
+    "one_time_closure_guard"
+  ],
   "duplicate_surface_pairs": [
     {
       "id": "orchestration_root_transition",
@@ -99,7 +138,9 @@
     "ci_workflow_tier_manifest": "validation/conformance/contracts/ci_workflow_tier_manifest.json",
     "command_registry": "tools/commands/command_registry.json",
     "tooling_gate_registry": "tests/tooling/config/tooling_gate_registry.json",
-    "artifact_retention": "core/local/artifacts/assurance_artifact_retention_report_current.json"
+    "artifact_retention": "core/local/artifacts/assurance_artifact_retention_report_current.json",
+    "test_lifecycle_registry": "validation/tests/contracts/validation_test_lifecycle_registry.json",
+    "real_work_workflow_proof": "core/local/artifacts/real_work_workflow_proof_current.json"
   },
   "policy": {
     "scorecard_is_observational_by_default": true,
@@ -111,6 +152,7 @@
     "history_deltas_required": true,
     "top_entropy_drivers_required": true,
     "artifact_pressure_must_include_retention_candidates": true,
-    "dirty_churn_must_include_status_breakdown": true
+    "dirty_churn_must_include_status_breakdown": true,
+    "blob_pressure_must_cover_generated_installer_tests_and_real_work": true
   }
 }
