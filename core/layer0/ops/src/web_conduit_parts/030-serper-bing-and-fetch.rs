@@ -126,6 +126,25 @@ fn search_row_array_text(row: &Value, key: &str, max_chars: usize) -> String {
         .unwrap_or_default()
 }
 
+fn structured_search_http_error(provider: &str, status_code: i64) -> Option<String> {
+    let provider = clean_text(provider, 80);
+    match status_code {
+        401 | 403 => Some(format!(
+            "{provider}_auth_or_permission_required_http_{status_code}"
+        )),
+        402 | 432 => Some(format!(
+            "{provider}_provider_quota_exceeded_or_billing_required_http_{status_code}"
+        )),
+        408 | 504 => Some(format!("{provider}_provider_timeout_http_{status_code}")),
+        429 => Some(format!("{provider}_rate_limited_http_429")),
+        400..=499 => Some(format!("{provider}_provider_request_failed_http_{status_code}")),
+        500..=599 => Some(format!(
+            "{provider}_provider_transient_failure_http_{status_code}"
+        )),
+        _ => None,
+    }
+}
+
 fn render_tavily_payload(
     body: &str,
     allowed_domains: &[String],

@@ -363,6 +363,18 @@ mod tests {
     }
 
     #[test]
+    fn provider_failure_class_treats_quota_and_billing_as_throttle_boundary() {
+        assert_eq!(
+            provider_failure_class("exa_provider_quota_exceeded_or_billing_required_http_402"),
+            "access_or_throttle"
+        );
+        assert_eq!(
+            provider_failure_class("payment_required provider account exhausted"),
+            "access_or_throttle"
+        );
+    }
+
+    #[test]
     fn circuit_breaker_ignores_query_quality_failures() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let policy = json!({
@@ -543,6 +555,10 @@ mod tests {
             .map(|value| !value.is_empty())
             .unwrap_or(false));
         assert_eq!(row.get("circuit_open").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            row.get("last_failure_class").and_then(Value::as_str),
+            Some("timeout")
+        );
         record_provider_attempt(tmp.path(), "serperdev", true, "", &policy);
         let rows_after = provider_health_snapshot(tmp.path(), &[String::from("serperdev")])
             .as_array()

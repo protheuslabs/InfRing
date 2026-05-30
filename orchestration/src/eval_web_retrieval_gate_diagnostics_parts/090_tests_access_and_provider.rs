@@ -46,6 +46,26 @@
     }
 
     #[test]
+    fn access_blocker_detects_provider_quota_snake_case_errors() {
+        let payload = json!({
+            "provider_results": [{
+                "provider": "exa",
+                "status": "error",
+                "error": "provider_circuit_open:exa_provider_quota_exceeded_or_billing_required_http_402"
+            }]
+        });
+        let blocker = web_access_blocker_diagnostics(&payload, &json!({}));
+        assert_eq!(
+            blocker.pointer("/classes/rate_limit_or_quota").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            blocker.get("kind").and_then(Value::as_str),
+            Some("throttle_or_rate_limit")
+        );
+    }
+
+    #[test]
     fn excludes_post_tool_cases_when_only_derived_fallback_request_exists() {
         let case = json!({
             "category": "post_tool_synthesis"

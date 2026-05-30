@@ -251,6 +251,23 @@
     }
 
     #[test]
+    fn structured_search_http_errors_preserve_provider_account_boundary() {
+        assert_eq!(
+            structured_search_http_error("exa", 402).as_deref(),
+            Some("exa_provider_quota_exceeded_or_billing_required_http_402")
+        );
+        assert_eq!(
+            structured_search_http_error("tavily", 432).as_deref(),
+            Some("tavily_provider_quota_exceeded_or_billing_required_http_432")
+        );
+        assert_eq!(
+            structured_search_http_error("tavily", 429).as_deref(),
+            Some("tavily_rate_limited_http_429")
+        );
+        assert_eq!(structured_search_http_error("tavily", 200), None);
+    }
+
+    #[test]
     fn sensitive_domain_requires_explicit_human_approval() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let out = api_fetch(

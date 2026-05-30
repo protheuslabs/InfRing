@@ -1037,22 +1037,51 @@
     }
     for provider in &provider_chain {
         if let Some(open_until) = provider_circuit_open_until(root, provider, &policy) {
+            let provider_health = provider_health_snapshot(root, &[provider.clone()]);
+            let provider_health_row = provider_health
+                .as_array()
+                .and_then(|rows| rows.first())
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let circuit_last_error = clean_text(
+                provider_health_row
+                    .get("last_error")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                220,
+            );
+            let circuit_failure_class = clean_text(
+                provider_health_row
+                    .get("last_failure_class")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                80,
+            );
             skipped.push(json!({
                 "provider": provider,
                 "reason": "circuit_open",
-                "open_until": open_until
+                "open_until": open_until,
+                "last_error": circuit_last_error,
+                "last_failure_class": circuit_failure_class
             }));
             if !allow_fallback {
+                let circuit_error = if circuit_last_error.is_empty() {
+                    "provider_circuit_open".to_string()
+                } else {
+                    format!("provider_circuit_open:{circuit_last_error}")
+                };
                 last_payload = Some(json!({
                     "ok": false,
-                    "error": "provider_circuit_open",
+                    "error": circuit_error,
                     "summary": format!(
                         "Search provider \"{provider}\" is temporarily unavailable because its circuit breaker is open."
                     ),
                     "content": "",
                     "provider": provider,
                     "provider_unavailable_reason": "circuit_open",
-                    "circuit_open_until": open_until
+                    "circuit_open_until": open_until,
+                    "provider_circuit_last_error": circuit_last_error,
+                    "provider_circuit_failure_class": circuit_failure_class
                 }));
                 break;
             }

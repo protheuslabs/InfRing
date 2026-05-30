@@ -889,60 +889,128 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         }
     }
     if source == "web" && !planned_second_pass_queries.is_empty() {
-        for recovery_query in planned_second_pass_queries {
-            let (mut rows, issues, artifacts) = retrieve_web_candidates_for_query_with_timeout(
-                root,
-                &recovery_query,
-                &policy,
-                &search_scope,
-                page_fetch_budget.clone(),
-                query_timeout,
-            );
-            query_lane_sources.push(query_lane_source(
-                &recovery_query,
-                "second_pass_recovery",
-                &rows,
-                &issues,
-                &artifacts,
-            ));
-            if retrieval_telemetry_enabled(&policy) {
-                retrieval_telemetry.push(retrieval_telemetry_row(
-                    &recovery_query,
-                    "second_pass_recovery",
-                    &rows,
-                    &issues,
-                    &artifacts,
-                ));
-            }
-            provider_results.extend(artifacts);
-            let transport_only_issue = rows.is_empty()
-                && issues.iter().all(|issue| {
-                    issue.starts_with("query_timeout_ms_")
-                        || issue == "query_worker_spawn_failed"
-                        || issue == "query_worker_disconnected"
-                });
-            if rows.is_empty() && issues.is_empty() {
-                partial_failures.push(format!(
-                    "{}:no_usable_summary",
-                    clean_text(&recovery_query, 120)
-                ));
-            } else {
-                if rows.is_empty() && !transport_only_issue {
-                    partial_failures.push(format!(
-                        "{}:no_usable_summary",
-                        clean_text(&recovery_query, 120)
+        let limit = parallel_window.max(1);
+        let mut offset = 0usize;
+        while offset < planned_second_pass_queries.len() {
+            let end = (offset + limit).min(planned_second_pass_queries.len());
+            let expected = end.saturating_sub(offset);
+            let (tx, rx) = std::sync::mpsc::channel::<(
+                usize,
+                String,
+                (Vec<Candidate>, Vec<String>, Vec<Value>),
+            )>();
+            let mut chunk_rows = std::iter::repeat_with(|| None)
+                .take(expected)
+                .collect::<Vec<Option<(String, (Vec<Candidate>, Vec<String>, Vec<Value>))>>>();
+            for (local_idx, q) in planned_second_pass_queries[offset..end].iter().enumerate() {
+                let tx_clone = tx.clone();
+                let query_item = q.clone();
+                let root_buf = root.to_path_buf();
+                let policy_buf = policy.clone();
+                let search_scope_buf = search_scope.clone();
+                let fetch_budget_buf = page_fetch_budget.clone();
+                let spawned = thread::Builder::new()
+                    .name(format!("batch-query-recovery-{local_idx}"))
+                    .spawn(move || {
+                        let out = retrieve_web_candidates_for_query(
+                            &root_buf,
+                            &query_item,
+                            &policy_buf,
+                            &search_scope_buf,
+                            fetch_budget_buf,
+                        );
+                        let _ = tx_clone.send((local_idx, query_item, out));
+                    });
+                if spawned.is_err() {
+                    chunk_rows[local_idx] = Some((
+                        q.clone(),
+                        (
+                            Vec::new(),
+                            vec!["query_worker_spawn_failed".to_string()],
+                            Vec::new(),
+                        ),
                     ));
-                } else {
-                    candidates.append(&mut rows);
                 }
-                partial_failures.extend(
-                    issues
-                        .into_iter()
-                        .map(|issue| format!("{}:{issue}", clean_text(&recovery_query, 120))),
-                );
             }
-            executed_queries.push(recovery_query.clone());
-            second_pass_queries.push(recovery_query);
+            drop(tx);
+            let mut received = chunk_rows.iter().filter(|row| row.is_some()).count();
+            while received < expected {
+                match rx.recv_timeout(query_timeout) {
+                    Ok((local_idx, q, out)) => {
+                        if local_idx < expected && chunk_rows[local_idx].is_none() {
+                            chunk_rows[local_idx] = Some((q, out));
+                            received += 1;
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            }
+            for local_idx in 0..expected {
+                let fallback_query = clean_text(&planned_second_pass_queries[offset + local_idx], 120);
+                match chunk_rows[local_idx].take() {
+                    Some((recovery_query, (mut rows, issues, artifacts))) => {
+                        query_lane_sources.push(query_lane_source(
+                            &recovery_query,
+                            "second_pass_recovery",
+                            &rows,
+                            &issues,
+                            &artifacts,
+                        ));
+                        if retrieval_telemetry_enabled(&policy) {
+                            retrieval_telemetry.push(retrieval_telemetry_row(
+                                &recovery_query,
+                                "second_pass_recovery",
+                                &rows,
+                                &issues,
+                                &artifacts,
+                            ));
+                        }
+                        provider_results.extend(artifacts);
+                        let transport_only_issue = rows.is_empty()
+                            && issues.iter().all(|issue| {
+                                issue.starts_with("query_timeout_ms_")
+                                    || issue == "query_worker_spawn_failed"
+                                    || issue == "query_worker_disconnected"
+                            });
+                        if rows.is_empty() && issues.is_empty() {
+                            partial_failures.push(format!(
+                                "{}:no_usable_summary",
+                                clean_text(&recovery_query, 120)
+                            ));
+                        } else {
+                            if rows.is_empty() && !transport_only_issue {
+                                partial_failures.push(format!(
+                                    "{}:no_usable_summary",
+                                    clean_text(&recovery_query, 120)
+                                ));
+                            } else {
+                                candidates.append(&mut rows);
+                            }
+                            partial_failures.extend(issues.into_iter().map(|issue| {
+                                format!("{}:{issue}", clean_text(&recovery_query, 120))
+                            }));
+                        }
+                        executed_queries.push(recovery_query.clone());
+                        second_pass_queries.push(recovery_query);
+                    }
+                    None => {
+                        let timeout_issue =
+                            format!("query_timeout_ms_{}", query_timeout.as_millis());
+                        query_lane_sources.push(query_lane_source(
+                            &fallback_query,
+                            "second_pass_recovery",
+                            &[],
+                            &[timeout_issue.clone()],
+                            &[],
+                        ));
+                        partial_failures.push(format!("{}:{timeout_issue}", fallback_query));
+                        executed_queries.push(fallback_query.clone());
+                        second_pass_queries.push(fallback_query);
+                    }
+                }
+            }
+            offset = end;
         }
     }
 

@@ -546,7 +546,8 @@ pub(crate) fn provider_health_snapshot(root: &Path, providers: &[String]) -> Val
                 "circuit_open": circuit_open_until > now_ts,
                 "last_success_at": entry.get("last_success_at").cloned().unwrap_or(Value::Null),
                 "last_failure_at": entry.get("last_failure_at").cloned().unwrap_or(Value::Null),
-                "last_error": clean_text(entry.get("last_error").and_then(Value::as_str).unwrap_or(""), 220)
+                "last_error": clean_text(entry.get("last_error").and_then(Value::as_str).unwrap_or(""), 220),
+                "last_failure_class": clean_text(entry.get("last_failure_class").and_then(Value::as_str).unwrap_or(""), 80)
             })
         })
         .collect::<Vec<_>>();
@@ -624,6 +625,11 @@ where
                 },
                 "last_error": if family == WebProviderFamily::Search {
                     clean_text(entry.get("last_error").and_then(Value::as_str).unwrap_or(""), 220)
+                } else {
+                    String::new()
+                },
+                "last_failure_class": if family == WebProviderFamily::Search {
+                    clean_text(entry.get("last_failure_class").and_then(Value::as_str).unwrap_or(""), 80)
                 } else {
                     String::new()
                 },

@@ -227,10 +227,12 @@ fn api_search_structured_provider(
         320,
     );
     if error_value.is_empty() {
-        error_value = clean_text(
-            parsed.get("error").and_then(Value::as_str).unwrap_or(""),
-            220,
-        );
+        error_value = structured_search_http_error(&provider, status_code).unwrap_or_else(|| {
+            clean_text(
+                parsed.get("error").and_then(Value::as_str).unwrap_or(""),
+                220,
+            )
+        });
     }
     let receipt = build_receipt(
         &requested_url,
@@ -417,10 +419,12 @@ fn api_search_serper(
         320,
     );
     if error_value.is_empty() {
-        error_value = clean_text(
-            parsed.get("error").and_then(Value::as_str).unwrap_or(""),
-            220,
-        );
+        error_value = structured_search_http_error("serperdev", status_code).unwrap_or_else(|| {
+            clean_text(
+                parsed.get("error").and_then(Value::as_str).unwrap_or(""),
+                220,
+            )
+        });
     }
     let receipt = build_receipt(
         &requested_url,

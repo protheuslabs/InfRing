@@ -462,3 +462,51 @@ Current focus:
 - `decision`: `reverted`
 - `reason`: The unit-level query-lane cleanup worked structurally, but the live metric did not move and transport became worse in the two-case sample. Under the one-measurable-change rule, this is not worth keeping.
 - `follow_up`: Treat query scaffold contamination as a lower-confidence hypothesis. The next patch should inspect provider execution and provider-surface readiness directly: identify whether the first live loss is provider timeout/budget handling, provider admission/circuit state, or empty provider rows after filtering.
+
+### 2026-05-30: primary provider-chain budget experiment
+
+- `baseline_artifact`: `artifacts/web_tooling_after_evidence_packet_substance_gate.json`
+- `patch_name`: cap the primary batch-query search provider chain to one provider per lane.
+- `failure_class_targeted`: `web_4c_search_provider_surface_ready` / strong providers being exhausted or locally denied after each query lane walked the full provider chain.
+- `hypothesis`: If each lane spends at most one primary provider attempt, Tavily/Exa should be less likely to trip local rate-limit policy and provider-surface readiness should improve.
+- `files_changed`: `core/layer0/ops/config/batch_query_policy.json`, `core/layer0/ops/src/batch_query_primitive_parts/020-pipeline.combined_parts/010-link-fetch-fallback-limit-to-stage-error.rs`, `core/layer0/ops/src/batch_query_primitive_parts/042-cache-rewrite-tests.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml batch_primary_search_request_caps_provider_chain_for_rate_budget -- --nocapture` passed while the experiment was applied.
+- `eval_command`: `INFRING_BATCH_QUERY_CACHE_MODE=disabled cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- web-tooling-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --timeout-seconds=90 --out=core/local/artifacts/web_tooling_after_primary_provider_budget.json --out-latest=artifacts/web_tooling_after_primary_provider_budget.json --out-markdown=artifacts/web_tooling_after_primary_provider_budget.md`
+- `before_metrics`: evidence-packet substance run had `measured_cases=2`, `passed_cases=0/2`, upstream request/transport/access/raw-row gates passed `2/2`, and `web_4c_search_provider_surface_ready=0/2`.
+- `after_metrics`: `measured_cases=2`, `passed_cases=0/2`, `transport_failures=1`, one case first failed at `web_3a_tool_transport_completed`, and the completed case still first failed at `web_4c_search_provider_surface_ready` with `provider_degraded`, `provider_error`, `strong_search_provider_missing`, and `web_conduit_policy_denied`.
+- `visible_output_delta`: no user-facing improvement measured.
+- `decision`: `reverted`
+- `reason`: The provider-chain cap did not reduce the observed local policy denial in the live run and made transport worse in the two-case sample. It also did not address the second-pass recovery path, where receipts still showed Tavily/Exa denied by `rate_limit_exceeded`.
+- `follow_up`: The next patch should target provider scheduling rather than provider list length: inspect the local web-conduit rate-limit ledger/circuit state and either defer strong-provider recovery until budget is available or expose a clean `provider_budget_exhausted` failure instead of spending repeated denied attempts.
+
+### 2026-05-30: provider quota/circuit diagnostic boundary
+
+- `baseline_artifact`: `artifacts/web_tooling_after_provider_http_error_boundary.json`
+- `patch_name`: preserve structured provider HTTP quota/billing errors and carry circuit last-error context into web-tooling diagnostics.
+- `failure_class_targeted`: `provider_account_or_quota_failure_mislabeled_as_no_relevant_results`.
+- `hypothesis`: If Tavily/Exa HTTP account/quota failures survive normalization and circuit-open payloads carry the underlying last error, the first failed tooling gate should move upstream to provider quota/access instead of downstream no-results or weak evidence.
+- `files_changed`: `core/layer0/ops/src/web_conduit_parts/030-serper-bing-and-fetch.rs`, `core/layer0/ops/src/web_conduit_parts/050-search-providers_parts/001-segment.rs`, `core/layer0/ops/src/web_conduit_parts/060-search-orchestration_parts/001-segment_parts/670-api-search-parts/000-combined.rs`, `core/layer0/ops/src/web_conduit_parts/080-tests_parts/010-mod-tests_parts/010-status-and-provider-catalog-tests.rs`, `core/layer0/ops/src/web_conduit_provider_runtime_parts/010-provider-chain-and-health.rs`, `core/layer0/ops/src/web_conduit_provider_runtime_parts/017-provider-public-contracts.rs`, `core/layer0/ops/src/web_conduit_provider_runtime_parts/020-cache-and-tests.rs`, `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/080_access_blockers.rs`, `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/090_tests_access_and_provider.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml structured_search_http_errors_preserve_provider_account_boundary -- --nocapture` passed; `cargo test --manifest-path core/layer0/ops/Cargo.toml provider_failure_class_treats_quota_and_billing_as_throttle_boundary -- --nocapture` passed; `cargo test --manifest-path orchestration/Cargo.toml --bin eval_runtime access_blocker_detects_provider_quota_snake_case_errors -- --nocapture` passed.
+- `eval_command`: `INFRING_BATCH_QUERY_CACHE_MODE=disabled cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- web-tooling-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --timeout-seconds=90 --out=core/local/artifacts/web_tooling_after_circuit_quota_visibility.json --out-latest=artifacts/web_tooling_after_circuit_quota_visibility.json --out-markdown=artifacts/web_tooling_after_circuit_quota_visibility.md`
+- `before_metrics`: prior live artifact showed Tavily HTTP `432` and Exa HTTP `402` normalized as `no_relevant_results`; after the circuit opened, `web_3b1_provider_quota_not_rate_limited` still passed because the payload only exposed `provider_circuit_open`.
+- `after_metrics`: `measured_cases=2`, `passed_cases=0/2`, `transport_failures=1`, `web_3a_tool_transport_completed=1/2`, `web_3b1_provider_quota_not_rate_limited=1/2`, `web_3b_access_not_blocked_or_throttled=1/2`, `web_4b_search_provider_circuit_closed=1/2`, `web_4c_search_provider_surface_ready=0/2`, `web_7_usable_evidence_available=0/2`. The completed case now first fails at `web_3b1_provider_quota_not_rate_limited` with `quota_exceeded` and `provider_circuit_open:exa_provider_quota_exceeded_or_billing_required_http_402`.
+- `visible_output_delta`: no user-facing improvement intended.
+- `decision`: `kept`
+- `reason`: This is a diagnostic-fidelity patch. It proves the current strong-provider lane is blocked by provider account/quota/circuit state in at least one measured case, not by generic relevance or synthesis.
+- `follow_up`: Next one-change patch should target the remaining transport failure at `web_3a_tool_transport_completed` or the provider readiness path that can leave `web_4c_search_provider_surface_ready=0/2`; do not tune synthesis until a live run shows usable evidence entering the workflow.
+
+### 2026-05-30: parallel second-pass recovery lanes
+
+- `baseline_artifact`: `artifacts/web_tooling_after_circuit_quota_visibility.json`
+- `patch_name`: run second-pass recovery query lanes through the same bounded parallel window as the initial retrieval wave.
+- `failure_class_targeted`: `tool_transport_timeout_before_payload` caused by sequential recovery lanes each spending the full query timeout.
+- `hypothesis`: If recovery lanes are bounded in parallel instead of serialized, the tool should return a structured partial/no-results payload before the harness transport timeout, allowing downstream gates to expose the real provider/evidence boundary.
+- `files_changed`: `core/layer0/ops/src/batch_query_primitive_parts/020-pipeline.combined_parts/040-api-batch-query_parts/000-combined.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml query_timeout_policy_defaults_and_clamps -- --nocapture` passed after the patch compiled the affected crate.
+- `eval_command`: `INFRING_BATCH_QUERY_CACHE_MODE=disabled cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- web-tooling-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --timeout-seconds=90 --out=core/local/artifacts/web_tooling_after_parallel_recovery_lanes.json --out-latest=artifacts/web_tooling_after_parallel_recovery_lanes.json --out-markdown=artifacts/web_tooling_after_parallel_recovery_lanes.md`
+- `before_metrics`: `measured_cases=2`, `passed_cases=0/2`, `transport_failures=1`, `web_3a_tool_transport_completed=1/2`, `web_4_raw_candidates_present=1/2`, `web_4c_search_provider_surface_ready=0/2`, `web_5b_content_rich_candidates_present=1/2`, `web_7_usable_evidence_available=0/2`.
+- `after_metrics`: `measured_cases=2`, `passed_cases=0/2`, `transport_failures=0`, `web_3a_tool_transport_completed=2/2`, `web_4_raw_candidates_present=2/2`, `web_4c_search_provider_surface_ready=1/2`, `web_5b_content_rich_candidates_present=2/2`, `web_5d_source_quality_ready=0/2`, `web_5g_answerability_ready=0/2`, `web_7_usable_evidence_available=0/2`.
+- `visible_output_delta`: no direct user-facing text measured; this patch makes the tooling return a structured payload instead of timing out.
+- `decision`: `kept`
+- `reason`: This is a runtime-bounding patch with a clear positive gate movement. It did not solve evidence quality, but it removed an upstream transport blocker and made the next failure concrete.
+- `follow_up`: Work top-down from the new state: provider quota/circuit remains visible in one case, while the non-transport comparison case now reaches `web_5d_source_quality_ready` and `web_5g_answerability_ready`, meaning the next primitive work should target source diversity/evidence packet sufficiency rather than transport.
