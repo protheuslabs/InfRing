@@ -793,3 +793,162 @@ Keep this patch. It is the first recent Level 6/7 change that clearly improves
 capability instead of adding prompt weight: the runtime now deterministically
 crosses the missing-import first-mutation boundary, then uses the model for
 actual behavior completion and validation.
+
+## EXP-CODING-034: Batch public import-surface seed from observed imports
+
+Status: `reverted_negative_delta`
+
+Hypothesis:
+
+The Level 6/7 `4/5` stability result after `EXP-CODING-033` had one failure
+where the runtime seeded one missing Python public symbol, then validation later
+failed on another symbol from the same `from package import ...` surface. A
+more complete primitive might parse observed validation/test/probe import lines
+and seed all missing public symbols for a local package in one deterministic
+batch.
+
+Patch attempted:
+
+- Extended the Python import-surface seed to collect `from module import A, B, C`
+  statements from the prompt, validation details, and receipt payload strings.
+- Fed that observed public import contract into the existing seed mutation path.
+
+Measurement:
+
+- Rebuilt `target/debug/xtask` successfully.
+- Started a 5x Level 6/7 batch and stopped it after two paired runs because the
+  speed regression was already clear.
+- Reports:
+  `references/coding-agent-systems/runtime_trace_harness/reports/l6_l7_5x_after_public_import_surface_contract_20260529_run1.json`
+  `references/coding-agent-systems/runtime_trace_harness/reports/l6_l7_5x_after_public_import_surface_contract_20260529_run2.json`
+- Run 1 passed Level 6 and Level 7, but Level 7 took `183840ms` with first
+  mutation at `73ms`.
+- Run 2 failed Level 6 and Level 7 with `runtime_timeout`; both mutated at
+  roughly `71ms`, but behavior remained incomplete and the provider/runtime
+  exhausted the harness budget.
+
+Decision:
+
+Reverted this patch. It improved initial import-surface breadth but made the
+workflow worse on the architectural metric that matters here: deterministic
+stubs happened too early and encouraged a long timeout/repair path instead of a
+small model-owned implementation. The next attempt should not broaden generic
+stub seeding. It should preserve the `EXP-CODING-033` seed as a narrow unblocker
+and improve the post-seed repair handoff or timeout handling as a separate
+primitive.
+
+## EXP-CODING-035: Post-seed repair handoff receipt
+
+Status: `reverted_mixed_negative_delta`
+
+Hypothesis:
+
+Keep the narrow `EXP-CODING-033` Python import-surface seed, but add a tiny
+post-seed repair handoff receipt so the model treats seeded placeholders as a
+repair target rather than final implementation. This should preserve the good
+first-mutation unblock while reducing incomplete-stub timeout paths.
+
+Patch attempted:
+
+- When the narrow import seed fired, appended a synthetic runtime handoff receipt
+  saying the runtime seeded minimal placeholders and the next model turn should
+  implement observed validation/probe behavior in owner source, preserve exports,
+  and run validation.
+
+Measurement:
+
+- Rebuilt `target/debug/xtask` successfully.
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/l6_l7_5x_after_import_seed_repair_handoff_20260529_aggregate.json`
+- Level 6 improved to `5/5`, average wall `60243ms`.
+- Level 7 regressed to `3/5`, average wall `113878ms`, with one
+  `validation_failed` and one `runtime_timeout` failure.
+
+Decision:
+
+Reverted this patch. The handoff helped Level 6 reliability but hurt the more
+important scalability signal at Level 7. The next repair should avoid adding
+more observation/prompt payload after seed. A better candidate is a controller
+primitive that detects seeded-placeholder validation failures and routes one
+bounded repair turn with compact validation stderr plus owner file only.
+
+## EXP-CODING-036: Compact post-seed repair context
+
+Status: `reverted_negative_delta`
+
+Hypothesis:
+
+Instead of adding a handoff receipt after the narrow Python import-surface seed,
+route the first model repair turn through a compact controller context containing
+only failed validation plus the owner/export Python files touched by the seed.
+This should reduce post-seed observation bloat while keeping the deterministic
+first-mutation unblock.
+
+Patch attempted:
+
+- Tracked whether the Python import-surface seed fired during bootstrap.
+- If it fired, replaced the normal all-receipts observation prompt with a compact
+  seed repair context built from failed validation details and seed file-write
+  receipt paths.
+- Added a short seed-specific bootstrap rule telling the model to repair behavior
+  in the touched owner/export files before validation.
+
+Measurement:
+
+- Rebuilt `target/debug/xtask` successfully.
+- Started Level 6/7 batch:
+  `references/coding-agent-systems/runtime_trace_harness/reports/l6_l7_5x_after_import_seed_compact_repair_context_20260529_run1.json`
+- Stopped the run before the first paired attempt completed because it exceeded
+  roughly five minutes without producing the first summary, a clear regression
+  versus the current baseline where paired runs usually complete in about one to
+  two minutes.
+
+Decision:
+
+Reverted this patch. Compacting the observation this way appears to remove
+useful context or route the weak model into a slow path. The next candidate
+should not alter the first post-seed prompt shape. Prefer measuring and fixing
+provider/runtime timeout classification or adding a rollback/repair-after-timeout
+controller outside the first repair turn.
+
+## EXP-CODING-037: Runtime failure taxonomy for seeded repair failures
+
+Status: `patched_measurement_positive_diagnostic`
+
+Hypothesis:
+
+The biggest current cross-level failure is no longer basic file mutation. The
+runtime often crosses the first-mutation boundary, then fails during semantic
+repair after a deterministic Python import-surface seed. Treating these as
+plain `runtime_timeout` or `validation_failed` hides the actual next primitive
+we need to build.
+
+Patch:
+
+- Added `runtime_failure_analysis` to native agent receipts and run journals.
+- Added generic validation failure classes:
+  `import_surface_missing`, `attribute_missing`, `type_error`,
+  `file_not_found`, `assertion_mismatch`, `command_timeout`, `syntax_error`,
+  and `unknown_validation_failure`.
+- Added seeded-repair classification when a Python import-surface seed receipt
+  exists and repair/validation remains unresolved.
+- Updated Level 2 and Level 3+ coding harnesses to preserve runtime analysis and
+  fall back to check-detail stderr classification.
+
+Measurement:
+
+- Rebuilt `target/debug/xtask` successfully.
+- Python-compiled Level 2 and Level 3+ harnesses successfully.
+- Smoke report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/failure_taxonomy_l6_l7_smoke_20260529.json`
+- Level 6 passed `1/1`.
+- Level 7 failed `1/1` and now reports `seeded_repair_timeout` instead of a
+  generic timeout. The trace shows seed mutation at `81ms`, then provider
+  timeout on the first post-seed turn.
+
+Decision:
+
+Keep this diagnostic patch. It does not alter repair behavior, but it gives the
+higher workflow and future patches the right target: the next behavior primitive
+should handle `seeded_repair_timeout`/`seeded_repair_import_surface_missing`, not
+broad `runtime_timeout`.

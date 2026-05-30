@@ -339,6 +339,10 @@ impl AgentContract {
             },
             "native_tool_phase_latency_ms": native_tool_phase_latency_ms,
             "trace_id": trace.trace_id,
+            "runtime_failure_analysis": native_tool_runtime_failure_analysis(
+                &tool_receipts,
+                &terminal_status,
+            ),
             "workflow": self
                 .metadata
                 .get("workflow")
@@ -2435,6 +2439,10 @@ fn native_tool_persist_run_journal(
         "updated_at_unix_ms": Utc::now().timestamp_millis(),
         "provider_call_count": provider_call_count,
         "terminal_status": terminal_status,
+        "runtime_failure_analysis": native_tool_runtime_failure_analysis(
+            receipts,
+            terminal_status.unwrap_or("in_progress"),
+        ),
         "native_tool_receipts": receipts,
         "changed_files": changed_files,
         "validation_receipts": validation_receipts,
@@ -2611,6 +2619,84 @@ fn native_tool_empty_retry_limit(metadata: &Value) -> u64 {
 
 fn native_tool_provider_error_is_timeout(error: &ProviderError) -> bool {
     error.code == ProviderErrorCode::Timeout || error.message.contains("ollama_run_timeout")
+}
+
+fn native_tool_runtime_failure_analysis(
+    receipts: &[NativeToolReceipt],
+    terminal_status: &str,
+) -> Value {
+    let validation_unresolved = !native_tool_has_successful_validation_after_latest_mutation(receipts);
+    let validation_failure_class = if validation_unresolved {
+        let validation_details = native_tool_failed_validation_receipt_details(receipts);
+        native_tool_validation_failure_class(&validation_details)
+    } else {
+        None
+    };
+    let seeded_python_import_surface = native_tool_has_python_import_surface_seed_receipt(receipts);
+    let terminal_timeout = terminal_status.contains("timeout");
+    let actionable_repair_class = native_tool_actionable_repair_class(
+        seeded_python_import_surface,
+        terminal_timeout,
+        validation_failure_class.as_deref(),
+    );
+    json!({
+        "schema_version": "native_runtime_failure_analysis_v1",
+        "terminal_status": terminal_status,
+        "seeded_python_import_surface": seeded_python_import_surface,
+        "terminal_timeout": terminal_timeout,
+        "seeded_repair_timeout": seeded_python_import_surface && terminal_timeout,
+        "validation_failure_class": validation_failure_class.map(Value::String).unwrap_or(Value::Null),
+        "actionable_repair_class": actionable_repair_class,
+    })
+}
+
+fn native_tool_actionable_repair_class(
+    seeded_python_import_surface: bool,
+    terminal_timeout: bool,
+    validation_failure_class: Option<&str>,
+) -> Value {
+    if seeded_python_import_surface && terminal_timeout {
+        return Value::String("seeded_repair_timeout".to_string());
+    }
+    if let Some(class_name) = validation_failure_class {
+        if seeded_python_import_surface {
+            return Value::String(format!("seeded_repair_{class_name}"));
+        }
+        return Value::String(class_name.to_string());
+    }
+    Value::Null
+}
+
+fn native_tool_validation_failure_class(details: &str) -> Option<String> {
+    if details == "<none>" || details.trim().is_empty() {
+        return None;
+    }
+    let lower = details.to_ascii_lowercase();
+    let class_name = if lower.contains("cannot import name") || lower.contains("modulenotfounderror")
+    {
+        "import_surface_missing"
+    } else if lower.contains("attributeerror") || lower.contains("has no attribute") {
+        "attribute_missing"
+    } else if lower.contains("typeerror") {
+        "type_error"
+    } else if lower.contains("filenotfounderror") || lower.contains("no such file or directory") {
+        "file_not_found"
+    } else if lower.contains("assertionerror") || lower.contains("assert") {
+        "assertion_mismatch"
+    } else if lower.contains("timed out") || lower.contains("timeout") {
+        "command_timeout"
+    } else if lower.contains("syntaxerror") || lower.contains("indentationerror") {
+        "syntax_error"
+    } else {
+        "unknown_validation_failure"
+    };
+    Some(class_name.to_string())
+}
+
+fn native_tool_has_python_import_surface_seed_receipt(receipts: &[NativeToolReceipt]) -> bool {
+    receipts.iter().any(|receipt| {
+        receipt.status == "ok" && receipt.call_id.contains("runtime_python_import_surface_seed")
+    })
 }
 
 fn native_tool_requires_successful_mutation(metadata: &Value) -> bool {

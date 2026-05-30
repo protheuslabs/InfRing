@@ -500,7 +500,7 @@ def judge(system: str, job: dict[str, Any], run_result: dict[str, Any]) -> dict[
         "case_id": job["case_id"],
         "level": job["level"],
         "ok": not failures,
-        "failure_class": classify_failure(failures, run_result),
+        "failure_class": classify_failure(failures, run_result, checks),
         "wall_time_ms": run_result.get("wall_time_ms"),
         "time_to_first_mutation_ms": time_to_first_mutation_ms(job),
         "changed_files": changed,
@@ -510,22 +510,98 @@ def judge(system: str, job: dict[str, Any], run_result: dict[str, Any]) -> dict[
     }
 
 
-def classify_failure(failures: list[str], run_result: dict[str, Any]) -> str | None:
+def classify_failure(
+    failures: list[str],
+    run_result: dict[str, Any],
+    checks: list[dict[str, Any]],
+) -> str | None:
     if not failures:
         return None
+    actionable = runtime_actionable_repair_class(run_result)
+    seeded = runtime_seeded_import_surface(run_result)
+    validation_class = validation_failure_class_from_checks(checks)
     if run_result.get("blocked"):
         return str(run_result["blocked"])
     if run_result.get("timed_out"):
+        if actionable:
+            return actionable
+        if seeded:
+            return "seeded_repair_timeout"
         return "runtime_timeout"
     if "source_or_test_mutated_after_seed" in failures:
         return "no_successful_mutation"
     if "validation_passes_after_worker" in failures:
+        if actionable:
+            return actionable
+        if validation_class and seeded:
+            return f"seeded_repair_{validation_class}"
+        if validation_class:
+            return validation_class
         return "validation_failed"
     if "semantic_probe_passes" in failures:
+        if actionable:
+            return actionable
+        if validation_class and seeded:
+            return f"seeded_repair_{validation_class}"
+        if validation_class:
+            return validation_class
         return "semantic_probe_failed"
     if "expected_markers_present" in failures:
         return "missing_expected_markers"
     return "agent_run_failed"
+
+
+def runtime_actionable_repair_class(run_result: dict[str, Any]) -> str | None:
+    analysis = run_result.get("runtime_failure_analysis")
+    if isinstance(analysis, dict):
+        value = analysis.get("actionable_repair_class")
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def runtime_seeded_import_surface(run_result: dict[str, Any]) -> bool:
+    analysis = run_result.get("runtime_failure_analysis")
+    if isinstance(analysis, dict) and analysis.get("seeded_python_import_surface") is True:
+        return True
+    for receipt in run_result.get("native_tool_receipt_summary") or []:
+        if not isinstance(receipt, dict):
+            continue
+        call_id = str(receipt.get("call_id") or "")
+        status = str(receipt.get("status") or "")
+        if "runtime_python_import_surface_seed" in call_id and status == "ok":
+            return True
+    return False
+
+
+def validation_failure_class_from_checks(checks: list[dict[str, Any]]) -> str | None:
+    text_parts: list[str] = []
+    for check in checks:
+        if not isinstance(check, dict) or check.get("ok") is True:
+            continue
+        detail = check.get("detail")
+        if isinstance(detail, (dict, list)):
+            text_parts.append(json.dumps(detail, sort_keys=True))
+        elif detail is not None:
+            text_parts.append(str(detail))
+    text = "\n".join(text_parts).lower()
+    if not text:
+        return None
+    if "cannot import name" in text or "modulenotfounderror" in text:
+        return "import_surface_missing"
+    if "attributeerror" in text or "has no attribute" in text:
+        return "attribute_missing"
+    if "typeerror" in text:
+        return "type_error"
+    if "filenotfounderror" in text or "no such file or directory" in text:
+        return "file_not_found"
+    if "assertionerror" in text or "assert" in text:
+        return "assertion_mismatch"
+    if "timed out" in text or "timeout" in text:
+        return "command_timeout"
+    if "syntaxerror" in text or "indentationerror" in text:
+        return "syntax_error"
+    return "unknown_validation_failure"
 
 
 def summarize_native_provider_turn_timing(project_root: Path) -> dict[str, Any] | None:
@@ -633,6 +709,11 @@ def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
             except json.JSONDecodeError:
                 parsed = {}
     receipt = parsed.get("receipt") if isinstance(parsed.get("receipt"), dict) else {}
+    runtime_failure_analysis = (
+        receipt.get("runtime_failure_analysis")
+        if isinstance(receipt.get("runtime_failure_analysis"), dict)
+        else None
+    )
     trace_summary = parsed.get("trace_summary") if isinstance(parsed.get("trace_summary"), dict) else {}
     xtask_outer_timing_ms = parsed.get("xtask_outer_timing_ms") if isinstance(parsed.get("xtask_outer_timing_ms"), dict) else None
     agent_runtime_phase_latency_ms = receipt.get("agent_runtime_phase_latency_ms") if isinstance(receipt.get("agent_runtime_phase_latency_ms"), dict) else None
@@ -691,6 +772,7 @@ def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
         "agent_runtime_phase_latency_ms": agent_runtime_phase_latency_ms,
         "native_tool_phase_latency_ms": native_tool_phase_latency_ms,
         "runtime_lane_phase_latency_ms": runtime_lane_phase_latency_ms,
+        "runtime_failure_analysis": runtime_failure_analysis,
         "coding_runtime_probe": coding_runtime_probe,
         "native_runtime_timeline_probe": native_runtime_timeline_probe,
         "xtask_outer_timing_ms": xtask_outer_timing_ms,

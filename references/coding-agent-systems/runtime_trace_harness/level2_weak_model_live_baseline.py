@@ -298,6 +298,12 @@ def extract_infring_control_metrics(parsed: dict[str, Any], wall_time_ms: int) -
         "model_call_count_estimate": 1 + (1 if repair_receipt_count else 0),
         "time_to_first_mutation_ms_estimate": model_latency_ms if mutation_receipt_count else None,
         "planner_models_observed": observed_models,
+        "runtime_failure_analysis": receipt.get("runtime_failure_analysis")
+        if isinstance(receipt.get("runtime_failure_analysis"), dict)
+        else None,
+        "seeded_python_import_surface": any(
+            "runtime_python_import_surface_seed" in call_id for call_id in receipt_call_ids
+        ),
     }
 
 
@@ -352,32 +358,103 @@ def judge_system_attempt(system: str, job: dict[str, Any], run_result: dict[str,
         "wall_time_ms": run_result.get("wall_time_ms"),
         "time_to_first_mutation_ms": run_result.get("time_to_first_mutation_ms"),
         "control_metrics": control_metrics,
-        "failure_class": classify_failure(failures, run_result),
+        "failure_class": classify_failure(failures, run_result, checks),
         "checks": checks,
         "failures": failures,
         "run_result": run_result,
     }
 
 
-def classify_failure(failures: list[str], run_result: dict[str, Any]) -> str | None:
+def classify_failure(
+    failures: list[str],
+    run_result: dict[str, Any],
+    checks: list[dict[str, Any]],
+) -> str | None:
     if not failures:
         return None
+    actionable = runtime_actionable_repair_class(run_result)
+    seeded = runtime_seeded_import_surface(run_result)
+    validation_class = validation_failure_class_from_checks(checks)
     if run_result.get("blocked"):
         return str(run_result.get("blocked"))
     if run_result.get("timed_out"):
+        if actionable:
+            return actionable
+        if seeded:
+            return "seeded_repair_timeout"
         return "runtime_timeout"
     if "strict_model_lock_observed" in failures:
         return "model_lock_violation"
     if "source_or_test_mutated_after_seed" in failures:
         return "no_successful_mutation"
     if "validation_passes_after_worker" in failures:
+        if actionable:
+            return actionable
+        if validation_class and seeded:
+            return f"seeded_repair_{validation_class}"
+        if validation_class:
+            return validation_class
         return "validation_failed"
     if "semantic_probe_passes" in failures or "expected_symbols_present" in failures:
+        if actionable:
+            return actionable
+        if validation_class and seeded:
+            return f"seeded_repair_{validation_class}"
+        if validation_class:
+            return validation_class
         return "semantic_or_public_interface_failed"
     if "new_regression_tests_exercised" in failures:
         return "missing_regression_test_evidence"
     if "worker_runtime_within_level2_fast_budget" in failures or "worker_runtime_within_level2_budget" in failures:
         return "latency_budget_exceeded"
+
+
+def runtime_actionable_repair_class(run_result: dict[str, Any]) -> str | None:
+    metrics = run_result.get("control_metrics") if isinstance(run_result.get("control_metrics"), dict) else {}
+    analysis = metrics.get("runtime_failure_analysis")
+    if isinstance(analysis, dict):
+        value = analysis.get("actionable_repair_class")
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def runtime_seeded_import_surface(run_result: dict[str, Any]) -> bool:
+    metrics = run_result.get("control_metrics") if isinstance(run_result.get("control_metrics"), dict) else {}
+    analysis = metrics.get("runtime_failure_analysis")
+    if isinstance(analysis, dict) and analysis.get("seeded_python_import_surface") is True:
+        return True
+    return metrics.get("seeded_python_import_surface") is True
+
+
+def validation_failure_class_from_checks(checks: list[dict[str, Any]]) -> str | None:
+    text_parts: list[str] = []
+    for check in checks:
+        if not isinstance(check, dict) or check.get("ok") is True:
+            continue
+        detail = check.get("detail")
+        if isinstance(detail, (dict, list)):
+            text_parts.append(json.dumps(detail, sort_keys=True))
+        elif detail is not None:
+            text_parts.append(str(detail))
+    text = "\n".join(text_parts).lower()
+    if not text:
+        return None
+    if "cannot import name" in text or "modulenotfounderror" in text:
+        return "import_surface_missing"
+    if "attributeerror" in text or "has no attribute" in text:
+        return "attribute_missing"
+    if "typeerror" in text:
+        return "type_error"
+    if "filenotfounderror" in text or "no such file or directory" in text:
+        return "file_not_found"
+    if "assertionerror" in text or "assert" in text:
+        return "assertion_mismatch"
+    if "timed out" in text or "timeout" in text:
+        return "command_timeout"
+    if "syntaxerror" in text or "indentationerror" in text:
+        return "syntax_error"
+    return "unknown_validation_failure"
     return "unknown_failure"
 
 
