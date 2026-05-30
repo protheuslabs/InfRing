@@ -302,3 +302,67 @@ Current focus:
 - `decision`: `kept`
 - `reason`: This is a measurement correction, not a product-quality fix. It successfully moved the falsely upstream source-quality blocker out of the way while leaving answerability and claim/packet issues visible.
 - `follow_up`: Next iteration should target `web_5g_answerability_ready` by inspecting why citable/clean evidence rows are not becoming enough concrete, query-useful answer units. Do not patch visible answer style until answerability evidence is actually present or explicitly unavailable.
+
+### 2026-05-29: evidence-packet claim widening experiment
+
+- `baseline_artifact`: `artifacts/research_golden_after_row_observed_source_quality_live2.json`
+- `patch_name`: infer missing evidence-packet `source_type`, `claim_hints`, and `why_relevant_to_query` from substantive extracts.
+- `failure_class_targeted`: `web_5e_claim_quality_ready` / `web_5h_evidence_packet_contract_ready` where rows carried extracts but missed packet fields.
+- `hypothesis`: If packet normalization extracts generic claim-like sentences from substantive snippets/extracts, then claim quality and packet-contract readiness should improve without changing visible answer format.
+- `files_changed`: `core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/045-tool-recovery-and-turn-persistence.rs`, `core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/047-turn-workflow-synthesis_parts/003-part.rs`
+- `proof_tests`: `cargo test -p infring-ops-core --lib workflow_synthesis_input_upgrades_substantive -- --nocapture` passed while experiment was applied; `cargo check --manifest-path orchestration/Cargo.toml` passed.
+- `eval_command`: `cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- research-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --sample-seed=random:6d09e741b184df5d5052ac05fd27b875bc9829f3c62ca6da69e37eb955207a47 --timeout-seconds=90 --out=core/local/artifacts/research_golden_after_packet_claim_widening_live2.json --out-latest=artifacts/research_golden_after_packet_claim_widening_live2.json --out-markdown=artifacts/research_golden_after_packet_claim_widening_live2.md --failures-out=local/state/ops/research_golden/packet_claim_widening_live2_failures.jsonl`
+- `before_metrics`: `average_score=89.0`, `passed_cases=1/2`, `excellent_cases=0/2`, `web_5d_source_quality_ready=2/2`, `web_5e_claim_quality_ready=1/2`, `web_5g_answerability_ready=0/2`, `web_5h_evidence_packet_contract_ready=1/2`, `web_7_usable_evidence_available=0/2`.
+- `after_metrics`: `average_score=86.0`, `passed_cases=1/2`, `excellent_cases=0/2`, `web_5d_source_quality_ready=1/2`, `web_5e_claim_quality_ready=0/2`, `web_5g_answerability_ready=0/2`, `web_5h_evidence_packet_contract_ready=1/2`, `web_7_usable_evidence_available=0/2`.
+- `visible_output_delta`: the drug-discovery answer remained a narrow one-sentence fragment and scored `82/fail`; the final LLM path rejected an attempted answer as `answer_units_not_traceable_to_evidence`, then the workflow surfaced `tool_evidence_fallback_used`.
+- `decision`: `reverted`
+- `reason`: The patch passed the local structural test but did not improve the measured live gates and regressed source/claim-quality readiness. It was another packet-field repair, while the actual visible failure is now the post-rejection synthesis/fallback path.
+- `follow_up`: Target the next concrete weak point: when final LLM synthesis is rejected for evidence traceability, the workflow should not fall through to a single clipped evidence fragment. Either the retry path must receive the exact traceable evidence needed to answer the original prompt, or the system should emit a complete bounded answer that explicitly explains what can and cannot be supported.
+
+### 2026-05-29: traceability reject no-excerpt-salvage experiment
+
+- `baseline_artifact`: `artifacts/research_golden_after_packet_claim_widening_live2.json`
+- `patch_name`: remove rejected-excerpt salvage from evidence-depth/traceability fallback ladder.
+- `failure_class_targeted`: `post_tool_synthesis_not_useful` / traceability-rejected LLM answer becoming visible as a thin fragment.
+- `hypothesis`: If traceability rejects cannot fall through to `excerpt_sentence_salvage`, thin rejected snippets should become complete bounded insufficiency answers instead of bad pseudo-answers.
+- `files_changed`: `core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/047-turn-workflow-synthesis_parts/007-part.rs`, `core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/047-turn-workflow-synthesis_parts/907-workflow-fallback-tests.rs`
+- `proof_tests`: `cargo test -p infring-ops-core --lib traceability_reject -- --nocapture` passed while experiment was applied; `cargo check --manifest-path orchestration/Cargo.toml` passed.
+- `eval_command`: `cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- research-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --sample-seed=random:6d09e741b184df5d5052ac05fd27b875bc9829f3c62ca6da69e37eb955207a47 --timeout-seconds=90 --out=core/local/artifacts/research_golden_after_traceability_no_excerpt_salvage_live2.json --out-latest=artifacts/research_golden_after_traceability_no_excerpt_salvage_live2.json --out-markdown=artifacts/research_golden_after_traceability_no_excerpt_salvage_live2.md --failures-out=local/state/ops/research_golden/traceability_no_excerpt_salvage_live2_failures.jsonl`
+- `before_metrics`: previous live run had `average_score=86.0`, `passed_cases=1/2`, `excellent_cases=0/2`, and the drug-discovery response was a one-sentence Isomorphic Labs fragment after `answer_units_not_traceable_to_evidence`.
+- `after_metrics`: `average_score=86.0`, `passed_cases=0/2`, `excellent_cases=0/2`; `web_2_query_metadata_present=0/2`, `web_5d_source_quality_ready=0/2`, `web_5e_claim_quality_ready=0/2`, `web_5g_answerability_ready=0/2`, `web_7_usable_evidence_available=0/2`.
+- `visible_output_delta`: the drug-discovery answer changed from the Isomorphic fragment to a worse title-shell answer: `What’s really happening inside AI’s black box? Berkeley researchers have answers University of California...`
+- `decision`: `reverted`
+- `reason`: The patch removed one bad salvage route but the fallback system selected another source-title shell. This proves the primitive issue is not one salvage branch; it is that source-title/headline rows can still be classified as acceptable answer material after synthesis rejection.
+- `follow_up`: Next patch should target the generic answer-unit/source-shell detector and fallback acceptance criteria: source titles, article headlines, and question-style titles must never satisfy `fallback_response_has_substantive_depth` or the 6a synthesis checkpoint unless backed by source extract text that directly answers the original prompt.
+
+### 2026-05-29: recovered batch-query metadata hydration
+
+- `baseline_artifact`: `artifacts/research_golden_baseline_after_reverts_live2.json`
+- `patch_name`: hydrate declared batch-query metadata for recovered raw-message requests
+- `failure_class_targeted`: `web_2_query_metadata_present` / recovered `batch_query` requests carried only `source`, `query`, and `aperture`.
+- `hypothesis`: If recovery uses the workflow-declared request repair contract to carry visible query lanes, keywords, required coverage, and metadata policy, the web tooling lane will stop starting from a thin request without adding domain-specific query assumptions.
+- `files_changed`: `core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/046b-manual-toolbox-pending-request.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml --lib manual_toolbox_pending_request_tests -- --nocapture` passed.
+- `eval_command`: `cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- research-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --sample-seed=random:6d09e741b184df5d5052ac05fd27b875bc9829f3c62ca6da69e37eb955207a47 --timeout-seconds=90 --out=core/local/artifacts/research_golden_after_query_metadata_recovery_live2.json --out-latest=artifacts/research_golden_after_query_metadata_recovery_live2.json --out-markdown=artifacts/research_golden_after_query_metadata_recovery_live2.md --failures-out=local/state/ops/research_golden/query_metadata_recovery_live2_failures.jsonl`
+- `before_metrics`: `average_score=89.0`, `passed_cases=1/2`, `excellent_cases=0/2`, `web_2_query_metadata_present=0/2`, query lanes/case `0.0`, keywords/case `0.0`.
+- `after_metrics`: `average_score=96.0`, `passed_cases=2/2`, `excellent_cases=0/2`, `web_2_query_metadata_present=2/2`, query lanes/case `3.0`, followups/case `2.0`, keywords/case `12.0`; next weakest gates became `web_5d_source_quality_ready=1/2`, `web_5e_claim_quality_ready=1/2`, `web_5g_answerability_ready=0/2`.
+- `visible_output_delta`: the title-shell drug-discovery failure became a bounded answer that distinguished one supported AI-interpretability result from the unsupported drug-discovery facets. Nuclear permitting remained bounded but not excellent due weak evidence quality.
+- `decision`: `kept`
+- `reason`: This directly fixed the most upstream failed gate and improved pass rate without hardcoding a sample query or visible answer format. It moves the bottleneck downstream from request planning to evidence/source quality.
+- `follow_up`: Work top-down from the new weakest gates: source-quality and answerability. The next patch should use row-level evidence diagnostics to explain why source-quality is still only `1/2` and why answerable evidence is not becoming enough concrete, citable answer material.
+
+### 2026-05-29: facet stopword tightening experiment
+
+- `baseline_artifact`: `artifacts/research_golden_after_query_metadata_recovery_live2.json`
+- `patch_name`: remove generic filler terms from recovered query facets
+- `failure_class_targeted`: poor generated follow-up lane such as `United States research current status`.
+- `hypothesis`: If query facet extraction drops generic filler words, generated follow-up lanes should keep more distinctive subject terms and improve source quality.
+- `files_changed`: `core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/046b-manual-toolbox-pending-request.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml --lib manual_toolbox_pending_request_tests -- --nocapture` passed while experiment was applied.
+- `eval_command`: `cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- research-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --sample-seed=random:6d09e741b184df5d5052ac05fd27b875bc9829f3c62ca6da69e37eb955207a47 --timeout-seconds=90 --out=core/local/artifacts/research_golden_after_query_metadata_recovery_tightened_live2.json --out-latest=artifacts/research_golden_after_query_metadata_recovery_tightened_live2.json --out-markdown=artifacts/research_golden_after_query_metadata_recovery_tightened_live2.md --failures-out=local/state/ops/research_golden/query_metadata_recovery_tightened_live2_failures.jsonl`
+- `before_metrics`: metadata recovery run had `average_score=96.0`, `passed_cases=2/2`, `web_2_query_metadata_present=2/2`, `web_5d_source_quality_ready=1/2`, `web_5g_answerability_ready=0/2`.
+- `after_metrics`: `average_score=87.5`, `passed_cases=1/2`, `excellent_cases=0/2`; `web_2_query_metadata_present` stayed `2/2` and some downstream gates improved, but nuclear permitting regressed to `82/fail`.
+- `visible_output_delta`: the tightened lanes produced a worse user-facing outcome on the nuclear case despite better-looking lower-level gates.
+- `decision`: `reverted`
+- `reason`: This violated the one-change rule. The metric movement did not align with user-facing quality, so the experiment is logged as a dead end rather than kept.
+- `follow_up`: Do not tune query facet stopwords blindly. Use the new metadata hydration as the stable baseline and target source-quality/answerability with evidence-row diagnostics, preferably by inspecting actual selected evidence rows before changing query generation again.

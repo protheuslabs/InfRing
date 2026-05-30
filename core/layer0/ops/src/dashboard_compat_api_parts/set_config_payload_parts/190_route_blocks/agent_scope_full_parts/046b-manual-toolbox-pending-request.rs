@@ -149,9 +149,7 @@ fn workflow_repair_recovered_request_payload(
     input: Value,
     message: &str,
 ) -> Value {
-    // Raw-message recovery must stay mechanical and contract-driven. Do not
-    // infer entities, aliases, facets, comparison modes, or temporal classes
-    // from user prose in Rust.
+    let input = workflow_apply_batch_query_recovery_metadata(family_key, tool_key, input, message);
     workflow_reconcile_relative_time_window_payload(family_key, tool_key, input, message)
 }
 
@@ -184,15 +182,14 @@ fn workflow_reconcile_relative_time_window_payload(
         }
     }
     if changed {
-        input_object.insert(
-            "query_metadata_policy".to_string(),
+        workflow_query_metadata_policy_insert(
+            input_object,
+            "temporal_coherence",
             json!({
-                "temporal_coherence": {
-                    "status": "reconciled_relative_time_window",
-                    "runtime_year": current_year,
-                    "runtime_month": current_month,
-                    "rule": "replace_unrequested_stale_year_or_month_year_in_query_fields"
-                }
+                "status": "reconciled_relative_time_window",
+                "runtime_year": current_year,
+                "runtime_month": current_month,
+                "rule": "replace_unrequested_stale_year_or_month_year_in_query_fields"
             }),
         );
     }
@@ -371,6 +368,139 @@ fn workflow_batch_query_recovery_repair_policy(family_key: &str) -> Option<Value
     }
 }
 
+fn workflow_apply_batch_query_recovery_metadata(
+    family_key: &str,
+    tool_key: &str,
+    mut input: Value,
+    message: &str,
+) -> Value {
+    if !workflow_is_web_query_tool(family_key, tool_key)
+        || normalized_workflow_token(tool_key) != "batch query"
+    {
+        return input;
+    }
+    let Some(policy) = workflow_batch_query_recovery_repair_policy(family_key) else {
+        return input;
+    };
+    let Some(input_object) = input.as_object_mut() else {
+        return input;
+    };
+    let query = clean_text(
+        input_object
+            .get("query")
+            .and_then(Value::as_str)
+            .unwrap_or(message),
+        1_200,
+    );
+    if query.is_empty() {
+        return input;
+    }
+
+    let metadata_already_present = !workflow_json_array_is_empty(input_object.get("queries"))
+        || !workflow_json_array_is_empty(input_object.get("keywords"))
+        || workflow_required_coverage_has_any(input_object.get("required_coverage"))
+        || !workflow_json_array_is_empty(input_object.get("aliases"))
+        || !workflow_json_array_is_empty(input_object.get("negative_terms"))
+        || input_object.get("query_metadata_policy").is_some();
+    if metadata_already_present {
+        return input;
+    }
+
+    let source_class_terms = workflow_recovery_policy_terms(&policy, "source_class_terms", 6);
+    let generic_facet_terms = workflow_recovery_policy_terms(&policy, "generic_facet_terms", 12);
+    let entities = workflow_recovery_entity_terms(&query, message);
+    let facets = workflow_recovery_facet_terms(&query, message, &generic_facet_terms);
+    let broad_request_needs_metadata = workflow_recovery_request_needs_metadata(
+        &query,
+        message,
+        &entities,
+    ) || facets.len() >= 3
+        || !source_class_terms.is_empty();
+
+    if broad_request_needs_metadata {
+        if workflow_json_array_is_empty(input_object.get("queries")) {
+            let lanes =
+                workflow_recovery_query_lanes(&query, &entities, &facets, &source_class_terms);
+            if !lanes.is_empty() {
+                input_object.insert("queries".to_string(), json!(lanes));
+            }
+        }
+        if workflow_json_array_is_empty(input_object.get("keywords")) {
+            let keywords = workflow_recovery_keywords(&entities, &facets, &source_class_terms);
+            if !keywords.is_empty() {
+                input_object.insert("keywords".to_string(), json!(keywords));
+            }
+        }
+        if !workflow_required_coverage_has_any(input_object.get("required_coverage")) {
+            if let Some(coverage) =
+                workflow_recovery_required_coverage(None, &entities, &facets)
+                    .filter(|value| workflow_required_coverage_has_any(Some(value)))
+            {
+                input_object.insert("required_coverage".to_string(), coverage);
+            }
+        }
+        if workflow_json_array_is_empty(input_object.get("aliases")) {
+            let aliases = workflow_recovery_aliases(&entities);
+            if !aliases.is_empty() {
+                input_object.insert("aliases".to_string(), json!(aliases));
+            }
+        }
+        workflow_query_metadata_policy_set_classification(
+            input_object,
+            "expanded_query_pack",
+        );
+    } else {
+        workflow_query_metadata_policy_set_classification(
+            input_object,
+            "narrow_lookup_or_initial_discovery",
+        );
+    }
+    workflow_query_metadata_policy_insert(
+        input_object,
+        "recovery_contract_repair",
+        json!({
+            "status": "metadata_hydrated",
+            "source": "declared_batch_query_recovery_contract",
+            "rule": "mechanical_terms_from_user_message_and_declared_source_classes"
+        }),
+    );
+    input
+}
+
+fn workflow_query_metadata_policy_set_classification(
+    input_object: &mut serde_json::Map<String, Value>,
+    classification: &str,
+) {
+    let policy = input_object
+        .entry("query_metadata_policy".to_string())
+        .or_insert_with(|| json!({}));
+    if !policy.is_object() {
+        *policy = json!({});
+    }
+    if policy
+        .get("classification")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .is_empty()
+    {
+        policy["classification"] = Value::String(classification.to_string());
+    }
+}
+
+fn workflow_query_metadata_policy_insert(
+    input_object: &mut serde_json::Map<String, Value>,
+    key: &str,
+    value: Value,
+) {
+    let policy = input_object
+        .entry("query_metadata_policy".to_string())
+        .or_insert_with(|| json!({}));
+    if !policy.is_object() {
+        *policy = json!({});
+    }
+    policy[key] = value;
+}
+
 fn workflow_recovery_policy_terms(policy: &Value, field: &str, limit: usize) -> Vec<String> {
     policy
         .get(field)
@@ -391,6 +521,15 @@ fn workflow_json_array_is_empty(value: Option<&Value>) -> bool {
         .and_then(Value::as_array)
         .map(|rows| rows.is_empty())
         .unwrap_or(true)
+}
+
+fn workflow_required_coverage_has_any(value: Option<&Value>) -> bool {
+    value
+        .map(|value| {
+            !workflow_json_array_is_empty(value.get("entities"))
+                || !workflow_json_array_is_empty(value.get("facets"))
+        })
+        .unwrap_or(false)
 }
 
 fn workflow_recovery_request_needs_metadata(
@@ -422,7 +561,11 @@ fn workflow_recovery_request_needs_metadata(
             "currently",
             "recent",
             "latest",
+            "news",
             "right now",
+            "this month",
+            "this week",
+            "today",
             "as of",
             "maturity",
             "risk",
@@ -532,6 +675,7 @@ fn workflow_recovery_entity_stopword(token: &str) -> bool {
             | "research"
             | "search"
             | "september"
+            | "separate"
             | "summarize"
             | "summary"
             | "tell"
@@ -1486,7 +1630,7 @@ mod manual_toolbox_pending_request_tests {
     use super::*;
 
     #[test]
-    fn recovered_payload_repair_does_not_infer_metadata_from_message() {
+    fn recovered_payload_repair_hydrates_declared_batch_query_metadata() {
         let payload = workflow_repair_recovered_request_payload(
             "web_research",
             "batch_query",
@@ -1498,12 +1642,30 @@ mod manual_toolbox_pending_request_tests {
             "what is the public sentiment on xvacume versus yvacume?",
         );
         assert_eq!(
-            payload,
-            json!({
-                "source": "web",
-                "query": "what is the public sentiment on xvacume versus yvacume?",
-                "aperture": "medium"
-            })
+            payload.pointer("/query").and_then(Value::as_str),
+            Some("what is the public sentiment on xvacume versus yvacume?")
+        );
+        assert!(
+            payload
+                .pointer("/queries")
+                .and_then(Value::as_array)
+                .map(|rows| rows.len() >= 2)
+                .unwrap_or(false),
+            "{payload}"
+        );
+        assert!(
+            payload
+                .pointer("/keywords")
+                .and_then(Value::as_array)
+                .map(|rows| !rows.is_empty())
+                .unwrap_or(false),
+            "{payload}"
+        );
+        assert_eq!(
+            payload
+                .pointer("/query_metadata_policy/classification")
+                .and_then(Value::as_str),
+            Some("expanded_query_pack")
         );
     }
 
@@ -1577,14 +1739,14 @@ mod manual_toolbox_pending_request_tests {
     }
 
     #[test]
-    fn selected_web_research_tool_contract_recovers_raw_message_query() {
+    fn selected_web_research_tool_contract_recovers_raw_message_query_pack() {
         let workflow = json!({
             "selected_workflow": {
                 "tool_menu_interface_contract": default_workflow_tool_menu_contract()
             },
             "tool_gate": {
                 "selected_tool_family": "web_research",
-                "selected_tool": "web_search"
+                "selected_tool": "batch_query"
             }
         });
         let pending = workflow_pending_request_from_selected_tool_contract(
@@ -1594,7 +1756,7 @@ mod manual_toolbox_pending_request_tests {
         .expect("pending request");
         assert_eq!(
             pending.get("tool_name").and_then(Value::as_str),
-            Some("web_search")
+            Some("batch_query")
         );
         assert_eq!(
             pending.pointer("/input/query").and_then(Value::as_str),
@@ -1604,9 +1766,14 @@ mod manual_toolbox_pending_request_tests {
             pending.pointer("/input/aperture").and_then(Value::as_str),
             Some("medium")
         );
-        assert!(pending.pointer("/input/keywords").is_none(), "{pending:?}");
-        assert!(pending.pointer("/input/required_coverage").is_none(), "{pending:?}");
-        assert!(pending.pointer("/input/query_metadata_policy").is_none(), "{pending:?}");
+        assert!(pending.pointer("/input/keywords").is_some(), "{pending:?}");
+        assert!(pending.pointer("/input/required_coverage").is_some(), "{pending:?}");
+        assert_eq!(
+            pending
+                .pointer("/input/query_metadata_policy/classification")
+                .and_then(Value::as_str),
+            Some("expanded_query_pack")
+        );
         assert_eq!(
             pending.get("source").and_then(Value::as_str),
             Some("workflow_selected_tool_contract_recovery")
@@ -1640,9 +1807,15 @@ mod manual_toolbox_pending_request_tests {
             pending.pointer("/input/source").and_then(Value::as_str),
             Some("web")
         );
-        assert!(pending.pointer("/input/queries").is_none(), "{pending:?}");
-        assert!(pending.pointer("/input/keywords").is_none(), "{pending:?}");
-        assert!(pending.pointer("/input/required_coverage").is_none(), "{pending:?}");
+        assert!(pending.pointer("/input/queries").is_some(), "{pending:?}");
+        assert!(pending.pointer("/input/keywords").is_some(), "{pending:?}");
+        assert!(pending.pointer("/input/required_coverage").is_some(), "{pending:?}");
+        assert_eq!(
+            pending
+                .pointer("/input/query_metadata_policy/classification")
+                .and_then(Value::as_str),
+            Some("expanded_query_pack")
+        );
     }
 
     #[test]
@@ -1667,7 +1840,9 @@ mod manual_toolbox_pending_request_tests {
             pending.pointer("/input/source").and_then(Value::as_str),
             Some("web")
         );
-        assert!(pending.pointer("/input/queries").is_none(), "{pending:?}");
+        assert!(pending.pointer("/input/queries").is_some(), "{pending:?}");
+        assert!(pending.pointer("/input/keywords").is_some(), "{pending:?}");
+        assert!(pending.pointer("/input/required_coverage").is_some(), "{pending:?}");
     }
 
     #[test]
