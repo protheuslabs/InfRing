@@ -152,7 +152,9 @@ const rootReports = roots.map((entry) => {
         canonical_ref: canonical?.rel || null,
         file_count: rows.length,
       });
-      for (const row of rows.slice(retainLatest)) addCleanupCandidate(row, "prefix_retention_window_exceeded");
+      for (const row of rows.slice(retainLatest)) {
+        if (!row.is_canonical_ref) addCleanupCandidate(row, "prefix_retention_window_exceeded");
+      }
     }
   }
   if (maxAgeDays > 0 && cleanupStrategy !== "delete_root_contents" && cleanupStrategy !== "report_only") {

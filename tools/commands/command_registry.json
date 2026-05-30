@@ -5850,6 +5850,22 @@
       "operator_surface_reason": "top_100_operator_surface:reliability:observability"
     },
     {
+      "id": "ops:ksent:activity-freshness:guard",
+      "group": "ops",
+      "command": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/kernel_sentinel_activity_freshness_guard.ts --strict=1",
+      "lifecycle": "curated_operator_command",
+      "owner": "observability.sentinel",
+      "source": "package.json:scripts",
+      "domain": "observability",
+      "work_gate": "reliability",
+      "description": "Verify Kernel Sentinel heartbeat and dream artifacts are fresh so automatic observation cannot silently go passive.",
+      "metadata_curated_at": "2026-05-30T00:00:00Z",
+      "metadata_curated": true,
+      "operator_surface": true,
+      "operator_surface_rank": 43,
+      "operator_surface_reason": "top_100_operator_surface:reliability:observability"
+    },
+    {
       "id": "ops:ksent:issue-quality:guard",
       "group": "ops",
       "command": "npm run -s ops:ksent:issue-quality:report && node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/sentinel_issue_quality_score_guard.ts",

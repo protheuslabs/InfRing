@@ -463,6 +463,18 @@
       "operator_surface_reason": "top_100_operator_surface:reliability:observability"
     },
     {
+      "id": "ops:ksent:activity-freshness:guard",
+      "domain": "observability",
+      "work_gate": "reliability",
+      "lifecycle": "curated_operator_command",
+      "owner": "observability.sentinel",
+      "description": "Verify Kernel Sentinel heartbeat and dream artifacts are fresh so automatic observation cannot silently go passive.",
+      "metadata_curated": true,
+      "operator_surface": true,
+      "operator_surface_rank": 43,
+      "operator_surface_reason": "top_100_operator_surface:reliability:observability"
+    },
+    {
       "id": "ops:ksent:trace-completeness:guard",
       "domain": "observability",
       "work_gate": "reliability",

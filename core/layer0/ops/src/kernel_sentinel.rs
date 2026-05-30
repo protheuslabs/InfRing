@@ -306,6 +306,8 @@ pub fn build_report(root: &Path, args: &[String]) -> (Value, Value, i32) {
         .unwrap_or("unconfigured")
         .to_string();
     let scheduler_running = scheduler_health["running"].as_bool().unwrap_or(false);
+    let scheduler_operator_warning = scheduler_health["operator_warning"].clone();
+    let scheduler_next_action = scheduler_health["next_action"].clone();
     let strict = bool_flag(args, "--strict");
     let generated_at = crate::now_iso();
     let trace_id = trace_id_from_args(args, &generated_at);
@@ -340,6 +342,8 @@ pub fn build_report(root: &Path, args: &[String]) -> (Value, Value, i32) {
         "scheduler_stale": scheduler_stale,
         "scheduler_running": scheduler_running,
         "scheduler_status": scheduler_status,
+        "operator_warning": scheduler_operator_warning,
+        "next_action": scheduler_next_action,
         "release_blockers": release_blockers.clone(),
         "receipt_hash": null
     });
@@ -402,6 +406,8 @@ pub fn build_report(root: &Path, args: &[String]) -> (Value, Value, i32) {
             "scheduler_stale": scheduler_stale,
             "scheduler_running": scheduler_running,
             "scheduler_status": scheduler_status,
+            "scheduler_operator_warning": scheduler_health["operator_warning"].clone(),
+            "scheduler_next_action": scheduler_health["next_action"].clone(),
             "scheduler_health": scheduler_health,
             "release_blockers": release_blockers
         },

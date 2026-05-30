@@ -52,6 +52,119 @@ fn status_payload_cache() -> &'static Mutex<Option<StatusPayloadCacheEntry>> {
     STATUS_PAYLOAD_CACHE.get_or_init(|| Mutex::new(None))
 }
 
+fn artifact_age_seconds(path: &Path) -> Option<u64> {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|modified| std::time::SystemTime::now().duration_since(modified).ok())
+        .map(|age| age.as_secs())
+}
+
+fn policy_max_age_seconds(policy: &Value, key: &str, fallback_hours: u64) -> u64 {
+    policy
+        .get(key)
+        .and_then(Value::as_u64)
+        .unwrap_or(fallback_hours)
+        .saturating_mul(60)
+        .saturating_mul(60)
+}
+
+fn freshest_policy_artifact(root: &Path, policy: &Value, key: &str) -> (bool, Option<String>, Option<u64>) {
+    let mut present = false;
+    let mut freshest_path = None;
+    let mut freshest_age = None;
+    if let Some(paths) = policy.get(key).and_then(Value::as_array) {
+        for raw in paths {
+            let Some(rel) = raw.as_str() else {
+                continue;
+            };
+            let path = root.join(rel);
+            if !path.exists() {
+                continue;
+            }
+            present = true;
+            let age = artifact_age_seconds(&path);
+            if let Some(age_seconds) = age {
+                if freshest_age.map_or(true, |current| age_seconds < current) {
+                    freshest_path = Some(rel.to_string());
+                    freshest_age = Some(age_seconds);
+                }
+            } else if freshest_path.is_none() {
+                freshest_path = Some(rel.to_string());
+            }
+        }
+    }
+    (present, freshest_path, freshest_age)
+}
+
+fn sentinel_activity_status(root: &Path) -> Value {
+    let policy_path = root.join("observability/sentinel/sentinel_activity_freshness_policy.json");
+    let policy = read_json(&policy_path).unwrap_or_else(|| {
+        json!({
+            "max_heartbeat_age_hours": 24,
+            "max_dream_age_hours": 36,
+            "heartbeat_artifacts": ["core/local/artifacts/kernel_sentinel_heartbeat_current.json"],
+            "dream_artifacts": [
+                "core/local/artifacts/kernel_sentinel_dream_launch_current.json",
+                "core/local/artifacts/kernel_sentinel_dream_current.json",
+                "core/local/artifacts/kernel_sentinel_auto_run_current.json"
+            ]
+        })
+    });
+    let heartbeat_limit_seconds = policy_max_age_seconds(&policy, "max_heartbeat_age_hours", 24);
+    let dream_limit_seconds = policy_max_age_seconds(&policy, "max_dream_age_hours", 36);
+    let (heartbeat_present, heartbeat_artifact, heartbeat_age_seconds) =
+        freshest_policy_artifact(root, &policy, "heartbeat_artifacts");
+    let (dream_present, dream_artifact, dream_age_seconds) =
+        freshest_policy_artifact(root, &policy, "dream_artifacts");
+    let heartbeat_fresh = heartbeat_age_seconds
+        .map(|age| age <= heartbeat_limit_seconds)
+        .unwrap_or(false);
+    let dream_fresh = dream_age_seconds
+        .map(|age| age <= dream_limit_seconds)
+        .unwrap_or(false);
+    let fresh = heartbeat_fresh && dream_fresh;
+    let status = if fresh {
+        "fresh"
+    } else if !heartbeat_present && !dream_present {
+        "missing"
+    } else {
+        "stale"
+    };
+    let next_action = if fresh {
+        "none".to_string()
+    } else if !heartbeat_present {
+        "restart resident gateway or run ops:kernel-sentinel:heartbeat".to_string()
+    } else {
+        "run ops:ksent:activity-freshness:guard and inspect stale Sentinel artifacts".to_string()
+    };
+    let guard_artifact = policy
+        .get("output_path")
+        .and_then(Value::as_str)
+        .unwrap_or("core/local/artifacts/kernel_sentinel_activity_freshness_guard_current.json");
+    json!({
+        "type": "kernel_sentinel_activity_status",
+        "status": status,
+        "fresh": fresh,
+        "heartbeat": {
+            "present": heartbeat_present,
+            "fresh": heartbeat_fresh,
+            "artifact": heartbeat_artifact.unwrap_or_else(|| "none".to_string()),
+            "age_seconds": heartbeat_age_seconds,
+            "max_age_seconds": heartbeat_limit_seconds
+        },
+        "dream": {
+            "present": dream_present,
+            "fresh": dream_fresh,
+            "artifact": dream_artifact.unwrap_or_else(|| "none".to_string()),
+            "age_seconds": dream_age_seconds,
+            "max_age_seconds": dream_limit_seconds
+        },
+        "guard_artifact": guard_artifact,
+        "next_action": next_action
+    })
+}
+
 fn status_payload(root: &Path, snapshot: &Value, host_header: &str) -> Value {
     let cache_key = format!(
         "{}|{}|{}",
@@ -86,6 +199,7 @@ fn status_payload(root: &Path, snapshot: &Value, host_header: &str) -> Value {
     let worker_runtime = worker_runtime_summary(root);
     let hot_path_allocators = crate::infring_ops_core_v1_bridge::hot_path_allocators::snapshot_json();
     let web_conduit = crate::web_conduit::api_status(root);
+    let sentinel_activity = sentinel_activity_status(root);
     let (default_provider, default_model) = effective_app_settings(root, snapshot);
     let version_info = dashboard_runtime_version_info(root);
     let version = version_info
@@ -149,6 +263,12 @@ fn status_payload(root: &Path, snapshot: &Value, host_header: &str) -> Value {
         "runtime_sync": runtime,
         "task_runtime": task_runtime,
         "worker_runtime": worker_runtime,
+        "kernel_sentinel": {
+            "activity": sentinel_activity.clone(),
+            "status": sentinel_activity.get("status").cloned().unwrap_or_else(|| json!("unknown")),
+            "fresh": sentinel_activity.get("fresh").cloned().unwrap_or_else(|| json!(false)),
+            "next_action": sentinel_activity.get("next_action").cloned().unwrap_or_else(|| json!("run ops:ksent:activity-freshness:guard"))
+        },
         "hot_path_allocators": hot_path_allocators,
         "web_conduit": {
             "enabled": web_conduit.get("enabled").cloned().unwrap_or_else(|| json!(false)),

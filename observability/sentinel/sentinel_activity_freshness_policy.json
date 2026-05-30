@@ -1,0 +1,27 @@
+{
+  "id": "kernel_sentinel_activity_freshness_policy",
+  "version": 1,
+  "owner": "observability/sentinel",
+  "status": "active",
+  "purpose": "Fail visibly when Kernel Sentinel heartbeat/dream artifacts stop refreshing so automatic observation cannot silently go passive.",
+  "output_path": "core/local/artifacts/kernel_sentinel_activity_freshness_guard_current.json",
+  "max_heartbeat_age_hours": 24,
+  "max_dream_age_hours": 36,
+  "heartbeat_artifacts": [
+    "core/local/artifacts/kernel_sentinel_heartbeat_current.json",
+    "local/state/kernel_sentinel/kernel_sentinel_heartbeat_state.json"
+  ],
+  "dream_artifacts": [
+    "core/local/artifacts/kernel_sentinel_dream_launch_current.json",
+    "core/local/artifacts/kernel_sentinel_dream_current.json",
+    "core/local/artifacts/kernel_sentinel_auto_run_current.json",
+    "local/state/kernel_sentinel/kernel_sentinel_schedule_state.json",
+    "local/state/kernel_sentinel/kernel_sentinel_health_current.json",
+    "local/state/kernel_sentinel/kernel_sentinel_final_report_current.json"
+  ],
+  "required_operator_visibility": [
+    "status output must include scheduler warning and next action when unconfigured or stale",
+    "retention cleanup must not delete canonical current/latest Sentinel artifacts",
+    "resident ops IPC daemon must emit heartbeat artifacts without manual Sentinel commands"
+  ]
+}

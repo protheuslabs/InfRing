@@ -56,6 +56,11 @@ function isTrackedFile(rel: string, tracked: Set<string>): boolean {
   return tracked.has(rel.replace(/\\/g, "/"));
 }
 
+function isCanonicalCurrentRef(rel: string): boolean {
+  const base = path.basename(rel).replace(/\.(json|jsonl|md|txt)$/i, "");
+  return base.endsWith("_current") || base.endsWith("_latest");
+}
+
 function directoryContainsTrackedFiles(rel: string, tracked: Set<string>): boolean {
   const normalized = rel.replace(/\\/g, "/").replace(/\/$/, "");
   return Array.from(tracked).some((file) => file === normalized || file.startsWith(`${normalized}/`));
@@ -117,6 +122,13 @@ for (const candidate of candidates.slice(0, maxDeletePerRun)) {
     }
     deletedEntries += removeDirectoryContents(abs);
   } else {
+    if (isCanonicalCurrentRef(rel)) {
+      action.ok = true;
+      action.skipped = true;
+      action.reason = "canonical_current_ref_protected";
+      actions.push(action);
+      continue;
+    }
     if (isTrackedFile(rel, tracked)) {
       action.ok = true;
       action.skipped = true;

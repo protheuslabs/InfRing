@@ -1,21 +1,166 @@
 
+const DEFAULT_DAEMON_SENTINEL_HEARTBEAT_MS: u64 = 300_000;
+const DEFAULT_DAEMON_SENTINEL_DREAM_MIN_MS: u64 = 86_400_000;
+
+fn daemon_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
+}
+
+fn daemon_option_u64(argv: &[String], name: &str, env_name: &str, fallback: u64) -> u64 {
+    lane_utils::parse_flag(argv, name, false)
+        .or_else(|| std::env::var(env_name).ok())
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(fallback)
+}
+
+fn daemon_option_bool(argv: &[String], name: &str, env_name: &str, fallback: bool) -> bool {
+    lane_utils::parse_flag(argv, name, false)
+        .or_else(|| std::env::var(env_name).ok())
+        .map(|raw| parse_bool_text(raw.as_str(), fallback))
+        .unwrap_or(fallback)
+}
+
+fn run_daemon_sentinel_heartbeat(root: &Path, queue_dir: &Path) -> Value {
+    let artifact_path = root.join("core/local/artifacts/kernel_sentinel_heartbeat_current.json");
+    let auto_artifact_path = root.join("core/local/artifacts/kernel_sentinel_auto_run_current.json");
+    let args = vec![
+        "heartbeat".to_string(),
+        "--strict=0".to_string(),
+        "--quiet-success=1".to_string(),
+        "--cadence=heartbeat".to_string(),
+        "--cascade-dream=0".to_string(),
+        "--max-runtime-ms=30000".to_string(),
+        "--final-report-finding-limit=5".to_string(),
+        "--final-report-byte-budget=16000".to_string(),
+        format!("--schedule-artifact={}", artifact_path.display()),
+        format!("--auto-artifact={}", auto_artifact_path.display()),
+    ];
+    let exit = crate::kernel_sentinel::run(root, &args);
+    let scheduler_artifact = fs::read_to_string(&artifact_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .unwrap_or_else(|| {
+            json!({
+                "ok": exit == 0,
+                "type": "kernel_sentinel_heartbeat_run",
+                "missing_artifact": true,
+                "exit_code": exit,
+                "artifact_path": artifact_path
+            })
+        });
+    let summary = json!({
+        "ok": exit == 0,
+        "type": "ops_domain_ipc_daemon_kernel_sentinel_heartbeat",
+        "generated_at": now_iso(),
+        "ts_ms": daemon_now_ms(),
+        "exit_code": exit,
+        "artifact_path": artifact_path,
+        "auto_artifact_path": auto_artifact_path,
+        "cascade": scheduler_artifact.get("cascade").cloned().unwrap_or(Value::Null),
+        "scheduler_artifact": scheduler_artifact
+    });
+    let _ = write_json_atomic(&queue_dir.join("daemon.sentinel_heartbeat.json"), &summary);
+    summary
+}
+
+fn spawn_daemon_sentinel_dream(root: &Path, queue_dir: &Path) -> Value {
+    let root_path = root.to_path_buf();
+    let launch_artifact_path =
+        root.join("core/local/artifacts/kernel_sentinel_dream_launch_current.json");
+    let dream_artifact_path = root.join("core/local/artifacts/kernel_sentinel_dream_current.json");
+    let auto_artifact_path = root.join("core/local/artifacts/kernel_sentinel_auto_run_current.json");
+    let launch = json!({
+        "ok": true,
+        "type": "ops_domain_ipc_daemon_kernel_sentinel_dream_launch",
+        "generated_at": now_iso(),
+        "ts_ms": daemon_now_ms(),
+        "launch_artifact_path": launch_artifact_path,
+        "dream_artifact_path": dream_artifact_path,
+        "auto_artifact_path": auto_artifact_path,
+        "mode": "async_dream_from_resident_heartbeat"
+    });
+    let _ = write_json_atomic(&launch_artifact_path, &launch);
+    let _ = write_json_atomic(&queue_dir.join("daemon.sentinel_dream_spawn.json"), &launch);
+    thread::spawn(move || {
+        let args = vec![
+            "dream".to_string(),
+            "--strict=0".to_string(),
+            "--quiet-success=1".to_string(),
+            "--cadence=dream".to_string(),
+            "--max-runtime-ms=30000".to_string(),
+            "--final-report-finding-limit=5".to_string(),
+            "--final-report-byte-budget=16000".to_string(),
+            format!("--schedule-artifact={}", dream_artifact_path.display()),
+            format!("--auto-artifact={}", auto_artifact_path.display()),
+        ];
+        let _ = crate::kernel_sentinel::run(&root_path, &args);
+    });
+    launch
+}
+
 fn run_ipc_daemon(root: &Path, argv: &[String]) -> Result<(), String> {
     let queue_dir = queue_dir_from_argv(root, argv);
     let poll_ms = poll_ms_from_argv(argv);
     let requests_dir = queue_dir.join("requests");
     let responses_dir = queue_dir.join("responses");
     let heartbeat_path = queue_dir.join("daemon.heartbeat.json");
+    let sentinel_heartbeat_enabled = daemon_option_bool(
+        argv,
+        "sentinel-heartbeat",
+        "INFRING_OPS_IPC_SENTINEL_HEARTBEAT",
+        true,
+    );
+    let sentinel_heartbeat_ms = daemon_option_u64(
+        argv,
+        "sentinel-heartbeat-ms",
+        "INFRING_OPS_IPC_SENTINEL_HEARTBEAT_MS",
+        DEFAULT_DAEMON_SENTINEL_HEARTBEAT_MS,
+    );
+    let sentinel_dream_min_ms = daemon_option_u64(
+        argv,
+        "sentinel-dream-min-ms",
+        "INFRING_OPS_IPC_SENTINEL_DREAM_MIN_MS",
+        DEFAULT_DAEMON_SENTINEL_DREAM_MIN_MS,
+    );
     fs::create_dir_all(&requests_dir)
         .map_err(|err| format!("ops_domain_conduit_runner_kernel_requests_dir_failed:{err}"))?;
     fs::create_dir_all(&responses_dir)
         .map_err(|err| format!("ops_domain_conduit_runner_kernel_responses_dir_failed:{err}"))?;
     let _ = write_ipc_heartbeat(&heartbeat_path, poll_ms);
     let heartbeat_ticks = ((250 + poll_ms.saturating_sub(1)) / poll_ms.max(1)).max(1);
+    let mut last_sentinel_heartbeat_ms = 0u64;
+    let mut last_sentinel_dream_spawn_ms = 0u64;
     let mut tick: u64 = 0;
 
     loop {
         if tick % heartbeat_ticks == 0 {
             let _ = write_ipc_heartbeat(&heartbeat_path, poll_ms);
+        }
+        if sentinel_heartbeat_enabled {
+            let now_ms = daemon_now_ms();
+            if last_sentinel_heartbeat_ms == 0
+                || now_ms.saturating_sub(last_sentinel_heartbeat_ms) >= sentinel_heartbeat_ms
+            {
+                last_sentinel_heartbeat_ms = now_ms;
+                let heartbeat = run_daemon_sentinel_heartbeat(root, &queue_dir);
+                let dream_due = heartbeat
+                    .pointer("/scheduler_artifact/cascade/due")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                if dream_due
+                    && (last_sentinel_dream_spawn_ms == 0
+                        || now_ms.saturating_sub(last_sentinel_dream_spawn_ms)
+                            >= sentinel_dream_min_ms)
+                {
+                    last_sentinel_dream_spawn_ms = now_ms;
+                    let _ = spawn_daemon_sentinel_dream(root, &queue_dir);
+                }
+            }
         }
         tick = tick.wrapping_add(1);
         let mut request_files = fs::read_dir(&requests_dir)

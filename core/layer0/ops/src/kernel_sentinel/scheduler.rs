@@ -973,6 +973,24 @@ fn build_mode_health(root: &Path, args: &[String], mode: SchedulerMode) -> Value
     } else {
         "configured"
     };
+    let operator_warning = if lifecycle_status == "unconfigured" {
+        format!("kernel_sentinel_{}_scheduler_unconfigured", mode.mode_name())
+    } else if stale {
+        format!("kernel_sentinel_{}_scheduler_stale", mode.mode_name())
+    } else if degraded {
+        format!("kernel_sentinel_{}_scheduler_degraded", mode.mode_name())
+    } else {
+        "fresh".to_string()
+    };
+    let next_action = if lifecycle_status == "unconfigured" {
+        "ensure the resident ops IPC daemon is running or run npm run -s ops:kernel-sentinel:heartbeat"
+    } else if stale {
+        "run npm run -s ops:kernel-sentinel:heartbeat and inspect core/local/artifacts/kernel_sentinel_heartbeat_current.json"
+    } else if degraded {
+        "inspect the latest Kernel Sentinel scheduler artifact and rerun heartbeat with --force if needed"
+    } else {
+        "none"
+    };
     let mut summary = json!({
         "mode": mode.mode_name(),
         "cadence": cadence,
@@ -992,7 +1010,9 @@ fn build_mode_health(root: &Path, args: &[String], mode: SchedulerMode) -> Value
         "stale_age_seconds": stale_age_seconds,
         "state_path": path,
         "legacy_fallback_used": legacy_fallback_used,
-        "legacy_state_path": legacy_state_path(&dir)
+        "legacy_state_path": legacy_state_path(&dir),
+        "operator_warning": operator_warning,
+        "next_action": next_action
     });
     if matches!(mode, SchedulerMode::Dream) {
         summary["dream_gate"] = build_dream_gate(root, args, now, last_success_epoch_secs);
@@ -1035,6 +1055,22 @@ pub fn build_scheduler_health_summary(root: &Path, args: &[String]) -> Value {
     } else {
         "configured"
     };
+    let operator_warning = if !configured {
+        "kernel_sentinel_scheduler_unconfigured"
+    } else if stale {
+        "kernel_sentinel_scheduler_stale"
+    } else if degraded {
+        "kernel_sentinel_scheduler_degraded"
+    } else {
+        "fresh"
+    };
+    let next_action = if !configured || stale {
+        "ensure the resident ops IPC daemon is running or run npm run -s ops:kernel-sentinel:heartbeat"
+    } else if degraded {
+        "inspect scheduler mode artifacts and rerun heartbeat/dream with --force if needed"
+    } else {
+        "none"
+    };
     json!({
         "configured": configured,
         "fresh": fresh,
@@ -1043,6 +1079,8 @@ pub fn build_scheduler_health_summary(root: &Path, args: &[String]) -> Value {
         "running": running,
         "status": lifecycle_status,
         "lifecycle_status": lifecycle_status,
+        "operator_warning": operator_warning,
+        "next_action": next_action,
         "dream_maintenance_only": true,
         "shared_state_path": false,
         "tick": tick,
