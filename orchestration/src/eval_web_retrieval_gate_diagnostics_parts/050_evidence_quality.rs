@@ -10,6 +10,18 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
     scan.evidence_packet_missing_fields.dedup();
     scan.refs.sort_unstable();
     scan.refs.dedup();
+    scan.sample_rows.sort_by(|left, right| {
+        let left_ready = left
+            .get("packet_ready")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let right_ready = right
+            .get("packet_ready")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        left_ready.cmp(&right_ready)
+    });
+    scan.sample_rows.truncate(8);
 
     let retrieval_usable = bool_at(retrieval_quality, &["usable_evidence"], false);
     let evidence_count = u64_at(retrieval_quality, &["evidence_count"], 0);
@@ -99,6 +111,11 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         && scan.source_domains.len() >= 2
         && low_quality_evidence_rate <= 0.25
         && !low_quality_flags_block_source_quality;
+    let observed_row_source_thresholds_met = clean_evidence_count >= pack_min_usable_items
+        && (scan.source_domains.len() as u64) >= pack_min_source_domains
+        && low_quality_evidence_count < evidence_item_count;
+    let source_quality_pack_thresholds_met =
+        pack_source_thresholds_met || observed_row_source_thresholds_met;
 
     let source_quality_ready = evidence_item_count > 0
         && clean_evidence_count > 0
@@ -107,7 +124,7 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
             || retrieval_usable)
         && low_quality_evidence_count < evidence_item_count
         && (source_quality_threshold_met || clean_diverse_source_quality)
-        && pack_source_thresholds_met;
+        && source_quality_pack_thresholds_met;
     let claim_quality_ready = claim_count > 0
         && concrete_claim_count > 0
         && scan.low_quality_claim_count < claim_count
@@ -163,6 +180,13 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         ],
         "note": "Generic EvidencePacket contract: each answerable packet should carry source identity, source type, an extract, concrete claim material, and a query-relevance explanation. Dates are optional when unavailable."
     });
+    let row_sample_status = if scan.sample_rows.is_empty() && evidence_item_count > 0 {
+        "aggregate_evidence_without_row_samples"
+    } else if scan.sample_rows.is_empty() {
+        "no_evidence_rows_observed"
+    } else {
+        "row_samples_observed"
+    };
 
     let mut out = serde_json::Map::new();
     out.insert("schema_version".to_string(), json!(1));
@@ -233,6 +257,14 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
     out.insert(
         "pack_source_thresholds_met".to_string(),
         json!(pack_source_thresholds_met),
+    );
+    out.insert(
+        "observed_row_source_thresholds_met".to_string(),
+        json!(observed_row_source_thresholds_met),
+    );
+    out.insert(
+        "source_quality_pack_thresholds_met".to_string(),
+        json!(source_quality_pack_thresholds_met),
     );
     out.insert(
         "pack_coverage_thresholds_met".to_string(),
@@ -314,6 +346,15 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         "evidence_packet_contract".to_string(),
         evidence_packet_contract,
     );
+    out.insert(
+        "row_sample_status".to_string(),
+        json!(row_sample_status),
+    );
+    out.insert(
+        "row_sample_count".to_string(),
+        json!(scan.sample_rows.len() as u64),
+    );
+    out.insert("sample_rows".to_string(), Value::Array(scan.sample_rows));
     out.insert("artifact_refs".to_string(), json!(scan.refs));
     out.insert(
         "note".to_string(),
@@ -377,6 +418,7 @@ struct EvidenceQualityScan {
     source_domains: Vec<String>,
     low_quality_flags: Vec<String>,
     refs: Vec<String>,
+    sample_rows: Vec<Value>,
 }
 
 fn scan_evidence_quality(value: &Value, path: &str, scan: &mut EvidenceQualityScan, depth: usize) {
@@ -474,6 +516,8 @@ fn analyze_evidence_quality_object(
         }
     }
 
+    push_evidence_quality_sample(scan, map, path, low_quality);
+
     for claim in evidence_object_claim_strings(map) {
         scan.claim_count = scan.claim_count.saturating_add(1);
         let low_claim = claim_text_low_quality(&claim);
@@ -487,6 +531,87 @@ fn analyze_evidence_quality_object(
             }
         }
     }
+}
+
+fn push_evidence_quality_sample(
+    scan: &mut EvidenceQualityScan,
+    map: &serde_json::Map<String, Value>,
+    path: &str,
+    low_quality: bool,
+) {
+    if scan.sample_rows.len() >= 16 {
+        return;
+    }
+    let missing_fields = if evidence_packet_contract_path(path) {
+        evidence_packet_missing_fields(map)
+            .into_iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let packet_ready = missing_fields.is_empty() && !low_quality;
+    let claims = evidence_object_claim_strings(map)
+        .into_iter()
+        .take(3)
+        .map(|claim| clean_text(&claim, 180))
+        .filter(|claim| !claim.is_empty())
+        .collect::<Vec<_>>();
+    let content_preview = evidence_object_content_strings(map)
+        .into_iter()
+        .find_map(|raw| {
+            let cleaned = clean_text(&raw, 260);
+            (!cleaned.is_empty()).then_some(cleaned)
+        })
+        .unwrap_or_default();
+    let sample = json!({
+        "path": clean_text(path, 240),
+        "packet_ready": packet_ready,
+        "low_quality": low_quality,
+        "missing_fields": missing_fields,
+        "source_domain": source_domain_value(map).unwrap_or_default(),
+        "source_type": first_string_at(map, &["source_type", "source_kind", "source_class"], 80),
+        "title": first_string_at(map, &["title", "source_title", "source_ref"], 180),
+        "locator": first_string_at(map, &["locator", "url", "source_url", "link", "source_locator"], 220),
+        "content_preview": content_preview,
+        "claim_hints": claims,
+        "quality_flags": string_array_at(map, &["quality_flags", "flags"], 6, 80),
+        "confidence": first_string_at(map, &["confidence", "status"], 80),
+        "materialization_quality": first_string_at(map, &["materialization_quality"], 80)
+    });
+    scan.sample_rows.push(sample);
+}
+
+fn first_string_at(
+    map: &serde_json::Map<String, Value>,
+    keys: &[&str],
+    max_len: usize,
+) -> String {
+    keys.iter()
+        .find_map(|key| {
+            let cleaned = clean_text(map.get(*key).and_then(Value::as_str).unwrap_or(""), max_len);
+            (!cleaned.is_empty()).then_some(cleaned)
+        })
+        .unwrap_or_default()
+}
+
+fn string_array_at(
+    map: &serde_json::Map<String, Value>,
+    keys: &[&str],
+    limit: usize,
+    max_len: usize,
+) -> Vec<String> {
+    keys.iter()
+        .find_map(|key| map.get(*key).and_then(Value::as_array))
+        .map(|rows| {
+            rows.iter()
+                .filter_map(Value::as_str)
+                .map(|raw| clean_text(raw, max_len))
+                .filter(|raw| !raw.is_empty())
+                .take(limit)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
 }
 
 fn evidence_packet_contract_path(path: &str) -> bool {
