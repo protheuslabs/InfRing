@@ -237,8 +237,14 @@ function generatedArtifactMetrics(policy: Json) {
   for (const pattern of patterns) {
     byPattern[pattern] = matches.filter((rel) => rel.includes(pattern)).length;
   }
+  const classification = readJson(String(policy?.source_artifacts?.generated_artifact_residue || 'core/local/artifacts/combined_rust_artifact_hygiene_guard_current.json'));
   return {
     tracked_generated_artifacts: matches.length,
+    required_live_generated_mirrors: Number(classification?.required_live_mirror_count || 0),
+    validation_fixture_generated_mirrors: Number(classification?.validation_fixture_mirror_count || 0),
+    unreferenced_generated_residue_candidates: Number(classification?.unreferenced_residue_candidate_count || 0),
+    generated_artifacts_new_since_baseline: Number(classification?.new_since_baseline_count || 0),
+    generated_artifact_classification_source: classification?.type || null,
     patterns,
     by_pattern: byPattern,
     sample: matches.slice(0, 30),
@@ -559,6 +565,10 @@ function run(argv: string[]): number {
     gate_registry_entries: guards.gate_registry_entries,
     duplicate_surface_roots: duplicates.duplicate_surface_roots,
     tracked_generated_artifacts: generatedArtifacts.tracked_generated_artifacts,
+    required_live_generated_mirrors: generatedArtifacts.required_live_generated_mirrors,
+    validation_fixture_generated_mirrors: generatedArtifacts.validation_fixture_generated_mirrors,
+    unreferenced_generated_residue_candidates: generatedArtifacts.unreferenced_generated_residue_candidates,
+    generated_artifacts_new_since_baseline: generatedArtifacts.generated_artifacts_new_since_baseline,
     installer_monolith_bytes: installerMonolith.installer_monolith_bytes,
     test_scaffold_debt: testLifecycle.test_scaffold_debt,
     test_lifecycle_overdue: testLifecycle.test_lifecycle_overdue,

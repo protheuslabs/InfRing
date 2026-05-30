@@ -1,29 +1,47 @@
 {
   "type": "combined_rust_artifact_hygiene_policy",
   "schema_version": 1,
-  "owner_domain": "validation",
-  "source_todos": [
-    "HYGIENE-COMBINED-INVENTORY",
-    "HYGIENE-COMBINED-REFERENCE-MAP",
-    "HYGIENE-COMBINED-GUARD"
-  ],
-  "inventory_required_fields": ["path", "domain", "kind", "bytes", "lines", "parent"],
-  "reference_map_required_fields": ["path", "domain", "kind", "reference_class", "reference_count", "sample_references"],
-  "allowed_reference_classes": [
-    "live_rust_module_reference",
-    "validation_or_test_reference",
-    "docs_or_policy_reference",
-    "other_text_reference",
-    "unreferenced_by_text_scan"
-  ],
-  "cleanup_policy": {
-    "auto_delete_unreferenced": false,
-    "requires_domain_batch": true,
-    "requires_targeted_validation": true,
-    "new_combined_artifacts_require_exception": true
-  },
+  "owner_domain": "validation.repo_hygiene",
+  "purpose": "Classify tracked generated/split Rust artifacts before deletion so required live mirrors are not confused with obsolete generated residue.",
   "baseline_artifacts": {
     "inventory_json": "validation/reports/combined_rust_artifact_inventory_2026-05-09.json",
     "reference_map_json": "validation/reports/combined_rust_reference_map_2026-05-09.json"
+  },
+  "inventory_required_fields": [
+    "path",
+    "domain",
+    "kind",
+    "bytes",
+    "lines",
+    "parent"
+  ],
+  "reference_map_required_fields": [
+    "path",
+    "domain",
+    "kind",
+    "reference_class",
+    "reference_count",
+    "sample_references"
+  ],
+  "allowed_classifications": [
+    "required_live_mirror",
+    "validation_fixture_mirror",
+    "policy_or_doc_reference_only",
+    "other_referenced_artifact",
+    "unreferenced_residue_candidate"
+  ],
+  "thresholds": {
+    "max_unreferenced_residue_candidates": 250,
+    "yellow_unreferenced_residue_candidates": 100,
+    "red_unreferenced_residue_candidates": 250
+  },
+  "fail_on_stale_inventory": false,
+  "fail_on_new_since_baseline": false,
+  "policy": {
+    "classification_before_deletion_required": true,
+    "required_live_mirrors_must_not_be_deleted_by_bulk_cleanup": true,
+    "unreferenced_residue_candidates_require_owner_review_before_removal": true,
+    "baseline_drift_is_reported_before_it_is_release_blocking": true,
+    "shell_and_orchestration_paths_are_out_of_scope_for_this_guard": true
   }
 }
