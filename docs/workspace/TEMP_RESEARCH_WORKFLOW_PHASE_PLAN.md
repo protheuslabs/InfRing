@@ -446,3 +446,19 @@ Current focus:
 - `decision`: `kept`
 - `reason`: This is a promotion-integrity patch. It did not improve retrieval, but it made the telemetry more honest: the current live blocker is provider/query candidate supply, not evidence counts pretending that weak rows are usable.
 - `follow_up`: The next one-change patch should target `web_4c_search_provider_surface_ready`: inspect the generated query lanes and provider-surface diagnostics, then fix the generic request-to-search-query boundary if instruction scaffolding or action verbs are contaminating search terms.
+
+### 2026-05-30: explicit query-lane scaffold stripping experiment
+
+- `baseline_artifact`: `artifacts/web_tooling_after_evidence_packet_substance_gate.json`
+- `patch_name`: canonicalize explicit query-pack lanes and strip leading tool-instruction scaffold such as `use web research to`.
+- `failure_class_targeted`: `web_4c_search_provider_surface_ready` / generated query lanes potentially contaminated by action scaffolding instead of search terms.
+- `hypothesis`: If explicit query-pack lanes are normalized through the same generic search-query canonicalizer, provider-surface readiness should improve without hardcoding any topic or answer shape.
+- `files_changed`: `core/layer0/ops/src/batch_query_primitive_parts/018-request-and-cache.rs`, `core/layer0/ops/src/batch_query_primitive_parts/010-core.combined_parts/030-looks-like-instructional-query-to-looks-like-empty-duckduckgo-instan.rs`, `core/layer0/ops/src/batch_query_primitive_parts/042-cache-rewrite-tests.rs`
+- `proof_tests`: The new scaffold-stripping fixture and neighboring framework-catalog query-plan fixtures passed while the experiment was applied.
+- `eval_command`: `cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- web-tooling-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --timeout-seconds=90 --out=core/local/artifacts/web_tooling_after_query_lane_scaffold_strip.json --out-latest=artifacts/web_tooling_after_query_lane_scaffold_strip.json --out-markdown=artifacts/web_tooling_after_query_lane_scaffold_strip.md`
+- `before_metrics`: evidence-packet substance run had `measured_cases=2`, `passed_cases=0/2`, upstream request/transport/access/raw-row gates passed `2/2`, and `web_4c_search_provider_surface_ready=0/2`.
+- `after_metrics`: `measured_cases=2`, `passed_cases=0/2`, `transport_failures=1`, `web_3a_tool_transport_completed=1/2`, `web_4c_search_provider_surface_ready=0/2`, `web_5_packaged_evidence_present=0/2`, `web_7_usable_evidence_available=0/2`.
+- `visible_output_delta`: no user-facing improvement measured; one case timed out before a tool payload and the completed case still returned `status=no_results` with zero provider candidates.
+- `decision`: `reverted`
+- `reason`: The unit-level query-lane cleanup worked structurally, but the live metric did not move and transport became worse in the two-case sample. Under the one-measurable-change rule, this is not worth keeping.
+- `follow_up`: Treat query scaffold contamination as a lower-confidence hypothesis. The next patch should inspect provider execution and provider-surface readiness directly: identify whether the first live loss is provider timeout/budget handling, provider admission/circuit state, or empty provider rows after filtering.
