@@ -656,3 +656,140 @@ Consult the reference traces for post-mutation repair behavior. The likely fix
 is not more setup; it is a bounded repair controller that keeps post-mutation
 turns narrow: changed files, failed validation output, edit-only tools, and a
 single validation closeout.
+
+## EXP-CODING-031: Public contract packet from passing Level 6/7 framework traces
+
+Status: `positive_keep`
+
+Reference behavior:
+
+- Claude Code, Codex, and ForgeCode all read tests and semantic probes before
+  the first source mutation on Level 6/7.
+- The useful primitive was not the fixture domain; it was preserving call-site
+  shape from local tests/probes as a public contract. Examples include
+  constructor calls, method calls, `__all__` exports, assertion output shapes,
+  and semantic-probe API usage.
+
+Patch:
+
+- Added generic `public_contract_packet_enabled` to the lab mutation spine.
+- Extended compact mutation-entry packets with observed public/test contract
+  lines from read receipts.
+- Extended project-operator context packets with
+  `public_contract_lines_to_preserve`.
+- Extended completion repair prompts so failed-validation repair sees the same
+  public/test contract lines instead of relying only on broad observations.
+
+Expected impact:
+
+Level 6 should avoid or repair wrong API-shape mutations such as implementing a
+method with arguments that contradict observed tests/probes. Level 7 should get
+the same benefit for module/export/reporting surfaces. This is a generic
+contract-preservation primitive, not an eval-specific case branch.
+
+Measurement:
+
+- Rebuilt `target/debug/xtask`.
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/public_contract_packet_rebuilt_l6_l7_20260529.json`
+- Level 6 remained `0/1`, failure `no_successful_mutation`, wall `105160ms`.
+- Level 7 remained `0/1`, failure `no_successful_mutation`, wall `105150ms`.
+- First-turn prompt grew to roughly `6.8k` chars and both runs kept the same
+  `60s + 45s` provider timeout shape.
+
+Decision:
+
+Do not use full public/test contract dumps in the first-mutation packet. Keep
+the primitive for repair/context packets, where preserving observed call sites
+is useful after there is a concrete failed mutation or validation failure to
+repair.
+
+## EXP-CODING-032: Defer public contract dump from first mutation and keep tiny import contract
+
+Status: `reverted_no_positive_delta`
+
+Patch:
+
+- Added `public_contract_first_mutation_packet_enabled=false` to keep the
+  heavier public-contract dump out of the first mutation path.
+- Kept `public_contract_packet_enabled=true` for later repair/context packets.
+- Added a tiny generic import/API failure contract to the compact first-mutation
+  packet, derived from validation stderr, so missing imported symbols point the
+  model toward owner source/export mutation without carrying whole test/probe
+  call-site dumps.
+
+Expected impact:
+
+Restore the smaller first-mutation prompt size while preserving the most useful
+signal from the passing framework traces: when validation says a public symbol
+cannot be imported, the next action should define/export that symbol in the
+owner module before validation is rerun.
+
+Measurement:
+
+- Rebuilt `target/debug/xtask`.
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/deferred_public_contract_import_contract_l6_l7_20260529.json`
+- Level 6 remained `0/1`, failure `no_successful_mutation`, wall `105156ms`.
+- Level 7 remained `0/1`, failure `no_successful_mutation`, wall `105108ms`.
+- First-turn prompts dropped from the failed full-contract experiment to roughly
+  `4.2k` chars, but the provider still hit the same `60s + 45s` timeout shape
+  with no mutation receipts.
+
+Decision:
+
+Reverted the first-mutation import-contract addition because it did not produce
+an obvious positive delta. Keep the public-contract primitive only in
+repair/context packets for now. The next candidate should change the execution
+shape, not add more prompt content to first mutation.
+
+## EXP-CODING-033: Deterministic Python import-surface seed mutation
+
+Status: `patched_pending_measurement`
+
+Hypothesis:
+
+The Level 6/7 failure is now earlier than semantic repair: the provider times
+out before any file mutation. Passing frameworks all unblock the public import
+surface before deeper behavior repair. A primitive runtime seed can make that
+first mutation deterministic when validation already proves a missing Python
+public import, then leave behavior completion to the normal model/repair loop.
+
+Patch:
+
+- Added `python_import_surface_seed_mutation_enabled=true` to the lab mutation
+  spine.
+- After bootstrap validation, if stderr contains generic Python
+  `cannot import name '<symbol>' from '<module>'` failures and no mutation has
+  occurred, the runtime now:
+  - locates the module/export file from the project root,
+  - chooses an observed package source owner file,
+  - appends generic public API stubs for missing imported symbols,
+  - exposes those symbols through the package export surface,
+  - records normal `file_write` mutation receipts through native tooling.
+
+Non-goal:
+
+This seed does not implement domain behavior or encode eval-specific APIs. It
+only converts receipt-backed missing-public-import failures into a concrete
+owner-source/export mutation so later repair can operate on real code instead
+of timing out before mutation.
+
+Measurement:
+
+- Rebuilt `target/debug/xtask`.
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/python_import_surface_seed_l6_l7_20260529.json`
+- Level 6 passed `1/1`, wall `30790ms`, first mutation `30628ms`.
+- Level 7 passed `1/1`, wall `26787ms`, first mutation `25409ms`.
+- The old `no_successful_mutation` failure moved to a successful seed mutation
+  plus model-completed implementation/validation.
+- Level 6 wrote `orderflow/attempts.py` and `orderflow/__init__.py`.
+- Level 7 wrote `warehouse/items.py` and `warehouse/__init__.py`.
+
+Decision:
+
+Keep this patch. It is the first recent Level 6/7 change that clearly improves
+capability instead of adding prompt weight: the runtime now deterministically
+crosses the missing-import first-mutation boundary, then uses the model for
+actual behavior completion and validation.

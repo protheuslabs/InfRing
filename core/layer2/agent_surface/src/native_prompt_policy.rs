@@ -146,10 +146,11 @@ pub(crate) fn native_tool_completion_evidence_repair_prompt(
     let failed_validation_details = native_tool_failed_validation_receipt_details(receipts);
     let repair_actions =
         native_tool_completion_repair_action_brief(metadata, original_prompt, repair_reasons);
+    let owner_source_repair_hint = native_tool_unresolved_owner_source_repair_hint(repair_reasons);
     let test_change_repair_hint =
         native_tool_missing_test_change_repair_hint(receipts, repair_reasons);
     let failed_validation_repair_hint = native_tool_failed_validation_repair_hint(receipts);
-    let failed_validation_repair_contract = native_tool_failed_validation_repair_contract(receipts);
+    let public_contract_lines = native_tool_public_contract_lines_for_repair(receipts);
     let repair_rule = native_tool_orchestration_prompt_text(
         metadata,
         "completion_evidence_repair_prompt_rule",
@@ -161,7 +162,7 @@ pub(crate) fn native_tool_completion_evidence_repair_prompt(
         "Stage controller: advance in order through source mutation, test mutation, validation, checkpoint handoff, memory closure, and final answer. Do not skip to a later stage while earlier receipt evidence is missing.",
     );
     format!(
-        "{}\n\nStage controller:\n{}\n\nOriginal task:\n{}\n{}\n\nReceipt-backed changed files so far:\n{}\n\nSuccessful receipt refs:\n{}\n\nFailed validation receipt details:\n{}\n\nFailed validation repair contract:\n{}\n\nUncovered requirements detected by the runtime:\n{}\n\nRequired repair actions:\n{}\n\nTest mutation repair hint:\n{}\n\nFailed validation repair hint:\n{}\n\nPrevious output preview:\n{}",
+        "{}\n\nStage controller:\n{}\n\nOriginal task:\n{}\n{}\n\nReceipt-backed changed files so far:\n{}\n\nSuccessful receipt refs:\n{}\n\nFailed validation receipt details:\n{}\n\nPublic/test contract lines observed:\n{}\n\nUncovered requirements detected by the runtime:\n{}\n\nRequired repair actions:\n{}\n\nOwner source repair hint:\n{}\n\nTest mutation repair hint:\n{}\n\nFailed validation repair hint:\n{}\n\nPrevious output preview:\n{}",
         repair_rule,
         stage_rule,
         original_prompt.chars().take(2600).collect::<String>(),
@@ -169,12 +170,149 @@ pub(crate) fn native_tool_completion_evidence_repair_prompt(
         changed_paths.join("\n"),
         receipt_refs.join("\n"),
         failed_validation_details,
-        failed_validation_repair_contract,
+        public_contract_lines,
         repair_reasons.join("\n"),
         repair_actions,
+        owner_source_repair_hint,
         test_change_repair_hint,
         failed_validation_repair_hint,
         previous_output.chars().take(1400).collect::<String>()
+    )
+}
+
+fn native_tool_public_contract_lines_for_repair(receipts: &[NativeToolReceipt]) -> String {
+    let mut lines = Vec::new();
+    for receipt in receipts {
+        native_tool_collect_public_contract_lines_from_value(&receipt.result, &mut lines, 0);
+        if lines.len() >= 48 {
+            break;
+        }
+    }
+    lines.sort();
+    lines.dedup();
+    lines.truncate(24);
+    if lines.is_empty() {
+        "<none>".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn native_tool_collect_public_contract_lines_from_value(
+    value: &Value,
+    lines: &mut Vec<String>,
+    depth: usize,
+) {
+    if depth > 8 || lines.len() >= 48 {
+        return;
+    }
+    match value {
+        Value::String(text) => {
+            for line in text.lines() {
+                let trimmed = line.trim();
+                if native_tool_repair_line_looks_public_contract(trimmed) {
+                    let line = trimmed.chars().take(220).collect::<String>();
+                    if !lines.iter().any(|existing| existing == &line) {
+                        lines.push(line);
+                    }
+                    if lines.len() >= 48 {
+                        break;
+                    }
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                native_tool_collect_public_contract_lines_from_value(item, lines, depth + 1);
+                if lines.len() >= 48 {
+                    break;
+                }
+            }
+        }
+        Value::Object(object) => {
+            for value in object.values() {
+                native_tool_collect_public_contract_lines_from_value(value, lines, depth + 1);
+                if lines.len() >= 48 {
+                    break;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn native_tool_repair_line_looks_public_contract(line: &str) -> bool {
+    if line.is_empty() || line.len() > 260 || line.starts_with('#') || line.starts_with("//") {
+        return false;
+    }
+    let lower = line.to_ascii_lowercase();
+    if line.starts_with("import ")
+        || line.starts_with("from ")
+        || line.starts_with("class ")
+        || line.starts_with("def ")
+        || line.starts_with("@dataclass")
+        || lower.contains("__all__")
+        || line.starts_with("assert ")
+        || lower.contains("self.assert")
+        || lower.starts_with("expect(")
+        || lower.contains(".to_equal(")
+        || lower.contains(".toeq(")
+        || lower.contains(".to_be(")
+    {
+        return true;
+    }
+    if !line.contains('(') || !line.contains(')') {
+        return false;
+    }
+    if [
+        "if ",
+        "elif ",
+        "else",
+        "for ",
+        "while ",
+        "with ",
+        "return ",
+        "raise ",
+        "print(",
+        "open(",
+        "writer.",
+        "reader.",
+    ]
+    .iter()
+    .any(|prefix| lower.starts_with(prefix))
+    {
+        return false;
+    }
+    line.contains('.')
+        || line.contains(" = ")
+        || line.contains(" == ")
+        || native_tool_repair_line_has_uppercase_call(line)
+}
+
+fn native_tool_repair_line_has_uppercase_call(line: &str) -> bool {
+    line.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .filter(|token| !token.is_empty())
+        .any(|token| {
+            token
+                .chars()
+                .next()
+                .map(|ch| ch.is_ascii_uppercase())
+                .unwrap_or(false)
+                && line.contains(&format!("{token}("))
+        })
+}
+
+fn native_tool_unresolved_owner_source_repair_hint(repair_reasons: &[String]) -> String {
+    let paths = repair_reasons
+        .iter()
+        .filter_map(|reason| reason.strip_prefix("unresolved_owner_source_path:"))
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        return "<none>".to_string();
+    }
+    format!(
+        "Owner-source gate is active. Next response must contain only file_patch or file_write against these owner source path(s), preserving existing public API behavior and adding the missing imported symbols. Do not include command_run, test edits, export/package edits, reads, prose, or final answer until one owner-source mutation succeeds:\n{}",
+        paths.join("\n")
     )
 }
 
@@ -242,21 +380,6 @@ pub(crate) fn native_tool_failed_validation_repair_hint(receipts: &[NativeToolRe
     )
 }
 
-fn native_tool_failed_validation_repair_contract(receipts: &[NativeToolReceipt]) -> String {
-    let failed_validation_details = native_tool_failed_validation_receipt_details(receipts);
-    if failed_validation_details == "<none>" {
-        return "<none>".to_string();
-    }
-    let changed_paths = native_tool_changed_paths(receipts);
-    if changed_paths.is_empty() {
-        return "Failed-validation repair is mutation-first. Return JSON tool calls only: make the smallest relevant file_write or file_patch repair, then rerun the failing validation command. Do not answer in prose while local repair remains possible.".to_string();
-    }
-    format!(
-        "Failed-validation repair is mutation-first. Return JSON tool calls only. The next substantive call must be file_patch or file_write against one of the changed source/test files below, unless exactly one focused file_read/file_read_many is needed to inspect current contents. After the mutation, rerun the failing validation command. Do not answer in prose or ask for user input while local repair remains possible.\n{}",
-        changed_paths.join("\n")
-    )
-}
-
 pub(crate) fn native_tool_completion_repair_action_brief(
     metadata: &Value,
     original_prompt: &str,
@@ -269,7 +392,12 @@ pub(crate) fn native_tool_completion_repair_action_brief(
     );
     let target_paths = repair_reasons
         .iter()
-        .filter_map(|reason| reason.strip_prefix("missing_changed_path:"))
+        .filter_map(|reason| {
+            reason
+                .strip_prefix("missing_changed_path:")
+                .or_else(|| reason.strip_prefix("unresolved_owner_source_path:"))
+                .or_else(|| native_tool_missing_imported_module_repair_path(reason))
+        })
         .collect::<Vec<_>>();
     let expected_row = repair_reasons
         .iter()
@@ -349,6 +477,8 @@ fn native_tool_missing_product_mutation_action(
             reason.starts_with("incomplete_product_slice")
                 || reason.starts_with("missing_product_source_evidence:")
                 || reason.starts_with("missing_public_interface_verification:")
+                || reason.starts_with("missing_imported_module:")
+                || reason.starts_with("unresolved_owner_source_path:")
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -363,13 +493,61 @@ fn native_tool_missing_product_mutation_action(
     ))
 }
 
+fn native_tool_missing_imported_module_repair_path(reason: &str) -> Option<&str> {
+    let rest = reason.strip_prefix("missing_imported_module:")?;
+    rest.rsplit_once(':').map(|(_module, path)| path)
+}
+
 fn native_tool_product_slice_repair_hint(product_slice_reasons: &[String]) -> String {
+    if product_slice_reasons
+        .iter()
+        .any(|reason| reason.starts_with("missing_imported_module:"))
+    {
+        return "A changed test imports a local module that does not exist. Create or patch the missing local source module named in the evidence gap, and define the imported public symbol instead of weakening the test import.".to_string();
+    }
+    let missing_model = product_slice_reasons
+        .iter()
+        .any(|reason| reason == "missing_product_source_evidence:domain_model");
+    let missing_persistence = product_slice_reasons
+        .iter()
+        .any(|reason| reason == "missing_product_source_evidence:persistence_store");
+    let missing_service = product_slice_reasons
+        .iter()
+        .any(|reason| reason == "missing_product_source_evidence:service_integration");
+    let missing_operator = product_slice_reasons
+        .iter()
+        .any(|reason| reason == "missing_product_source_evidence:operator_surface");
     let missing_report = product_slice_reasons
         .iter()
         .any(|reason| reason == "missing_product_source_evidence:report");
     let missing_import_export = product_slice_reasons
         .iter()
         .any(|reason| reason == "missing_product_source_evidence:import_export");
+    if missing_model || missing_persistence || missing_service || missing_operator {
+        let mut missing = Vec::<&str>::new();
+        if missing_model {
+            missing.push("domain record/model");
+        }
+        if missing_persistence {
+            missing.push("persistent store");
+        }
+        if missing_service {
+            missing.push("service integration");
+        }
+        if missing_operator {
+            missing.push("operator CLI/report surface");
+        }
+        if missing_report {
+            missing.push("report summary");
+        }
+        if missing_import_export {
+            missing.push("import/export or round-trip behavior");
+        }
+        return format!(
+            "Complete the durable vertical slice before closure: add or update {} in source files, and keep tests faithful to those public surfaces.",
+            missing.join(", ")
+        );
+    }
     if missing_report && missing_import_export {
         return "If persistence/model code already exists, extend that existing module into the routing service and CLI: add report-by-destination/retryable summary behavior plus import/export or round-trip commands, and add regression tests for those public surfaces.".to_string();
     }
@@ -504,6 +682,33 @@ pub(crate) fn native_tool_context_to_mutation_retry_prompt(
         "Native mutation transition retry: local context already exists, but no successful file_write or file_patch receipt exists yet. Return only JSON tool calls for the next safe mutation batch, then validate when requested. Return a structured blocker only when local context proves mutation is unsafe or impossible.",
         native_tool_mutation_entry_policy_char_budget(metadata),
     );
+    let task_brief = native_tool_task_brief(original_prompt);
+    let mutation_action = if observations.starts_with("Compact mutation-entry packet:") {
+        "Implement a coherent source/operator/test mutation slice using the observed local files and prompt requirements.".to_string()
+    } else {
+        native_tool_missing_product_mutation_action(
+            original_prompt,
+            &["missing_product_mutation_receipt".to_string()],
+        )
+        .unwrap_or_default()
+    };
+    format!(
+        "{task_brief}\n\n{rule}\n\nMutation target: {mutation_action}\n\nReturn only JSON tool_calls. For multi-file slices, prefer one command_run shell edit batch with cat > path <<'EOF' heredocs. No prose, reads, validation, or final answer before mutation.\n\nRetry: {retry}\n\n{previous}\n\n{observations}"
+    )
+}
+
+pub(crate) fn native_tool_mutation_only_recovery_prompt(
+    metadata: &Value,
+    original_prompt: &str,
+    recovery_reason: &str,
+    mutation_packet: &str,
+) -> String {
+    let rule = native_tool_bounded_orchestration_prompt_text(
+        metadata,
+        "mutation_only_recovery_rule",
+        "Mutation-only recovery: required product mutation has not happened yet, and the previous turn either timed out or tried a non-mutating action. Return only JSON tool_calls containing one command_run shell edit batch with cat > path <<'EOF' heredocs for multi-file work, or file_write/file_patch for small edits. Do not use command_run for validation before mutation. Do not include reads, planning prose, markdown, or a final answer; runtime will validate after mutation.",
+        native_tool_mutation_entry_policy_char_budget(metadata),
+    );
     let mutation_action = native_tool_missing_product_mutation_action(
         original_prompt,
         &["missing_product_mutation_receipt".to_string()],
@@ -511,7 +716,7 @@ pub(crate) fn native_tool_context_to_mutation_retry_prompt(
     .unwrap_or_default();
     let task_brief = native_tool_task_brief(original_prompt);
     format!(
-        "{task_brief}\n\n{rule}\n\nRequired product mutation action:\n{mutation_action}\n\nImplementation-entry response format: return only JSON tool_calls with no prose, markdown, explanation, validation command, or final answer. Use the already observed project structure; batch source and requested test edits now.\n\nRetry: {retry}\n\n{previous}\n\nNative tool observations already available:\n{observations}"
+        "{task_brief}\n\n{rule}\n\nRecovery reason:\n{recovery_reason}\n\nRequired product mutation action:\n{mutation_action}\n\nResponse format: return only JSON tool_calls with file_write/file_patch. Batch the smallest coherent source/operator/test mutation slice now.\n\n{mutation_packet}"
     )
 }
 
@@ -530,15 +735,33 @@ fn native_tool_task_brief(original_prompt: &str) -> String {
     for line in original_prompt.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("Task:")
+            || trimmed.starts_with("Goal:")
             || trimmed.starts_with("Your write ownership is limited to this project root:")
-            || trimmed.starts_with("6. Run this validation command")
+            || trimmed.starts_with("- Project root:")
+            || trimmed.starts_with("- Python package:")
+            || trimmed.starts_with("- Isolated memory DB:")
+            || trimmed.starts_with("- Resume token:")
+            || trimmed.starts_with("- Expected new memory row id:")
+            || trimmed.starts_with("- Memory CLI command pattern:")
+            || trimmed.starts_with("- Validation command from project root:")
+            || trimmed.starts_with("Workflow requirements:")
+            || trimmed.starts_with("Completion guardrails:")
+            || trimmed.starts_with("Final response should include:")
+            || native_tool_task_brief_numbered_requirement(trimmed)
         {
             lines.push(trimmed.to_string());
         }
     }
     if lines.is_empty() {
-        original_prompt.chars().take(1600).collect::<String>()
+        original_prompt.chars().take(1800).collect::<String>()
     } else {
-        lines.join("\n")
+        lines.join("\n").chars().take(1800).collect::<String>()
     }
+}
+
+fn native_tool_task_brief_numbered_requirement(line: &str) -> bool {
+    let Some((prefix, _rest)) = line.split_once('.') else {
+        return false;
+    };
+    !prefix.is_empty() && prefix.len() <= 2 && prefix.chars().all(|ch| ch.is_ascii_digit())
 }

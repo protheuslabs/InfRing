@@ -95,6 +95,8 @@
       "bounded_fast_edit_preflight": true,
       "mutation_only_recovery_gate_enabled": true,
       "compact_mutation_entry_packet_enabled": true,
+      "public_contract_packet_enabled": true,
+      "python_import_surface_seed_mutation_enabled": true,
       "controlled_shell_edit_batch_enabled": true,
       "premature_validation_recovery_gate_enabled": true,
       "first_edit_batch_contract": false,

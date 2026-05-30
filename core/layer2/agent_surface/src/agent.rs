@@ -476,6 +476,26 @@ impl AgentContract {
                         }),
                     );
                     all_receipts.push(validation_receipt);
+                    let import_seed_started = Instant::now();
+                    let import_seed_receipts = native_tool_python_import_surface_seed_receipts(
+                        &dispatcher,
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &all_receipts,
+                    );
+                    if !import_seed_receipts.is_empty() {
+                        native_tool_persist_runtime_timeline_event(
+                            &self.metadata,
+                            &self.initial_prompt,
+                            "bootstrap_python_import_surface_seed_end",
+                            native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                            json!({
+                                "duration_ms": native_tool_bounded_patch_elapsed_ms(import_seed_started),
+                                "receipt_count": import_seed_receipts.len(),
+                            }),
+                        );
+                        all_receipts.extend(import_seed_receipts);
+                    }
                 } else {
                     native_tool_persist_runtime_timeline_event(
                         &self.metadata,
@@ -2993,6 +3013,24 @@ fn native_tool_compact_mutation_entry_packet_enabled(metadata: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn native_tool_public_contract_packet_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("public_contract_packet_enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_python_import_surface_seed_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("python_import_surface_seed_mutation_enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 fn native_tool_mutation_recovery_tools(metadata: &Value, tools: &[String]) -> Vec<String> {
     if !native_tool_controlled_shell_edit_batch_enabled(metadata) {
         return native_tool_staged_edit_tools(tools);
@@ -3208,6 +3246,104 @@ fn native_tool_mutation_entry_content_brief(content: &str) -> String {
     } else {
         compact.chars().take(420).collect::<String>()
     }
+}
+
+fn native_tool_mutation_entry_extend_public_contract_lines(
+    lines: &mut Vec<String>,
+    path: &str,
+    content: &str,
+) {
+    let path_lower = path.replace('\\', "/").to_ascii_lowercase();
+    let contract_source = path_lower.contains("/tests/")
+        || path_lower.starts_with("tests/")
+        || path_lower.contains("test_")
+        || path_lower.contains("_test.")
+        || path_lower.contains(".test.")
+        || path_lower.contains(".spec.")
+        || path_lower.contains("semantic_probe")
+        || path_lower.ends_with("__init__.py")
+        || path_lower.ends_with("mod.rs")
+        || path_lower.ends_with("lib.rs")
+        || path_lower.ends_with("index.ts")
+        || path_lower.ends_with("index.tsx")
+        || path_lower.ends_with("index.js")
+        || path_lower.ends_with("index.jsx");
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if !native_tool_line_looks_public_contract_line(trimmed, contract_source) {
+            continue;
+        }
+        native_tool_push_unique_string(
+            lines,
+            format!("{path}: {}", trimmed.chars().take(220).collect::<String>()),
+        );
+        if lines.len() >= 64 {
+            break;
+        }
+    }
+}
+
+fn native_tool_line_looks_public_contract_line(line: &str, contract_source: bool) -> bool {
+    if line.is_empty() || line.len() > 260 || line.starts_with('#') || line.starts_with("//") {
+        return false;
+    }
+    let lower = line.to_ascii_lowercase();
+    if native_tool_project_operator_looks_public_shape_line(line)
+        || line.starts_with("import ")
+        || line.starts_with("from ")
+        || lower.contains("__all__")
+        || line.starts_with("assert ")
+        || lower.contains("self.assert")
+        || lower.starts_with("expect(")
+        || lower.contains(".to_equal(")
+        || lower.contains(".toeq(")
+        || lower.contains(".to_be(")
+    {
+        return true;
+    }
+    if !contract_source || !line.contains('(') || !line.contains(')') {
+        return false;
+    }
+    if native_tool_line_starts_with_any(
+        &lower,
+        &[
+            "if ",
+            "elif ",
+            "else",
+            "for ",
+            "while ",
+            "with ",
+            "return ",
+            "raise ",
+            "print(",
+            "open(",
+            "writer.",
+            "reader.",
+        ],
+    ) {
+        return false;
+    }
+    line.contains('.')
+        || line.contains(" = ")
+        || line.contains(" == ")
+        || native_tool_line_has_uppercase_call(line)
+}
+
+fn native_tool_line_starts_with_any(line: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|prefix| line.starts_with(prefix))
+}
+
+fn native_tool_line_has_uppercase_call(line: &str) -> bool {
+    line.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .filter(|token| !token.is_empty())
+        .any(|token| {
+            token
+                .chars()
+                .next()
+                .map(|ch| ch.is_ascii_uppercase())
+                .unwrap_or(false)
+                && line.contains(&format!("{token}("))
+        })
 }
 
 fn native_tool_mutation_entry_memory_context_brief(stdout: &str) -> String {
@@ -6171,6 +6307,303 @@ fn native_tool_python_cannot_import_name_errors(text: &str) -> Vec<(String, Stri
     pairs
 }
 
+fn native_tool_python_import_surface_seed_receipts(
+    dispatcher: &NativeToolDispatcher,
+    metadata: &Value,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> Vec<NativeToolReceipt> {
+    if !native_tool_python_import_surface_seed_enabled(metadata)
+        || native_tool_has_successful_mutation(receipts)
+    {
+        return Vec::new();
+    }
+    let details = native_tool_failed_validation_receipt_details(receipts);
+    if details == "<none>" {
+        return Vec::new();
+    }
+    let mut by_module = BTreeMap::<String, Vec<String>>::new();
+    for (symbol, module) in native_tool_python_cannot_import_name_errors(&details) {
+        if native_tool_symbol_looks_private_or_generated(&symbol) {
+            continue;
+        }
+        let entry = by_module.entry(module).or_default();
+        if !entry.iter().any(|existing| existing == &symbol) {
+            entry.push(symbol);
+        }
+    }
+    if by_module.is_empty() {
+        return Vec::new();
+    }
+    let Some(project_root) = native_tool_prompt_project_root(original_prompt) else {
+        return Vec::new();
+    };
+    let root = PathBuf::from(project_root);
+    let mut seed_receipts = Vec::new();
+    for (module, mut symbols) in by_module {
+        symbols.sort();
+        symbols.dedup();
+        let Some(export_path_text) = native_tool_prompt_python_module_path(original_prompt, &module)
+        else {
+            continue;
+        };
+        let export_path = PathBuf::from(&export_path_text);
+        let owner_path =
+            native_tool_python_import_seed_owner_path(&root, &export_path, &module, receipts);
+        let Ok(source_original) = fs::read_to_string(&owner_path) else {
+            continue;
+        };
+        let source_next =
+            native_tool_python_import_seed_source_content(&source_original, &symbols);
+        if source_next != source_original {
+            seed_receipts.push(dispatcher.dispatch(NativeToolCall {
+                id: format!(
+                    "runtime_python_import_surface_seed_source_{}",
+                    native_tool_receipt_id_slug(&module)
+                ),
+                name: "file_write".to_string(),
+                args: json!({
+                    "path": owner_path.display().to_string(),
+                    "content": source_next,
+                    "overwrite": true,
+                }),
+            }));
+        }
+        if export_path != owner_path {
+            if let Ok(export_original) = fs::read_to_string(&export_path) {
+                let export_next = native_tool_python_import_seed_export_content(
+                    &export_original,
+                    &owner_path,
+                    &export_path,
+                    &symbols,
+                );
+                if export_next != export_original {
+                    seed_receipts.push(dispatcher.dispatch(NativeToolCall {
+                        id: format!(
+                            "runtime_python_import_surface_seed_export_{}",
+                            native_tool_receipt_id_slug(&module)
+                        ),
+                        name: "file_write".to_string(),
+                        args: json!({
+                            "path": export_path.display().to_string(),
+                            "content": export_next,
+                            "overwrite": true,
+                        }),
+                    }));
+                }
+            }
+        }
+    }
+    seed_receipts
+        .into_iter()
+        .filter(|receipt| receipt.status == "ok")
+        .collect()
+}
+
+fn native_tool_python_import_seed_owner_path(
+    root: &Path,
+    export_path: &Path,
+    module: &str,
+    receipts: &[NativeToolReceipt],
+) -> PathBuf {
+    if export_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        != Some("__init__.py")
+    {
+        return export_path.to_path_buf();
+    }
+    let package_dir = export_path.parent().unwrap_or(root);
+    let observed = native_tool_python_observed_module_source_paths(package_dir, receipts);
+    if let Some(path) = observed.into_iter().next() {
+        return path;
+    }
+    let mut candidates = fs::read_dir(package_dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path.extension().and_then(|value| value.to_str()) == Some("py")
+                && path.file_name().and_then(|value| value.to_str()) != Some("__init__.py")
+        })
+        .collect::<Vec<_>>();
+    candidates.sort();
+    if let Some(path) = candidates.into_iter().next() {
+        return path;
+    }
+    let fallback_name = module
+        .split('.')
+        .last()
+        .filter(|part| native_tool_python_identifier(part))
+        .unwrap_or("api");
+    package_dir.join(format!("{fallback_name}.py"))
+}
+
+fn native_tool_python_observed_module_source_paths(
+    package_dir: &Path,
+    receipts: &[NativeToolReceipt],
+) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for receipt in receipts {
+        native_tool_collect_observed_python_source_paths(package_dir, &receipt.result, &mut paths);
+    }
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+fn native_tool_collect_observed_python_source_paths(
+    package_dir: &Path,
+    value: &Value,
+    paths: &mut Vec<PathBuf>,
+) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                native_tool_collect_observed_python_source_paths(package_dir, item, paths);
+            }
+        }
+        Value::Object(object) => {
+            if let Some(path) = object
+                .get("path")
+                .or_else(|| object.get("relative_path"))
+                .and_then(Value::as_str)
+            {
+                let path = PathBuf::from(path);
+                if path.is_file()
+                    && path.parent() == Some(package_dir)
+                    && path.extension().and_then(|value| value.to_str()) == Some("py")
+                    && path.file_name().and_then(|value| value.to_str()) != Some("__init__.py")
+                {
+                    native_tool_push_unique_path(paths, path);
+                }
+            }
+            for value in object.values() {
+                native_tool_collect_observed_python_source_paths(package_dir, value, paths);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn native_tool_python_import_seed_source_content(original: &str, symbols: &[String]) -> String {
+    let mut additions = Vec::new();
+    for symbol in symbols {
+        if native_tool_python_content_defines_symbol(original, symbol) {
+            continue;
+        }
+        if native_tool_python_symbol_looks_type(symbol) {
+            additions.push(format!(
+                "class {symbol}:\n    \"\"\"Runtime import-surface seed; behavior is repaired by the coding workflow.\"\"\"\n\n    def __init__(self, *args, **kwargs):\n        self.args = args\n        self.kwargs = kwargs\n"
+            ));
+        } else {
+            additions.push(format!(
+                "def {symbol}(*args, **kwargs):\n    \"\"\"Runtime import-surface seed; behavior is repaired by the coding workflow.\"\"\"\n    raise NotImplementedError(\"{symbol} behavior is not implemented yet\")\n"
+            ));
+        }
+    }
+    if additions.is_empty() {
+        return original.to_string();
+    }
+    let mut next = original.trim_end().to_string();
+    next.push_str("\n\n\n# Runtime import-surface seed: generic missing public API scaffold.\n");
+    next.push_str(&additions.join("\n\n"));
+    next.push('\n');
+    next
+}
+
+fn native_tool_python_import_seed_export_content(
+    original: &str,
+    owner_path: &Path,
+    export_path: &Path,
+    symbols: &[String],
+) -> String {
+    let import_symbols = symbols
+        .iter()
+        .filter(|symbol| !native_tool_python_content_exports_symbol(original, symbol))
+        .cloned()
+        .collect::<Vec<_>>();
+    if import_symbols.is_empty() {
+        return original.to_string();
+    }
+    let owner_module = owner_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| native_tool_python_identifier(value))
+        .unwrap_or("api");
+    let relative_prefix = if owner_path.parent() == export_path.parent() {
+        ".".to_string()
+    } else {
+        ".".to_string()
+    };
+    let mut next = original.trim_end().to_string();
+    next.push_str("\n\n# Runtime import-surface seed: expose missing public API scaffold.\n");
+    next.push_str(&format!(
+        "from {relative_prefix}{owner_module} import {}\n",
+        import_symbols.join(", ")
+    ));
+    next.push_str("try:\n    __all__\nexcept NameError:\n    __all__ = []\n");
+    next.push_str(&format!(
+        "__all__ = sorted(set(__all__) | {{{}}})\n",
+        import_symbols
+            .iter()
+            .map(|symbol| format!("{symbol:?}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    next
+}
+
+fn native_tool_python_content_defines_symbol(content: &str, symbol: &str) -> bool {
+    content.lines().any(|line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with(&format!("class {symbol}"))
+            || trimmed.starts_with(&format!("def {symbol}"))
+            || trimmed.starts_with(&format!("{symbol} ="))
+    })
+}
+
+fn native_tool_python_content_exports_symbol(content: &str, symbol: &str) -> bool {
+    content.contains(&format!("import {symbol}"))
+        || content.contains(&format!("import {symbol},"))
+        || content.contains(&format!(", {symbol}"))
+        || content.contains(&format!("{symbol:?}"))
+        || content.contains(&format!("'{symbol}'"))
+}
+
+fn native_tool_python_symbol_looks_type(symbol: &str) -> bool {
+    symbol
+        .chars()
+        .next()
+        .map(|ch| ch.is_ascii_uppercase())
+        .unwrap_or(false)
+}
+
+fn native_tool_symbol_looks_private_or_generated(symbol: &str) -> bool {
+    symbol.starts_with('_') || symbol.contains("__")
+}
+
+fn native_tool_receipt_id_slug(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn native_tool_push_unique_path(values: &mut Vec<PathBuf>, value: PathBuf) {
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
 fn native_tool_prompt_python_module_path(original_prompt: &str, module: &str) -> Option<String> {
     let project_root = native_tool_prompt_project_root(original_prompt)?;
     let root = PathBuf::from(project_root);
@@ -7345,6 +7778,11 @@ fn native_tool_project_operator_context_packet(
         "failed_validation": native_tool_failed_validation_receipt_details(receipts),
         "context_receipts": native_tool_project_operator_receipt_summary(receipts),
         "public_shape_lines_to_preserve": native_tool_project_operator_public_shape_lines(receipts),
+        "public_contract_lines_to_preserve": if native_tool_public_contract_packet_enabled(metadata) {
+            native_tool_project_operator_public_contract_lines(receipts)
+        } else {
+            Vec::<String>::new()
+        },
         "compact_observation": native_tool_project_operator_compact_observation(
             metadata,
             observation,
@@ -7459,6 +7897,60 @@ fn native_tool_project_operator_public_shape_lines(
             }
         }
         if lines.len() >= 48 {
+            break;
+        }
+    }
+    lines.sort();
+    lines.dedup();
+    lines.truncate(32);
+    lines
+}
+
+fn native_tool_project_operator_public_contract_lines(
+    receipts: &[NativeToolReceipt],
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    for receipt in receipts {
+        if let Some(files) = receipt.result.get("files").and_then(Value::as_array) {
+            for file in files {
+                let path = file
+                    .get("relative_path")
+                    .and_then(Value::as_str)
+                    .or_else(|| file.get("path").and_then(Value::as_str))
+                    .unwrap_or("<observed_file>");
+                if let Some(content) = file.get("content").and_then(Value::as_str) {
+                    native_tool_mutation_entry_extend_public_contract_lines(
+                        &mut lines,
+                        path,
+                        content,
+                    );
+                }
+            }
+        }
+        if let Some(path) = receipt.result.get("path").and_then(Value::as_str) {
+            if let Some(content) = receipt.result.get("content").and_then(Value::as_str) {
+                native_tool_mutation_entry_extend_public_contract_lines(&mut lines, path, content);
+            }
+        }
+        if receipt.tool_name.eq_ignore_ascii_case("command_run") {
+            for key in ["stdout", "stderr", "output"] {
+                if let Some(text) = receipt.result.get(key).and_then(Value::as_str) {
+                    for line in text.lines() {
+                        let trimmed = line.trim();
+                        if native_tool_line_looks_public_contract_line(trimmed, true) {
+                            native_tool_push_unique_string(
+                                &mut lines,
+                                format!(
+                                    "validation_output: {}",
+                                    trimmed.chars().take(220).collect::<String>()
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        if lines.len() >= 64 {
             break;
         }
     }
@@ -7588,7 +8080,7 @@ fn native_tool_project_operator_first_mutation_max_calls(metadata: &Value) -> us
 }
 
 fn native_tool_project_operator_first_mutation_system() -> String {
-    "You are a constrained code edit engine. Return exactly one JSON object with a tool_calls array. Do not write prose, markdown, analysis, or a final answer. Prefer concrete file_write/file_patch edits or one controlled command_run shell edit batch. Preserve existing public API shape unless the task explicitly asks for a breaking change."
+    "You are a constrained code edit engine. Return exactly one JSON object with a tool_calls array. Do not write prose, markdown, analysis, or a final answer. Prefer concrete file_write/file_patch edits or one controlled command_run shell edit batch. Preserve existing public API shape and public/test contract call sites unless the task explicitly asks for a breaking change."
         .to_string()
 }
 
@@ -7601,7 +8093,7 @@ fn native_tool_project_operator_first_mutation_prompt(stage_prompt: &str, stage:
 - Allowed mutation tools: file_write, file_patch, or one controlled command_run heredoc edit batch.\n\
 - Do not call read/list/stat tools in this lane; context is already provided.\n\
 - Do not run validation, write handoff artifacts, or write memory rows in this lane.\n\
-- Preserve public_shape_lines_to_preserve and existing CLI behavior unless the task explicitly says otherwise.\n\
+- Preserve public_shape_lines_to_preserve, public_contract_lines_to_preserve, and existing CLI behavior unless the task explicitly says otherwise.\n\
 - If no safe mutation is possible from the packet, return {{\"tool_calls\":[]}}."
     )
 }
