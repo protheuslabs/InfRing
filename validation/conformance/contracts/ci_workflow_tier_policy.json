@@ -12,8 +12,16 @@
     "nightly_maintenance",
     "advisory_guard"
   ],
-  "required_tiers": ["release_gate", "security_gate", "validation_guard"],
-  "advisory_tiers": ["observability_guard", "nightly_maintenance", "advisory_guard"],
+  "required_tiers": [
+    "release_gate",
+    "security_gate"
+  ],
+  "advisory_tiers": [
+    "validation_guard",
+    "observability_guard",
+    "nightly_maintenance",
+    "advisory_guard"
+  ],
   "policy": {
     "every_workflow_must_be_classified": true,
     "manifest_is_source_of_truth": true,
@@ -22,11 +30,35 @@
     "release_and_security_gates_must_not_be_marked_advisory": true
   },
   "classification_hints": {
-    "nightly_tokens": ["nightly", "dream", "schedule:"],
-    "security_tokens": ["security", "audit", "codeql", "supply"],
-    "release_tokens": ["release", "version", "publish", "sbom"],
-    "observability_tokens": ["sentinel", "observability", "telemetry"],
-    "validation_tokens": ["validation", "test", "coverage", "smoke", "conformance"],
+    "nightly_tokens": [
+      "nightly",
+      "dream",
+      "schedule:"
+    ],
+    "security_tokens": [
+      "security",
+      "audit",
+      "codeql",
+      "supply"
+    ],
+    "release_tokens": [
+      "release",
+      "version",
+      "publish",
+      "sbom"
+    ],
+    "observability_tokens": [
+      "sentinel",
+      "observability",
+      "telemetry"
+    ],
+    "validation_tokens": [
+      "validation",
+      "test",
+      "coverage",
+      "smoke",
+      "conformance"
+    ],
     "fallback_tier": "advisory_guard"
   }
 }

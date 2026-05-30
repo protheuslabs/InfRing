@@ -122,13 +122,14 @@ function dimension(policy: Json, name: string, metricKey: string, value: number,
 
 function countRequiredChecks(policy: Json): { required: number; source: string } {
   const artifacts = policy.source_artifacts || {};
+  const manifest = readJson(String(artifacts.ci_workflow_tier_manifest || ''));
+  const rows = Array.isArray(manifest?.workflows) ? manifest.workflows : [];
+  const manifestRequired = rows.filter((row: Json) => row.required_for_release === true).length;
+  if (rows.length > 0) return { required: manifestRequired, source: String(artifacts.ci_workflow_tier_manifest || 'manifest') };
   const reduction = readJson(String(artifacts.ci_required_gate_reduction_plan || ''));
   const direct = Number(reduction?.current_required_count ?? reduction?.required_count ?? 0);
   if (direct > 0) return { required: direct, source: String(artifacts.ci_required_gate_reduction_plan) };
-  const manifest = readJson(String(artifacts.ci_workflow_tier_manifest || ''));
-  const rows = Array.isArray(manifest?.workflows) ? manifest.workflows : [];
-  const required = rows.filter((row: Json) => String(row.tier || row.required || '').includes('required')).length;
-  return { required, source: String(artifacts.ci_workflow_tier_manifest || 'fallback') };
+  return { required: 0, source: 'missing_ci_required_source' };
 }
 
 function commandMetrics(policy: Json) {

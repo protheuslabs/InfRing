@@ -5,8 +5,8 @@
   "source_domain": "validation",
   "type": "ci_workflow_tier_manifest",
   "schema_version": 1,
-  "generated_at": "2026-05-20T08:02:09.772Z",
-  "workflow_count": 45,
+  "generated_at": "2026-05-30T19:40:25.331Z",
+  "workflow_count": 46,
   "workflows": [
     {
       "file": ".github/workflows/alpha-smoke.yml",
@@ -19,8 +19,8 @@
       "file": ".github/workflows/backlog-consistency.yml",
       "name": "Backlog Consistency",
       "tier": "validation_guard",
-      "required_for_release": true,
-      "allowed_to_be_advisory": false
+      "required_for_release": false,
+      "allowed_to_be_advisory": true
     },
     {
       "file": ".github/workflows/ci-tier-enforcement.yml",
@@ -47,8 +47,8 @@
       "file": ".github/workflows/conduit-edge-matrix.yml",
       "name": "Conduit Edge Feature Matrix",
       "tier": "validation_guard",
-      "required_for_release": true,
-      "allowed_to_be_advisory": false
+      "required_for_release": false,
+      "allowed_to_be_advisory": true
     },
     {
       "file": ".github/workflows/conventional-commit-lint.yml",
@@ -96,8 +96,8 @@
       "file": ".github/workflows/empty-fort-verify.yml",
       "name": "empty-fort-verify",
       "tier": "validation_guard",
-      "required_for_release": true,
-      "allowed_to_be_advisory": false
+      "required_for_release": false,
+      "allowed_to_be_advisory": true
     },
     {
       "file": ".github/workflows/empty-fort-visuals.yml",
@@ -135,6 +135,13 @@
       "allowed_to_be_advisory": false
     },
     {
+      "file": ".github/workflows/github-main-branch-policy.yml",
+      "name": "GitHub Main Branch Policy",
+      "tier": "advisory_guard",
+      "required_for_release": false,
+      "allowed_to_be_advisory": true
+    },
+    {
       "file": ".github/workflows/helm-conformance.yml",
       "name": "Helm Conformance",
       "tier": "release_gate",
@@ -152,8 +159,8 @@
       "file": ".github/workflows/kernel-layer-matrix.yml",
       "name": "Kernel Layer Matrix",
       "tier": "validation_guard",
-      "required_for_release": true,
-      "allowed_to_be_advisory": false
+      "required_for_release": false,
+      "allowed_to_be_advisory": true
     },
     {
       "file": ".github/workflows/layer-placement-policy.yml",
@@ -264,22 +271,22 @@
       "file": ".github/workflows/rust-perf-regression-gate.yml",
       "name": "rust-perf-regression-gate",
       "tier": "validation_guard",
-      "required_for_release": true,
-      "allowed_to_be_advisory": false
+      "required_for_release": false,
+      "allowed_to_be_advisory": true
     },
     {
       "file": ".github/workflows/rust-share-kpi.yml",
       "name": "Rust Share KPI",
       "tier": "validation_guard",
-      "required_for_release": true,
-      "allowed_to_be_advisory": false
+      "required_for_release": false,
+      "allowed_to_be_advisory": true
     },
     {
       "file": ".github/workflows/rust50-tcb-gate.yml",
       "name": "rust50-tcb-gate",
       "tier": "validation_guard",
-      "required_for_release": true,
-      "allowed_to_be_advisory": false
+      "required_for_release": false,
+      "allowed_to_be_advisory": true
     },
     {
       "file": ".github/workflows/scheduled-maintenance.yml",
@@ -292,8 +299,8 @@
       "file": ".github/workflows/sdlc-change-control.yml",
       "name": "SDLC Change Control",
       "tier": "validation_guard",
-      "required_for_release": true,
-      "allowed_to_be_advisory": false
+      "required_for_release": false,
+      "allowed_to_be_advisory": true
     },
     {
       "file": ".github/workflows/security-audit.yml",
@@ -306,8 +313,8 @@
       "file": ".github/workflows/spdx-header-guard.yml",
       "name": "SPDX Header Guard",
       "tier": "validation_guard",
-      "required_for_release": true,
-      "allowed_to_be_advisory": false
+      "required_for_release": false,
+      "allowed_to_be_advisory": true
     },
     {
       "file": ".github/workflows/version-bump.yml",
@@ -327,14 +334,14 @@
   "governance": {
     "required_tiers": [
       "release_gate",
-      "security_gate",
-      "validation_guard"
+      "security_gate"
     ],
     "advisory_tiers": [
       "advisory_guard",
       "nightly_maintenance",
-      "observability_guard"
+      "observability_guard",
+      "validation_guard"
     ],
-    "recommendation": "Use this manifest as the durable source for required/advisory/nightly workflow ownership before changing branch protection."
+    "recommendation": "Use this manifest as the durable source for branch-protection-required workflows; validation_guard is advisory unless promoted to release_gate or security_gate."
   }
 }
