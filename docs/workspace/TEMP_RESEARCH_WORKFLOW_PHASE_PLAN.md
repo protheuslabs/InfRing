@@ -366,3 +366,51 @@ Current focus:
 - `decision`: `reverted`
 - `reason`: This violated the one-change rule. The metric movement did not align with user-facing quality, so the experiment is logged as a dead end rather than kept.
 - `follow_up`: Do not tune query facet stopwords blindly. Use the new metadata hydration as the stable baseline and target source-quality/answerability with evidence-row diagnostics, preferably by inspecting actual selected evidence rows before changing query generation again.
+
+### 2026-05-29: compound subject query-lane experiment
+
+- `baseline_artifact`: `artifacts/research_golden_after_restart_metadata_kept_live2.json`
+- `patch_name`: preserve compound subject phrases and add targeted primary-source query lanes during recovered batch-query metadata repair
+- `failure_class_targeted`: `web_5d_source_quality_ready` / recovered metadata reduced compound subjects such as `AI drug discovery` to a broad entity like `AI`, and generated generic lanes such as `United States research current status`.
+- `hypothesis`: If recovered query metadata carries compound subject phrases into `required_coverage.entities` and targeted source-class lanes, source quality should improve without relying on prompt-specific rules.
+- `files_changed`: `core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/046b-manual-toolbox-pending-request.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml --lib manual_toolbox_pending_request_tests -- --nocapture` passed while experiment was applied.
+- `eval_command`: `cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- research-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --sample-seed=random:6d09e741b184df5d5052ac05fd27b875bc9829f3c62ca6da69e37eb955207a47 --timeout-seconds=90 --out=core/local/artifacts/research_golden_after_compound_subject_lanes_live2.json --out-latest=artifacts/research_golden_after_compound_subject_lanes_live2.json --out-markdown=artifacts/research_golden_after_compound_subject_lanes_live2.md --failures-out=local/state/ops/research_golden/compound_subject_lanes_live2_failures.jsonl`
+- `before_metrics`: `average_score=93.0`, `passed_cases=2/2`, `excellent_cases=0/2`, `web_5d_source_quality_ready=0/2`, `web_5g_answerability_ready=0/2`, `web_7_usable_evidence_available=0/2`.
+- `after_metrics`: `average_score=92.0`, `passed_cases=1/2`, `excellent_cases=0/2`, `web_5d_source_quality_ready=2/2`, `web_5g_answerability_ready=0/2`, `web_7_usable_evidence_available=0/2`.
+- `visible_output_delta`: source-quality metrics improved, but the drug-discovery answer regressed into a source-title fragment after `answer_units_not_traceable_to_evidence`: `From Radiology to Drug Discovery, Survey Reveals AI Is Delivering Clear Return on Investment in Healthcare. Integrating AI and Machine Learning in Drug Discovery and Development PharmTech.`
+- `decision`: `reverted`
+- `reason`: The targeted web-tooling gate improved, but user-facing pass rate and average score regressed. This violates the one-measurable-change rule because better source-quality accounting did not produce a better answer.
+- `follow_up`: The artifact suggests the next primitive failure is post-retrieval answerability and fallback acceptance: when the LLM rejects an answer as untraceable, fallback must not surface article titles as the answer. Fix the fallback/answer-unit path before trying to broaden query lanes again.
+
+### 2026-05-29: source-title fallback acceptance guard
+
+- `baseline_artifact`: `artifacts/research_golden_after_restart_metadata_kept_live2.json`
+- `patch_name`: reject title/source-inventory shaped fallback text as substantive answer depth after traceability or evidence-depth verifier rejects.
+- `failure_class_targeted`: `post_tool_synthesis_not_useful` / source titles and article-headline inventories being accepted as user-facing answers after the LLM response was rejected as untraceable.
+- `hypothesis`: If fallback depth checks treat source-title inventories as low-information, rejected LLM synthesis cannot degrade into visible title fragments; it must either rebuild from traceable evidence units or emit a bounded insufficiency answer.
+- `files_changed`: `core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/047-turn-workflow-synthesis_parts/007-part.rs`, `core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/047-turn-workflow-synthesis_parts/903-workflow-fallback-tests.rs`, `core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/047-turn-workflow-synthesis_parts/907-workflow-fallback-tests.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml --lib title_shell_fallback_is_not_substantive_depth_for_traceability_reject -- --nocapture` passed; `cargo test --manifest-path core/layer0/ops/Cargo.toml --lib workflow_fallback_tests -- --nocapture` passed with `147 passed`.
+- `eval_command`: `cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- research-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --sample-seed=random:6d09e741b184df5d5052ac05fd27b875bc9829f3c62ca6da69e37eb955207a47 --timeout-seconds=90 --out=core/local/artifacts/research_golden_after_title_inventory_fallback_guard_live2.json --out-latest=artifacts/research_golden_after_title_inventory_fallback_guard_live2.json --out-markdown=artifacts/research_golden_after_title_inventory_fallback_guard_live2.md --failures-out=local/state/ops/research_golden/title_inventory_fallback_guard_live2_failures.jsonl`
+- `before_metrics`: `average_score=93.0`, `passed_cases=2/2`, `excellent_cases=0/2`, `web_5d_source_quality_ready=0/2`, `web_5f_citation_renderability_ready=1/2`, `web_5g_answerability_ready=0/2`, `web_7_usable_evidence_available=0/2`.
+- `after_metrics`: `average_score=93.0`, `passed_cases=2/2`, `excellent_cases=0/2`, `web_5d_source_quality_ready=1/2`, `web_5f_citation_renderability_ready=2/2`, `web_5g_answerability_ready=0/2`, `web_7_usable_evidence_available=0/2`.
+- `visible_output_delta`: the known title-shell failure did not recur. Drug discovery remained bounded and evidence-limited; nuclear permitting remained bounded and explicit about insufficient source-backed evidence.
+- `decision`: `kept`
+- `reason`: This patch does not solve answerability, but it blocks a concrete bad-output class without reducing pass rate or average score. It also keeps the system honest when synthesis rejects an untraceable answer.
+- `follow_up`: The top remaining primitive failure is still answerable evidence quality after retrieval: `web_5g_answerability_ready=0/2` and `web_7_usable_evidence_available=0/2`. Next work should inspect selected evidence rows for why concrete, citable answer units are not being produced, before changing query generation again.
+
+### 2026-05-30: subject-phrase metadata narrowing experiment
+
+- `baseline_artifact`: `artifacts/research_golden_after_title_inventory_fallback_guard_live2.json`
+- `patch_name`: preserve subject phrases after generic relation anchors during recovered batch-query metadata repair.
+- `failure_class_targeted`: `web_5d_source_quality_ready` / broad recovered entity coverage such as `AI` or `United States` losing lower-case compound subjects.
+- `hypothesis`: If recovered query metadata preserves narrow subject phrases as entities, the search lanes should produce more relevant candidate evidence without hardcoding a sample query.
+- `files_changed`: `core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/046b-manual-toolbox-pending-request.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml --lib manual_toolbox_pending_request_tests -- --nocapture` passed while experiment was applied.
+- `eval_command`: `cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- research-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --sample-seed=random:6d09e741b184df5d5052ac05fd27b875bc9829f3c62ca6da69e37eb955207a47 --timeout-seconds=90 --out=core/local/artifacts/research_golden_after_subject_phrase_metadata_live2.json --out-latest=artifacts/research_golden_after_subject_phrase_metadata_live2.json --out-markdown=artifacts/research_golden_after_subject_phrase_metadata_live2.md --failures-out=local/state/ops/research_golden/subject_phrase_metadata_live2_failures.jsonl`
+- `before_metrics`: `average_score=93.0`, `passed_cases=2/2`, `excellent_cases=0/2`, `query_lanes_per_case=3.0`, `required_entities_per_case=1.0`, `web_5d_source_quality_ready=1/2`, `web_5g_answerability_ready=0/2`, `web_7_usable_evidence_available=0/2`.
+- `after_metrics`: `average_score=93.0`, `passed_cases=1/2`, `excellent_cases=0/2`, `query_lanes_per_case=4.5`, `required_entities_per_case=2.5`, `web_5d_source_quality_ready=1/2`, `web_5g_answerability_ready=0/2`, `web_7_usable_evidence_available=0/2`.
+- `visible_output_delta`: the drug-discovery case fell from pass to fail because unsupported answer-unit traceability surfaced again, even though query metadata became richer.
+- `decision`: `reverted`
+- `reason`: The patch improved metadata volume but did not improve the upstream quality gates and reduced live pass rate. Under the one-measurable-change rule, richer query metadata is not enough unless it improves user-facing or gate quality.
+- `follow_up`: Do not try another query-lane expansion yet. Consult the research-system artifacts for a more primitive post-retrieval patch around evidence compaction, evidence-card construction, or answer-unit grounding, because `web_5g_answerability_ready` and `web_7_usable_evidence_available` remain the stable bottleneck.

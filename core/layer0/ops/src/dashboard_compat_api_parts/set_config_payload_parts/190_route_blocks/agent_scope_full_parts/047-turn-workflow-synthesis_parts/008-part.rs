@@ -355,6 +355,20 @@ fn tool_backed_final_verifier_violation_reason(
     if response_looks_truncated_or_incomplete_for_verifier(&cleaned) {
         return Some("final_response_verifier_contract:incomplete_visible_answer".to_string());
     }
+    if response_tools_have_answer_ready_evidence_packets(response_tools)
+        && response_underuses_available_tool_evidence(&cleaned, response_tools)
+    {
+        return Some(
+            "final_response_verifier_contract:answer_underdeveloped_for_available_evidence"
+                .to_string(),
+        );
+    }
+    if response_looks_like_materialization_error_as_answer(&cleaned) {
+        return Some(
+            "final_response_verifier_contract:materialization_error_substituted_for_answer"
+                .to_string(),
+        );
+    }
     let first = first_sentence(&cleaned, 420).to_ascii_lowercase();
     let full = cleaned.to_ascii_lowercase();
     if response_tools_have_answer_ready_evidence_packets(response_tools)
@@ -389,13 +403,17 @@ fn tool_backed_final_verifier_violation_reason(
         response_tools,
         "/diagnostic_markers/final_response_verifier/outside_evidence_source_boundary_phrases",
         &full,
-    );
+    ) || ((full.contains("general knowledge") || full.contains("outside retrieved evidence"))
+        && (full.contains("not source-backed") || full.contains("not supported by retrieved evidence")));
     let outside_evidence_used_for_decision = outside_evidence_marker
-        && final_response_verifier_contract_marker_for_tools(
-            response_tools,
-            "/diagnostic_markers/final_response_verifier/bounded_answer_signals",
-            &full,
-        )
+        && (final_response_verifier_contract_marker_for_tools(
+                response_tools,
+                "/diagnostic_markers/final_response_verifier/bounded_answer_signals",
+                &full,
+            )
+            || full.contains("bottom line: choose")
+            || full.contains(" choose ")
+            || full.contains(" recommend "))
         && !workflow_final_answer_explicitly_refuses_unsupported_recommendation(&full);
     if outside_evidence_used_for_decision {
         return Some(
@@ -437,4 +455,65 @@ fn tool_backed_final_verifier_violation_reason(
         );
     }
     None
+}
+
+fn response_underuses_available_tool_evidence(response_text: &str, response_tools: &[Value]) -> bool {
+    let available_units = evidence_packet_answer_units(response_tools, 4)
+        .into_iter()
+        .filter(|unit| {
+            let (answer, _) = fallback_answer_unit_text_and_source(unit);
+            !answer.is_empty()
+                && evidence_packet_text_is_answer_claim(&answer)
+                && !workflow_answer_unit_is_process_or_metadata_fact(&answer)
+                && !workflow_answer_unit_contains_ui_or_source_shell(&answer)
+                && !workflow_answer_unit_looks_like_source_title_fragment(&answer)
+                && !workflow_answer_unit_looks_like_datestamped_headline_shell(&answer)
+        })
+        .take(3)
+        .count();
+    if available_units < 2 {
+        return false;
+    }
+    let answer_units = workflow_answer_text_units(response_text)
+        .into_iter()
+        .filter(|unit| {
+            let cleaned = clean_text(unit, 520);
+            !cleaned.is_empty()
+                && !workflow_answer_unit_is_process_or_metadata_fact(&cleaned)
+                && !workflow_answer_unit_contains_ui_or_source_shell(&cleaned)
+                && !workflow_answer_unit_looks_like_source_title_fragment(&cleaned)
+                && !workflow_answer_unit_looks_like_datestamped_headline_shell(&cleaned)
+                && evidence_packet_text_is_answer_claim(&cleaned)
+        })
+        .take(2)
+        .count();
+    if answer_units >= 2 {
+        return false;
+    }
+    let lowered = normalize_coverage_lane_text(response_text);
+    let honest_low_evidence_closure = workflow_answer_unit_is_hedged_or_gap(&lowered)
+        && (lowered.contains("no usable evidence")
+            || lowered.contains("not enough usable evidence")
+            || lowered.contains("insufficient evidence")
+            || lowered.contains("could not verify"));
+    !honest_low_evidence_closure && response_text.split_whitespace().count() < 70
+}
+
+fn response_looks_like_materialization_error_as_answer(response_text: &str) -> bool {
+    let lowered = normalize_coverage_lane_text(response_text);
+    if lowered.is_empty() {
+        return false;
+    }
+    let names_error_artifact = lowered.contains("error page")
+        || lowered.contains("technical error")
+        || lowered.contains("access denied")
+        || lowered.contains("captcha")
+        || lowered.contains("blocked page")
+        || lowered.contains("browser challenge");
+    let substitutes_for_answer = lowered.contains("returned only")
+        || lowered.contains("yielding no usable")
+        || lowered.contains("no usable scholarly content")
+        || lowered.contains("no usable content")
+        || lowered.contains("could not retrieve");
+    names_error_artifact && substitutes_for_answer
 }

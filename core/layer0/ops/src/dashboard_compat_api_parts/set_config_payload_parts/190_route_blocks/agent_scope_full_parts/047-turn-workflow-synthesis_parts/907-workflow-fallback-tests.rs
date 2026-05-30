@@ -324,6 +324,66 @@
     }
 
     #[test]
+    fn traceability_reject_rebuilds_from_evidence_before_reusing_excerpt() {
+        let mut workflow = json!({
+            "response": "",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": false,
+                "status": "synthesis_failed"
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "evidence_pack": [
+                {
+                    "title": "NRC licensing modernization",
+                    "source_domain": "nrc.gov",
+                    "relevant_extract": "NRC modernization work has focused on updating licensing review processes for advanced reactors and small modular reactor applications.",
+                    "claim_hints": ["NRC modernization work has focused on updating licensing review processes for advanced reactors and small modular reactor applications."],
+                    "counts_as_usable_evidence": true
+                },
+                {
+                    "title": "DOE reactor deployment bill",
+                    "source_domain": "energy.gov",
+                    "relevant_extract": "NRC licensing timelines and environmental review remain nuclear permitting bottlenecks for reactor deployment.",
+                    "claim_hints": ["NRC licensing timelines and environmental review remain nuclear permitting bottlenecks for reactor deployment."],
+                    "counts_as_usable_evidence": true
+                }
+            ]
+        })];
+        let rejected_excerpt =
+            "Nuclear permitting reform remains largely stalled as a legislative priority, with no major statutory changes to the NRC's licensing framework or to NEPA environmental review timelines enacted in recent sessions.";
+
+        let rewritten = maybe_apply_rejected_tool_evidence_fallback(
+            &mut workflow,
+            "Research the current status of nuclear permitting reform in the United States. What has actually changed, and what remains a bottleneck?",
+            &tools,
+            rejected_excerpt,
+            rejected_excerpt,
+            "final_response_verifier_contract:answer_units_not_traceable_to_evidence",
+        );
+
+        assert!(rewritten);
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(
+            response.contains("NRC modernization work has focused on updating licensing review processes"),
+            "{response}"
+        );
+        assert!(
+            response.contains("NRC licensing timelines and environmental review remain nuclear permitting bottlenecks"),
+            "{response}"
+        );
+        assert!(
+            !response.contains("remains largely stalled as a legislative priority"),
+            "{response}"
+        );
+    }
+
     fn low_information_tool_evidence_fallback_is_repaired_from_reject_excerpt() {
         let mut workflow = json!({
             "response": "My recommendation is to treat the current evidence as insufficient for a direct source-backed conclusion. Coverage state: usable evidence is present for remote teams, meeting overload, asynchronous communication, meeting-free days.",
@@ -477,6 +537,188 @@
     }
 
     #[test]
+    fn verifier_rejects_single_sentence_when_multiple_evidence_units_are_available() {
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "evidence_pack": [
+                {
+                    "title": "Microplastics definition",
+                    "relevant_extract": "Microplastics are synthetic polymer particles now detected across multiple human tissue studies.",
+                    "counts_as_usable_evidence": true
+                },
+                {
+                    "title": "Microplastics uncertainty",
+                    "relevant_extract": "Researchers still distinguish human tissue detection from proven causal health harm because exposure routes, dose, and disease mechanisms remain uncertain.",
+                    "counts_as_usable_evidence": true
+                },
+                {
+                    "title": "Microplastics evidence needs",
+                    "relevant_extract": "Longitudinal epidemiology and controlled mechanistic work are still needed before firm clinical risk estimates can be made.",
+                    "counts_as_usable_evidence": true
+                }
+            ]
+        })];
+
+        let reason = tool_backed_final_verifier_violation_reason(
+            "Microplastics are now widely detected in human tissues, but the leap from detection to proven health harm remains unsettled.",
+            &tools,
+        );
+
+        assert_eq!(
+            reason.as_deref(),
+            Some("final_response_verifier_contract:answer_underdeveloped_for_available_evidence")
+        );
+    }
+
+    #[test]
+    fn underdeveloped_reject_rebuilds_from_multiple_evidence_units() {
+        let mut workflow = json!({
+            "response": "",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": false,
+                "status": "synthesis_failed"
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "evidence_pack": [
+                {
+                    "title": "Microplastics definition",
+                    "relevant_extract": "Microplastics are synthetic polymer particles now detected across multiple human tissue studies.",
+                    "counts_as_usable_evidence": true
+                },
+                {
+                    "title": "Microplastics uncertainty",
+                    "relevant_extract": "Researchers still distinguish human tissue detection from proven causal health harm because exposure routes, dose, and disease mechanisms remain uncertain.",
+                    "counts_as_usable_evidence": true
+                },
+                {
+                    "title": "Microplastics evidence needs",
+                    "relevant_extract": "Longitudinal epidemiology and controlled mechanistic work are still needed before firm clinical risk estimates can be made.",
+                    "counts_as_usable_evidence": true
+                }
+            ]
+        })];
+        let rejected =
+            "Microplastics are now widely detected in human tissues, but the leap from detection to proven health harm remains unsettled.";
+
+        let rewritten = maybe_apply_rejected_tool_evidence_fallback(
+            &mut workflow,
+            "What is the state of evidence on microplastics and human health?",
+            &tools,
+            rejected,
+            rejected,
+            "final_response_verifier_contract:answer_underdeveloped_for_available_evidence",
+        );
+
+        assert!(rewritten);
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(response.contains("detected across multiple human tissue studies"), "{response}");
+        assert!(response.contains("causal health harm"), "{response}");
+        assert!(response.split('.').filter(|part| !part.trim().is_empty()).count() >= 2, "{response}");
+    }
+
+    #[test]
+    fn underdeveloped_reject_adds_gap_context_when_rebuild_is_thin() {
+        let mut workflow = json!({
+            "response": "",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": false,
+                "status": "synthesis_failed"
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "query_metadata": {
+                "required_coverage": {
+                    "entities": ["clinical progress", "biological validation"]
+                }
+            },
+            "evidence_pack": [{
+                "title": "AI drug discovery signal",
+                "relevant_extract": "AI drug discovery in 2026 shows platform development, but the available material does not verify clinical translation.",
+                "counts_as_usable_evidence": true
+            }]
+        })];
+        let rejected =
+            "AI drug discovery in 2026 remains characterized by significant computational platform development with limited publicly traceable clinical translation.";
+
+        let rewritten = maybe_apply_rejected_tool_evidence_fallback(
+            &mut workflow,
+            "Research what is actually happening in AI drug discovery in 2026. Separate platform claims from source-backed clinical or biological progress.",
+            &tools,
+            rejected,
+            rejected,
+            "final_response_verifier_contract:answer_units_not_traceable_to_evidence",
+        );
+
+        assert!(rewritten);
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(
+            response.contains("coverage gaps remain")
+                || response.contains("not have enough source-backed evidence")
+                || response.contains("too thin"),
+            "{response}"
+        );
+        assert_ne!(response, rejected);
+        assert!(response.split('.').filter(|part| !part.trim().is_empty()).count() >= 2, "{response}");
+    }
+
+    #[test]
+    fn title_shell_fallback_is_not_substantive_depth_for_traceability_reject() {
+        let source_title_shell =
+            "From Radiology to Drug Discovery, Survey Reveals AI Is Delivering Clear Return on Investment in Healthcare. Integrating AI and Machine Learning in Drug Discovery and Development PharmTech.";
+        assert!(
+            response_is_low_information_tool_evidence_fallback(source_title_shell),
+            "{source_title_shell}"
+        );
+        assert!(
+            !fallback_response_has_substantive_depth(source_title_shell),
+            "{source_title_shell}"
+        );
+        let bounded_gap = "My recommendation is to treat the current evidence as insufficient for a direct source-backed conclusion. Coverage gaps still matter for: AI drug discovery, clinical progress, biological validation.";
+        assert!(
+            response_is_low_information_tool_evidence_fallback(bounded_gap),
+            "{bounded_gap}"
+        );
+        assert!(fallback_response_has_substantive_depth(bounded_gap), "{bounded_gap}");
+    }
+
+    #[test]
+    fn verifier_rejects_materialization_error_as_visible_answer() {
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "evidence_pack": [{
+                "title": "Early hip hop political role",
+                "relevant_extract": "Early hip-hop is often interpreted as a cultural response to urban disinvestment, policing, and media neglect in late twentieth-century New York.",
+                "counts_as_usable_evidence": true
+            }]
+        })];
+
+        let reason = tool_backed_final_verifier_violation_reason(
+            "The search attempt returned only a technical error page, yielding no usable scholarly content on early hip-hop's political interpretation.",
+            &tools,
+        );
+
+        assert_eq!(
+            reason.as_deref(),
+            Some("final_response_verifier_contract:materialization_error_substituted_for_answer")
+        );
+    }
+
+    #[test]
     fn low_information_tool_evidence_fallback_is_repaired_from_evidence_snippet_when_excerpt_is_gap_note() {
         let mut workflow = json!({
             "response": "My recommendation is to treat the current evidence as insufficient for a direct source-backed conclusion. Coverage gaps still matter for: European Union, United States federal government, FedRAMP, StateRAMP, GDPR.",
@@ -519,6 +761,54 @@
             !response.starts_with("My recommendation is to treat the current evidence as insufficient"),
             "{response}"
         );
+    }
+
+    #[test]
+    fn mixed_title_shell_and_coverage_fallback_is_repaired_from_reject_excerpt() {
+        let mut workflow = json!({
+            "response": "Family Guide to Hyde Park: Things to Do with Kids Chicago Parent Published: Tue, 17 Sep 2024 07:00:00 GMT. coverage gaps remain for Lincoln Park, Hyde Park, Wicker Park, South Loop, Loop, Museum Campus, family-friendly, museums.",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": true,
+                "status": "tool_evidence_fallback_used",
+                "diagnostic_reject_reason": "final_response_verifier_contract:answer_units_not_traceable_to_evidence",
+                "diagnostic_invalid_excerpt": "Hyde Park stands out as a solid family-friendly base in Chicago, with Chicago Parent highlighting kid-oriented activities in the area."
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "ok",
+            "query_metadata": {
+                "required_coverage": {
+                    "entities": ["Lincoln Park", "Hyde Park", "Wicker Park", "South Loop", "Loop", "Museum Campus"]
+                }
+            },
+            "evidence_refs": [{
+                "title": "Chicago Parent Hyde Park guide",
+                "locator": "https://www.chicagoparent.com",
+                "snippet": "Family Guide to Hyde Park: Things to Do with Kids Chicago Parent Published: Tue, 17 Sep 2024 07:00:00 GMT. Source: Chicago Parent (www.chicagoparent.com)."
+            }]
+        })];
+
+        assert!(response_is_low_information_tool_evidence_fallback(
+            "Family Guide to Hyde Park: Things to Do with Kids Chicago Parent Published: Tue, 17 Sep 2024 07:00:00 GMT. coverage gaps remain for Lincoln Park, Hyde Park, Wicker Park, South Loop, Loop, Museum Campus, family-friendly, museums."
+        ));
+
+        let repaired = maybe_repair_runtime_tool_evidence_fallback_from_reject_excerpt(
+            &mut workflow,
+            "Research family-friendly neighborhoods to stay in Chicago for museums, transit access, and walkability. Compare a few options and tradeoffs.",
+            &tools,
+        );
+
+        assert!(repaired);
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(response.contains("Hyde Park"), "{response}");
+        assert!(!response.contains("Published"), "{response}");
+        assert!(!response.contains("GMT"), "{response}");
+        assert!(response.contains("coverage gaps remain"), "{response}");
     }
 
     #[test]

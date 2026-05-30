@@ -39,9 +39,89 @@ fn workflow_answer_unit_contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(*needle))
 }
 
-fn workflow_answer_unit_contains_source_shell_boilerplate(unit: &str) -> bool {
+fn workflow_answer_unit_contains_promotional_teaser(unit: &str) -> bool {
     let normalized = format!(" {} ", normalize_coverage_lane_text(unit));
     workflow_answer_unit_contains_any(
+        &normalized,
+        &[
+            " out now ",
+            " top 10 stocks ",
+            " stocks to buy now ",
+            " stock advisor ",
+            " beat the market ",
+            " analysts believe ",
+            " best positioned to beat ",
+            " sign up now ",
+            " subscribe now ",
+            " limited time offer ",
+            " special offer ",
+        ],
+    )
+}
+
+fn workflow_answer_unit_contains_published_source_dateline_shell(unit: &str) -> bool {
+    let raw_lowered = clean_text(unit, 520).to_ascii_lowercase();
+    let normalized = format!(" {} ", normalize_coverage_lane_text(unit));
+    let has_year = (2000..=2099).any(|year| normalized.contains(&format!(" {year} ")));
+    let has_month_or_weekday = [
+        " jan ",
+        " january ",
+        " feb ",
+        " february ",
+        " mar ",
+        " march ",
+        " apr ",
+        " april ",
+        " may ",
+        " jun ",
+        " june ",
+        " jul ",
+        " july ",
+        " aug ",
+        " august ",
+        " sep ",
+        " september ",
+        " oct ",
+        " october ",
+        " nov ",
+        " november ",
+        " dec ",
+        " december ",
+        " mon ",
+        " monday ",
+        " tue ",
+        " tues ",
+        " tuesday ",
+        " wed ",
+        " wednesday ",
+        " thu ",
+        " thur ",
+        " thursday ",
+        " fri ",
+        " friday ",
+        " sat ",
+        " saturday ",
+        " sun ",
+        " sunday ",
+    ]
+    .iter()
+    .any(|marker| normalized.contains(marker));
+    (raw_lowered.contains("published:")
+        && (normalized.contains(" gmt ")
+            || normalized.contains(" utc ")
+            || normalized.contains(" source ")
+            || (has_year && has_month_or_weekday)))
+        || (normalized.contains(" source ")
+            && (normalized.contains(" www ")
+                || normalized.contains(" http ")
+                || normalized.contains(" https ")))
+}
+
+fn workflow_answer_unit_contains_source_shell_boilerplate(unit: &str) -> bool {
+    let normalized = format!(" {} ", normalize_coverage_lane_text(unit));
+    workflow_answer_unit_contains_promotional_teaser(unit)
+        || workflow_answer_unit_contains_published_source_dateline_shell(unit)
+        || workflow_answer_unit_contains_any(
         &normalized,
         &[
             " title ",
@@ -106,12 +186,14 @@ fn workflow_prompt_needs_decision_bearing_evidence(message: &str) -> bool {
             " practical ",
             " recommend ",
             " recommendation ",
+            " shortlist ",
             " should ",
             " tradeoff ",
             " tradeoffs ",
             " versus ",
             " vs ",
             " which ",
+            " with confidence ",
         ],
     )
 }
@@ -304,6 +386,7 @@ fn evidence_packet_answer_units_for_goal(
                 && !workflow_answer_unit_is_process_or_metadata_fact(&answer)
                 && !workflow_answer_unit_contains_ui_or_source_shell(&answer)
                 && !workflow_answer_unit_looks_like_source_title_fragment(&answer)
+                && !workflow_answer_unit_looks_like_datestamped_headline_shell(&answer)
                 && workflow_answer_unit_matches_goal(&answer, &goal_terms)
                 && evidence_packet_text_is_answer_claim(&answer)
                 && !(needs_decision_bearing_evidence
@@ -323,6 +406,7 @@ fn evidence_packet_answer_units_for_goal(
                 !answer.is_empty()
                     && !workflow_answer_unit_contains_ui_or_source_shell(&answer)
                     && !workflow_answer_unit_looks_like_source_title_fragment(&answer)
+                    && !workflow_answer_unit_looks_like_datestamped_headline_shell(&answer)
                     && evidence_packet_text_is_answer_claim(&answer)
                     && !(needs_decision_bearing_evidence
                         && workflow_answer_unit_is_low_information_profile_or_overview(&answer))
@@ -391,6 +475,19 @@ fn fallback_answer_unit_text_and_source(unit: &str) -> (String, String) {
                     && evidence_packet_text_is_answer_claim(suffix)
                 {
                     return clean_text(suffix, 520);
+                }
+            }
+        }
+        if lowered.starts_with("for ") {
+            if let Some((prefix, suffix)) = cleaned.split_once(',') {
+                let mut suffix = clean_text(suffix, 520);
+                if let Some(first) = suffix.get(0..1) {
+                    suffix.replace_range(0..1, &first.to_ascii_uppercase());
+                }
+                if prefix.split_whitespace().count() <= 5
+                    && evidence_packet_text_is_answer_claim(&suffix)
+                {
+                    return suffix;
                 }
             }
         }

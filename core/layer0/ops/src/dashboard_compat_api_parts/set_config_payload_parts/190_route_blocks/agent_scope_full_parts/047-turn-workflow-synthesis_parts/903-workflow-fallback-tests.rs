@@ -34,19 +34,31 @@
             pending.pointer("/input/query").and_then(Value::as_str),
             Some("compare retrieval tools")
         );
-        assert!(pending.pointer("/input/keywords").is_none(), "{pending:?}");
+        let keywords = pending
+            .pointer("/input/keywords")
+            .and_then(Value::as_array)
+            .expect("recovered input should carry additive keywords");
+        assert!(keywords.iter().any(|value| value == "Firecrawl"), "{pending:?}");
+        assert!(keywords.iter().any(|value| value == "Tavily"), "{pending:?}");
+        assert!(keywords.iter().any(|value| value == "Exa"), "{pending:?}");
+        let entities = pending
+            .pointer("/input/required_coverage/entities")
+            .and_then(Value::as_array)
+            .expect("recovered input should carry additive entity coverage");
+        assert!(entities.iter().any(|value| value == "Firecrawl"), "{pending:?}");
+        assert!(entities.iter().any(|value| value == "Tavily"), "{pending:?}");
+        assert!(entities.iter().any(|value| value == "Exa"), "{pending:?}");
         assert!(
-            pending.pointer("/input/required_coverage").is_none(),
-            "{pending:?}"
-        );
-        assert!(
-            pending.pointer("/input/query_metadata_policy").is_none(),
+            pending
+                .pointer("/input/query_metadata_policy/recovery_contract_repair/status")
+                .and_then(Value::as_str)
+                == Some("metadata_hydrated"),
             "{pending:?}"
         );
     }
 
     #[test]
-    fn latent_candidate_recovery_preserves_input_without_forcing_metadata() {
+    fn latent_candidate_recovery_preserves_simple_query_while_hydrating_metadata() {
         let candidates = json!([{
             "workflow_only": true,
             "selected_tool_family": "web_research",
@@ -65,8 +77,31 @@
         )
         .expect("single valid latent candidate");
 
+        assert_eq!(
+            pending.pointer("/input/query").and_then(Value::as_str),
+            Some("weather in Denver today")
+        );
+        assert_eq!(
+            pending.pointer("/input/source").and_then(Value::as_str),
+            Some("web")
+        );
+        assert_eq!(
+            pending.pointer("/input/aperture").and_then(Value::as_str),
+            Some("medium")
+        );
+        assert_eq!(
+            pending
+                .pointer("/input/query_metadata_policy/recovery_contract_repair/status")
+                .and_then(Value::as_str),
+            Some("metadata_hydrated"),
+            "{pending:?}"
+        );
         assert!(
-            pending.pointer("/input/query_metadata_policy").is_none(),
+            pending
+                .pointer("/input/required_coverage/entities")
+                .and_then(Value::as_array)
+                .map(|entities| entities.iter().any(|value| value == "Denver"))
+                .unwrap_or(false),
             "{pending:?}"
         );
     }

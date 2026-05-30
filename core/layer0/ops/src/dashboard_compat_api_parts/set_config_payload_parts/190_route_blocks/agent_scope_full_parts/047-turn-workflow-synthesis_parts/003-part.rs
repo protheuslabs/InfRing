@@ -270,7 +270,9 @@ fn evidence_packet_first_string(value: Option<&Value>, max_len: usize) -> String
 
 fn evidence_packet_claim_text(row: &Value) -> String {
     let claim = evidence_packet_first_answer_claim(row.get("claim_hints"), 260);
-    if evidence_packet_claim_is_grounded_by_support(&claim, row) {
+    if evidence_packet_claim_is_grounded_by_support(&claim, row)
+        || (!claim.is_empty() && evidence_packet_support_texts(row).is_empty())
+    {
         return claim;
     }
     let claim = evidence_packet_first_answer_claim(row.get("evidence_claims"), 260);
@@ -394,7 +396,12 @@ fn evidence_packet_first_answer_claim(value: Option<&Value>, max_len: usize) -> 
     match value {
         Some(Value::String(raw)) => {
             let cleaned = clean_text(raw, max_len);
-            if evidence_packet_text_is_answer_claim(&cleaned) {
+            if evidence_packet_text_is_answer_claim(&cleaned)
+                && !workflow_answer_unit_contains_ui_or_source_shell(&cleaned)
+                && !workflow_answer_unit_looks_like_source_title_fragment(&cleaned)
+                && !workflow_answer_unit_looks_like_datestamped_headline_shell(&cleaned)
+                && !workflow_answer_unit_is_process_or_metadata_fact(&cleaned)
+            {
                 cleaned
             } else {
                 String::new()
@@ -436,7 +443,9 @@ fn evidence_packet_text_is_answer_claim(raw: &str) -> bool {
         || normalized.starts_with("blog /")
         || normalized.starts_with("user guide")
         || normalized.starts_with("description summary")
+        || normalized.contains("what the data actually shows")
         || normalized.starts_with("this survey examines")
+        || normalized.starts_with("this idc survey examines")
         || normalized.starts_with("this report examines")
         || normalized.starts_with("this guide examines")
         || normalized.starts_with("this overview examines")

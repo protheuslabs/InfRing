@@ -41,15 +41,19 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
         let coverage_note = fallback_user_visible_coverage_note(response_tools);
         if minimum_lane_coverage > 0 && covered_required_entity_lanes.len() < minimum_lane_coverage
         {
-            let mut parts = vec![if comparison_intent && covered_required_entity_lanes.is_empty() {
-                "The current evidence does not yet support a reliable comparison across the requested entities.".to_string()
-            } else if comparison_intent {
-                "The current evidence supports only a partial comparison across the requested entities.".to_string()
-            } else if covered_required_entity_lanes.is_empty() {
-                "The current evidence supports only a partial answer to the request so far.".to_string()
+            let mut parts = if !comparison_intent && !answer_parts.is_empty() {
+                Vec::new()
             } else {
-                "The current evidence supports only a partial answer to the request so far.".to_string()
-            }];
+                vec![if comparison_intent && covered_required_entity_lanes.is_empty() {
+                    "The current evidence does not yet support a reliable comparison across the requested entities.".to_string()
+                } else if comparison_intent {
+                    "The current evidence supports only a partial comparison across the requested entities.".to_string()
+                } else if covered_required_entity_lanes.is_empty() {
+                    "The current evidence supports only a partial answer to the request so far.".to_string()
+                } else {
+                    "The current evidence supports only a partial answer to the request so far.".to_string()
+                }]
+            };
             if partial_decision_hint.is_empty() {
                 let support_parts = if comparison_intent {
                     lane_scoped_answer_parts.iter().collect::<Vec<_>>()
@@ -130,6 +134,20 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
         &first_sentence(&fallback_coverage_lane_sentence(response_tools), 280),
         320,
     );
+    if findings.is_empty() {
+        let bounded_insufficiency = clean_text(
+            &bounded_insufficiency_answer_from_required_coverage(
+                message,
+                &required_entity_lanes,
+                &required_facet_lanes,
+                response_tools,
+            ),
+            1_600,
+        );
+        if !bounded_insufficiency.is_empty() {
+            return bounded_insufficiency;
+        }
+    }
     if findings.is_empty() && failure_reason.is_empty() {
         let evidence_sketch = clean_text(
             &bounded_evidence_sketch_for_rejected_fallback(message, response_tools, ""),
@@ -516,7 +534,35 @@ fn maybe_apply_rejected_tool_evidence_fallback(
         ),
         3_000,
     );
-    let preferred_response = if !salvaged_response.is_empty() {
+    let traceability_reject = last_reject_reason
+        .to_ascii_lowercase()
+        .contains("answer_units_not_traceable_to_evidence");
+    let evidence_depth_reject = {
+        let lowered = last_reject_reason.to_ascii_lowercase();
+        traceability_reject
+            || lowered.contains("answer_underdeveloped_for_available_evidence")
+            || lowered.contains("materialization_error_substituted_for_answer")
+    };
+    let traceability_rebuild = if evidence_depth_reject {
+        traceable_evidence_rebuild_response(message, response_tools)
+    } else {
+        String::new()
+    };
+    let preferred_response = if evidence_depth_reject {
+        if fallback_response_has_substantive_depth(&traceability_rebuild) {
+            traceability_rebuild
+        } else if fallback_response_has_substantive_depth(&evidence_sketch_salvage) {
+            evidence_sketch_salvage
+        } else if fallback_response_has_substantive_depth(&fallback_response) {
+            fallback_response
+        } else if fallback_response_has_substantive_depth(&salvaged_response) {
+            salvaged_response
+        } else if fallback_response_has_substantive_depth(&excerpt_sentence_salvage) {
+            excerpt_sentence_salvage
+        } else {
+            evidence_depth_insufficient_response(message, response_tools)
+        }
+    } else if !salvaged_response.is_empty() {
         salvaged_response
     } else if !excerpt_sentence_salvage.is_empty() {
         excerpt_sentence_salvage
@@ -540,6 +586,122 @@ fn maybe_apply_rejected_tool_evidence_fallback(
         "synthesis_failure_diagnostic",
     );
     true
+}
+
+fn fallback_response_has_substantive_depth(response_text: &str) -> bool {
+    let cleaned = clean_text(response_text, 2_000);
+    if cleaned.is_empty() {
+        return false;
+    }
+    if response_looks_like_source_title_inventory(&cleaned) {
+        return false;
+    }
+    if response_is_low_information_tool_evidence_fallback(&cleaned) {
+        return response_is_low_information_coverage_fallback(&cleaned);
+    }
+    let substantive_units = workflow_answer_text_units(&cleaned)
+        .into_iter()
+        .filter(|unit| {
+            let unit = clean_text(unit, 520);
+            !unit.is_empty()
+                && !workflow_answer_unit_is_process_or_metadata_fact(&unit)
+                && !workflow_answer_unit_contains_ui_or_source_shell(&unit)
+                && !workflow_answer_unit_looks_like_source_title_fragment(&unit)
+                && !workflow_answer_unit_looks_like_datestamped_headline_shell(&unit)
+                && unit.split_whitespace().count() >= 7
+        })
+        .take(2)
+        .count();
+    let visible_sentence_count = cleaned
+        .split_terminator(|ch: char| matches!(ch, '.' | '!' | '?'))
+        .filter(|part| clean_text(part, 240).split_whitespace().count() >= 5)
+        .take(2)
+        .count();
+    (substantive_units >= 2 && visible_sentence_count >= 2)
+        || cleaned.split_whitespace().count() >= 70
+}
+
+fn evidence_depth_insufficient_response(message: &str, response_tools: &[Value]) -> String {
+    let mut parts = vec![
+        "I do not have enough source-backed evidence from this turn to answer the request at the right level of detail.".to_string(),
+        "The retrieved material is too thin to safely turn into a coherent, useful answer rather than a partial fragment.".to_string(),
+    ];
+    let coverage_note = fallback_user_visible_coverage_note(response_tools);
+    if !coverage_note.is_empty() {
+        parts.push(workflow_finish_visible_sentence(&coverage_note));
+    } else {
+        let goal = clean_text(message, 180);
+        if !goal.is_empty() {
+            parts.push(workflow_finish_visible_sentence(&format!(
+                "A reliable answer would need stronger evidence that directly covers: {goal}"
+            )));
+        }
+    }
+    clean_text(&parts.join(" "), 1_600)
+}
+
+fn traceable_evidence_rebuild_response(message: &str, response_tools: &[Value]) -> String {
+    let goal_terms = workflow_answer_unit_goal_terms(message);
+    let mut parts = Vec::<String>::new();
+    let push_part = |raw: &str, parts: &mut Vec<String>, require_goal_overlap: bool| {
+        let cleaned = clean_text(raw, 520);
+        if cleaned.is_empty()
+            || workflow_answer_unit_is_process_or_metadata_fact(&cleaned)
+            || workflow_answer_unit_contains_ui_or_source_shell(&cleaned)
+            || workflow_answer_unit_looks_like_source_title_fragment(&cleaned)
+            || workflow_answer_unit_looks_like_datestamped_headline_shell(&cleaned)
+            || (require_goal_overlap
+                && workflow_answer_unit_goal_overlap_count(&cleaned, &goal_terms) == 0)
+        {
+            return;
+        }
+        let finished = workflow_finish_visible_sentence(&cleaned);
+        if !finished.is_empty() && !parts.iter().any(|existing| existing == &finished) {
+            parts.push(finished);
+        }
+    };
+    for unit in evidence_packet_answer_units_for_goal(message, response_tools, 4) {
+        let (answer, _) = fallback_answer_unit_text_and_source(&unit);
+        push_part(&answer, &mut parts, true);
+        if parts.len() >= 3 {
+            break;
+        }
+    }
+    if parts.len() < 2 {
+        for tool in response_tools.iter().take(4) {
+            for key in ["evidence_pack", "evidence_refs", "evidence_pack_candidates"] {
+                for row in tool_hidden_array(tool, key).into_iter().take(8) {
+                    for field in ["relevant_extract", "support_snippet", "snippet", "summary"] {
+                        let raw = clean_text(
+                            row.get(field).and_then(Value::as_str).unwrap_or(""),
+                            520,
+                        );
+                        if raw.is_empty() {
+                            continue;
+                        }
+                        let sentence = first_sentence(&raw, 320);
+                        push_part(&sentence, &mut parts, false);
+                        if parts.len() >= 3 {
+                            break;
+                        }
+                    }
+                    if parts.len() >= 3 {
+                        break;
+                    }
+                }
+                if parts.len() >= 3 {
+                    break;
+                }
+            }
+            if parts.len() >= 3 {
+                break;
+            }
+        }
+    }
+    if parts.len() < 2 {
+        return String::new();
+    }
+    clean_text(&parts.join(" "), 2_000)
 }
 
 fn workflow_final_llm_diagnostic_text(
@@ -569,10 +731,74 @@ fn response_is_low_information_coverage_fallback(response_text: &str) -> bool {
             || lowered.starts_with("the practical answer is that the current evidence supports only a partial conclusion"))
 }
 
+fn response_looks_like_source_title_inventory(response_text: &str) -> bool {
+    let cleaned_response = clean_text(response_text, 1_200);
+    if workflow_answer_unit_has_source_title_inventory_shape(&cleaned_response) {
+        return true;
+    }
+    let units = workflow_answer_text_units(response_text);
+    let mut checked = 0usize;
+    let mut title_like = 0usize;
+    for unit in units.into_iter().take(4) {
+        let cleaned = clean_text(&unit, 520);
+        if cleaned.split_whitespace().count() < 4 {
+            continue;
+        }
+        checked += 1;
+        if workflow_answer_unit_looks_like_source_title_fragment(&cleaned)
+            || workflow_text_prefix_looks_like_headline(
+                cleaned.trim_end_matches(|ch: char| matches!(ch, '.' | '!' | '?')),
+            )
+            || workflow_answer_unit_has_source_title_inventory_shape(&cleaned)
+        {
+            title_like += 1;
+        }
+    }
+    (1..=4).contains(&checked) && title_like == checked
+}
+
+fn workflow_answer_unit_has_source_title_inventory_shape(unit: &str) -> bool {
+    let cleaned = clean_text(unit, 520);
+    let alpha_tokens = cleaned
+        .split_whitespace()
+        .map(|token| {
+            token.trim_matches(|ch: char| {
+                !ch.is_ascii_alphanumeric() && ch != '-' && ch != '.' && ch != '/'
+            })
+        })
+        .filter(|token| token.chars().any(|ch| ch.is_ascii_alphabetic()))
+        .collect::<Vec<_>>();
+    if !(5..=40).contains(&alpha_tokens.len()) {
+        return false;
+    }
+    let title_like_words = alpha_tokens
+        .iter()
+        .filter(|token| workflow_answer_unit_token_looks_title_like(token))
+        .count();
+    let lowercase_content_words = alpha_tokens
+        .iter()
+        .filter(|token| {
+            token
+                .chars()
+                .next()
+                .map(|ch| ch.is_ascii_lowercase())
+                .unwrap_or(false)
+                && !workflow_answer_unit_source_title_style_stopword(
+                    &token.to_ascii_lowercase(),
+                )
+        })
+        .count();
+    let title_ratio = title_like_words as f64 / alpha_tokens.len() as f64;
+    title_ratio >= 0.40 && lowercase_content_words <= 8
+}
+
 fn response_is_low_information_tool_evidence_fallback(response_text: &str) -> bool {
     let cleaned = clean_text(response_text, 1_200);
     if cleaned.is_empty() {
         return false;
+    }
+    if response_looks_like_source_title_inventory(&cleaned) {
+        return true;
     }
     if response_is_low_information_coverage_fallback(&cleaned) {
         return true;
