@@ -908,6 +908,9 @@ fn content_text_low_quality(raw: &str) -> bool {
     if cleaned.len() < 40 || word_count(&cleaned) < 5 {
         return true;
     }
+    if text_looks_like_headline_or_dateline_shell(&cleaned) {
+        return true;
+    }
     if urlish_or_source_label(&normalized) {
         return true;
     }
@@ -937,6 +940,11 @@ fn claim_text_low_quality(raw: &str) -> bool {
     if cleaned.len() < 28 || word_count(&cleaned) < 4 {
         return true;
     }
+    if text_looks_like_headline_or_dateline_shell(&cleaned)
+        || text_looks_like_question_headline(&cleaned)
+    {
+        return true;
+    }
     if urlish_or_source_label(&normalized) {
         return true;
     }
@@ -960,7 +968,66 @@ fn claim_text_low_quality(raw: &str) -> bool {
         "here s what i found",
     ]
     .iter()
-    .any(|needle| normalized.contains(needle))
+        .any(|needle| normalized.contains(needle))
+}
+
+fn text_looks_like_headline_or_dateline_shell(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 500);
+    let normalized = normalize_for_compare(&cleaned);
+    let words = word_count(&cleaned);
+    let has_published_marker = normalized.contains(" published ")
+        || normalized.contains(" published:")
+        || normalized.starts_with("published ");
+    let has_source_marker = normalized.contains(" source ")
+        || normalized.contains(" source:")
+        || normalized.starts_with("source ");
+    let has_wire_time_marker = normalized.contains(" gmt ")
+        || normalized.contains(" utc ")
+        || normalized.contains(" via google news");
+    if has_published_marker && (has_source_marker || has_wire_time_marker) && words <= 42 {
+        return true;
+    }
+    if normalized.contains(" via google news") && words <= 32 {
+        return true;
+    }
+    false
+}
+
+fn text_looks_like_question_headline(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 500);
+    if !cleaned.contains('?') || word_count(&cleaned) > 22 {
+        return false;
+    }
+    let raw_lowered = cleaned.to_ascii_lowercase();
+    if [
+        "what", "why", "how", "when", "where", "who", "can", "could", "is", "are", "will",
+        "should",
+    ]
+    .iter()
+    .any(|prefix| raw_lowered.starts_with(prefix))
+    {
+        return true;
+    }
+    let normalized = normalize_for_compare(&cleaned);
+    [
+        "what ",
+        "what s ",
+        "whats ",
+        "what is ",
+        "why ",
+        "how ",
+        "when ",
+        "where ",
+        "who ",
+        "can ",
+        "could ",
+        "is ",
+        "are ",
+        "will ",
+        "should ",
+    ]
+    .iter()
+    .any(|prefix| normalized.starts_with(prefix))
 }
 
 fn claim_text_concrete(raw: &str) -> bool {

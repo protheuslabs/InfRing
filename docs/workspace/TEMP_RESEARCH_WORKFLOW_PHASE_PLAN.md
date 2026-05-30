@@ -414,3 +414,20 @@ Current focus:
 - `decision`: `reverted`
 - `reason`: The patch improved metadata volume but did not improve the upstream quality gates and reduced live pass rate. Under the one-measurable-change rule, richer query metadata is not enough unless it improves user-facing or gate quality.
 - `follow_up`: Do not try another query-lane expansion yet. Consult the research-system artifacts for a more primitive post-retrieval patch around evidence compaction, evidence-card construction, or answer-unit grounding, because `web_5g_answerability_ready` and `web_7_usable_evidence_available` remain the stable bottleneck.
+
+### 2026-05-30: headline/dateline evidence-quality calibration
+
+- `baseline_artifact`: `artifacts/research_golden_after_title_inventory_fallback_guard_live2.json`
+- `artifact_guidance`: Jina/Tavily/Firecrawl ledgers all warn that search rows, provider headlines, and raw provider summaries are candidates until extraction produces answerable evidence cards.
+- `patch_name`: classify headline/question/dateline shells as low-quality evidence and claims in web-tooling diagnostics.
+- `failure_class_targeted`: `web_5e_claim_quality_ready` false positive where a source title such as `What’s really happening... Published... Source...` was counted as concrete claim material.
+- `hypothesis`: If diagnostics stop counting headline/dateline rows as clean evidence or concrete claims, `web_5g_answerability_ready` and `web_7_usable_evidence_available` will better reflect whether the tooling returned text an LLM can actually use.
+- `files_changed`: `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/050_evidence_quality.rs`, `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/091_tests_claims_and_quality.rs`
+- `proof_tests`: `cargo test --manifest-path orchestration/Cargo.toml --bin eval_runtime evidence_quality_gates -- --nocapture` passed `3/3`.
+- `eval_command`: not rerun live for this calibration patch; it changes diagnostic classification over existing evidence rows, not retrieval/runtime behavior.
+- `before_metrics`: title-inventory guard run still showed `claim_quality_ready=1/2` even though the AI drug discovery sample row's only visible claim was a question-style headline/dateline shell.
+- `after_metrics`: deterministic fixture proves the same generic row shape now fails source quality, claim quality, and evidence-packet readiness instead of masquerading as answerable evidence.
+- `visible_output_delta`: no direct user-facing text change intended.
+- `decision`: `kept`
+- `reason`: This is a measurement-alignment patch. It prevents metrics from rewarding the exact fragmentary source-row behavior the user flagged as bad, without imposing a final-answer format or topic-specific rule.
+- `follow_up`: Next live run should use this stricter diagnostic to identify the true first useful-data bottleneck. If gates now look worse, that is expected honesty, not a product regression.

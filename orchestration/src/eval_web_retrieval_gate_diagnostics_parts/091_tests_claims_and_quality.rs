@@ -127,6 +127,81 @@ fn evidence_quality_gates_reject_title_like_claim_fragments() {
 }
 
 #[test]
+fn evidence_quality_gates_reject_headline_dateline_rows_as_answerable_evidence() {
+    let payload = json!({
+        "pending_tool_request": {
+            "tool_key": "batch_query",
+            "input": {
+                "query": "research an arbitrary current topic",
+                "queries": ["research an arbitrary current topic"],
+                "keywords": ["current", "source-backed"]
+            }
+        },
+        "tools": [{
+            "status": "usable"
+        }],
+        "evidence_pack": [{
+            "title": "What’s really happening inside AI’s black box? Berkeley researchers have answers",
+            "locator": "https://example.edu/news/ai-black-box",
+            "source_type": "scholarly_or_research",
+            "source_domain": "example.edu",
+            "snippet": "What’s really happening inside AI’s black box? Berkeley researchers have answers University of California, Berkeley Published: Mon, 20 Apr 2026 07:00:00 GMT. Source: University of California, Berkeley (example.edu).",
+            "relevant_extract": "What’s really happening inside AI’s black box? Berkeley researchers have answers University of California, Berkeley Published: Mon, 20 Apr 2026 07:00:00 GMT. Source: University of California, Berkeley (example.edu).",
+            "why_relevant_to_query": "The row was selected by a search provider for the requested current topic.",
+            "claim_hints": [
+                "What’s really happening inside AI’s black box? Berkeley researchers have answers University of California"
+            ]
+        }]
+    });
+    let retrieval_quality = json!({
+        "status": "usable",
+        "candidate_count": 8,
+        "evidence_count": 1,
+        "content_rich_candidate_count": 1,
+        "materialized_candidate_count": 1,
+        "claim_hint_count": 1,
+        "usable_evidence": true
+    });
+    let query_metadata = json!({
+        "metadata_present": true,
+        "rich_query_pack_or_narrow_marker": true
+    });
+    let transitions = json!({
+        "checkpoints": [{
+            "checkpoint": "5e_agent_received_evidence_context",
+            "status": "pass"
+        }]
+    });
+
+    let diag =
+        web_retrieval_gate_diagnostics(&payload, &retrieval_quality, &query_metadata, &transitions);
+
+    assert_eq!(
+        diag.pointer("/evidence_quality/source_quality_ready")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{diag:#?}"
+    );
+    assert_eq!(
+        diag.pointer("/evidence_quality/claim_quality_ready")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{diag:#?}"
+    );
+    assert_eq!(
+        diag.pointer("/evidence_quality/evidence_packet_contract/ready")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{diag:#?}"
+    );
+    assert_eq!(
+        diag.pointer("/first_failed_gate").and_then(Value::as_str),
+        Some("web_5d_source_quality_ready"),
+        "{diag:#?}"
+    );
+}
+
+#[test]
 fn evidence_quality_gates_pass_clean_source_backed_claims() {
     let payload = json!({
         "pending_tool_request": {
