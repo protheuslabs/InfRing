@@ -461,6 +461,12 @@ fn candidate_quality_flags(query: &str, candidate: &Candidate, score: f64) -> Ve
     if looks_like_page_chrome_or_unavailable_shell(&snippet) {
         flags.push("page_chrome_or_unavailable_shell".to_string());
     }
+    if text_looks_like_headline_or_dateline_shell(&snippet) {
+        flags.push("headline_or_dateline_shell".to_string());
+    }
+    if text_looks_like_question_headline(&snippet) {
+        flags.push("question_headline_shell".to_string());
+    }
     if score < 0.35 {
         flags.push("low_score".to_string());
     }
@@ -530,8 +536,12 @@ fn select_diverse_ranked_candidates_with_order(
 }
 
 fn candidate_is_pack_ready_evidence(query: &str, candidate: &Candidate, score: f64) -> bool {
-    candidate_counts_as_query_usable_evidence(query, candidate, score)
-        && !evidence_pack_claim_hints_for_candidate(query, candidate, 1).is_empty()
+    if !candidate_counts_as_query_usable_evidence(query, candidate, score) {
+        return false;
+    }
+    let relevant_extract = evidence_pack_relevant_extract_for_candidate(candidate, 96);
+    let claim_hints = evidence_pack_claim_hints_for_candidate(query, candidate, 1);
+    evidence_packet_substance_blockers(candidate, &relevant_extract, &claim_hints).is_empty()
 }
 
 fn candidate_locator_identity_key(candidate: &Candidate) -> String {
@@ -1441,7 +1451,7 @@ fn evidence_selection_diagnostics(
                 "selected": selected,
                 "in_actionable_pool": actionable,
                 "pack_ready": candidate_is_pack_ready_evidence(query, candidate, *score),
-                "counts_as_usable_evidence": candidate_counts_as_query_usable_evidence(query, candidate, *score),
+                "counts_as_usable_evidence": candidate_is_pack_ready_evidence(query, candidate, *score),
                 "materialization_quality": materialization_quality,
                 "freshness": evidence_pack_freshness_status(query, candidate),
                 "content_rich": content_rich_text(&candidate.snippet),
@@ -2036,6 +2046,8 @@ fn candidate_has_non_evidence_payload(candidate: &Candidate) -> bool {
         || page_extraction_link_has_listing_or_index_path(&candidate.locator)
         || looks_like_link_directory_or_aggregator_shell(&candidate.snippet)
         || looks_like_page_chrome_or_unavailable_shell(&candidate.snippet)
+        || text_looks_like_headline_or_dateline_shell(&candidate.snippet)
+        || text_looks_like_question_headline(&candidate.snippet)
 }
 
 fn candidate_counts_as_usable_evidence(candidate: &Candidate) -> bool {
@@ -2060,6 +2072,15 @@ fn quality_flags_block_query_usable_evidence(
                 | "listing_or_index_path"
                 | "link_directory_or_aggregator_shell"
                 | "page_chrome_or_unavailable_shell"
+                | "headline_or_dateline_shell"
+                | "question_headline_shell"
+                | "candidate_row_needs_extraction"
+                | "relevant_extract_missing"
+                | "relevant_extract_shell"
+                | "relevant_extract_too_thin"
+                | "concrete_claim_material_missing"
+                | "missing_source_identity"
+                | "missing_source_type"
                 | "weak_query_overlap_only"
                 | "low_score"
         )
@@ -2242,7 +2263,7 @@ fn evidence_row_counts_as_usable_evidence(row: &Value) -> bool {
         .get("counts_as_usable_evidence")
         .and_then(Value::as_bool)
     {
-        return explicit;
+        return explicit && evidence_row_has_answerable_substance(row);
     }
     let low_confidence =
         row.get("confidence").and_then(Value::as_str) == Some("low_confidence_raw");
@@ -2264,6 +2285,15 @@ fn evidence_row_counts_as_usable_evidence(row: &Value) -> bool {
                     | "style_or_script_dump"
                     | "social_video_shell"
                     | "page_chrome_or_unavailable_shell"
+                    | "headline_or_dateline_shell"
+                    | "question_headline_shell"
+                    | "candidate_row_needs_extraction"
+                    | "relevant_extract_missing"
+                    | "relevant_extract_shell"
+                    | "relevant_extract_too_thin"
+                    | "concrete_claim_material_missing"
+                    | "missing_source_identity"
+                    | "missing_source_type"
                     | "weak_query_overlap_only"
                     | "thin_query_overlap"
                     | "low_score"
@@ -2272,6 +2302,55 @@ fn evidence_row_counts_as_usable_evidence(row: &Value) -> bool {
         && materialization_quality_counts_as_usable_evidence(&evidence_row_materialization_quality(
             row,
         ))
+        && evidence_row_has_answerable_substance(row)
+}
+
+fn evidence_row_has_answerable_substance(row: &Value) -> bool {
+    let source_identity = clean_text(
+        row.get("locator")
+            .or_else(|| row.get("source_locator"))
+            .or_else(|| row.get("source_domain"))
+            .or_else(|| row.get("source_scope"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        2_200,
+    );
+    if source_identity.is_empty() {
+        return false;
+    }
+    let source_type = clean_text(
+        row.get("source_type")
+            .or_else(|| row.get("source_class"))
+            .or_else(|| row.get("source_kind"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        160,
+    );
+    if source_type.is_empty() {
+        return false;
+    }
+    let extract = clean_text(
+        row.get("relevant_extract")
+            .or_else(|| row.get("support_snippet"))
+            .or_else(|| row.get("snippet"))
+            .or_else(|| row.get("summary"))
+            .or_else(|| row.get("content"))
+            .or_else(|| row.get("text"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        1_800,
+    );
+    if !evidence_extract_has_answerable_substance(&extract) {
+        return false;
+    }
+    row.get("claim_hints")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(Value::as_str)
+                .any(claim_hint_has_concrete_claim_material)
+        })
+        .unwrap_or(false)
 }
 
 fn strip_inline_markdown_links(raw: &str) -> String {
@@ -2546,6 +2625,8 @@ fn claim_text_is_synthesis_safe(text: &str) -> bool {
         && !claim_text_has_urlish_fragment(&cleaned)
         && !claim_text_looks_like_title_bar_or_source_separator(&cleaned)
         && !claim_text_looks_like_page_or_subscription_boilerplate(&cleaned)
+        && !text_looks_like_headline_or_dateline_shell(&cleaned)
+        && !text_looks_like_question_headline(&cleaned)
         && !looks_like_link_directory_or_aggregator_shell(&cleaned)
         && !claim_text_has_dangling_tail(&cleaned)
 }
@@ -3087,6 +3168,11 @@ fn content_rich_text(text: &str) -> bool {
     if cleaned.split_whitespace().count() < 18 {
         return false;
     }
+    if text_looks_like_headline_or_dateline_shell(&cleaned)
+        || text_looks_like_question_headline(&cleaned)
+    {
+        return false;
+    }
     !looks_like_low_signal_search_summary(&cleaned)
         && !looks_like_source_only_snippet(&cleaned)
         && !contains_web_junk_marker(&cleaned)
@@ -3095,6 +3181,97 @@ fn content_rich_text(text: &str) -> bool {
         && !looks_like_media_embed_shell(&cleaned)
         && !looks_like_link_directory_or_aggregator_shell(&cleaned)
         && !looks_like_ack_only(&cleaned)
+}
+
+fn evidence_extract_has_answerable_substance(raw: &str) -> bool {
+    let cleaned = clean_evidence_extract_text(raw);
+    if cleaned.is_empty()
+        || looks_like_low_signal_search_summary(&cleaned)
+        || looks_like_source_only_snippet(&cleaned)
+        || contains_web_junk_marker(&cleaned)
+        || looks_like_style_or_script_dump(&cleaned)
+        || looks_like_hashtag_keyword_shell(&cleaned)
+        || looks_like_media_embed_shell(&cleaned)
+        || looks_like_link_directory_or_aggregator_shell(&cleaned)
+        || looks_like_page_chrome_or_unavailable_shell(&cleaned)
+        || text_looks_like_headline_or_dateline_shell(&cleaned)
+        || text_looks_like_question_headline(&cleaned)
+    {
+        return false;
+    }
+    content_rich_text(&cleaned) || looks_like_metric_rich_text(&cleaned)
+}
+
+fn claim_hint_has_concrete_claim_material(raw: &str) -> bool {
+    let cleaned = claim_text_without_page_chrome_tail(&clean_text(raw, 520));
+    if cleaned.is_empty()
+        || text_looks_like_headline_or_dateline_shell(&cleaned)
+        || text_looks_like_question_headline(&cleaned)
+        || looks_like_source_only_snippet(&cleaned)
+        || looks_like_low_signal_search_summary(&cleaned)
+        || claim_text_looks_like_page_or_subscription_boilerplate(&cleaned)
+    {
+        return false;
+    }
+    claim_hint_segment_is_substantive(&cleaned) || looks_like_metric_rich_text(&cleaned)
+}
+
+fn text_looks_like_headline_or_dateline_shell(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 700);
+    if cleaned.is_empty() {
+        return false;
+    }
+    let lowered = cleaned.to_ascii_lowercase();
+    let words = cleaned.split_whitespace().count();
+    let has_published_marker = lowered.contains(" published ")
+        || lowered.contains(" published:")
+        || lowered.starts_with("published ");
+    let has_source_marker = lowered.contains(" source ")
+        || lowered.contains(" source:")
+        || lowered.starts_with("source ");
+    let has_wire_time_marker = lowered.contains(" gmt ")
+        || lowered.contains(" utc ")
+        || lowered.contains(" via google news");
+    if has_published_marker && (has_source_marker || has_wire_time_marker) && words <= 42 {
+        return true;
+    }
+    if lowered.contains(" via google news") && words <= 32 {
+        return true;
+    }
+    false
+}
+
+fn text_looks_like_question_headline(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 700);
+    if !cleaned.contains('?') || cleaned.split_whitespace().count() > 22 {
+        return false;
+    }
+    let lowered = cleaned.to_ascii_lowercase();
+    if [
+        "what", "why", "how", "when", "where", "who", "can", "could", "is", "are", "will",
+        "should",
+    ]
+    .iter()
+    .any(|prefix| lowered.starts_with(prefix))
+    {
+        return true;
+    }
+    [
+        " what ",
+        " why ",
+        " how ",
+        " when ",
+        " where ",
+        " who ",
+        " can ",
+        " could ",
+        " is ",
+        " are ",
+        " will ",
+        " should ",
+    ]
+    .iter()
+    .any(|needle| lowered.contains(needle))
 }
 
 fn looks_like_link_directory_or_aggregator_shell(text: &str) -> bool {
@@ -3460,6 +3637,56 @@ fn browser_capability_readiness_lifecycle_report() -> Value {
     })
 }
 
+fn candidate_has_source_identity(candidate: &Candidate) -> bool {
+    !clean_text(&candidate.locator, 2_200).is_empty()
+        || !clean_text(&candidate_domain_hint(candidate), 180).is_empty()
+}
+
+fn candidate_has_source_type(candidate: &Candidate) -> bool {
+    !clean_text(&candidate.source_kind, 160).is_empty()
+}
+
+fn evidence_packet_substance_blockers(
+    candidate: &Candidate,
+    relevant_extract: &str,
+    claim_hints: &[String],
+) -> Vec<String> {
+    let mut blockers = Vec::<String>::new();
+    let extract = clean_evidence_extract_text(relevant_extract);
+    if !candidate_has_source_identity(candidate) {
+        blockers.push("missing_source_identity".to_string());
+    }
+    if !candidate_has_source_type(candidate) {
+        blockers.push("missing_source_type".to_string());
+    }
+    if extract.is_empty() {
+        blockers.push("relevant_extract_missing".to_string());
+    } else {
+        if text_looks_like_headline_or_dateline_shell(&extract)
+            || text_looks_like_question_headline(&extract)
+            || looks_like_source_only_snippet(&extract)
+        {
+            blockers.push("relevant_extract_shell".to_string());
+        }
+        if !evidence_extract_has_answerable_substance(&extract) {
+            blockers.push("relevant_extract_too_thin".to_string());
+        }
+    }
+    if !claim_hints.iter().any(|hint| claim_hint_has_concrete_claim_material(hint)) {
+        blockers.push("concrete_claim_material_missing".to_string());
+    }
+    if !blockers.is_empty()
+        && !blockers
+            .iter()
+            .any(|blocker| blocker == "candidate_row_needs_extraction")
+    {
+        blockers.push("candidate_row_needs_extraction".to_string());
+    }
+    blockers.sort();
+    blockers.dedup();
+    blockers
+}
+
 fn evidence_promotion_assessment(
     query: &str,
     candidate: &Candidate,
@@ -3473,37 +3700,43 @@ fn evidence_promotion_assessment(
     let credentials_in_url = locator_has_credentials(&locator);
     let internal_host_hint = locator_has_internal_host_hint(&locator);
     let content_rich = content_rich_text(&candidate.snippet);
+    let relevant_extract = evidence_pack_relevant_extract_for_candidate(candidate, 96);
+    let substance_blockers =
+        evidence_packet_substance_blockers(candidate, &relevant_extract, claim_hints);
     let query_overlap_count = query_overlap_terms(query, candidate);
     let blocker_absent = !quality_flags
         .iter()
         .any(|flag| matches!(flag.as_str(), "junk_marker" | "low_trust_source"));
-    let mut caveats = Vec::<&str>::new();
+    let mut caveats = Vec::<String>::new();
     if candidate_is_low_confidence_retained(candidate) {
-        caveats.push("low_confidence_raw_retained");
+        caveats.push("low_confidence_raw_retained".to_string());
     }
     if !content_rich {
-        caveats.push("content_not_rich");
+        caveats.push("content_not_rich".to_string());
     }
     if claim_hints.is_empty() {
-        caveats.push("claim_hints_missing");
+        caveats.push("claim_hints_missing".to_string());
+    }
+    for blocker in &substance_blockers {
+        caveats.push(blocker.clone());
     }
     if query_overlap_count < 2 {
-        caveats.push("thin_query_overlap");
+        caveats.push("thin_query_overlap".to_string());
     }
     if quality_flags
         .iter()
         .any(|flag| flag == "weak_query_overlap_only")
     {
-        caveats.push("weak_query_overlap_only");
+        caveats.push("weak_query_overlap_only".to_string());
     }
     if credentials_in_url {
-        caveats.push("url_credentials_present");
+        caveats.push("url_credentials_present".to_string());
     }
     if internal_host_hint {
-        caveats.push("internal_host_hint");
+        caveats.push("internal_host_hint".to_string());
     }
     if !http_https {
-        caveats.push("non_http_locator");
+        caveats.push("non_http_locator".to_string());
     }
     for flag in quality_flags {
         if matches!(
@@ -3511,7 +3744,7 @@ fn evidence_promotion_assessment(
             "freshness_unproven" | "low_score" | "low_trust_source" | "junk_marker"
         ) && !caveats.iter().any(|existing| existing == flag)
         {
-            caveats.push(flag);
+            caveats.push(flag.clone());
         }
     }
     caveats.sort();
@@ -3530,6 +3763,7 @@ fn evidence_promotion_assessment(
         "rejected_weak_query_overlap"
     } else if safety_status != "public_http_https_candidate"
         || !content_rich
+        || !substance_blockers.is_empty()
         || claim_hints.is_empty()
         || quality_flags.iter().any(|flag| flag == "junk_marker")
     {
@@ -3551,6 +3785,7 @@ fn evidence_promotion_assessment(
         "components": {
             "query_overlap_terms": query_overlap_count,
             "content_rich": content_rich,
+            "answerable_extract_substance": substance_blockers.is_empty(),
             "claim_hint_count": claim_hints.len(),
             "coverage_facet_count": coverage_facets.len(),
             "source_trust_delta": (source_trust_adjustment(candidate) * 100.0).round() / 100.0,
@@ -3588,7 +3823,7 @@ fn evidence_pack_from_ranked_candidates(
             .map(|(candidate, score)| {
                 let domain = candidate_domain_hint(candidate);
                 let source_class = evidence_pack_source_class(policy, candidate);
-                let quality_flags = if candidate_is_low_confidence_retained(candidate) {
+                let mut quality_flags = if candidate_is_low_confidence_retained(candidate) {
                     vec!["low_confidence_raw".to_string()]
                 } else {
                     candidate_quality_flags(query, candidate, *score)
@@ -3598,9 +3833,18 @@ fn evidence_pack_from_ranked_candidates(
                 let term_hints = evidence_pack_term_hints(query, candidate, 8);
                 let relevant_extract =
                     evidence_pack_relevant_extract_for_candidate(candidate, max_snippet_words);
-                let counts_as_usable =
-                    candidate_counts_as_query_usable_evidence(query, candidate, *score)
-                        && !claim_hints.is_empty();
+                let substance_blockers =
+                    evidence_packet_substance_blockers(candidate, &relevant_extract, &claim_hints);
+                for blocker in &substance_blockers {
+                    if !quality_flags.iter().any(|flag| flag == blocker) {
+                        quality_flags.push(blocker.clone());
+                    }
+                }
+                quality_flags.sort();
+                quality_flags.dedup();
+                let counts_as_usable = candidate_counts_as_query_usable_evidence(
+                    query, candidate, *score,
+                ) && substance_blockers.is_empty();
                 let confidence = if candidate_is_low_confidence_retained(candidate) {
                     "low_confidence_raw"
                 } else if counts_as_usable {
@@ -6087,9 +6331,7 @@ fn web_tool_quality_report(
     }
     let materialized_candidate_count = actionable_ranked
         .iter()
-        .filter(|(candidate, score)| {
-            candidate_counts_as_query_usable_evidence(query, candidate, *score)
-        })
+        .filter(|(candidate, score)| candidate_is_pack_ready_evidence(query, candidate, *score))
         .count();
     let trusted_structured_feed_count = actionable_ranked
         .iter()
@@ -6110,18 +6352,13 @@ fn web_tool_quality_report(
     let content_rich_candidate_count = actionable_ranked
         .iter()
         .filter(|(candidate, _)| {
-            candidate_counts_as_query_usable_evidence(
-                query,
-                candidate,
-                rerank_score(query, candidate),
-            ) && content_rich_text(&candidate.snippet)
+            candidate_is_pack_ready_evidence(query, candidate, rerank_score(query, candidate))
+                && content_rich_text(&candidate.snippet)
         })
         .count();
     let claim_hint_count = actionable_ranked
         .iter()
-        .filter(|(candidate, score)| {
-            candidate_counts_as_query_usable_evidence(query, candidate, *score)
-        })
+        .filter(|(candidate, score)| candidate_is_pack_ready_evidence(query, candidate, *score))
         .map(|(candidate, _)| evidence_pack_claim_hints_for_candidate(query, candidate, 2).len())
         .sum::<usize>();
     let evidence_claim_count = claim_hint_count;
@@ -6422,4 +6659,95 @@ fn cached_web_tool_quality_report(
             json!("agent_refine_query_pack_and_retry_if_budget_remains");
     }
     report
+}
+
+#[cfg(test)]
+mod evidence_packet_promotion_tests {
+    use super::*;
+
+    fn test_candidate(locator: &str, snippet: &str) -> Candidate {
+        Candidate {
+            source_kind: "google_news_rss".to_string(),
+            title: "Daily science briefing".to_string(),
+            locator: locator.to_string(),
+            snippet: snippet.to_string(),
+            excerpt_hash: sha256_hex(snippet),
+            timestamp: None,
+            permissions: Some("public_web;headline_feed".to_string()),
+            status_code: 200,
+        }
+    }
+
+    #[test]
+    fn structured_feed_title_dateline_shells_need_extraction_before_usable_evidence() {
+        let mut candidate = test_candidate(
+            "https://www.nbcnews.com/science/example",
+            "Inside a daily science briefing NBC News Published: Wed, 25 Mar 2026 07:00:00 GMT. Source: NBC News (www.nbcnews.com).",
+        );
+        candidate.title =
+            "Inside the daily science briefing on 2026 climate research - NBC News".to_string();
+
+        let pack = evidence_pack_from_ranked_candidates(
+            &default_policy(),
+            "daily science briefing on 2026 climate research",
+            &[],
+            1,
+            &[(candidate, 0.72)],
+            1,
+        );
+        let first = pack.pointer("/0").expect("evidence row");
+        let hints = first
+            .pointer("/claim_hints")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+
+        assert!(hints.is_empty(), "{first:#?}");
+        assert_eq!(
+            first
+                .pointer("/counts_as_usable_evidence")
+                .and_then(Value::as_bool),
+            Some(false),
+            "{first:#?}"
+        );
+        assert!(
+            first
+                .pointer("/quality_flags")
+                .and_then(Value::as_array)
+                .map(|flags| flags.iter().any(|flag| {
+                    matches!(
+                        flag.as_str(),
+                        Some("headline_or_dateline_shell")
+                            | Some("candidate_row_needs_extraction")
+                            | Some("concrete_claim_material_missing")
+                    )
+                }))
+                .unwrap_or(false),
+            "{first:#?}"
+        );
+    }
+
+    #[test]
+    fn explicit_usable_flag_cannot_promote_shell_rows_into_claim_units() {
+        let pack = json!([{
+            "title": "Daily science briefing",
+            "locator": "https://example.test/science/daily-briefing",
+            "source_domain": "example.test",
+            "source_kind": "google_news_rss",
+            "source_type": "announcement_or_news",
+            "snippet": "Daily science briefing Published: Wed, 25 Mar 2026 07:00:00 GMT. Source: Example News.",
+            "relevant_extract": "Daily science briefing Published: Wed, 25 Mar 2026 07:00:00 GMT. Source: Example News.",
+            "claim_hints": ["Daily science briefing"],
+            "confidence": "usable",
+            "materialization_quality": "trusted_structured_feed",
+            "counts_as_usable_evidence": true,
+            "quality_flags": []
+        }]);
+        let quality = evidence_pack_quality_report(&default_policy(), &pack, &json!([]));
+        let claims = evidence_claims_from_pack(&BatchQueryKeywordPack::default(), &pack, 4);
+
+        assert_eq!(quality.get("usable_count").and_then(Value::as_u64), Some(0));
+        assert_eq!(quality.get("status").and_then(Value::as_str), Some("thin"));
+        assert_eq!(claims.as_array().map(Vec::len), Some(0), "{claims:#?}");
+    }
 }

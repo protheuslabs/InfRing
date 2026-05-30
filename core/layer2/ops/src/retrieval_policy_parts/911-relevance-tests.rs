@@ -2109,7 +2109,7 @@ mod web_quality_diagnostics_tests {
     }
 
     #[test]
-    fn structured_feed_titles_can_supply_claim_hints_for_relevant_rows() {
+    fn structured_feed_title_dateline_shells_need_extraction_before_usable_evidence() {
         let mut candidate = structured_feed_candidate(
             "https://www.nbcnews.com/science/example",
             "Inside a daily science briefing NBC News Published: Wed, 25 Mar 2026 07:00:00 GMT. Source: NBC News (www.nbcnews.com).",
@@ -2130,12 +2130,27 @@ mod web_quality_diagnostics_tests {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        assert!(!hints.is_empty(), "{first:#?}");
+        assert!(hints.is_empty(), "{first:#?}");
         assert_eq!(
             first
                 .pointer("/counts_as_usable_evidence")
                 .and_then(Value::as_bool),
-            Some(true),
+            Some(false),
+            "{first:#?}"
+        );
+        assert!(
+            first
+                .pointer("/quality_flags")
+                .and_then(Value::as_array)
+                .map(|flags| flags.iter().any(|flag| {
+                    matches!(
+                        flag.as_str(),
+                        Some("headline_or_dateline_shell")
+                            | Some("candidate_row_needs_extraction")
+                            | Some("concrete_claim_material_missing")
+                    )
+                }))
+                .unwrap_or(false),
             "{first:#?}"
         );
     }
@@ -2180,6 +2195,30 @@ mod web_quality_diagnostics_tests {
             claims.pointer("/0/entities/0").and_then(Value::as_str),
             Some("Agent SDK")
         );
+    }
+
+    #[test]
+    fn explicit_usable_flag_cannot_promote_shell_rows_into_claim_units() {
+        let pack = json!([{
+            "title": "Daily science briefing",
+            "locator": "https://example.test/science/daily-briefing",
+            "source_domain": "example.test",
+            "source_kind": "google_news_rss",
+            "source_type": "announcement_or_news",
+            "snippet": "Daily science briefing Published: Wed, 25 Mar 2026 07:00:00 GMT. Source: Example News.",
+            "relevant_extract": "Daily science briefing Published: Wed, 25 Mar 2026 07:00:00 GMT. Source: Example News.",
+            "claim_hints": ["Daily science briefing"],
+            "confidence": "usable",
+            "materialization_quality": "trusted_structured_feed",
+            "counts_as_usable_evidence": true,
+            "quality_flags": []
+        }]);
+        let quality = evidence_pack_quality_report(&default_policy(), &pack, &json!([]));
+        let claims = evidence_claims_from_pack(&BatchQueryKeywordPack::default(), &pack, 4);
+
+        assert_eq!(quality.get("usable_count").and_then(Value::as_u64), Some(0));
+        assert_eq!(quality.get("status").and_then(Value::as_str), Some("thin"));
+        assert_eq!(claims.as_array().map(Vec::len), Some(0), "{claims:#?}");
     }
 
     #[test]

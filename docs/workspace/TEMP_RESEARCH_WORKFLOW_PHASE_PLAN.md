@@ -431,3 +431,18 @@ Current focus:
 - `decision`: `kept`
 - `reason`: This is a measurement-alignment patch. It prevents metrics from rewarding the exact fragmentary source-row behavior the user flagged as bad, without imposing a final-answer format or topic-specific rule.
 - `follow_up`: Next patch should target the candidate-to-evidence-card boundary: provider rows are plentiful, but selected rows lack real extracted claims and relevant extracts. Treat this as retrieval/evidence-packaging quality, not workflow routing.
+
+### 2026-05-30: evidence-packet substance boundary
+
+- `baseline_artifact`: `artifacts/research_golden_after_headline_shell_calibration_live2.json`
+- `patch_name`: require source identity, source type, relevant extract substance, and concrete claim material before a candidate row can become usable evidence.
+- `failure_class_targeted`: `candidate_row_promoted_to_evidence_without_extraction` / provider titles, datelines, question headlines, or explicit `counts_as_usable_evidence` flags being accepted as answerable evidence.
+- `hypothesis`: If source/provider rows are forced to prove evidence-packet substance before promotion, the tooling gates will stop hiding retrieval weakness behind inflated evidence counts, and the next upstream bottleneck will be visible.
+- `files_changed`: `core/layer2/ops/src/retrieval_policy_parts/010-freshness-and-relevance.rs`, `core/layer2/ops/src/retrieval_policy_parts/911-relevance-tests.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer2/ops/Cargo.toml` passed `53/53`; `cargo test --manifest-path orchestration/Cargo.toml --bin eval_runtime evidence_quality_gates -- --nocapture` passed `3/3`.
+- `eval_command`: `cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- web-tooling-golden --live=1 --base-url=http://127.0.0.1:5173 --limit=2 --timeout-seconds=90 --out=core/local/artifacts/web_tooling_after_evidence_packet_substance_gate.json --out-latest=artifacts/web_tooling_after_evidence_packet_substance_gate.json --out-markdown=artifacts/web_tooling_after_evidence_packet_substance_gate.md`
+- `after_metrics`: `measured_cases=2`, `passed_cases=0/2`; upstream request/transport/access/raw-row gates passed `2/2`; first failed gate was `web_4c_search_provider_surface_ready=0/2`, followed by evidence-pack, claim-quality, answerability, and usable-evidence gates at `0/2`.
+- `visible_output_delta`: no direct user-facing text change intended; the web-tooling lane now refuses to call off-topic provider rows evidence.
+- `decision`: `kept`
+- `reason`: This is a promotion-integrity patch. It did not improve retrieval, but it made the telemetry more honest: the current live blocker is provider/query candidate supply, not evidence counts pretending that weak rows are usable.
+- `follow_up`: The next one-change patch should target `web_4c_search_provider_surface_ready`: inspect the generated query lanes and provider-surface diagnostics, then fix the generic request-to-search-query boundary if instruction scaffolding or action verbs are contaminating search terms.
