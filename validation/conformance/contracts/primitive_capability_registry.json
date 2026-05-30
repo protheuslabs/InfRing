@@ -159,6 +159,28 @@
       "promotion_status": "seed"
     },
     {
+      "id": "workflow.coding_execution_spine_v1",
+      "name": "Coding Execution Spine v1",
+      "kind": "primitive",
+      "owner_domain": "core/orchestration",
+      "layer": "2",
+      "path": "orchestration/src/control_plane/workflows/lab/primitives/coding_runtime/coding_execution_spine_v1.workflow.json",
+      "contract_surface": "workflow_cd_and_runtime_state_machine",
+      "extension_surface": "normalized_evidence_adapters_and_workflow_composition",
+      "promotion_status": "seed"
+    },
+    {
+      "id": "workflow.first_mutation_artifact_lane_v1",
+      "name": "First Mutation Artifact Lane v1",
+      "kind": "primitive",
+      "owner_domain": "core/orchestration",
+      "layer": "2",
+      "path": "orchestration/src/control_plane/workflows/lab/primitives/coding_runtime/first_mutation_artifact_lane_v1.workflow.json",
+      "contract_surface": "workflow_cd_and_runtime_mutation_stage",
+      "extension_surface": "mutation_artifact_schema_and_tool_policy",
+      "promotion_status": "seed"
+    },
+    {
       "id": "workflow.context_provider_registry",
       "name": "Context Provider Registry",
       "kind": "primitive",
@@ -266,6 +288,17 @@
       "path": "core/layer2/agent_surface/src/runtime_lane.rs",
       "contract_surface": "native_runtime_planning_depth_contract",
       "extension_surface": "workflow_cd_planning_depth_ladder_and_budgets",
+      "promotion_status": "seed"
+    },
+    {
+      "id": "runtime.execution_mode_selector",
+      "name": "Execution Mode Selector",
+      "kind": "primitive",
+      "owner_domain": "core",
+      "layer": "2",
+      "path": "core/layer2/agent_surface/src/runtime_lane.rs",
+      "contract_surface": "native_runtime_execution_mode_contract",
+      "extension_surface": "workflow_cd_execution_mode_ladder_and_escalation_policy",
       "promotion_status": "seed"
     },
     {

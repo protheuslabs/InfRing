@@ -583,9 +583,29 @@ fn run_ollama_cli_streaming_completion(
         let _ = stderr.read_to_end(&mut buffer);
         let _ = stderr_tx.send(String::from_utf8_lossy(&buffer).to_string());
     });
+    let (stdout_tx, stdout_rx) = mpsc::channel();
+    thread::spawn(move || {
+        let mut buffer = [0u8; 1024];
+        loop {
+            match stdout.read(&mut buffer) {
+                Ok(0) => {
+                    let _ = stdout_tx.send(Ok(Vec::new()));
+                    break;
+                }
+                Ok(count) => {
+                    if stdout_tx.send(Ok(buffer[..count].to_vec())).is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    let _ = stdout_tx.send(Err(error.to_string()));
+                    break;
+                }
+            }
+        }
+    });
 
     let started = std::time::Instant::now();
-    let mut buffer = [0u8; 1024];
     let mut stdout_text = String::new();
     let mut stopped_early = false;
     let mut stop_reason = None;
@@ -594,7 +614,7 @@ fn run_ollama_cli_streaming_completion(
     let mut first_tool_calls_marker_ms = None;
     let mut balanced_tool_calls_json_ms = None;
     loop {
-        if let Some(limit) = timeout {
+        let chunk = if let Some(limit) = timeout {
             if started.elapsed() >= limit {
                 terminate_process(pid, false);
                 return Err(ProviderError::new(
@@ -602,15 +622,27 @@ fn run_ollama_cli_streaming_completion(
                     format!("ollama_run_timeout:timeout_seconds={}", limit.as_secs()),
                 ));
             }
-        }
-        match stdout.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(count) => {
+            let remaining = limit.saturating_sub(started.elapsed());
+            match stdout_rx.recv_timeout(remaining.min(Duration::from_millis(200))) {
+                Ok(chunk) => chunk,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            match stdout_rx.recv() {
+                Ok(chunk) => chunk,
+                Err(_) => break,
+            }
+        };
+        match chunk {
+            Ok(bytes) if bytes.is_empty() => break,
+            Ok(bytes) => {
+                let count = bytes.len();
                 let elapsed_ms = started.elapsed().as_millis() as u64;
                 if first_byte_ms.is_none() {
                     first_byte_ms = Some(elapsed_ms);
                 }
-                stdout_text.push_str(&String::from_utf8_lossy(&buffer[..count]));
+                stdout_text.push_str(&String::from_utf8_lossy(&bytes));
                 if first_open_brace_ms.is_none() && stdout_text.contains('{') {
                     first_open_brace_ms = Some(elapsed_ms);
                 }
@@ -626,6 +658,9 @@ fn run_ollama_cli_streaming_completion(
                     stopped_early = true;
                     stop_reason = Some("tool_calls_json_detected".to_string());
                     terminate_process(pid, false);
+                    break;
+                }
+                if count == 0 {
                     break;
                 }
             }
@@ -838,6 +873,7 @@ impl ProviderClientRegistry {
         let mut registry = Self::new("local-echo");
         registry.register(LocalEchoProvider);
         registry.register(OllamaCliProvider);
+        registry.register(ClaudeCodeGatewayProvider);
         registry
     }
 

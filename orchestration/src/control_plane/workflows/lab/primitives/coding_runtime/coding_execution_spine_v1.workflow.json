@@ -1,0 +1,95 @@
+{
+  "name": "coding_execution_spine_v1",
+  "workflow_type": "control_plane_orchestration_workflow",
+  "workflow_role": "runtime_state_machine_primitive",
+  "default": false,
+  "description": "Primitive coding runtime state machine that normalizes context, mutation, validation, public-interface, blocker, and closure evidence into deterministic next actions.",
+  "primitive_first_contract": {
+    "case_specific_hardcoding_allowed": false,
+    "specificity_owner": "primitive",
+    "extension_surface": "evidence_adapters_and_workflow_composition",
+    "registered_capability_id": "workflow.coding_execution_spine_v1",
+    "special_case_policy": "Eval-specific filenames, expected symbols, framework names, and benchmark levels must stay in eval fixtures or evidence adapters. This primitive only consumes normalized evidence.",
+    "monotonic_lower_level_regression_policy": "Higher coding workflows may add evidence producers, validators, and repair policies, but must not change the state meanings or success/blocker transition rules of this spine."
+  },
+  "workflow_composition": {
+    "primitive_level": 0,
+    "composed_of_workflow_ids": []
+  },
+  "input_contract": {
+    "schema": "coding_execution_spine_input_v1",
+    "required": [
+      "coding_task_contract",
+      "evidence_events"
+    ],
+    "fields": {
+      "coding_task_contract": "coding_task_contract_output_envelope_v1",
+      "evidence_events": [
+        "context_evidence",
+        "mutation_evidence",
+        "validation_evidence",
+        "public_interface_evidence",
+        "blocker_evidence",
+        "repair_turn_event"
+      ]
+    }
+  },
+  "output_contract": {
+    "schema": "coding_execution_spine_decision_v1",
+    "fields": {
+      "state": [
+        "task_contracted",
+        "context_needed",
+        "context_ready",
+        "mutation_needed",
+        "mutation_observed",
+        "validation_needed",
+        "validation_passed",
+        "repair_needed",
+        "closed_success",
+        "closed_blocked",
+        "failed_budget"
+      ],
+      "action": [
+        "build_context",
+        "mutate",
+        "validate",
+        "repair",
+        "close_success",
+        "close_blocked",
+        "fail_budget"
+      ],
+      "reason": "primitive transition reason"
+    }
+  },
+  "state_transition_contract": {
+    "context_rule": "If context is required and no context evidence is sufficient for mutation, next action is build_context.",
+    "mutation_rule": "If mutation is required and no successful mutation evidence exists, next action is mutate.",
+    "validation_rule": "If validation is required and no successful validation evidence exists after latest mutation, next action is validate or repair depending on failed validation evidence.",
+    "public_interface_rule": "If public interface verification is required and missing/failed, next action is repair.",
+    "closure_rule": "If required context, mutation, validation, and public interface evidence are satisfied, next action is close_success.",
+    "blocker_rule": "Any explicit blocker evidence closes blocked without another provider turn.",
+    "budget_rule": "If repair turns exceed task contract budget, close failed_budget."
+  },
+  "non_goals": [
+    "provider_prompting",
+    "file_reading",
+    "file_writing",
+    "command_execution",
+    "language_specific_symbol_detection",
+    "eval_fixture_scoring",
+    "final_user_message_rendering"
+  ],
+  "migration_policy": {
+    "status": "active_rebuild_target",
+    "legacy_controller_rule": "Existing coding runtime controllers must either emit normalized evidence into this spine or be quarantined as migration debt.",
+    "first_routing_target": "low_complexity_lanes_only_until_monotonic_stability",
+    "first_routed_lanes": [
+      "new_file_fast_path",
+      "micro_direct_mutation",
+      "existing_project_patch",
+      "bounded_existing_project_edit",
+      "implementation_slice"
+    ]
+  }
+}

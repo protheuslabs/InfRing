@@ -1,6 +1,9 @@
 // Layer ownership: Core Layer 2 (Scheduling + Execution) - agent runtime surface coordination.
 pub mod agent;
 pub mod capability_pack;
+pub mod coding_execution_spine;
+mod coding_execution_spine_adapter;
+mod first_mutation_artifact_lane;
 pub mod mcp;
 pub mod merkle_receipt;
 mod native_evidence;
@@ -25,6 +28,11 @@ pub use capability_pack::{
     CapabilityPackCatalog, CapabilityPackSpec, IssueOpsCapabilityPack, LeadGenCapabilityPack,
     LocalCodingFilesCapabilityPack, ResearchCapabilityPack, SocialSignalCapabilityPack,
     WebOpsCapabilityPack,
+};
+pub use coding_execution_spine::{
+    BlockerEvidence, CodingExecutionSpine, CodingExecutionState, CodingSpineAction,
+    CodingSpineDecision, CodingTaskContract, CodingTaskKind, ContextEvidence, MutationEvidence,
+    PublicInterfaceEvidence, ValidationEvidence,
 };
 pub use infring_agent_derive::{infring_agent, infring_tool};
 pub use mcp::{mcp_handshake_receipt, McpBridge, McpServerConfig, McpTool};

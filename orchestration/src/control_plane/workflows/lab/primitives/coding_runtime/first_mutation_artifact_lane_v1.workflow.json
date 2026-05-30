@@ -1,0 +1,57 @@
+{
+  "name": "first_mutation_artifact_lane_v1",
+  "workflow_type": "control_plane_orchestration_workflow",
+  "workflow_role": "runtime_mutation_stage_primitive",
+  "default": false,
+  "description": "Primitive first-mutation stage for low-complexity existing-project coding tasks. It receives an already-built context packet and emits only mutation receipts or an explicit blocker.",
+  "primitive_first_contract": {
+    "case_specific_hardcoding_allowed": false,
+    "specificity_owner": "primitive",
+    "extension_surface": "mutation_artifact_schema_and_tool_policy",
+    "registered_capability_id": "workflow.first_mutation_artifact_lane_v1",
+    "special_case_policy": "Eval fixtures, expected symbols, framework names, and benchmark levels must remain outside this primitive. This lane only constrains the first mutation action shape.",
+    "monotonic_lower_level_regression_policy": "This lane may be enabled for selected coding lanes only. It must not alter create-file fast path, validation, repair, checkpoint, memory, or final response semantics."
+  },
+  "workflow_composition": {
+    "primitive_level": 0,
+    "composed_of_workflow_ids": []
+  },
+  "input_contract": {
+    "schema": "first_mutation_artifact_lane_input_v1",
+    "required": [
+      "original_task",
+      "context_receipts",
+      "allowed_mutation_tools"
+    ],
+    "fields": {
+      "original_task": "user task text",
+      "context_receipts": "bounded local context evidence already read by a context primitive",
+      "allowed_mutation_tools": [
+        "file_write",
+        "file_patch"
+      ]
+    }
+  },
+  "output_contract": {
+    "schema": "first_mutation_artifact_lane_output_v1",
+    "terminal_artifact": "mutation_receipts_or_blocker",
+    "fields": {
+      "mutation_receipts": "successful file_write/file_patch receipts",
+      "blocked_reason": "present when no safe mutation can be emitted from supplied context"
+    }
+  },
+  "rules": [
+    "May not read/list/stat files.",
+    "May not run validation or probes.",
+    "May not write checkpoint or memory artifacts.",
+    "May not produce final user-facing success.",
+    "Must prefer file_patch when exact observed text is available.",
+    "Must emit only file_write/file_patch mutation tool calls or an explicit no-mutation blocker."
+  ],
+  "first_routed_lanes": [
+    "existing_project_patch"
+  ],
+  "feeds": [
+    "coding_execution_spine_v1"
+  ]
+}

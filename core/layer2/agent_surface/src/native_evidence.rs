@@ -504,6 +504,15 @@ fn native_tool_changed_test_import_surface_gaps(
         };
         for (module, symbols) in native_tool_python_from_imports(&test_text) {
             let Some(module_path) = native_tool_python_module_path(&project_root, &module) else {
+                if let Some(expected_path) =
+                    native_tool_python_missing_local_module_path(&project_root, &module, receipts)
+                {
+                    reasons.push(format!(
+                        "missing_imported_module:{}:{}",
+                        module,
+                        expected_path.display()
+                    ));
+                }
                 continue;
             };
             let Ok(module_text) = fs::read_to_string(&module_path) else {
@@ -593,8 +602,14 @@ pub(crate) fn native_tool_product_slice_gaps(
             reasons.push(format!("missing_public_interface_evidence:{name}"));
         }
     }
+    let validated_source_only_closeout =
+        !native_tool_prompt_requires_test_changes(&prompt_lower)
+            && !changed_implementation_paths.is_empty()
+            && native_tool_has_successful_validation_command(receipts)
+            && native_tool_has_successful_semantic_probe_command(receipts);
     if native_tool_prompt_requires_multi_file_product_slice(&prompt_lower)
         && changed_product_paths.len() < 3
+        && !validated_source_only_closeout
     {
         reasons.push(format!(
             "incomplete_product_slice_changed_file_count:{}",
@@ -603,15 +618,46 @@ pub(crate) fn native_tool_product_slice_gaps(
     }
     if native_tool_prompt_requires_multi_file_product_slice(&prompt_lower)
         && !native_tool_changed_paths_include_product_and_test(&changed_product_paths)
+        && !validated_source_only_closeout
     {
         reasons.push("incomplete_product_slice_missing_source_or_test_category".to_string());
+    }
+    if native_tool_prompt_requires_durable_vertical_slice(&prompt_lower) {
+        reasons.extend(native_tool_durable_vertical_slice_evidence_gaps(
+            &prompt_lower,
+            &changed_implementation_text,
+            &changed_implementation_paths,
+        ));
     }
     reasons.sort();
     reasons.dedup();
     reasons
 }
 
-fn native_tool_prompt_requires_multi_file_product_slice(prompt_lower: &str) -> bool {
+fn native_tool_has_successful_semantic_probe_command(receipts: &[NativeToolReceipt]) -> bool {
+    receipts.iter().any(|receipt| {
+        if receipt.status != "ok" || receipt.tool_name != "command_run" {
+            return false;
+        }
+        let success = receipt
+            .result
+            .get("success")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !success {
+            return false;
+        }
+        let command = receipt
+            .result
+            .get("cmd")
+            .and_then(|value| serde_json::to_string(value).ok())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        command.contains("semantic_probe")
+    })
+}
+
+pub(crate) fn native_tool_prompt_requires_multi_file_product_slice(prompt_lower: &str) -> bool {
     native_tool_prompt_mentions_any(
         prompt_lower,
         &[
@@ -621,8 +667,167 @@ fn native_tool_prompt_requires_multi_file_product_slice(prompt_lower: &str) -> b
             "coherent checkpoint",
             "checkpoint_",
             "operator-facing cli",
+            "persistent",
+            "persistence",
+            "memory row",
+            "handoff",
         ],
     )
+}
+
+fn native_tool_prompt_requires_durable_vertical_slice(prompt_lower: &str) -> bool {
+    native_tool_prompt_mentions_any(
+        prompt_lower,
+        &[
+            "checkpoint",
+            "handoff",
+            "resume token",
+            "memory row",
+            "project context",
+        ],
+    ) && native_tool_prompt_mentions_any(
+        prompt_lower,
+        &[
+            "persistent",
+            "persistence",
+            "storage",
+            "operator-facing",
+            "report",
+            "cli",
+            "import/export",
+            "roundtrip",
+            "round-trip",
+        ],
+    )
+}
+
+fn native_tool_durable_vertical_slice_evidence_gaps(
+    prompt_lower: &str,
+    changed_implementation_text: &str,
+    changed_implementation_paths: &[String],
+) -> Vec<String> {
+    let mut reasons = Vec::<String>::new();
+    if !native_tool_source_has_domain_model(changed_implementation_text) {
+        reasons.push("missing_product_source_evidence:domain_model".to_string());
+    }
+    if native_tool_prompt_mentions_any(
+        prompt_lower,
+        &["persistent", "persistence", "storage", "json", "jsonl", "sqlite"],
+    ) && !native_tool_source_has_persistence_store(changed_implementation_text)
+    {
+        reasons.push("missing_product_source_evidence:persistence_store".to_string());
+    }
+    if native_tool_prompt_mentions_any(
+        prompt_lower,
+        &["service", "integrate", "integration", "routing/service", "service layer"],
+    ) && !native_tool_source_has_service_integration(
+        changed_implementation_text,
+        changed_implementation_paths,
+    ) {
+        reasons.push("missing_product_source_evidence:service_integration".to_string());
+    }
+    if native_tool_prompt_mentions_any(
+        prompt_lower,
+        &["operator-facing", "cli", "command", "report"],
+    ) && !native_tool_source_has_operator_surface(
+        changed_implementation_text,
+        changed_implementation_paths,
+    ) {
+        reasons.push("missing_product_source_evidence:operator_surface".to_string());
+    }
+    if native_tool_prompt_mentions_any(prompt_lower, &["report", "summary", "retryable"])
+        && !native_tool_source_has_report_surface(changed_implementation_text)
+    {
+        reasons.push("missing_product_source_evidence:report".to_string());
+    }
+    if native_tool_prompt_mentions_any(
+        prompt_lower,
+        &[
+            "import/export",
+            "import and export",
+            "export and import",
+            "roundtrip",
+            "round-trip",
+            "round trip",
+        ],
+    ) && !native_tool_source_has_import_export_or_roundtrip(changed_implementation_text)
+    {
+        reasons.push("missing_product_source_evidence:import_export".to_string());
+    }
+    reasons
+}
+
+fn native_tool_source_has_domain_model(text: &str) -> bool {
+    native_tool_prompt_mentions_any(
+        text,
+        &[
+            "dataclass",
+            "class ",
+            "struct ",
+            "record",
+            "interface ",
+            "type ",
+            "model",
+        ],
+    )
+}
+
+fn native_tool_source_has_persistence_store(text: &str) -> bool {
+    native_tool_prompt_mentions_any(text, &["jsonl", "sqlite", "repository", "store"])
+        || (native_tool_prompt_mentions_any(text, &["json", "csv"])
+            && native_tool_prompt_mentions_any(
+                text,
+                &["path", "file", "open(", "read_text", "write_text", "readlines"],
+            ))
+}
+
+fn native_tool_source_has_service_integration(text: &str, paths: &[String]) -> bool {
+    paths.iter().any(|path| {
+        path.replace('\\', "/")
+            .to_ascii_lowercase()
+            .contains("service")
+    }) || native_tool_prompt_mentions_any(
+        text,
+        &["routingservice", "service", "attempt_delivery", "delivery_summary"],
+    )
+}
+
+fn native_tool_source_has_operator_surface(text: &str, paths: &[String]) -> bool {
+    paths.iter().any(|path| {
+        let lower = path.replace('\\', "/").to_ascii_lowercase();
+        lower.ends_with("cli.py")
+            || lower.contains("/cli.")
+            || lower.contains("/bin/")
+            || lower.contains("command")
+    }) || native_tool_prompt_mentions_any(
+        text,
+        &["argparse", "add_parser", "subcommands", "stdout.write", "println!", "report"],
+    )
+}
+
+fn native_tool_source_has_report_surface(text: &str) -> bool {
+    text.contains("report")
+        && text.contains("destination")
+        && native_tool_prompt_mentions_any(text, &["retryable", "failure", "failed"])
+}
+
+fn native_tool_source_has_import_export_or_roundtrip(text: &str) -> bool {
+    text.contains("export")
+        && (native_tool_prompt_mentions_any(
+            text,
+            &[
+                "import_",
+                "import_attempt",
+                "imported",
+                "roundtrip",
+                "round_trip",
+                "round-trip",
+                "from_json",
+                "to_json",
+                "add_parser(\"import",
+                "add_parser('import",
+            ],
+        ))
 }
 
 fn native_tool_changed_paths_include_product_and_test(paths: &[String]) -> bool {
@@ -1024,6 +1229,9 @@ pub(crate) fn native_tool_evidence_target_brief(original_prompt: &str) -> String
             "- checkpoint/project memory persistence was explicitly requested; include a successful memory-cli ingest command_run receipt{target} or a blocker"
         ));
     }
+    if native_tool_prompt_requires_durable_vertical_slice(&prompt_lower) {
+        items.push("- durable checkpoint/project-operator slice was requested; source mutation evidence should cover the requested domain record/model, persistence store, service integration, operator/report surface, import/export or round-trip surface, tests, validation, checkpoint receipt, and memory closure before finalization".to_string());
+    }
     if items.is_empty() {
         return String::new();
     }
@@ -1242,6 +1450,72 @@ fn native_tool_python_module_path(project_root: &std::path::Path, module: &str) 
         return Some(package_path);
     }
     None
+}
+
+fn native_tool_python_missing_local_module_path(
+    project_root: &std::path::Path,
+    module: &str,
+    receipts: &[NativeToolReceipt],
+) -> Option<PathBuf> {
+    let module = module.trim();
+    if module.is_empty() || !module.contains('.') {
+        return None;
+    }
+    let top_package = module.split('.').next()?.trim();
+    if top_package.is_empty() || native_tool_python_module_name_is_common_external(top_package) {
+        return None;
+    }
+    let relative = module.replace('.', "/");
+    let src_package_dir = project_root.join("src").join(top_package);
+    if src_package_dir.is_dir() {
+        return Some(project_root.join("src").join(format!("{relative}.py")));
+    }
+    let root_package_dir = project_root.join(top_package);
+    if root_package_dir.is_dir() {
+        return Some(project_root.join(format!("{relative}.py")));
+    }
+    let src_prefix = format!("/src/{top_package}/");
+    let root_prefix = format!("/{top_package}/");
+    for path in native_tool_changed_paths(receipts) {
+        let normalized = path.replace('\\', "/");
+        if normalized.contains(&src_prefix) {
+            return Some(project_root.join("src").join(format!("{relative}.py")));
+        }
+        if normalized.contains(&root_prefix) {
+            return Some(project_root.join(format!("{relative}.py")));
+        }
+    }
+    None
+}
+
+fn native_tool_python_module_name_is_common_external(module: &str) -> bool {
+    matches!(
+        module,
+        "argparse"
+            | "collections"
+            | "csv"
+            | "dataclasses"
+            | "datetime"
+            | "decimal"
+            | "enum"
+            | "functools"
+            | "itertools"
+            | "json"
+            | "logging"
+            | "math"
+            | "os"
+            | "pathlib"
+            | "re"
+            | "shutil"
+            | "sqlite3"
+            | "subprocess"
+            | "sys"
+            | "tempfile"
+            | "time"
+            | "typing"
+            | "unittest"
+            | "uuid"
+    )
 }
 
 fn native_tool_python_import_symbol_is_noise(symbol: &str) -> bool {

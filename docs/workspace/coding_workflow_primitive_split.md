@@ -20,6 +20,8 @@ parts rather than embedding all behavior into one prompt or runtime lane.
 
 | Workflow ID | Level | Owns | Must not own |
 | --- | ---: | --- | --- |
+| `coding_execution_spine_v1` | 0 | Deterministic coding state transitions from normalized evidence. | Provider calls, file/command execution, language-specific symbol detection, eval fixture scoring, final user projection. |
+| `first_mutation_artifact_lane_v1` | 0 | First mutation action shape from supplied context for low-complexity existing-project edits. | Discovery, validation, repair, checkpoint/memory closure, final user projection. |
 | `local_project_bootstrap` | 0 | Bounded file discovery/read context for current local project files. | Mutation, validation, memory writes, architecture decisions. |
 | `checkpoint_memory_bootstrap` | 0 | Bounded checkpoint-memory retrieval as advisory context. | Project mutation, checkpoint closure, treating memory as authoritative. |
 | `first_mutation_executor` | 1 | First bounded source/test/operator mutation from supplied context, delegating actual writes/patches to `file_mutation_executor`. | Discovery, validation, checkpoint receipt, memory write, final success claims. |
@@ -123,6 +125,23 @@ three primitives.
 Runtime code may temporarily implement stage behavior directly while we migrate,
 but new runtime behavior must map to one of these stage IDs or be documented as
 migration debt.
+
+As of the semi-aggressive rebuild, controller authority belongs to
+`coding_execution_spine_v1`. Legacy coding runtime controllers may remain during
+migration only if they act as evidence producers, evidence adapters, or policy
+inputs. They must not independently decide to continue, repair, finalize, seed,
+or timeout around the spine.
+
+Initial routing is intentionally limited to low-complexity lanes:
+`new_file_fast_path`, `micro_direct_mutation`, `existing_project_patch`,
+`bounded_existing_project_edit`, and `implementation_slice`. Higher project,
+operator, checkpoint, memory, and multi-file slice lanes remain on the legacy
+controller until Level 1-3 behavior is monotonic.
+
+The first mutation artifact lane is narrower than the spine routing surface:
+it is initially enabled only for `existing_project_patch`. It must emit mutation
+receipts into `coding_execution_spine_v1`; it cannot decide validation, repair,
+or final success itself.
 
 If a Level 8 patch needs more than first mutation, it should usually become one
 of:

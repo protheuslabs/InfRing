@@ -167,6 +167,8 @@
       "partial_recovery_max_turns": 4,
       "recovery_provider_timeout_seconds": 180,
       "synthesize_final_after_successful_validation": true,
+      "coding_execution_spine_v1_enabled": true,
+      "first_mutation_artifact_lane_v1_enabled": true,
       "synthesize_completion_evidence_on_finalization_timeout": true
     }
   },

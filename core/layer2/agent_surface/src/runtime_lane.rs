@@ -2,7 +2,10 @@
 use crate::agent::{AgentBuildError, AgentBuilder, AgentExecutionContext, AgentRunResult};
 use crate::capability_pack::CapabilityPackCatalog;
 use crate::merkle_receipt::{merkle_receipt_options_from_value, merkle_receipt_payload};
-use crate::native_tools::{NativeToolCall, NativeToolDispatcher, NativeToolReceipt};
+use crate::native_tools::{
+    parse_native_tool_calls, NativeToolCall, NativeToolDispatcher, NativeToolReceipt,
+};
+use crate::native_workflow_artifact::native_tool_auto_workflow_artifact_receipts;
 use crate::provider::{ProviderClientRegistry, ProviderError, ProviderRequest, ProviderResponse};
 use crate::rbac_memory::{
     memory_read_allowed, memory_write_allowed, permission_for, permission_manifest_from_value,
@@ -16,10 +19,12 @@ use crate::runtime_state::{
     runtime_lane_state_release_gate_counters, runtime_lane_state_save, RuntimeLaneDurableState,
 };
 use crate::scheduler::SchedulePlan;
+use crate::telemetry::ReceiptSpan;
 use crate::wasm_sandbox::{
     evaluate_wasm_execution_boundary, evaluate_wasm_policy, wasm_policy_from_value,
     wasm_policy_snapshot, WasmPolicyDecision,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -94,6 +99,33 @@ fn runtime_lane_value_bool_at_path<'a>(value: &'a Value, path: &[&str]) -> Optio
     cursor.as_bool()
 }
 
+fn runtime_lane_metadata_string_list(metadata: &Value, pointers: &[&str]) -> Option<Vec<String>> {
+    for pointer in pointers {
+        let Some(values) = metadata.pointer(pointer).and_then(Value::as_array) else {
+            continue;
+        };
+        return Some(
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect(),
+        );
+    }
+    None
+}
+
+fn runtime_lane_metadata_string_list_allows(
+    metadata: &Value,
+    pointers: &[&str],
+    value: &str,
+) -> Option<bool> {
+    runtime_lane_metadata_string_list(metadata, pointers)
+        .map(|values| values.iter().any(|entry| entry == "*" || entry == value))
+}
+
 fn runtime_lane_should_run_bounded_existing_project_pre_probe(
     metadata: &Value,
     tools: &[String],
@@ -107,6 +139,14 @@ fn runtime_lane_should_run_bounded_existing_project_pre_probe(
             .get("bounded_existing_project_pre_probe")
             .and_then(Value::as_bool)
             == Some(true)
+        || runtime_lane_metadata_bool(
+            metadata,
+            &[
+                "/native_success_criteria/bounded_existing_project_pre_probe",
+                "/workflow/native_success_criteria/bounded_existing_project_pre_probe",
+            ],
+        )
+        .unwrap_or(false)
     {
         return true;
     }
@@ -433,13 +473,20 @@ pub fn run_runtime_lane_with_registry(
     }
     let public_api_extension_probe_ms = public_api_extension_probe_started.elapsed().as_millis() as u64;
 
+    let checkpointed_tool_loop_selected =
+        runtime_lane_should_skip_model_manifest_for_checkpointed_tool_loop(
+            &metadata,
+            &initial_prompt,
+        );
+
     let bounded_existing_project_probe_started = Instant::now();
     let mut bounded_existing_project_fallback_probe = None;
     if runtime_lane_should_run_bounded_existing_project_pre_probe(
         &metadata,
         &tools,
         &capability_packs,
-    ) {
+    ) && !checkpointed_tool_loop_selected
+    {
         if let Some(response) = runtime_lane_try_bounded_existing_project_edit_loop(
             &name,
             &initial_prompt,
@@ -474,36 +521,65 @@ pub fn run_runtime_lane_with_registry(
         bounded_existing_project_probe_started.elapsed().as_millis() as u64;
 
     let model_manifest_probe_started = Instant::now();
-    if let Some(mut response) = runtime_lane_try_model_manifest_planner(
-        &name,
-        &initial_prompt,
-        preamble.as_deref(),
-        provider.as_deref(),
-        model.as_ref(),
-        &metadata,
-        &tools,
-        &capability_packs,
-        &required_pack_permissions,
-        &permissions,
-        wasm_sandbox.as_ref(),
-        voice_session.as_ref(),
-        receipt_merkle.as_ref(),
-        previous_receipt_root.as_ref(),
-        &state_path,
-        &mut durable_state,
-        providers,
-    ) {
-        if let Some(probe) = bounded_existing_project_fallback_probe {
-            runtime_lane_attach_coding_runtime_probe(&mut response, probe);
+    let model_manifest_probe_skipped = checkpointed_tool_loop_selected;
+    if !model_manifest_probe_skipped {
+        if let Some(mut response) = runtime_lane_try_model_manifest_planner(
+            &name,
+            &initial_prompt,
+            preamble.as_deref(),
+            provider.as_deref(),
+            model.as_ref(),
+            &metadata,
+            &tools,
+            &capability_packs,
+            &required_pack_permissions,
+            &permissions,
+            wasm_sandbox.as_ref(),
+            voice_session.as_ref(),
+            receipt_merkle.as_ref(),
+            previous_receipt_root.as_ref(),
+            &state_path,
+            &mut durable_state,
+            providers,
+        ) {
+            if let Some(probe) = bounded_existing_project_fallback_probe {
+                runtime_lane_attach_coding_runtime_probe(&mut response, probe);
+            }
+            return Ok(response);
         }
-        return Ok(response);
     }
     let model_manifest_probe_ms = model_manifest_probe_started.elapsed().as_millis() as u64;
 
     let agent_builder_started = Instant::now();
     let merkle_options = merkle_receipt_options_from_value(receipt_merkle.as_ref());
+    let bootstrap_receipts = if model_manifest_probe_skipped {
+        runtime_lane_checkpointed_bootstrap_receipts(&initial_prompt)
+    } else {
+        Vec::new()
+    };
+    if model_manifest_probe_skipped {
+        return Ok(runtime_lane_try_checkpointed_pre_agent_entry(
+            &name,
+            &initial_prompt,
+        provider.as_deref(),
+        model.as_ref(),
+        &metadata,
+        &tools,
+        &bootstrap_receipts,
+        providers,
+    ));
+    }
+    let agent_initial_prompt = if model_manifest_probe_skipped {
+        runtime_lane_checkpointed_tool_loop_prompt(&initial_prompt, &bootstrap_receipts)
+    } else {
+        initial_prompt.clone()
+    };
+    let agent_initial_prompt =
+        runtime_lane_apply_agent_loop_public_api_contract_prompt(&metadata, agent_initial_prompt);
+    let checkpointed_recovery_provider = provider.clone();
+    let checkpointed_recovery_model = model.clone();
     let mut builder = AgentBuilder::new(name)
-        .initial_prompt(initial_prompt)
+        .initial_prompt(agent_initial_prompt)
         .metadata(metadata.clone());
     if let Some(value) = preamble {
         builder = builder.preamble(value);
@@ -615,7 +691,7 @@ pub fn run_runtime_lane_with_registry(
     let pre_agent_setup_ms = pre_agent_setup_started.elapsed().as_millis() as u64;
     let context = AgentExecutionContext::new(providers, Some(&catalog));
     let agent_run_started = std::time::Instant::now();
-    let run: AgentRunResult = match contract.run_once(&context) {
+    let mut run: AgentRunResult = match contract.run_once(&context) {
         Ok(result) => result,
         Err(error) => {
             if let Some(plan) = &contract.schedule {
@@ -636,6 +712,20 @@ pub fn run_runtime_lane_with_registry(
             return Err(RuntimeLaneError::Provider(error));
         }
     };
+    if !bootstrap_receipts.is_empty() {
+        runtime_lane_merge_bootstrap_receipts_into_agent_run(&mut run, &bootstrap_receipts);
+    }
+    if model_manifest_probe_skipped && runtime_lane_agent_run_has_no_successful_mutation(&run) {
+        runtime_lane_try_checkpointed_mutation_entry_recovery(
+            &mut run,
+            providers,
+            checkpointed_recovery_provider.as_deref(),
+            checkpointed_recovery_model.as_ref(),
+            &metadata,
+            &initial_prompt,
+            &tools,
+        );
+    }
     let agent_run_ms = agent_run_started.elapsed().as_millis() as u64;
     let contract_checks_started = std::time::Instant::now();
     if let Some((error_code, details)) =
@@ -808,6 +898,7 @@ pub fn run_runtime_lane_with_registry(
                 "deterministic_local_loop_probe_ms": deterministic_local_loop_probe_ms,
                 "public_api_extension_probe_ms": public_api_extension_probe_ms,
                 "bounded_existing_project_probe_ms": bounded_existing_project_probe_ms,
+                "model_manifest_probe_skipped": model_manifest_probe_skipped,
                 "model_manifest_probe_ms": model_manifest_probe_ms,
                 "agent_builder_ms": agent_builder_ms,
                 "wasm_execution_boundary_ms": wasm_execution_boundary_ms,
@@ -1847,6 +1938,186 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
         "bounded_existing_project_edit_loop",
         &mut semantic_probe_call_id,
     );
+    if let Some(gate_report) =
+        runtime_lane_capability_evidence_gate_report(metadata, prompt, &candidate)
+    {
+        if !gate_report.missing.is_empty() {
+            let gate_hint = runtime_lane_capability_evidence_gate_retry_hint(&gate_report);
+            let repair_context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
+            let retry_prompt = runtime_lane_model_manifest_planner_retry_prompt(
+                prompt,
+                &workspace_root,
+                &repair_context_pack,
+                "bounded_existing_project_capability_evidence_gate_repair",
+                "capability_evidence_gate_failed",
+                &runtime_lane_capability_evidence_gate_message(&gate_report),
+                Some(&gate_hint),
+            );
+            let retry_response = match provider_client.complete(&ProviderRequest {
+                prompt: retry_prompt,
+                system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
+                tools: Vec::new(),
+                model: fast_lane_repair_model.clone(),
+                metadata: json!({
+                    "provider_timeout_seconds": manifest_repair_provider_timeout_seconds,
+                    "omit_ollama_thinking_flags": runtime_lane_metadata_bool(
+                        metadata,
+                        &[
+                            "/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                            "/workflow/native_success_criteria/fast_lane_repair_omit_ollama_thinking_flags",
+                            "/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                            "/workflow/native_success_criteria/fast_lane_omit_ollama_thinking_flags",
+                        ],
+                    )
+                    .unwrap_or(true),
+                    "lane": "bounded_existing_project_edit_loop",
+                    "attempt": "capability_evidence_gate_repair",
+                    "previous_failure_code": "capability_evidence_gate_failed",
+                    "missing_capability_evidence": gate_report.missing.clone(),
+                    "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+                }),
+            }) {
+                Ok(response) => response,
+                Err(retry_error) => {
+                    let model_call_ms = model_started
+                        .elapsed()
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64;
+                    return Some(runtime_lane_fail_closed_with_state(
+                        "runtime_lane_bounded_existing_project_capability_evidence_gate_provider_failed",
+                        json!({
+                            "lane": "bounded_existing_project_edit_loop",
+                            "failure_code": retry_error.code.as_str(),
+                            "failure_message": retry_error.message,
+                            "missing_capability_evidence": gate_report.missing,
+                            "present_capability_evidence": gate_report.present,
+                            "required_capability_evidence": gate_report.required,
+                            "phase_latency_ms": {
+                                "workflow_load": 0,
+                                "execution_shape_gate": execution_shape_gate_ms,
+                                "provider_start": 0,
+                                "model_call": model_call_ms,
+                                "tool_dispatch": 0,
+                                "mutation": 0,
+                                "validation": 0,
+                                "repair": 0,
+                                "final_synthesis": 0,
+                                "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                            }
+                        }),
+                        permissions,
+                        wasm_sandbox,
+                        voice_session,
+                        state_path,
+                        durable_state,
+                    ));
+                }
+            };
+            provider_response = retry_response;
+            candidate = match runtime_lane_model_manifest_candidate_from_output(
+                &provider_response.output,
+                tools,
+                capability_packs,
+                permissions,
+            ) {
+                Ok(mut retry_candidate) => {
+                    validation_call_id = None;
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut retry_candidate,
+                        validation_command.as_ref(),
+                        "bounded_existing_project_capability_repair_validation",
+                        &mut validation_call_id,
+                    );
+                    if validation_command.is_some() {
+                        retry_candidate.requires_validation = true;
+                    }
+                    semantic_probe_call_id = None;
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut retry_candidate,
+                        semantic_probe.as_ref(),
+                        "bounded_existing_project_capability_repair",
+                        &mut semantic_probe_call_id,
+                    );
+                    if let Some(retry_gate_report) =
+                        runtime_lane_capability_evidence_gate_report(metadata, prompt, &retry_candidate)
+                    {
+                        if !retry_gate_report.missing.is_empty() {
+                            let model_call_ms = model_started
+                                .elapsed()
+                                .as_millis()
+                                .min(u128::from(u64::MAX)) as u64;
+                            return Some(runtime_lane_fail_closed_with_state(
+                                "runtime_lane_bounded_existing_project_capability_evidence_gate_failed",
+                                json!({
+                                    "lane": "bounded_existing_project_edit_loop",
+                                    "failure_code": "capability_evidence_gate_failed",
+                                    "failure_message": runtime_lane_capability_evidence_gate_message(&retry_gate_report),
+                                    "missing_capability_evidence": retry_gate_report.missing,
+                                    "present_capability_evidence": retry_gate_report.present,
+                                    "required_capability_evidence": retry_gate_report.required,
+                                    "repair_attempted": true,
+                                    "phase_latency_ms": {
+                                        "workflow_load": 0,
+                                        "execution_shape_gate": execution_shape_gate_ms,
+                                        "provider_start": 0,
+                                        "model_call": model_call_ms,
+                                        "tool_dispatch": 0,
+                                        "mutation": 0,
+                                        "validation": 0,
+                                        "repair": 0,
+                                        "final_synthesis": 0,
+                                        "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                                    }
+                                }),
+                                permissions,
+                                wasm_sandbox,
+                                voice_session,
+                                state_path,
+                                durable_state,
+                            ));
+                        }
+                    }
+                    retry_candidate
+                }
+                Err(retry_failure) => {
+                    let model_call_ms = model_started
+                        .elapsed()
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64;
+                    return Some(runtime_lane_fail_closed_with_state(
+                        "runtime_lane_bounded_existing_project_capability_evidence_manifest_failed",
+                        json!({
+                            "lane": "bounded_existing_project_edit_loop",
+                            "failure_code": retry_failure.failure_code,
+                            "failure_message": retry_failure.failure_message,
+                            "needed_input": retry_failure.needed_input,
+                            "provider_output_preview": retry_failure.provider_output_preview,
+                            "missing_capability_evidence": gate_report.missing,
+                            "present_capability_evidence": gate_report.present,
+                            "required_capability_evidence": gate_report.required,
+                            "phase_latency_ms": {
+                                "workflow_load": 0,
+                                "execution_shape_gate": execution_shape_gate_ms,
+                                "provider_start": 0,
+                                "model_call": model_call_ms,
+                                "tool_dispatch": 0,
+                                "mutation": 0,
+                                "validation": 0,
+                                "repair": 0,
+                                "final_synthesis": 0,
+                                "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                            }
+                        }),
+                        permissions,
+                        wasm_sandbox,
+                        voice_session,
+                        state_path,
+                        durable_state,
+                    ));
+                }
+            };
+        }
+    }
     let model_call_ms = model_started
         .elapsed()
         .as_millis()
@@ -2317,6 +2588,7 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
     let mut response = runtime_lane_model_manifest_planner_response(
         name,
         metadata,
+        prompt,
         tools,
         capability_packs,
         required_pack_permissions,
@@ -2377,7 +2649,13 @@ fn runtime_lane_try_model_manifest_planner(
     durable_state: &mut RuntimeLaneDurableState,
     providers: &ProviderClientRegistry,
 ) -> Option<RuntimeLaneResponse> {
-    if !runtime_lane_model_manifest_planner_eligible(prompt, tools, capability_packs, permissions) {
+    if !runtime_lane_model_manifest_planner_eligible(
+        metadata,
+        prompt,
+        tools,
+        capability_packs,
+        permissions,
+    ) {
         return None;
     }
     let total_started = Instant::now();
@@ -2721,6 +2999,177 @@ fn runtime_lane_try_model_manifest_planner(
         "model_manifest_planner",
         &mut semantic_probe_call_id,
     );
+    if let Some(gate_report) =
+        runtime_lane_capability_evidence_gate_report(metadata, prompt, &candidate)
+    {
+        if !gate_report.missing.is_empty() {
+            let gate_hint = runtime_lane_capability_evidence_gate_retry_hint(&gate_report);
+            let retry_prompt = runtime_lane_model_manifest_planner_retry_prompt(
+                prompt,
+                &workspace_root,
+                &context_pack,
+                "capability_evidence_gate_repair",
+                "capability_evidence_gate_failed",
+                &runtime_lane_capability_evidence_gate_message(&gate_report),
+                Some(&gate_hint),
+            );
+            let retry_response = match provider_client.complete(&ProviderRequest {
+                prompt: retry_prompt,
+                system: Some(planner_system.clone()),
+                tools: Vec::new(),
+                model: model.cloned(),
+                metadata: json!({
+                    "provider_timeout_seconds": metadata
+                        .pointer("/native_success_criteria/provider_timeout_seconds")
+                        .and_then(Value::as_u64)
+                        .or_else(|| metadata.pointer("/workflow/native_success_criteria/provider_timeout_seconds").and_then(Value::as_u64))
+                        .unwrap_or(90),
+                    "lane": "model_manifest_planner",
+                    "attempt": "capability_evidence_gate_repair",
+                    "previous_failure_code": "capability_evidence_gate_failed",
+                    "missing_capability_evidence": gate_report.missing.clone(),
+                    "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+                }),
+            }) {
+                Ok(response) => response,
+                Err(retry_error) => {
+                    let model_call_ms = model_started
+                        .elapsed()
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64;
+                    return Some(runtime_lane_fail_closed_with_state(
+                        "runtime_lane_model_manifest_capability_evidence_gate_provider_failed",
+                        json!({
+                            "lane": "model_manifest_planner",
+                            "failure_code": retry_error.code.as_str(),
+                            "failure_message": retry_error.message,
+                            "missing_capability_evidence": gate_report.missing,
+                            "present_capability_evidence": gate_report.present,
+                            "required_capability_evidence": gate_report.required,
+                            "phase_latency_ms": {
+                                "workflow_load": 0,
+                                "execution_shape_gate": execution_shape_gate_ms,
+                                "provider_start": 0,
+                                "model_call": model_call_ms,
+                                "tool_dispatch": 0,
+                                "mutation": 0,
+                                "validation": 0,
+                                "repair": 0,
+                                "final_synthesis": 0,
+                                "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                            }
+                        }),
+                        permissions,
+                        wasm_sandbox,
+                        voice_session,
+                        state_path,
+                        durable_state,
+                    ));
+                }
+            };
+            provider_response = retry_response;
+            candidate = match runtime_lane_model_manifest_candidate_from_output(
+                &provider_response.output,
+                tools,
+                capability_packs,
+                permissions,
+            ) {
+                Ok(mut retry_candidate) => {
+                    validation_call_id = None;
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut retry_candidate,
+                        validation_command.as_ref(),
+                        "model_manifest_planner_capability_repair_validation",
+                        &mut validation_call_id,
+                    );
+                    semantic_probe_call_id = None;
+                    runtime_lane_attach_semantic_probe_action(
+                        &mut retry_candidate,
+                        semantic_probe.as_ref(),
+                        "model_manifest_planner_capability_repair",
+                        &mut semantic_probe_call_id,
+                    );
+                    if let Some(retry_gate_report) =
+                        runtime_lane_capability_evidence_gate_report(metadata, prompt, &retry_candidate)
+                    {
+                        if !retry_gate_report.missing.is_empty() {
+                            let model_call_ms = model_started
+                                .elapsed()
+                                .as_millis()
+                                .min(u128::from(u64::MAX)) as u64;
+                            return Some(runtime_lane_fail_closed_with_state(
+                                "runtime_lane_model_manifest_capability_evidence_gate_failed",
+                                json!({
+                                    "lane": "model_manifest_planner",
+                                    "failure_code": "capability_evidence_gate_failed",
+                                    "failure_message": runtime_lane_capability_evidence_gate_message(&retry_gate_report),
+                                    "missing_capability_evidence": retry_gate_report.missing,
+                                    "present_capability_evidence": retry_gate_report.present,
+                                    "required_capability_evidence": retry_gate_report.required,
+                                    "repair_attempted": true,
+                                    "phase_latency_ms": {
+                                        "workflow_load": 0,
+                                        "execution_shape_gate": execution_shape_gate_ms,
+                                        "provider_start": 0,
+                                        "model_call": model_call_ms,
+                                        "tool_dispatch": 0,
+                                        "mutation": 0,
+                                        "validation": 0,
+                                        "repair": 0,
+                                        "final_synthesis": 0,
+                                        "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                                    }
+                                }),
+                                permissions,
+                                wasm_sandbox,
+                                voice_session,
+                                state_path,
+                                durable_state,
+                            ));
+                        }
+                    }
+                    retry_candidate
+                }
+                Err(retry_failure) => {
+                    let model_call_ms = model_started
+                        .elapsed()
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64;
+                    return Some(runtime_lane_fail_closed_with_state(
+                        "runtime_lane_model_manifest_capability_evidence_gate_repair_failed",
+                        json!({
+                            "lane": "model_manifest_planner",
+                            "failure_code": retry_failure.failure_code,
+                            "failure_message": retry_failure.failure_message,
+                            "needed_input": retry_failure.needed_input,
+                            "provider_output_preview": retry_failure.provider_output_preview,
+                            "missing_capability_evidence": gate_report.missing,
+                            "present_capability_evidence": gate_report.present,
+                            "required_capability_evidence": gate_report.required,
+                            "repair_attempted": true,
+                            "phase_latency_ms": {
+                                "workflow_load": 0,
+                                "execution_shape_gate": execution_shape_gate_ms,
+                                "provider_start": 0,
+                                "model_call": model_call_ms,
+                                "tool_dispatch": 0,
+                                "mutation": 0,
+                                "validation": 0,
+                                "repair": 0,
+                                "final_synthesis": 0,
+                                "total": total_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                            }
+                        }),
+                        permissions,
+                        wasm_sandbox,
+                        voice_session,
+                        state_path,
+                        durable_state,
+                    ));
+                }
+            };
+        }
+    }
     let model_call_ms = model_started
         .elapsed()
         .as_millis()
@@ -2843,6 +3292,7 @@ fn runtime_lane_try_model_manifest_planner(
     Some(runtime_lane_model_manifest_planner_response(
         name,
         metadata,
+        prompt,
         tools,
         capability_packs,
         required_pack_permissions,
@@ -3057,6 +3507,7 @@ fn runtime_lane_deterministic_local_loop_response(
 fn runtime_lane_model_manifest_planner_response(
     name: &str,
     metadata: &Value,
+    original_prompt: &str,
     tools: &[String],
     capability_packs: &[String],
     required_pack_permissions: &[String],
@@ -3068,13 +3519,14 @@ fn runtime_lane_model_manifest_planner_response(
     state_path: &Path,
     durable_state: &mut RuntimeLaneDurableState,
     candidate: DeterministicLocalLoopCandidate,
-    receipts: Vec<NativeToolReceipt>,
+    mut receipts: Vec<NativeToolReceipt>,
     provider_response: ProviderResponse,
     execution_shape_gate_ms: u64,
     model_call_ms: u64,
     tool_dispatch_ms: u64,
     total_started: Instant,
 ) -> RuntimeLaneResponse {
+    runtime_lane_apply_post_validation_closure_controller(metadata, original_prompt, &mut receipts);
     let mutation_count = receipts
         .iter()
         .filter(|receipt| runtime_lane_receipt_is_successful_mutation(receipt))
@@ -3083,10 +3535,27 @@ fn runtime_lane_model_manifest_planner_response(
         runtime_lane_receipts_validation_ok(&receipts, candidate.requires_validation)
             || (candidate.requires_validation
                 && runtime_lane_post_mutation_command_receipts_all_successful(&receipts));
+    let post_dispatch_capability_evidence =
+        runtime_lane_post_dispatch_capability_evidence_gate_report(
+            metadata,
+            original_prompt,
+            &candidate.workspace_root,
+            &receipts,
+        );
+    let post_dispatch_capability_evidence_ok = post_dispatch_capability_evidence
+        .as_ref()
+        .map(|report| report.missing.is_empty())
+        .unwrap_or(true);
+    let failure_status = if post_dispatch_capability_evidence_ok {
+        "model_manifest_planner_failed"
+    } else {
+        "post_dispatch_capability_evidence_gate_failed"
+    };
     let ok = !receipts.is_empty()
         && receipts.iter().all(|receipt| receipt.status == "ok")
         && mutation_count > 0
-        && validation_ok;
+        && validation_ok
+        && post_dispatch_capability_evidence_ok;
     let changed_files = receipts
         .iter()
         .filter_map(runtime_lane_changed_file_summary_item)
@@ -3117,7 +3586,7 @@ fn runtime_lane_model_manifest_planner_response(
         "not_run"
     };
     let output = format!(
-        "{} via model_manifest_planner.\n\nChanged files:\n{}\n\nValidation: {validation_status}.\nReceipts: {}",
+        "{} via model_manifest_planner.\n\nChanged files:\n{}\n\nValidation: {validation_status}.\nCapability coverage: {}.\nReceipts: {}",
         if ok { "Completed" } else { "Stopped" },
         changed_files
             .iter()
@@ -3125,6 +3594,16 @@ fn runtime_lane_model_manifest_planner_response(
             .map(|path| format!("- {path}"))
             .collect::<Vec<_>>()
             .join("\n"),
+        post_dispatch_capability_evidence
+            .as_ref()
+            .map(|report| {
+                if report.missing.is_empty() {
+                    "passed".to_string()
+                } else {
+                    format!("missing {}", runtime_lane_join_or_none(&report.missing))
+                }
+            })
+            .unwrap_or_else(|| "not_required".to_string()),
         receipt_refs.join(", ")
     );
     runtime_lane_persist_native_run_journal(
@@ -3136,7 +3615,7 @@ fn runtime_lane_model_manifest_planner_response(
         if ok {
             "ok"
         } else {
-            "model_manifest_planner_failed"
+            failure_status
         },
     );
     let final_synthesis_ms = final_synthesis_started
@@ -3171,6 +3650,14 @@ fn runtime_lane_model_manifest_planner_response(
         "planner_model": provider_response.model,
         "planner_usage_tokens": provider_response.usage_tokens,
         "changed_file_summary": changed_files,
+        "post_dispatch_capability_evidence": post_dispatch_capability_evidence
+            .as_ref()
+            .map(|report| json!({
+                "required": report.required.clone(),
+                "present": report.present.clone(),
+                "missing": report.missing.clone(),
+            }))
+            .unwrap_or(Value::Null),
         "native_tool_call_count": receipts.len(),
         "native_tool_receipts": receipts,
         "receipt_refs": receipt_refs,
@@ -3199,7 +3686,7 @@ fn runtime_lane_model_manifest_planner_response(
             "provider": Value::Null,
             "planner_provider": runtime_receipt.get("planner_provider").cloned().unwrap_or(Value::Null),
             "planner_model": runtime_receipt.get("planner_model").cloned().unwrap_or(Value::Null),
-            "agent_status": if ok { "ok" } else { "model_manifest_planner_failed" },
+            "agent_status": if ok { "ok" } else { failure_status },
             "tool_count": tools.len(),
             "native_tool_call_count": runtime_receipt
                 .get("native_tool_call_count")
@@ -3229,7 +3716,7 @@ fn runtime_lane_model_manifest_planner_response(
         }),
         receipt: runtime_receipt,
         trace_summary: json!({
-            "status": if ok { "ok" } else { "model_manifest_planner_failed" },
+            "status": if ok { "ok" } else { failure_status },
             "lane": "model_manifest_planner",
             "execution_lane": "deterministic_local_loop",
             "events": [
@@ -3252,9 +3739,688 @@ fn runtime_lane_model_manifest_planner_response(
         error: if ok {
             None
         } else {
-            Some("runtime_lane_model_manifest_planner_failed".to_string())
+            Some(format!("runtime_lane_{failure_status}"))
         },
     }
+}
+
+#[derive(Clone, Debug)]
+struct RuntimeLaneCapabilityEvidenceGateReport {
+    required: Vec<String>,
+    present: Vec<String>,
+    missing: Vec<String>,
+}
+
+fn runtime_lane_capability_evidence_gate_report(
+    metadata: &Value,
+    prompt: &str,
+    candidate: &DeterministicLocalLoopCandidate,
+) -> Option<RuntimeLaneCapabilityEvidenceGateReport> {
+    if !runtime_lane_capability_evidence_gate_enabled_for_task_lane(metadata, prompt) {
+        return None;
+    }
+    let required = runtime_lane_required_capability_evidence_categories(prompt);
+    if required.is_empty() {
+        return None;
+    }
+    let present = runtime_lane_present_capability_evidence_categories(candidate);
+    let missing = required
+        .iter()
+        .filter(|category| !runtime_lane_string_vec_contains(&present, category))
+        .cloned()
+        .collect::<Vec<_>>();
+    Some(RuntimeLaneCapabilityEvidenceGateReport {
+        required,
+        present,
+        missing,
+    })
+}
+
+fn runtime_lane_capability_evidence_gate_enabled(metadata: &Value) -> bool {
+    runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/capability_evidence_gate_enabled",
+            "/workflow/native_success_criteria/capability_evidence_gate_enabled",
+        ],
+    )
+    .unwrap_or(false)
+}
+
+fn runtime_lane_capability_evidence_gate_enabled_for_task_lane(
+    metadata: &Value,
+    prompt: &str,
+) -> bool {
+    if !runtime_lane_capability_evidence_gate_enabled(metadata) {
+        return false;
+    }
+    let task_lane = crate::native_evidence::native_tool_coding_task_lane(metadata, prompt);
+    runtime_lane_metadata_string_list_allows(
+        metadata,
+        &[
+            "/native_success_criteria/capability_evidence_gate_enabled_lanes",
+            "/workflow/native_success_criteria/capability_evidence_gate_enabled_lanes",
+        ],
+        task_lane,
+    )
+    .unwrap_or(true)
+}
+
+fn runtime_lane_required_capability_evidence_categories(prompt: &str) -> Vec<String> {
+    let lower = prompt.to_ascii_lowercase();
+    let durable_task = runtime_lane_text_contains_any(
+        &lower,
+        &[
+            "persist",
+            "persistent",
+            "store",
+            "repository",
+            "checkpoint",
+            "receipt",
+            "memory row",
+            "memory entry",
+            "resume context",
+            "handoff",
+            "cli",
+            "command line",
+            "report",
+            "roundtrip",
+            "round-trip",
+            "import/export",
+            "import and export",
+            "export and import",
+        ],
+    );
+    if !durable_task {
+        return Vec::new();
+    }
+
+    let mut required = Vec::<String>::new();
+    runtime_lane_push_unique_string(&mut required, "domain_model");
+    runtime_lane_push_unique_string(&mut required, "persistence_store");
+    runtime_lane_push_unique_string(&mut required, "regression_tests");
+    runtime_lane_push_unique_string(&mut required, "validation");
+
+    if runtime_lane_text_contains_any(
+        &lower,
+        &[
+            "service",
+            "subsystem",
+            "workflow",
+            "pipeline",
+            "manager",
+            "integration",
+            "operator",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut required, "service_integration");
+    }
+    if runtime_lane_text_contains_any(
+        &lower,
+        &["cli", "command line", "operator", "report", "summary surface"],
+    ) {
+        runtime_lane_push_unique_string(&mut required, "operator_surface");
+    }
+    if runtime_lane_text_contains_any(
+        &lower,
+        &[
+            "import/export",
+            "import and export",
+            "export and import",
+            "roundtrip",
+            "round-trip",
+            "serialize",
+            "deserialize",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut required, "import_export_or_roundtrip");
+    }
+    if runtime_lane_text_contains_any(&lower, &["checkpoint", "receipt", "handoff"]) {
+        runtime_lane_push_unique_string(&mut required, "checkpoint_receipt");
+    }
+    if runtime_lane_text_contains_any(
+        &lower,
+        &["memory row", "memory entry", "resume context", "project context"],
+    ) {
+        runtime_lane_push_unique_string(&mut required, "memory_row");
+    }
+    required
+}
+
+fn runtime_lane_present_capability_evidence_categories(
+    candidate: &DeterministicLocalLoopCandidate,
+) -> Vec<String> {
+    let mut present = Vec::<String>::new();
+    let mut mutation_text = String::new();
+    let mut has_test_mutation = false;
+    let mut has_command_run = candidate.requires_validation;
+
+    for action in &candidate.actions {
+        match action {
+            DeterministicLocalAction::WriteFile {
+                target_path,
+                content,
+                ..
+            } => {
+                let path = runtime_lane_path_relative_display(&candidate.workspace_root, target_path)
+                    .to_ascii_lowercase();
+                has_test_mutation |= runtime_lane_path_looks_like_test(&path)
+                    || runtime_lane_text_looks_like_test(content);
+                mutation_text.push('\n');
+                mutation_text.push_str(&path);
+                mutation_text.push('\n');
+                mutation_text.push_str(&content.to_ascii_lowercase());
+            }
+            DeterministicLocalAction::PatchFile {
+                target_path,
+                old,
+                new,
+                ..
+            } => {
+                let path = runtime_lane_path_relative_display(&candidate.workspace_root, target_path)
+                    .to_ascii_lowercase();
+                has_test_mutation |= runtime_lane_path_looks_like_test(&path)
+                    || runtime_lane_text_looks_like_test(new);
+                mutation_text.push('\n');
+                mutation_text.push_str(&path);
+                mutation_text.push('\n');
+                mutation_text.push_str(&old.to_ascii_lowercase());
+                mutation_text.push('\n');
+                mutation_text.push_str(&new.to_ascii_lowercase());
+            }
+            DeterministicLocalAction::CommandRun { .. } => {
+                has_command_run = true;
+            }
+        }
+    }
+
+    if runtime_lane_text_contains_any(
+        &mutation_text,
+        &[
+            "class ",
+            "struct ",
+            "dataclass",
+            "record",
+            "model",
+            "typedict",
+            "interface ",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "domain_model");
+    }
+    if runtime_lane_text_contains_any(
+        &mutation_text,
+        &[
+            "persist",
+            "repository",
+            "store",
+            "storage",
+            "jsonl",
+            "json",
+            "sqlite",
+            "read_text",
+            "write_text",
+            "open(",
+            "fs::",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "persistence_store");
+    }
+    if runtime_lane_text_contains_any(
+        &mutation_text,
+        &[
+            "service",
+            "manager",
+            "controller",
+            "orchestr",
+            "repository",
+            "store",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "service_integration");
+    }
+    if runtime_lane_text_contains_any(
+        &mutation_text,
+        &[
+            "cli",
+            "argparse",
+            "click",
+            "typer",
+            "command line",
+            "report",
+            "println!",
+            "console",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "operator_surface");
+    }
+    if runtime_lane_text_contains_any(
+        &mutation_text,
+        &[
+            "export",
+            "import_",
+            "import ",
+            "roundtrip",
+            "round_trip",
+            "serialize",
+            "deserialize",
+            "to_json",
+            "from_json",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "import_export_or_roundtrip");
+    }
+    if has_test_mutation {
+        runtime_lane_push_unique_string(&mut present, "regression_tests");
+    }
+    if has_command_run {
+        runtime_lane_push_unique_string(&mut present, "validation");
+    }
+    if runtime_lane_text_contains_any(&mutation_text, &["checkpoint", "receipt", "handoff"]) {
+        runtime_lane_push_unique_string(&mut present, "checkpoint_receipt");
+    }
+    if runtime_lane_text_contains_any(
+        &mutation_text,
+        &["memory row", "memory entry", "resume context", "project context"],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "memory_row");
+    }
+    present
+}
+
+fn runtime_lane_post_dispatch_capability_evidence_gate_report(
+    metadata: &Value,
+    prompt: &str,
+    workspace_root: &Path,
+    receipts: &[NativeToolReceipt],
+) -> Option<RuntimeLaneCapabilityEvidenceGateReport> {
+    if !runtime_lane_capability_evidence_gate_enabled_for_task_lane(metadata, prompt) {
+        return None;
+    }
+    let required = runtime_lane_required_capability_evidence_categories(prompt);
+    if required.is_empty() {
+        return None;
+    }
+    let present =
+        runtime_lane_present_post_dispatch_capability_evidence_categories(workspace_root, receipts);
+    let missing = required
+        .iter()
+        .filter(|category| !runtime_lane_string_vec_contains(&present, category))
+        .cloned()
+        .collect::<Vec<_>>();
+    Some(RuntimeLaneCapabilityEvidenceGateReport {
+        required,
+        present,
+        missing,
+    })
+}
+
+fn runtime_lane_present_post_dispatch_capability_evidence_categories(
+    workspace_root: &Path,
+    receipts: &[NativeToolReceipt],
+) -> Vec<String> {
+    let mut present = Vec::<String>::new();
+    let mut source_corpus = String::new();
+    let mut test_corpus = String::new();
+
+    for receipt in receipts {
+        if receipt.status != "ok" {
+            continue;
+        }
+
+        if receipt.tool_name == "command_run" && runtime_lane_command_receipt_success(receipt) {
+            let command_corpus = format!(
+                "{}\n{}",
+                runtime_lane_receipt_command_text(receipt),
+                runtime_lane_value_string_corpus(&receipt.result, 8_000)
+            )
+            .to_ascii_lowercase();
+            if runtime_lane_text_contains_any(
+                &command_corpus,
+                &[
+                    "cargo test",
+                    "npm test",
+                    "pnpm test",
+                    "yarn test",
+                    "pytest",
+                    "unittest",
+                    "go test",
+                    "swift test",
+                    "validation",
+                    "passed",
+                ],
+            ) {
+                runtime_lane_push_unique_string(&mut present, "validation");
+            }
+            if runtime_lane_text_contains_any(
+                &command_corpus,
+                &[
+                    "checkpoint write",
+                    "memory write",
+                    "memory-cli",
+                    "resume context",
+                    "project context",
+                    "persist context",
+                ],
+            ) {
+                runtime_lane_push_unique_string(&mut present, "memory_row");
+            }
+        }
+
+        let Some(receipt_path) = runtime_lane_receipt_path_string(receipt) else {
+            continue;
+        };
+        let lower_path = receipt_path.to_ascii_lowercase();
+        if runtime_lane_text_contains_any(&lower_path, &["checkpoint", "handoff", "receipt"]) {
+            runtime_lane_push_unique_string(&mut present, "checkpoint_receipt");
+        }
+        if runtime_lane_text_contains_any(
+            &lower_path,
+            &["memory", "resume_context", "project_context"],
+        ) {
+            runtime_lane_push_unique_string(&mut present, "memory_row");
+        }
+
+        if !runtime_lane_receipt_is_successful_mutation(receipt) {
+            continue;
+        }
+        let Some(content) =
+            runtime_lane_read_receipt_file_content(workspace_root, &receipt_path, 24_000)
+        else {
+            continue;
+        };
+        if runtime_lane_path_looks_like_test(&lower_path)
+            || runtime_lane_text_looks_like_test(&content)
+        {
+            runtime_lane_append_bounded_corpus(&mut test_corpus, &content, 48_000);
+        } else {
+            runtime_lane_append_bounded_corpus(&mut source_corpus, &content, 64_000);
+        }
+    }
+
+    let source_lower = source_corpus.to_ascii_lowercase();
+    let test_lower = test_corpus.to_ascii_lowercase();
+
+    if runtime_lane_text_contains_any(
+        &source_lower,
+        &[
+            "dataclass",
+            "class ",
+            "struct ",
+            "interface ",
+            "type ",
+            "model",
+            "record",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "domain_model");
+    }
+    if runtime_lane_text_contains_any(
+        &source_lower,
+        &[
+            "jsonl",
+            "sqlite",
+            "repository",
+            "store",
+            "storage",
+            "persist",
+            "read_to_string",
+            "write_text",
+            "open(",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "persistence_store");
+    }
+    if runtime_lane_text_contains_any(
+        &source_lower,
+        &[
+            "service",
+            "manager",
+            "controller",
+            "orchestr",
+            "repository",
+            "route",
+            "handler",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "service_integration");
+    }
+    if runtime_lane_text_contains_any(
+        &source_lower,
+        &[
+            "argparse",
+            "click",
+            "typer",
+            "subparser",
+            "cli",
+            "command",
+            "report",
+            "summary",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "operator_surface");
+    }
+    if runtime_lane_text_contains_any(
+        &source_lower,
+        &[
+            "export",
+            "import_",
+            "roundtrip",
+            "round_trip",
+            "serialize",
+            "deserialize",
+            "to_json",
+            "from_json",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "import_export_or_roundtrip");
+    }
+    if runtime_lane_text_contains_any(
+        &test_lower,
+        &[
+            "def test_",
+            "#[test]",
+            "it(",
+            "describe(",
+            "assert",
+            "expect(",
+            "unittest",
+            "pytest",
+        ],
+    ) {
+        runtime_lane_push_unique_string(&mut present, "regression_tests");
+    }
+
+    present
+}
+
+fn runtime_lane_receipt_path_string(receipt: &NativeToolReceipt) -> Option<String> {
+    for key in ["path", "file_path", "target_path", "target"] {
+        if let Some(path) = receipt.result.get(key).and_then(Value::as_str) {
+            let trimmed = path.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    receipt
+        .result
+        .get("args")
+        .and_then(Value::as_object)
+        .and_then(|args| {
+            ["path", "file_path", "target_path", "target"]
+                .iter()
+                .find_map(|key| args.get(*key).and_then(Value::as_str))
+        })
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn runtime_lane_receipt_command_text(receipt: &NativeToolReceipt) -> String {
+    for key in ["cmd", "command", "argv"] {
+        if let Some(value) = receipt.result.get(key) {
+            let text = runtime_lane_value_string_corpus(value, 4_000);
+            if !text.trim().is_empty() {
+                return text;
+            }
+        }
+    }
+    receipt
+        .result
+        .get("args")
+        .map(|value| runtime_lane_value_string_corpus(value, 4_000))
+        .unwrap_or_default()
+}
+
+fn runtime_lane_value_string_corpus(value: &Value, max_chars: usize) -> String {
+    fn visit(value: &Value, output: &mut String, max_chars: usize) {
+        if output.chars().count() >= max_chars {
+            return;
+        }
+        match value {
+            Value::String(text) => {
+                runtime_lane_append_bounded_corpus(output, text, max_chars);
+                runtime_lane_append_bounded_corpus(output, "\n", max_chars);
+            }
+            Value::Array(items) => {
+                for item in items {
+                    visit(item, output, max_chars);
+                    if output.chars().count() >= max_chars {
+                        break;
+                    }
+                }
+            }
+            Value::Object(map) => {
+                for item in map.values() {
+                    visit(item, output, max_chars);
+                    if output.chars().count() >= max_chars {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut output = String::new();
+    visit(value, &mut output, max_chars);
+    output
+}
+
+fn runtime_lane_read_receipt_file_content(
+    workspace_root: &Path,
+    receipt_path: &str,
+    max_chars: usize,
+) -> Option<String> {
+    let raw_path = PathBuf::from(receipt_path);
+    let full_path = if raw_path.is_absolute() {
+        raw_path
+    } else {
+        workspace_root.join(raw_path)
+    };
+    if workspace_root.is_absolute()
+        && full_path.is_absolute()
+        && !full_path.starts_with(workspace_root)
+    {
+        return None;
+    }
+    std::fs::read_to_string(full_path)
+        .ok()
+        .map(|content| content.chars().take(max_chars).collect())
+}
+
+fn runtime_lane_append_bounded_corpus(output: &mut String, text: &str, max_chars: usize) {
+    let remaining = max_chars.saturating_sub(output.chars().count());
+    if remaining == 0 {
+        return;
+    }
+    output.extend(text.chars().take(remaining));
+}
+
+fn runtime_lane_capability_evidence_gate_message(
+    report: &RuntimeLaneCapabilityEvidenceGateReport,
+) -> String {
+    format!(
+        "The manifest lacks source-level evidence for required capability categories. Missing: {}. Present: {}. Required: {}.",
+        runtime_lane_join_or_none(&report.missing),
+        runtime_lane_join_or_none(&report.present),
+        runtime_lane_join_or_none(&report.required)
+    )
+}
+
+fn runtime_lane_capability_evidence_gate_retry_hint(
+    report: &RuntimeLaneCapabilityEvidenceGateReport,
+) -> String {
+    format!(
+        "Return a corrected deterministic_local_loop manifest. Add real source mutations, not comments, that cover these generic capability categories: {}. Include faithful regression tests and a validation command when validation is required.",
+        runtime_lane_join_or_none(&report.missing)
+    )
+}
+
+fn runtime_lane_text_contains_any(text: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| text.contains(needle))
+}
+
+fn runtime_lane_path_looks_like_test(path: &str) -> bool {
+    path.contains("test") || path.contains("spec")
+}
+
+fn runtime_lane_text_looks_like_test(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    runtime_lane_text_contains_any(
+        &lower,
+        &["unittest", "pytest", "#[test]", "describe(", "it(", "assert "],
+    )
+}
+
+fn runtime_lane_push_unique_string(values: &mut Vec<String>, value: &str) {
+    if !runtime_lane_string_vec_contains(values, value) {
+        values.push(value.to_string());
+    }
+}
+
+fn runtime_lane_string_vec_contains(values: &[String], value: &str) -> bool {
+    values.iter().any(|entry| entry == value)
+}
+
+fn runtime_lane_join_or_none(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values.join(", ")
+    }
+}
+
+fn runtime_lane_apply_post_validation_closure_controller(
+    metadata: &Value,
+    original_prompt: &str,
+    receipts: &mut Vec<NativeToolReceipt>,
+) {
+    if !runtime_lane_post_validation_closure_controller_enabled(metadata) {
+        return;
+    }
+    let dispatcher = NativeToolDispatcher::new(&[
+        "file_write".to_string(),
+        "command_run".to_string(),
+    ]);
+    let mut closure_receipts =
+        native_tool_auto_workflow_artifact_receipts(&dispatcher, metadata, original_prompt, receipts);
+    if closure_receipts.is_empty() {
+        return;
+    }
+    receipts.append(&mut closure_receipts);
+}
+
+fn runtime_lane_post_validation_closure_controller_enabled(metadata: &Value) -> bool {
+    runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/post_validation_closure_controller_enabled",
+            "/workflow/native_success_criteria/post_validation_closure_controller_enabled",
+        ],
+    )
+    .unwrap_or(false)
 }
 
 fn runtime_lane_direct_mutation_response(
@@ -4152,10 +5318,10 @@ fn runtime_lane_bounded_existing_project_edit_loop_prompt(
     let public_api_write_strategy = if public_api_bindings.is_empty() {
         "No public API owner binding strategy is active.".to_string()
     } else {
-        "Public API extension write strategy: for owner modules and focused regression tests, prefer write_file with overwrite=true and full corrected file content when files are small. Use file_patch only when the exact old text is copied from the context pack and the patch is very localized.".to_string()
+        "Public API extension write strategy: for owner modules and focused regression tests, prefer file_patch for additive changes. If using write_file with overwrite=true on an existing Python source file, the full content must preserve every existing class, public import path, and annotated field from the context pack.".to_string()
     };
     format!(
-        "Workspace root: {}\n\nUser task:\n{}\n\n{}\n{}\n\nCompact authoritative local context:\n{}\n\nReturn the smallest safe deterministic_local_loop manifest. Prefer patch actions for existing files. Preserve existing public import paths and owner modules. If a validation test or semantic probe imports a symbol from a module, make that module provide the symbol directly. Run validation and the semantic probe command if supplied by the task.",
+        "Workspace root: {}\n\nUser task:\n{}\n\n{}\n{}\n\nCompact authoritative local context:\n{}\n\nReturn the smallest safe deterministic_local_loop manifest. Prefer patch actions for existing files. Preserve existing public import paths, owner modules, Python classes, and annotated fields. If a validation test or semantic probe imports a symbol from a module, make that module provide the symbol directly. Run validation and the semantic probe command if supplied by the task.",
         workspace_root.display(),
         prompt.trim(),
         public_api_section,
@@ -4165,6 +5331,7 @@ fn runtime_lane_bounded_existing_project_edit_loop_prompt(
 }
 
 fn runtime_lane_model_manifest_planner_eligible(
+    metadata: &Value,
     prompt: &str,
     tools: &[String],
     capability_packs: &[String],
@@ -4182,6 +5349,9 @@ fn runtime_lane_model_manifest_planner_eligible(
     if runtime_lane_extract_explicit_file_content(prompt).is_some()
         || runtime_lane_extract_deterministic_manifest(prompt).is_some()
     {
+        return false;
+    }
+    if !runtime_lane_model_manifest_planner_enabled_for_task_lane(metadata, prompt) {
         return false;
     }
     let lower = prompt.to_ascii_lowercase();
@@ -4211,6 +5381,1305 @@ fn runtime_lane_model_manifest_planner_eligible(
     has_mutation_intent && !requires_existing_discovery
 }
 
+fn runtime_lane_model_manifest_planner_enabled_for_task_lane(metadata: &Value, prompt: &str) -> bool {
+    let task_lane = crate::native_evidence::native_tool_coding_task_lane(metadata, prompt);
+    runtime_lane_metadata_string_list_allows(
+        metadata,
+        &[
+            "/native_success_criteria/model_manifest_planner_enabled_lanes",
+            "/workflow/native_success_criteria/model_manifest_planner_enabled_lanes",
+        ],
+        task_lane,
+    )
+    .unwrap_or_else(|| {
+        runtime_lane_metadata_bool(
+            metadata,
+            &[
+                "/native_success_criteria/model_manifest_planner_enabled",
+                "/workflow/native_success_criteria/model_manifest_planner_enabled",
+            ],
+        )
+        .unwrap_or(true)
+    })
+}
+
+fn runtime_lane_should_skip_model_manifest_for_checkpointed_tool_loop(
+    metadata: &Value,
+    prompt: &str,
+) -> bool {
+    if !runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/checkpointed_project_operator_tool_loop_enabled",
+            "/workflow/native_success_criteria/checkpointed_project_operator_tool_loop_enabled",
+        ],
+    )
+    .unwrap_or(false)
+    {
+        return false;
+    }
+    let lower = prompt.to_ascii_lowercase();
+    let checkpointed_operator_task = runtime_lane_text_contains_any(
+        &lower,
+        &[
+            "checkpoint",
+            "handoff",
+            "resume token",
+            "memory row",
+            "memory db",
+            "project context",
+        ],
+    );
+    let project_tool_loop_task = runtime_lane_text_contains_any(
+        &lower,
+        &[
+            "existing project",
+            "project root",
+            "local project",
+            "read the local project",
+            "validation command",
+        ],
+    );
+    let durable_vertical_slice = runtime_lane_text_contains_any(
+        &lower,
+        &[
+            "persistent",
+            "persistence",
+            "storage",
+            "service integration",
+            "operator-facing",
+            "cli",
+            "report",
+            "import/export",
+            "round trip",
+            "roundtrip",
+        ],
+    );
+    checkpointed_operator_task && project_tool_loop_task && durable_vertical_slice
+}
+
+fn runtime_lane_checkpointed_tool_loop_prompt(
+    prompt: &str,
+    bootstrap_receipts: &[NativeToolReceipt],
+) -> String {
+    let bootstrap_context = runtime_lane_checkpointed_bootstrap_context_packet(prompt);
+    let first_tool_instruction = runtime_lane_checkpointed_first_tool_instruction(prompt);
+    let bootstrap_receipt_packet = if bootstrap_receipts.is_empty() {
+        "[]".to_string()
+    } else {
+        serde_json::to_string(bootstrap_receipts).unwrap_or_else(|_| "[]".to_string())
+    };
+    format!(
+        "{}\n\nRuntime lane guidance:\n\
+Checkpointed existing-project bootstrap is already complete. Current local files are authoritative.\n\
+\n\
+Bootstrap context packet:\n{}\n\
+\n\
+Runtime-dispatched bootstrap receipts:\n{}\n\
+\n\
+First native tool contract:\n\
+- Your first assistant action must be a native tool call, not a prose plan.\n\
+- Bootstrap receipts above already count as discovery; do not repeat file_list/file_read for files included there.\n\
+- {}.\n\
+- Do not start with validation or checkpoint closure.\n\
+- After any checkpoint-memory read, immediately mutate the product slice with file_write/file_patch.\n\
+\n\
+Execution contract:\n\
+- Use the native tool loop incrementally: use the bootstrapped context, retrieve required checkpoint memory, edit the vertical slice, validate, then close receipt and memory artifacts.\n\
+- Use native file_write/file_patch for source, test, receipt, and local artifact mutations so mutation receipts are explicit.\n\
+- Use command_run for validation and required project/memory CLI commands, not as the primary way to rewrite source files.\n\
+- Do not stop after a model/store-only slice; complete the requested model, persistence, service, operator/report, tests, validation, receipt, and memory closure when those capabilities are requested.",
+        prompt.trim(),
+        bootstrap_context,
+        bootstrap_receipt_packet,
+        first_tool_instruction
+    )
+}
+
+fn runtime_lane_checkpointed_bootstrap_receipts(prompt: &str) -> Vec<NativeToolReceipt> {
+    let Some(workspace_root) = runtime_lane_extract_workspace_root(prompt) else {
+        return Vec::new();
+    };
+    let dispatcher = NativeToolDispatcher::new(&[
+        "file_list".to_string(),
+        "file_read_many".to_string(),
+        "command_run".to_string(),
+    ]);
+    let mut receipts = Vec::<NativeToolReceipt>::new();
+    let file_list_receipt = dispatcher.dispatch(NativeToolCall {
+        id: "checkpointed_project_bootstrap_file_list".to_string(),
+        name: "file_list".to_string(),
+        args: json!({
+            "path": workspace_root.display().to_string(),
+            "recursive": true,
+            "max_depth": 3,
+            "max_entries": 200
+        }),
+    });
+    receipts.push(file_list_receipt);
+
+    let context_paths = runtime_lane_checkpointed_bootstrap_context_paths(prompt, &workspace_root);
+    if !context_paths.is_empty() {
+        receipts.push(dispatcher.dispatch(NativeToolCall {
+            id: "checkpointed_project_bootstrap_file_read_many".to_string(),
+            name: "file_read_many".to_string(),
+            args: json!({
+                "paths": context_paths,
+            }),
+        }));
+    }
+
+    if let Some(command) = runtime_lane_checkpointed_memory_get_command(prompt) {
+        receipts.push(dispatcher.dispatch(NativeToolCall {
+            id: "checkpointed_project_bootstrap_memory_read".to_string(),
+            name: "command_run".to_string(),
+            args: json!({
+                "cwd": workspace_root.display().to_string(),
+                "cmd": command,
+                "timeout_seconds": 45,
+                "max_output_bytes": 8_000
+            }),
+        }));
+    }
+
+    receipts
+}
+
+fn runtime_lane_checkpointed_bootstrap_context_paths(
+    prompt: &str,
+    workspace_root: &Path,
+) -> Vec<String> {
+    let context_pack = runtime_lane_model_manifest_context_pack(prompt, workspace_root);
+    let mut paths = Vec::<String>::new();
+    for line in context_pack.lines() {
+        let Some(rest) = line.strip_prefix("--- file: ") else {
+            continue;
+        };
+        let relative = rest
+            .split_once(" role:")
+            .map(|(path, _)| path)
+            .unwrap_or(rest)
+            .trim();
+        if relative.is_empty() || relative.contains("..") || relative.starts_with('/') {
+            continue;
+        }
+        let full_path = workspace_root.join(relative);
+        if full_path.is_file() {
+            let display = full_path.display().to_string();
+            if !paths.iter().any(|path| path == &display) {
+                paths.push(display);
+            }
+        }
+        if paths.len() >= 8 {
+            break;
+        }
+    }
+    paths
+}
+
+fn runtime_lane_merge_bootstrap_receipts_into_agent_run(
+    run: &mut AgentRunResult,
+    bootstrap_receipts: &[NativeToolReceipt],
+) {
+    let Some(receipt_object) = run.receipt.as_object_mut() else {
+        return;
+    };
+    let mut merged_receipts = bootstrap_receipts
+        .iter()
+        .cloned()
+        .map(|receipt| json!(receipt))
+        .collect::<Vec<_>>();
+    if let Some(existing) = receipt_object
+        .get("native_tool_receipts")
+        .and_then(Value::as_array)
+    {
+        merged_receipts.extend(existing.iter().cloned());
+    }
+    receipt_object.insert(
+        "runtime_bootstrap_native_tool_receipts".to_string(),
+        json!(bootstrap_receipts),
+    );
+    receipt_object.insert(
+        "native_tool_call_count".to_string(),
+        json!(merged_receipts.len()),
+    );
+    receipt_object.insert("native_tool_receipts".to_string(), json!(merged_receipts));
+}
+
+fn runtime_lane_try_checkpointed_mutation_entry_recovery(
+    run: &mut AgentRunResult,
+    providers: &ProviderClientRegistry,
+    provider_id: Option<&str>,
+    model: Option<&String>,
+    metadata: &Value,
+    prompt: &str,
+    _tools: &[String],
+) -> bool {
+    if !runtime_lane_agent_run_looks_like_provider_timeout(run)
+        && runtime_lane_agent_run_has_successful_tool_call(run)
+    {
+        return false;
+    }
+    let Some(workspace_root) = runtime_lane_extract_workspace_root(prompt) else {
+        return false;
+    };
+    let provider_id = provider_id
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            let provider = run.response.provider.trim();
+            if provider.is_empty() {
+                None
+            } else {
+                Some(provider.to_string())
+            }
+        })
+        .unwrap_or_else(|| "ollama".to_string());
+    let provider = match providers.from_provider_id(&provider_id) {
+        Ok(provider) => provider,
+        Err(_) => return false,
+    };
+    let receipts = runtime_lane_agent_run_native_tool_receipts(run);
+    let recovery_prompt =
+        runtime_lane_checkpointed_mutation_entry_recovery_prompt(prompt, &workspace_root, &receipts);
+    let mut recovery_metadata = metadata.clone();
+    if let Some(object) = recovery_metadata.as_object_mut() {
+        object.insert("provider_timeout_seconds".to_string(), json!(120));
+        object.insert("provider_stream_until_tool_calls".to_string(), json!(true));
+        object.insert("omit_ollama_thinking_flags".to_string(), json!(true));
+        object.insert(
+            "runtime_recovery_lane".to_string(),
+            json!("checkpointed_mutation_entry"),
+        );
+    }
+    let request = ProviderRequest {
+        prompt: recovery_prompt,
+        system: Some(runtime_lane_checkpointed_mutation_entry_recovery_system()),
+        tools: vec!["file_write".to_string(), "file_patch".to_string()],
+        model: model.cloned(),
+        metadata: recovery_metadata,
+    };
+    let response = match provider.stream_complete(&request) {
+        Ok(stream) => stream.response,
+        Err(error) => {
+            runtime_lane_append_synthetic_agent_receipt(
+                run,
+                "checkpointed_mutation_entry_provider_failure",
+                "fail",
+                json!({
+                    "error_code": error.code.as_str(),
+                    "error_message": error.message,
+                }),
+            );
+            return false;
+        }
+    };
+    let mut calls = parse_native_tool_calls(&response.output)
+        .into_iter()
+        .filter_map(|call| runtime_lane_checkpointed_mutation_entry_call(call, &workspace_root))
+        .take(6)
+        .collect::<Vec<_>>();
+    if calls.is_empty() {
+        runtime_lane_append_synthetic_agent_receipt(
+            run,
+            "checkpointed_mutation_entry_no_tool_calls",
+            "fail",
+            json!({
+                "provider": response.provider,
+                "model": response.model,
+                "output_preview": response.output.chars().take(1200).collect::<String>(),
+            }),
+        );
+        return false;
+    }
+    let dispatcher = NativeToolDispatcher::with_metadata(
+        &["file_write".to_string(), "file_patch".to_string()],
+        metadata,
+    );
+    let mut mutation_receipts = Vec::<NativeToolReceipt>::new();
+    for (index, call) in calls.drain(..).enumerate() {
+        let mut call = call;
+        call.id = format!("checkpointed_mutation_entry_{}", index + 1);
+        mutation_receipts.push(dispatcher.dispatch(call));
+    }
+    runtime_lane_append_agent_run_receipts(run, &mutation_receipts);
+    if runtime_lane_agent_run_has_no_successful_mutation(run) {
+        runtime_lane_append_synthetic_agent_receipt(
+            run,
+            "checkpointed_mutation_entry_no_successful_mutation",
+            "fail",
+            json!({
+                "provider": response.provider,
+                "model": response.model,
+                "output_preview": response.output.chars().take(1200).collect::<String>(),
+            }),
+        );
+        return false;
+    }
+    let integration_receipts = if runtime_lane_checkpointed_changed_files(&mutation_receipts).len() < 3 {
+        runtime_lane_checkpointed_integration_stage(
+            providers,
+            Some(provider_id.as_str()),
+            model,
+            metadata,
+            prompt,
+            &workspace_root,
+            &mutation_receipts,
+        )
+    } else {
+        Vec::new()
+    };
+    if !integration_receipts.is_empty() {
+        runtime_lane_append_agent_run_receipts(run, &integration_receipts);
+    }
+    let mut product_receipts = mutation_receipts.clone();
+    product_receipts.extend(
+        integration_receipts
+            .iter()
+            .filter(|receipt| runtime_lane_receipt_is_successful_mutation(receipt))
+            .cloned(),
+    );
+    let closeout_receipts = runtime_lane_checkpointed_mutation_closeout(
+        prompt,
+        &workspace_root,
+        metadata,
+        &product_receipts,
+    );
+    if !closeout_receipts.is_empty() {
+        runtime_lane_append_agent_run_receipts(run, &closeout_receipts);
+    }
+    run.response.output = format!(
+        "{}\n\nCheckpointed staged recovery produced {} entry mutation receipt(s), {} integration receipt(s), and {} closeout receipt(s).",
+        response.output,
+        mutation_receipts.len(),
+        integration_receipts.len(),
+        closeout_receipts.len()
+    );
+    if let Some(object) = run.receipt.as_object_mut() {
+        object.insert("status".to_string(), json!("ok"));
+        object.insert(
+            "checkpointed_mutation_entry_recovery".to_string(),
+            json!({
+                "provider": response.provider,
+                "model": response.model,
+                "usage_tokens": response.usage_tokens,
+                "mutation_receipt_count": mutation_receipts.len(),
+                "integration_receipt_count": integration_receipts.len(),
+                "closeout_receipt_count": closeout_receipts.len(),
+            }),
+        );
+    }
+    true
+}
+
+fn runtime_lane_try_checkpointed_pre_agent_entry(
+    name: &str,
+    prompt: &str,
+    provider_id: Option<&str>,
+    model: Option<&String>,
+    metadata: &Value,
+    tools: &[String],
+    bootstrap_receipts: &[NativeToolReceipt],
+    providers: &ProviderClientRegistry,
+) -> RuntimeLaneResponse {
+    let selected_provider = provider_id.unwrap_or("ollama");
+    let started_at_ms = Utc::now().timestamp_millis();
+    let mut run = AgentRunResult {
+        response: ProviderResponse {
+            provider: selected_provider.to_string(),
+            model: model.cloned().unwrap_or_default(),
+            output: "checkpointed_pre_agent_entry: provider_timeout bypass; starting staged mutation entry before full agent turn".to_string(),
+            usage_tokens: 0,
+            raw: json!({
+                "runtime_stage": "checkpointed_pre_agent_entry",
+            }),
+        },
+        receipt: json!({
+            "status": "partial_timeout",
+            "runtime_stage": "checkpointed_pre_agent_entry",
+            "native_tool_call_count": bootstrap_receipts.len(),
+            "native_tool_receipts": bootstrap_receipts,
+        }),
+        trace: ReceiptSpan {
+            trace_id: format!("checkpointed_pre_agent_entry_{started_at_ms}"),
+            agent_name: name.to_string(),
+            started_at_ms,
+            events: Vec::new(),
+            attributes: BTreeMap::new(),
+        },
+    };
+    runtime_lane_try_checkpointed_mutation_entry_recovery(
+        &mut run,
+        providers,
+        provider_id,
+        model,
+        metadata,
+        prompt,
+        tools,
+    );
+    let status = run
+        .receipt
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("fail_closed")
+        .to_string();
+    let has_mutation = !runtime_lane_agent_run_has_no_successful_mutation(&run);
+    let ok = status == "ok" && has_mutation;
+    let error = if ok {
+        None
+    } else {
+        Some("runtime_lane_checkpointed_pre_agent_mutation_entry_failed".to_string())
+    };
+    RuntimeLaneResponse {
+        ok,
+        contract: json!({
+            "name": name,
+            "provider": selected_provider,
+            "agent_status": status,
+            "native_tool_call_count": run
+                .receipt
+                .get("native_tool_call_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            "tools": tools,
+            "checkpointed_pre_agent_entry": true,
+            "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null),
+        }),
+        receipt: run.receipt,
+        trace_summary: json!({
+            "trace_id": run.trace.trace_id,
+            "event_count": run.trace.events.len(),
+            "agent_name": run.trace.agent_name,
+            "runtime_stage": "checkpointed_pre_agent_entry",
+            "status": if ok { "ok" } else { "fail_closed" },
+        }),
+        output: run.response.output,
+        error,
+    }
+}
+
+fn runtime_lane_checkpointed_mutation_entry_recovery_system() -> String {
+    "You are the checkpointed_mutation_entry runtime lane. Return only JSON tool calls. Allowed tools: file_write and file_patch. Forbidden tools: file_list, file_stat, file_read, file_read_many, command_run, command_resolve. Do not write prose, markdown, validation commands, checkpoint receipts, or memory rows. Never return placeholders such as \"...\", \"/absolute/path\", \"exact observed text\", or \"replacement text\". Existing Python classes and annotated fields are preserved API: never replace a class with a partial class body and never remove observed fields. Return at most four tool calls. Your job is the smallest coherent additive checkpoint slice that can pass validation.".to_string()
+}
+
+fn runtime_lane_checkpointed_mutation_entry_recovery_prompt(
+    prompt: &str,
+    workspace_root: &Path,
+    receipts: &[NativeToolReceipt],
+) -> String {
+    let receipt_packet = runtime_lane_checkpointed_mutation_entry_receipt_packet(receipts);
+    let shape_guard_feedback = runtime_lane_checkpointed_shape_guard_feedback(receipts);
+    let task_brief = runtime_lane_checkpointed_task_brief(prompt, workspace_root);
+    format!(
+        "Workspace root: {}\n\nTask brief:\n{}\n\nShape guard feedback:\n{}\n\nSmall source/memory packet:\n{}\n\nReturn JSON only, using one of these concrete tool forms:\n{{\"tool_calls\":[{{\"name\":\"file_patch\",\"args\":{{\"path\":\"ACTUAL_ABSOLUTE_PATH_FROM_SOURCE_PACKET\",\"old\":\"ACTUAL_TEXT_COPIED_FROM_SOURCE_PACKET\",\"new\":\"FULL_REPLACEMENT_TEXT\",\"allow_multiple\":false}}}}]}}\n{{\"tool_calls\":[{{\"name\":\"file_write\",\"args\":{{\"path\":\"ACTUAL_ABSOLUTE_PATH_UNDER_WORKSPACE\",\"content\":\"FULL_FILE_CONTENT\",\"overwrite\":true}}}}]}}\n\nStage-one mutation rules:\n- Placeholder values are invalid. Do not output \"...\", \"ACTUAL_*\", \"/absolute/path\", or prose.\n- Use absolute paths under the workspace root.\n- Make the smallest coherent product slice now, up to four file_write/file_patch calls.\n- Preserve named user-requested surfaces literally: if the task asks for report, destination summary, retryable, CLI, import/export, or round-trip behavior, include those public terms in source/CLI/tests now.\n- If the task asks for durable delivery/report/CLI behavior, include a source module, CLI or service integration, and focused tests when possible.\n- Prefer file_write for new focused source/test files and small full-file integrations. Use file_patch only with exact old text from the packet.\n- Preserve every observed class and annotated field in existing Python source.\n- Do not validate, write checkpoint receipts, or write memory rows in this lane; the runtime controller performs closeout after successful mutation.",
+        workspace_root.display(),
+        task_brief,
+        shape_guard_feedback,
+        receipt_packet
+    )
+}
+
+fn runtime_lane_checkpointed_mutation_entry_receipt_packet(
+    receipts: &[NativeToolReceipt],
+) -> String {
+    let mut packet = String::new();
+    if let Some(memory_hint) = runtime_lane_checkpointed_memory_hint(receipts) {
+        packet.push_str("memory_hint:\n");
+        runtime_lane_append_bounded_corpus(&mut packet, &memory_hint, 1_400);
+        packet.push_str("\n\n");
+    }
+    let mut snippets = Vec::<Value>::new();
+    let mut seen_paths = Vec::<String>::new();
+    for receipt in receipts {
+        if matches!(receipt.tool_name.as_str(), "file_read_many" | "file_read") {
+            runtime_lane_checkpointed_collect_file_snippets(
+                &receipt.result,
+                &mut snippets,
+                &mut seen_paths,
+            );
+        }
+    }
+    if !snippets.is_empty() {
+        packet.push_str("source_snippets:\n");
+        for snippet in snippets.into_iter().take(6) {
+            packet.push_str(&snippet.to_string());
+            packet.push('\n');
+            if packet.len() >= 6_000 {
+                break;
+            }
+        }
+    }
+    if packet.trim().is_empty() {
+        return "No compact source packet available; use only supplied task brief and shape guard feedback."
+            .to_string();
+    }
+    runtime_lane_compact_context_pack(&packet)
+}
+
+fn runtime_lane_checkpointed_task_brief(prompt: &str, workspace_root: &Path) -> String {
+    let mut lines = Vec::<String>::new();
+    lines.push(format!("workspace_root={}", workspace_root.display()));
+    for marker in [
+        "Goal:",
+        "Python package:",
+        "Expected new memory row id:",
+        "Validation command from project root:",
+    ] {
+        if let Some(value) = runtime_lane_prompt_line_value(prompt, marker) {
+            lines.push(format!(
+                "{}={}",
+                marker.trim_end_matches(':').to_ascii_lowercase().replace(' ', "_"),
+                value
+            ));
+        }
+    }
+    for line in prompt.lines() {
+        let trimmed = line.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if lower.contains("implement checkpoint_")
+            || lower.contains("persistent")
+            || lower.contains("delivery-attempt")
+            || lower.contains("report")
+            || lower.contains("retryable")
+            || lower.contains("import/export")
+            || lower.contains("round-trip")
+            || lower.contains("cli")
+            || lower.contains("preserving baseline")
+        {
+            lines.push(trimmed.to_string());
+        }
+        if lines.len() >= 10 {
+            break;
+        }
+    }
+    lines.push("stage=mutation_entry_only; create one small source/test foothold; runtime validates and writes closeout artifacts after successful mutation".to_string());
+    lines.join("\n")
+}
+
+fn runtime_lane_checkpointed_memory_hint(receipts: &[NativeToolReceipt]) -> Option<String> {
+    for receipt in receipts {
+        if receipt.tool_name != "command_run" || receipt.call_id != "runtime_checkpoint_memory_context_get" {
+            continue;
+        }
+        let stdout = receipt.result.get("stdout").and_then(Value::as_str)?;
+        let mut hints = Vec::<String>::new();
+        for needle in [
+            "next_slice_goal",
+            "recommended_next_checkpoint",
+            "constraints",
+            "completed_checkpoint",
+            "changed_files",
+        ] {
+            if let Some(index) = stdout.find(needle) {
+                let start = index.saturating_sub(120);
+                let end = std::cmp::min(stdout.len(), index + 700);
+                hints.push(stdout[start..end].to_string());
+            }
+        }
+        if !hints.is_empty() {
+            return Some(hints.join("\n"));
+        }
+    }
+    None
+}
+
+fn runtime_lane_checkpointed_collect_file_snippets(
+    value: &Value,
+    out: &mut Vec<Value>,
+    seen_paths: &mut Vec<String>,
+) {
+    if out.len() >= 16 {
+        return;
+    }
+    if let Some(object) = value.as_object() {
+        if let (Some(path), Some(content)) = (
+            object.get("path").and_then(Value::as_str),
+            object.get("content").and_then(Value::as_str),
+        ) {
+            if !seen_paths.iter().any(|seen| seen == path) {
+                seen_paths.push(path.to_string());
+                let snippet = content.chars().take(900).collect::<String>();
+                out.push(json!({
+                    "path": path,
+                    "content": snippet,
+                    "truncated": content.chars().count() > 900,
+                }));
+            }
+        }
+        for child in object.values() {
+            runtime_lane_checkpointed_collect_file_snippets(child, out, seen_paths);
+            if out.len() >= 16 {
+                break;
+            }
+        }
+    } else if let Some(items) = value.as_array() {
+        for item in items {
+            runtime_lane_checkpointed_collect_file_snippets(item, out, seen_paths);
+            if out.len() >= 16 {
+                break;
+            }
+        }
+    }
+}
+
+fn runtime_lane_checkpointed_integration_stage(
+    providers: &ProviderClientRegistry,
+    provider_id: Option<&str>,
+    model: Option<&String>,
+    metadata: &Value,
+    prompt: &str,
+    workspace_root: &Path,
+    entry_mutation_receipts: &[NativeToolReceipt],
+) -> Vec<NativeToolReceipt> {
+    let provider_id = provider_id.unwrap_or("ollama");
+    let provider = match providers.from_provider_id(provider_id) {
+        Ok(provider) => provider,
+        Err(_) => {
+            return vec![runtime_lane_checkpointed_synthetic_receipt(
+                "checkpointed_integration_provider_unavailable",
+                "fail",
+                json!({"provider": provider_id}),
+            )]
+        }
+    };
+    let dispatcher = NativeToolDispatcher::with_metadata(
+        &[
+            "file_read_many".to_string(),
+            "file_write".to_string(),
+            "file_patch".to_string(),
+        ],
+        metadata,
+    );
+    let context_paths = runtime_lane_checkpointed_integration_context_paths(
+        prompt,
+        workspace_root,
+        entry_mutation_receipts,
+    );
+    let mut receipts = Vec::<NativeToolReceipt>::new();
+    let context_receipt = dispatcher.dispatch(NativeToolCall {
+        id: "checkpointed_integration_context_read".to_string(),
+        name: "file_read_many".to_string(),
+        args: json!({
+            "paths": context_paths,
+        }),
+    });
+    let context_packet =
+        runtime_lane_checkpointed_mutation_entry_receipt_packet(&[context_receipt.clone()]);
+    receipts.push(context_receipt);
+    let request = ProviderRequest {
+        prompt: runtime_lane_checkpointed_integration_prompt(
+            prompt,
+            workspace_root,
+            entry_mutation_receipts,
+            &context_packet,
+        ),
+        system: Some(runtime_lane_checkpointed_integration_system()),
+        tools: vec!["file_write".to_string(), "file_patch".to_string()],
+        model: model.cloned(),
+        metadata: runtime_lane_checkpointed_stage_metadata(metadata, 90, "checkpointed_integration"),
+    };
+    let response = match provider.stream_complete(&request) {
+        Ok(stream) => stream.response,
+        Err(error) => {
+            receipts.push(runtime_lane_checkpointed_synthetic_receipt(
+                "checkpointed_integration_skipped",
+                "ok",
+                json!({
+                    "skipped": true,
+                    "reason": "optional_integration_stage_unavailable",
+                    "provider_error_code": error.code.as_str(),
+                }),
+            ));
+            return receipts;
+        }
+    };
+    let calls = parse_native_tool_calls(&response.output)
+        .into_iter()
+        .filter_map(|call| runtime_lane_checkpointed_mutation_entry_call(call, workspace_root))
+        .take(5)
+        .collect::<Vec<_>>();
+    if calls.is_empty() {
+        receipts.push(runtime_lane_checkpointed_synthetic_receipt(
+            "checkpointed_integration_no_tool_calls",
+            "fail",
+            json!({
+                "provider": response.provider,
+                "model": response.model,
+                "output_preview": response.output.chars().take(1200).collect::<String>(),
+            }),
+        ));
+        return receipts;
+    }
+    for (index, mut call) in calls.into_iter().enumerate() {
+        call.id = format!("checkpointed_integration_{}", index + 1);
+        receipts.push(dispatcher.dispatch(call));
+    }
+    receipts
+}
+
+fn runtime_lane_checkpointed_integration_system() -> String {
+    "You are the checkpointed_integration runtime lane. Return only JSON tool calls. Allowed tools: file_write and file_patch. Forbidden tools: reads, command_run, validation, receipt writes, and memory writes. Never return placeholders. Make a small integration slice that connects the stage-one foothold to existing service, CLI, or tests while preserving existing behavior.".to_string()
+}
+
+fn runtime_lane_checkpointed_integration_prompt(
+    prompt: &str,
+    workspace_root: &Path,
+    entry_mutation_receipts: &[NativeToolReceipt],
+    context_packet: &str,
+) -> String {
+    format!(
+        "Workspace root: {}\n\nTask brief:\n{}\n\nEntry mutation receipts:\n{}\n\nCurrent integration context:\n{}\n\nReturn JSON only with at most five file_write/file_patch calls.\nIntegration rules:\n- Do not use placeholders or prose.\n- Preserve existing route/service/CLI behavior.\n- Connect the new foothold to source, service, CLI, and/or regression tests as requested by the task.\n- If the task asks for reporting, retryable status, import/export, or durable round trip, expose a small source/CLI/test surface for those terms now.\n- Prefer additive patches or full small-file writes that preserve existing public classes and fields.\n- Do not validate, write checkpoint receipts, or write memory rows.",
+        workspace_root.display(),
+        runtime_lane_checkpointed_task_brief(prompt, workspace_root),
+        serde_json::to_string(entry_mutation_receipts).unwrap_or_else(|_| "[]".to_string()),
+        context_packet
+    )
+}
+
+fn runtime_lane_checkpointed_stage_metadata(
+    metadata: &Value,
+    timeout_seconds: u64,
+    stage: &str,
+) -> Value {
+    let mut stage_metadata = metadata.clone();
+    if let Some(object) = stage_metadata.as_object_mut() {
+        object.insert("provider_timeout_seconds".to_string(), json!(timeout_seconds));
+        object.insert("provider_stream_until_tool_calls".to_string(), json!(true));
+        object.insert("omit_ollama_thinking_flags".to_string(), json!(true));
+        object.insert("runtime_recovery_lane".to_string(), json!(stage));
+    }
+    stage_metadata
+}
+
+fn runtime_lane_checkpointed_integration_context_paths(
+    prompt: &str,
+    workspace_root: &Path,
+    entry_mutation_receipts: &[NativeToolReceipt],
+) -> Vec<String> {
+    let mut paths = runtime_lane_checkpointed_changed_files(entry_mutation_receipts);
+    if let Some(package) = runtime_lane_prompt_line_value(prompt, "Python package:") {
+        let package_path = package.replace('.', "/");
+        for relative in [
+            "models.py",
+            "repository.py",
+            "service.py",
+            "cli.py",
+            "__init__.py",
+        ] {
+            let path = workspace_root
+                .join("src")
+                .join(&package_path)
+                .join(relative);
+            if path.is_file() {
+                let path = path.display().to_string();
+                if !paths.iter().any(|existing| existing == &path) {
+                    paths.push(path);
+                }
+            }
+        }
+    }
+    let tests_path = workspace_root.join("tests").join("test_baseline.py");
+    if tests_path.is_file() {
+        let path = tests_path.display().to_string();
+        if !paths.iter().any(|existing| existing == &path) {
+            paths.push(path);
+        }
+    }
+    paths
+}
+
+fn runtime_lane_checkpointed_synthetic_receipt(
+    call_id: &str,
+    status: &str,
+    result: Value,
+) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: call_id.to_string(),
+        tool_name: "runtime_checkpointed_integration_stage".to_string(),
+        status: status.to_string(),
+        duration_ms: 0,
+        result,
+        error: if status == "ok" {
+            None
+        } else {
+            Some(status.to_string())
+        },
+    }
+}
+
+fn runtime_lane_checkpointed_mutation_closeout(
+    prompt: &str,
+    workspace_root: &Path,
+    metadata: &Value,
+    mutation_receipts: &[NativeToolReceipt],
+) -> Vec<NativeToolReceipt> {
+    let dispatcher = NativeToolDispatcher::with_metadata(
+        &["command_run".to_string(), "file_write".to_string()],
+        metadata,
+    );
+    let mut receipts = Vec::<NativeToolReceipt>::new();
+    let mut validation_summary = json!({
+        "status": "not_requested",
+    });
+    let mut validation_passed = runtime_lane_extract_validation_command(prompt, workspace_root)
+        .is_none();
+    if let Some(command) = runtime_lane_extract_validation_command(prompt, workspace_root) {
+        let validation_receipt = dispatcher.dispatch(NativeToolCall {
+            id: "checkpointed_stage_validation".to_string(),
+            name: "command_run".to_string(),
+            args: json!({
+                "cwd": command.cwd.display().to_string(),
+                "cmd": command.cmd,
+                "timeout_seconds": 90,
+                "max_output_bytes": 12_000,
+                "runtime_stage": "checkpointed_validation",
+            }),
+        });
+        validation_passed = runtime_lane_checkpointed_command_succeeded(&validation_receipt);
+        validation_summary = runtime_lane_checkpointed_validation_summary(&validation_receipt);
+        receipts.push(validation_receipt);
+    }
+    if !validation_passed {
+        return receipts;
+    }
+    if let Some(receipt_call) = runtime_lane_checkpointed_receipt_file_call(
+        prompt,
+        mutation_receipts,
+        &validation_summary,
+    ) {
+        receipts.push(dispatcher.dispatch(receipt_call));
+    }
+    if let Some(memory_call) = runtime_lane_checkpointed_memory_write_call(
+        prompt,
+        workspace_root,
+        mutation_receipts,
+        &validation_summary,
+    ) {
+        receipts.push(dispatcher.dispatch(memory_call));
+    }
+    receipts
+}
+
+fn runtime_lane_checkpointed_command_succeeded(receipt: &NativeToolReceipt) -> bool {
+    if receipt.status != "ok" || receipt.tool_name != "command_run" {
+        return false;
+    }
+    receipt
+        .result
+        .get("success")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| {
+            receipt
+                .result
+                .get("exit_code")
+                .and_then(Value::as_i64)
+                == Some(0)
+        })
+}
+
+fn runtime_lane_checkpointed_validation_summary(receipt: &NativeToolReceipt) -> Value {
+    json!({
+        "command": receipt.result.get("cmd").cloned().unwrap_or(Value::Null),
+        "status": if runtime_lane_checkpointed_command_succeeded(receipt) { "pass" } else { "fail" },
+        "exit_code": receipt.result.get("exit_code").cloned().unwrap_or(Value::Null),
+        "stdout_tail": receipt.result.get("stdout").and_then(Value::as_str).map(|value| value.chars().rev().take(1200).collect::<String>().chars().rev().collect::<String>()).unwrap_or_default(),
+        "stderr_tail": receipt.result.get("stderr").and_then(Value::as_str).map(|value| value.chars().rev().take(1200).collect::<String>().chars().rev().collect::<String>()).unwrap_or_default(),
+    })
+}
+
+fn runtime_lane_checkpointed_receipt_file_call(
+    prompt: &str,
+    mutation_receipts: &[NativeToolReceipt],
+    validation_summary: &Value,
+) -> Option<NativeToolCall> {
+    let path = runtime_lane_checkpointed_receipt_path(prompt)?;
+    let completed_checkpoint = runtime_lane_checkpointed_completed_checkpoint(prompt);
+    let changed_files = runtime_lane_checkpointed_changed_files(mutation_receipts);
+    let content = json!({
+        "schema_version": "checkpoint_handoff_v1",
+        "completed_checkpoint": completed_checkpoint,
+        "changed_files": changed_files,
+        "validation_results": validation_summary,
+        "known_risks": ["staged runtime closeout is based on validation receipts and mutation receipts"],
+        "recommended_next_checkpoint": runtime_lane_checkpointed_recommended_next_checkpoint(&completed_checkpoint),
+    })
+    .to_string();
+    Some(NativeToolCall {
+        id: "checkpointed_stage_receipt_write".to_string(),
+        name: "file_write".to_string(),
+        args: json!({
+            "path": path.display().to_string(),
+            "content": content,
+            "overwrite": true,
+            "runtime_stage": "checkpointed_receipt_closeout",
+        }),
+    })
+}
+
+fn runtime_lane_checkpointed_memory_write_call(
+    prompt: &str,
+    workspace_root: &Path,
+    mutation_receipts: &[NativeToolReceipt],
+    validation_summary: &Value,
+) -> Option<NativeToolCall> {
+    let command_pattern = runtime_lane_prompt_line_value(prompt, "Memory CLI command pattern:")?;
+    if !command_pattern.contains("<command>") {
+        return None;
+    }
+    let row_id = runtime_lane_prompt_line_value(prompt, "Expected new memory row id:")?;
+    let completed_checkpoint = runtime_lane_checkpointed_completed_checkpoint(prompt);
+    let content = json!({
+        "schema_version": "checkpoint_memory_write_v1",
+        "completed_checkpoint": completed_checkpoint,
+        "changed_files": runtime_lane_checkpointed_changed_files(mutation_receipts),
+        "validation_results": validation_summary,
+        "known_risks": ["staged runtime closeout should be reviewed against product-level acceptance criteria"],
+        "recommended_next_checkpoint": runtime_lane_checkpointed_recommended_next_checkpoint(&completed_checkpoint),
+    })
+    .to_string();
+    let write_subcommand = format!(
+        "checkpoint write --id={} --content={} --tags=coding,checkpoint,resume,project_context",
+        runtime_lane_shell_single_quote(&row_id),
+        runtime_lane_shell_single_quote(&content)
+    );
+    let command = command_pattern.replace("<command>", &write_subcommand);
+    Some(NativeToolCall {
+        id: "checkpointed_stage_memory_write".to_string(),
+        name: "command_run".to_string(),
+        args: json!({
+            "cwd": workspace_root.display().to_string(),
+            "cmd": ["sh", "-lc", command],
+            "timeout_seconds": 90,
+            "max_output_bytes": 12_000,
+            "runtime_stage": "checkpointed_memory_closeout",
+        }),
+    })
+}
+
+fn runtime_lane_checkpointed_receipt_path(prompt: &str) -> Option<PathBuf> {
+    for line in prompt.lines() {
+        if !line.to_ascii_lowercase().contains("checkpoint receipt under") {
+            continue;
+        }
+        if let Some(path) = runtime_lane_first_absolute_path_in_text(line) {
+            return Some(PathBuf::from(path));
+        }
+    }
+    None
+}
+
+fn runtime_lane_first_absolute_path_in_text(text: &str) -> Option<String> {
+    let start = text.find('/')?;
+    let tail = &text[start..];
+    let end = tail
+        .find(|character: char| character.is_whitespace())
+        .unwrap_or(tail.len());
+    let path = tail[..end]
+        .trim_matches(|character| matches!(character, '`' | '"' | '\'' | ',' | ';' | '.'))
+        .to_string();
+    if path.is_empty() {
+        None
+    } else {
+        Some(path)
+    }
+}
+
+fn runtime_lane_checkpointed_completed_checkpoint(prompt: &str) -> String {
+    for line in prompt.lines() {
+        let lower = line.to_ascii_lowercase();
+        let Some(index) = lower.find("implement checkpoint_") else {
+            continue;
+        };
+        let token = line[index + "implement ".len()..]
+            .split_whitespace()
+            .next()
+            .unwrap_or("checkpoint_unknown")
+            .trim_matches(|character| matches!(character, '`' | '"' | '\'' | ',' | ';' | '.'));
+        if !token.is_empty() {
+            return token.to_string();
+        }
+    }
+    "checkpoint_unknown".to_string()
+}
+
+fn runtime_lane_checkpointed_changed_files(receipts: &[NativeToolReceipt]) -> Vec<String> {
+    let mut paths = Vec::<String>::new();
+    for receipt in receipts {
+        if receipt.status != "ok" || !matches!(receipt.tool_name.as_str(), "file_write" | "file_patch") {
+            continue;
+        }
+        if let Some(path) = receipt.result.get("path").and_then(Value::as_str) {
+            if !paths.iter().any(|existing| existing == path) {
+                paths.push(path.to_string());
+            }
+        }
+    }
+    paths
+}
+
+fn runtime_lane_checkpointed_recommended_next_checkpoint(completed_checkpoint: &str) -> String {
+    let Some(index) = completed_checkpoint.find("checkpoint_") else {
+        return "next_checkpoint".to_string();
+    };
+    let digits_start = index + "checkpoint_".len();
+    let digits = completed_checkpoint[digits_start..]
+        .chars()
+        .take_while(|character| character.is_ascii_digit())
+        .collect::<String>();
+    if let Ok(number) = digits.parse::<u32>() {
+        return format!("checkpoint_{:03}_next_slice", number + 1);
+    }
+    "next_checkpoint".to_string()
+}
+
+fn runtime_lane_shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn runtime_lane_checkpointed_shape_guard_feedback(receipts: &[NativeToolReceipt]) -> String {
+    let mut removed_classes = Vec::<String>::new();
+    let mut removed_fields = Vec::<String>::new();
+    let mut restored_paths = Vec::<String>::new();
+    for receipt in receipts {
+        if receipt.error.as_deref()
+            != Some("shell_edit_existing_python_class_shape_requires_additive_patch")
+        {
+            continue;
+        }
+        runtime_lane_extend_json_string_array(
+            &mut removed_classes,
+            receipt.result.get("removed_classes"),
+        );
+        runtime_lane_extend_json_string_array(
+            &mut removed_fields,
+            receipt.result.get("removed_fields"),
+        );
+        runtime_lane_extend_json_string_array(
+            &mut restored_paths,
+            receipt.result.get("restored_paths"),
+        );
+    }
+    if removed_classes.is_empty() && removed_fields.is_empty() && restored_paths.is_empty() {
+        return "No shape guard blocker is active. Still preserve existing Python classes and annotated fields."
+            .to_string();
+    }
+    format!(
+        "The previous mutation was restored because it removed Python API shape. Preserve these classes: [{}]. Preserve these fields: [{}]. Restored paths that need additive patching: [{}].",
+        removed_classes.join(", "),
+        removed_fields.join(", "),
+        restored_paths.join(", ")
+    )
+}
+
+fn runtime_lane_extend_json_string_array(out: &mut Vec<String>, value: Option<&Value>) {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return;
+    };
+    for item in items.iter().filter_map(Value::as_str) {
+        let item = item.trim();
+        if !item.is_empty() && !out.iter().any(|existing| existing == item) {
+            out.push(item.to_string());
+        }
+    }
+}
+
+fn runtime_lane_checkpointed_mutation_entry_call(
+    mut call: NativeToolCall,
+    workspace_root: &Path,
+) -> Option<NativeToolCall> {
+    let normalized_name = call.name.trim().to_ascii_lowercase();
+    if !matches!(
+        normalized_name.as_str(),
+        "file_write" | "write_file" | "workspace.write" | "workspace_write" | "file_patch"
+            | "patch_file" | "workspace.patch" | "workspace_patch"
+    ) {
+        return None;
+    }
+    call.name = if normalized_name.contains("patch") {
+        "file_patch".to_string()
+    } else {
+        "file_write".to_string()
+    };
+    let Some(path) = runtime_lane_native_tool_call_path(&call) else {
+        return None;
+    };
+    let raw_path = PathBuf::from(path);
+    let full_path = if raw_path.is_absolute() {
+        raw_path
+    } else {
+        workspace_root.join(raw_path)
+    };
+    if full_path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+        || !full_path.starts_with(workspace_root)
+    {
+        return None;
+    }
+    if let Some(object) = call.args.as_object_mut() {
+        object.insert("path".to_string(), json!(full_path.display().to_string()));
+    }
+    Some(call)
+}
+
+fn runtime_lane_native_tool_call_path(call: &NativeToolCall) -> Option<String> {
+    ["path", "file_path", "target_path", "target"]
+        .iter()
+        .find_map(|key| call.args.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn runtime_lane_agent_run_native_tool_receipts(run: &AgentRunResult) -> Vec<NativeToolReceipt> {
+    run.receipt
+        .get("native_tool_receipts")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| serde_json::from_value::<NativeToolReceipt>(item.clone()).ok())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn runtime_lane_agent_run_has_no_successful_mutation(run: &AgentRunResult) -> bool {
+    !runtime_lane_agent_run_native_tool_receipts(run)
+        .iter()
+        .any(runtime_lane_receipt_is_successful_mutation)
+}
+
+fn runtime_lane_agent_run_has_successful_tool_call(run: &AgentRunResult) -> bool {
+    runtime_lane_agent_run_native_tool_receipts(run)
+        .iter()
+        .any(|receipt| receipt.status == "ok")
+}
+
+fn runtime_lane_agent_run_looks_like_provider_timeout(run: &AgentRunResult) -> bool {
+    let text = format!(
+        "{}\n{}",
+        run.response.output,
+        run.receipt
+            .get("details")
+            .map(Value::to_string)
+            .unwrap_or_default()
+    )
+    .to_ascii_lowercase();
+    runtime_lane_text_contains_any(
+        &text,
+        &[
+            "provider_timeout",
+            "ollama_run_timeout",
+            "timeout_seconds",
+            "partial progress",
+        ],
+    )
+}
+
+fn runtime_lane_append_agent_run_receipts(
+    run: &mut AgentRunResult,
+    receipts: &[NativeToolReceipt],
+) {
+    let Some(object) = run.receipt.as_object_mut() else {
+        return;
+    };
+    let mut merged = object
+        .get("native_tool_receipts")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    merged.extend(receipts.iter().cloned().map(|receipt| json!(receipt)));
+    object.insert("native_tool_receipts".to_string(), json!(merged.clone()));
+    object.insert("native_tool_call_count".to_string(), json!(merged.len()));
+}
+
+fn runtime_lane_append_synthetic_agent_receipt(
+    run: &mut AgentRunResult,
+    call_id: &str,
+    status: &str,
+    result: Value,
+) {
+    let receipt = NativeToolReceipt {
+        call_id: call_id.to_string(),
+        tool_name: "runtime_checkpointed_mutation_entry".to_string(),
+        status: status.to_string(),
+        duration_ms: 0,
+        result,
+        error: if status == "ok" {
+            None
+        } else {
+            Some(status.to_string())
+        },
+    };
+    runtime_lane_append_agent_run_receipts(run, &[receipt]);
+}
+
+fn runtime_lane_checkpointed_bootstrap_context_packet(prompt: &str) -> String {
+    let Some(workspace_root) = runtime_lane_extract_workspace_root(prompt) else {
+        return "workspace_root=unavailable; use file_read first to discover the local project."
+            .to_string();
+    };
+    let context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
+    let mut packet = String::new();
+    packet.push_str(&format!(
+        "workspace_root={}\n",
+        workspace_root.display()
+    ));
+    if let Some(package) = runtime_lane_prompt_line_value(prompt, "Python package:") {
+        packet.push_str(&format!("package={package}\n"));
+    }
+    if let Some(validation) = runtime_lane_prompt_line_value(prompt, "Validation command from project root:") {
+        packet.push_str(&format!("validation_command={validation}\n"));
+    }
+    if let Some(prior_memory_row_id) = runtime_lane_prompt_line_value(prompt, "Prior memory row id:") {
+        packet.push_str(&format!("prior_memory_row_id={prior_memory_row_id}\n"));
+    }
+    if let Some(expected_memory_row_id) =
+        runtime_lane_prompt_line_value(prompt, "Expected new memory row id:")
+    {
+        packet.push_str(&format!("expected_new_memory_row_id={expected_memory_row_id}\n"));
+    }
+    packet.push_str("\nlocal_file_context:\n");
+    runtime_lane_append_bounded_corpus(&mut packet, &context_pack, 12_000);
+    packet
+}
+
+fn runtime_lane_checkpointed_first_tool_instruction(prompt: &str) -> String {
+    if let Some(command) = runtime_lane_checkpointed_memory_get_command(prompt) {
+        return format!(
+            "call command_run from the project root to retrieve checkpoint memory: {command}"
+        );
+    }
+    "call file_write or file_patch to begin the requested source/test/operator slice from the bootstrap context".to_string()
+}
+
+fn runtime_lane_checkpointed_memory_get_command(prompt: &str) -> Option<String> {
+    let pattern = runtime_lane_prompt_line_value(prompt, "Memory CLI command pattern:")?;
+    let prior_memory_row_id = runtime_lane_prompt_line_value(prompt, "Prior memory row id:")?;
+    let command = format!(
+        "checkpoint get --id={}",
+        runtime_lane_shell_single_quote(&prior_memory_row_id)
+    );
+    if pattern.contains("<command>") {
+        return Some(pattern.replace("<command>", &command));
+    }
+    Some(format!("{pattern} {command}"))
+}
+
+fn runtime_lane_prompt_line_value(prompt: &str, label: &str) -> Option<String> {
+    prompt.lines().find_map(|line| {
+        let trimmed = line.trim().trim_start_matches("- ").trim();
+        trimmed
+            .strip_prefix(label)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    })
+}
+
 fn runtime_lane_model_manifest_planner_system(preamble: Option<&str>) -> String {
     let prior = preamble
         .map(str::trim)
@@ -4234,6 +6703,7 @@ If a new public helper composes, wraps, or records calls to an existing public h
 For parse/load/import helpers, honor the input shape described by the task. If raw CSV/header text is implied, parse headers and return plain records keyed by those headers unless the task explicitly asks for richer domain objects.\n\
 For resolution/override helpers, higher-priority maps named by the task should take precedence, and provenance/source fields should preserve the most specific user-named source label when safe instead of generic labels such as override.\n\
 Prefer the smallest complete manifest that satisfies the task; do not invent broad schemas, extra concepts, or extra validation beyond the local command and faithful regression tests.\n\
+For durable/checkpoint/report tasks, the manifest must mutate the actual capability slice: model, store, service, operator surface when requested, tests, validation, and requested receipt or memory artifacts.\n\
 Prefer small source plus faithful tests when tests are requested. Include validation only when a standard local command is obvious.\n\
 For Python validation, use python3 commands such as python3 -m unittest rather than python.{prior}"
     )
@@ -4254,6 +6724,7 @@ Use the provided local context as authoritative. Preserve existing public import
 For existing files, prefer full corrected write_file when the file is small; otherwise use exact file_patch.\n\
 When tests or regression evidence are requested, update or add focused tests.\n\
 Always include the supplied validation command and semantic probe command after edits.\n\
+For durable/checkpoint/report tasks, include real source/test mutations for the requested capability slice, not just manifests or docs.\n\
 Return structured_blocker only for missing local context, secrets, external services, or user decisions.{prior}"
     )
 }
@@ -4376,6 +6847,39 @@ fn runtime_lane_public_api_bindings(
         );
     }
     bindings
+}
+
+fn runtime_lane_apply_agent_loop_public_api_contract_prompt(
+    metadata: &Value,
+    prompt: String,
+) -> String {
+    if !runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/public_api_extension_lane_enabled",
+            "/workflow/native_success_criteria/public_api_extension_lane_enabled",
+        ],
+    )
+    .unwrap_or(false)
+    {
+        return prompt;
+    }
+    let Some(workspace_root) = runtime_lane_extract_workspace_root(&prompt) else {
+        return prompt;
+    };
+    let context_pack = runtime_lane_model_manifest_context_pack(&prompt, &workspace_root);
+    let public_api_bindings =
+        runtime_lane_public_api_bindings(&prompt, &context_pack, &workspace_root);
+    if public_api_bindings.is_empty() {
+        return prompt;
+    }
+    let public_api_section =
+        runtime_lane_public_api_bindings_prompt_section(&public_api_bindings, &workspace_root);
+    format!(
+        "{}\n\nPublic API contract from local imports/probes:\n{}\nWhen a local validation or semantic probe imports a symbol that is missing from its owner module, satisfy that import in the owner module. Prefer additive edits that preserve existing public functions unless the task explicitly asks to change them.",
+        prompt.trim(),
+        public_api_section
+    )
 }
 
 fn runtime_lane_public_api_probe_texts(prompt: &str, workspace_root: &Path) -> Vec<String> {

@@ -745,7 +745,7 @@ shape, not add more prompt content to first mutation.
 
 ## EXP-CODING-033: Deterministic Python import-surface seed mutation
 
-Status: `patched_pending_measurement`
+Status: `reverted_mixed_negative_delta`
 
 Hypothesis:
 
@@ -952,3 +952,338 @@ Keep this diagnostic patch. It does not alter repair behavior, but it gives the
 higher workflow and future patches the right target: the next behavior primitive
 should handle `seeded_repair_timeout`/`seeded_repair_import_surface_missing`, not
 broad `runtime_timeout`.
+
+## EXP-CODING-038: Seeded timeout import-surface recovery after provider timeout
+
+Status: `reverted_not_exercised`
+
+Hypothesis:
+
+After `EXP-CODING-037`, the clearest failure class was
+`seeded_repair_timeout`: Python import-surface seed mutation succeeds, then the
+post-seed model repair path times out and validation remains incomplete. A small
+bounded recovery could run validation after that timeout, seed only the next
+concrete missing Python public import, validate again, and return structured
+partial progress.
+
+Patch attempted:
+
+- Added a timeout-only recovery hook inside `native_tool_recovery_or_partial_progress`.
+- Refactored the Python import-surface seed into a reusable helper so the timeout
+  branch could seed from the latest validation details without broadening the
+  initial seed.
+
+Measurement:
+
+- Rebuilt `target/debug/xtask` successfully.
+- Smoke reports:
+  `references/coding-agent-systems/runtime_trace_harness/reports/seeded_timeout_recovery_l6_l7_smoke_20260529.json`
+  `references/coding-agent-systems/runtime_trace_harness/reports/seeded_timeout_recovery_l7_resmoke_20260529.json`
+- Level 6 passed `1/1` in the combined smoke.
+- Level 7 passed `2/2` across the combined and focused smoke runs, but neither
+  run emitted the timeout-recovery seed receipt. The attempted branch was not
+  actually exercised; the passes came from the normal model/recovery path.
+
+Decision:
+
+Reverted this patch. It did not show an attributable positive delta, and leaving
+an unexercised recovery branch in the runtime would violate the current
+one-measurable-change rule. The next attempt should target an actually observed
+hot path from the traces: the first post-seed provider turn is too large/slow
+(`~11k` prompt chars plus `~9k` observation chars) and sometimes reaches the
+90s provider timeout before emitting tool calls.
+
+## EXP-CODING-039: Successful evidence closure reconciler
+
+Status: `rejected_after_measurement`
+
+Hypothesis:
+
+The 1-7 sweep after seeded failure taxonomy showed several cases where the
+system produced real code, changed files, and passed validation/probes, but the
+runtime still returned `partial_blocked` or a generic missing mutation/evidence
+status. The immediate blocker is evidence closure, not raw code generation.
+
+Patch:
+
+- Added a bounded runtime success reconciler before `partial_blocked` terminal
+  status is returned.
+- The reconciler promotes a bounded direct edit to success only when:
+  - there is mutation evidence from native file tools or a successful controlled
+    shell edit command,
+  - there is successful validation after the latest mutation evidence,
+  - remaining gaps are receipt-closure gaps such as missing product/test mutation
+    receipts or missing changed-path evidence.
+- Validation/import/semantic failures are not bypassed.
+
+Expected impact:
+
+Levels that already pass validation/probes but fail terminal status should stop
+being reported as generic `partial_blocked`. This specifically targets the
+Level 2, Level 3, Level 5, and Level 6 failure shape from the latest sweep.
+
+Decision update for EXP-CODING-039:
+
+Status: `reverted_negative_delta`
+
+Measurement update:
+
+- Reran the 1-7 sweep after the evidence reconciler patch.
+- Level 5 improved from fail to pass, but Level 4 regressed from pass to
+  `no_successful_mutation`, Level 6 regressed to `runtime_timeout`, and Levels 2,
+  3, and 7 were slower or still failing.
+- The patch did not satisfy the one-measurable-change keeper rule because it did
+  not produce a clear monotonic improvement across lower and higher levels.
+
+Decision:
+
+Reverted the evidence reconciler. The next patch should target the largest
+observed trace-backed failure, not broad terminal-status promotion.
+
+## EXP-CODING-040: Existing-project shell edit receipt recognition
+
+Status: `patched_pending_measurement`
+
+Hypothesis:
+
+The largest failure class across the latest 1-7 sweeps is successful external
+mutation that does not close as native mutation evidence. Level 3 is the
+cleanest trace: `command_run` executes `cat > file <<'EOF'` shell edit batches,
+the expected files change, validation passes, semantic probes pass, but the run
+fails with `runtime_lane_required_native_mutation_receipt_missing`.
+
+Trace finding:
+
+- The shell-edit path parser already recognizes heredoc writes.
+- The receipt synthesis path only activates when
+  `native_tool_controlled_shell_edit_batch_paths` recognizes the command.
+- That recognizer required profile `4`, while Level 3 existing-project edits run
+  under profile `2`.
+- Result: profile-2 agents could execute safe shell edit batches, but those
+  mutations were invisible to native receipt closure.
+
+Patch:
+
+Lower controlled shell-edit batch recognition from profile `4` to profile `2`,
+the first existing-project edit profile. This keeps micro/new-file lanes out of
+the shell-edit path while allowing existing-project shell edit batches to
+produce synthetic `file_write` receipts.
+
+Expected impact:
+
+Levels that successfully mutate via controlled heredoc shell edit batches should
+close with receipt-backed mutation evidence instead of failing as ghost
+mutations. This is a primitive receipt-synthesis fix, not a level-specific
+exception.
+
+Measurement:
+
+- Rebuilt `target/debug/xtask` before measurement after detecting an initial
+  stale-binary run.
+- Reran a 1-7 sweep with Infring and `kimi-k2.6:cloud`.
+- Level 5 passed, but Levels 2, 3, 4, 6, and 7 still failed.
+- Level 3 continued to mutate files and pass validation/probes, but hit native
+  tool loop timeout instead of closing cleanly.
+- Level 2 and Level 4 showed no-successful-mutation failure shapes.
+
+Decision:
+
+Reverted the profile-threshold change. The trace showed the actual primitive gap
+was not the profile threshold alone; safe shell edit commands can execute without
+being normalized into native mutation receipts. The next patch should normalize
+already-executed safe shell edit commands into receipt evidence rather than
+broadly changing which profiles allow shell edit batches.
+
+## EXP-CODING-041: Safe shell edit receipt normalization
+
+Status: `patched_pending_measurement`
+
+Hypothesis:
+
+The largest active failure class is not raw code generation. Several levels show
+the agent either mutating successfully but failing to close, or entering long
+provider loops after concrete edit/validation evidence exists. The Level 3 trace
+is the cleanest case: repeated `command_run` heredoc edit batches changed the
+right files and validation/probes passed, but each batch produced only a
+`command_run` receipt and no native mutation receipt.
+
+Patch:
+
+- Restored controlled shell-edit profile gating to its previous profile `4`
+  behavior.
+- Added a separate safe shell-edit receipt-normalization path.
+- If a successful `command_run` already executed a safe local shell edit batch
+  against project files, synthesize native `file_write` receipts from those
+  paths.
+- Reused the same safe-path parser and Python/API shape safety checks instead of
+  adding level-specific exceptions.
+
+Expected impact:
+
+Existing-project runs that already perform safe shell edit mutations should
+close through the existing mutation-plus-validation controller instead of
+looping until timeout or failing with missing native mutation evidence.
+
+Patch update:
+
+The first measurement still failed Level 3 with runtime timeout. The trace
+showed why: shell edit commands that write test files contain heredoc body text
+such as `import unittest`, and the validation-command guard scanned the whole
+command including heredoc bodies. That caused a safe write batch to be rejected
+as if it were a validation command. The patch now classifies validation using
+only shell command control lines outside heredoc bodies.
+
+Measurement update:
+
+Level 3 still failed after the heredoc control-line patch. The run showed real
+progress (`successful_mutation_in_batch: true`) but still timed out because the
+legacy runtime did not immediately run/record validation and close through one
+authoritative controller. This confirms that continuing edge patches inside the
+legacy controller maze is lower ROI than rebuilding around a single execution
+spine.
+
+Decision:
+
+Do not keep extending this patch path as the main foundation. Preserve the
+useful primitive insight (safe shell edit writes can normalize into mutation
+evidence), but move control authority to `coding_execution_spine_v1`.
+
+## EXP-CODING-042: Semi-aggressive coding controller rebuild
+
+Status: `started`
+
+Hypothesis:
+
+The current coding runtime has enough useful primitives, but too many competing
+controllers. Reference-system traces consistently point to a simpler behavior:
+bounded context, mutate once, validate, repair only from concrete evidence, and
+close aggressively when receipts satisfy the task contract.
+
+Action:
+
+- Added `coding_execution_spine_v1` as the authoritative reset target.
+- Added a Rust spine module with normalized context, mutation, validation,
+  public-interface, blocker, and closure evidence.
+- Added a lab Workflow CD declaring the spine as a Level 0 primitive.
+- Updated the implementation spec and primitive split doc so legacy controllers
+  must become evidence adapters or migration debt.
+- Added a receipt adapter that projects existing native tool receipts into the
+  spine without knowing eval levels or fixture symbols.
+- Enabled the spine only for low-complexity lanes corresponding to Levels 1-3.
+- Added a runtime hook that lets the spine request auto-validation and close
+  success when normalized evidence satisfies the task contract.
+
+## EXP-CODING-043: First mutation artifact lane v1
+
+Status: `patched_pending_measurement`
+
+Hypothesis:
+
+After the spine integration, Level 3 failed earlier and more cleanly:
+`context_ready -> provider timeout before first mutation`. That means the
+closure spine is not enough by itself. The runtime needs a dedicated first
+mutation stage that receives already-loaded context and emits only mutation
+tool calls before the broad open loop can take over.
+
+Patch:
+
+- Added `first_mutation_artifact_lane_v1` as a Level 0 primitive Workflow CD.
+- Added a Rust module for the lane prompt, tool filter, and activation policy.
+- Routed only `existing_project_patch` through the lane before the open native
+  tool loop.
+- The lane allows only `file_write` and `file_patch`.
+- Successful lane mutations feed into `coding_execution_spine_v1`, which may
+  request validation and close success.
+- If the lane times out or emits no mutation, the run closes as a lane failure
+  instead of falling into the legacy open loop.
+
+Expected impact:
+
+Level 3 should fail faster and more legibly if the first mutation model turn is
+still weak, or pass through the spine if the lane emits a valid mutation.
+
+Measurement update:
+
+Five Level 3 runs produced `3/5` pass. The pass path was clean: context
+bootstrap, first mutation lane, source/test patch receipts, auto-validation, and
+spine closure. The failures were owned by the new stage:
+
+- one first-mutation lane timeout with no mutation,
+- one incomplete mutation slice that changed source only while the task required
+  a test change.
+
+Patch update:
+
+Added generic target-artifact role coverage to `coding_execution_spine_v1`.
+Mutation evidence now carries artifact roles such as `source`, `test`, and
+`doc`; the task contract requires `test` when the prompt requests test changes.
+The spine now returns `repair` instead of `close_success` when required artifact
+roles are missing.
+
+Promotion rule:
+
+Route only Levels 1-3 through this spine first. Do not optimize Level 4+ until
+Level 1-3 are stable and monotonic.
+
+## EXP-CODING-044: First mutation format retry
+
+Status: `patched_pending_measurement`
+
+Hypothesis:
+
+The remaining Level 3 failure is now stage-owned: the first mutation artifact
+lane sometimes returns no successful mutation after context is already loaded.
+Reference systems solve this class with a narrow edit-format retry rather than
+falling into a broad planning loop.
+
+Patch:
+
+- Added one bounded retry inside `first_mutation_artifact_lane_v1`.
+- The retry is activated only when the initial lane response produces no
+  successful mutation receipt.
+- The retry keeps the same lane ownership and allowed tools: `file_write` and
+  `file_patch` only.
+- The retry has its own shorter provider timeout and timeline events.
+- The broad native tool loop remains bypassed for this failure class.
+
+Measurement:
+
+Five Level 3 runs produced `4/5` pass, but the only no-mutation case exercised
+the retry and still failed: the first lane returned no mutation around `26.8s`,
+the retry returned no mutation around `56.8s`, and the run remained blocked.
+
+Decision:
+
+Reverted the retry behavior because it added wall time to the failure path
+without repairing the failure it owned. Keep the lesson: the next primitive
+should improve first-pass mutation emission or JSON/tool-call extraction, not
+add another model turn after a no-output lane response.
+
+## EXP-CODING-045: First mutation compact context packet
+
+Status: `patched_pending_measurement`
+
+Hypothesis:
+
+The no-mutation failure is an output-contract failure, not a file-tool failure.
+The model received enough context and reasoned out the correct edits, but its
+visible output began with `Thinking...` and never produced parsed tool calls.
+The first-mutation lane should avoid generic observation wording that permits
+final-answer behavior and should present a tiny edit packet with a strict
+visible-output contract.
+
+Patch:
+
+- Replaced the generic native observation packet inside
+  `first_mutation_artifact_lane_v1` with a lane-specific compact edit-context
+  packet.
+- Removed inherited wording that said the model could provide a final answer.
+- Hardened the lane system/prompt contract: the first visible byte must be `{`
+  and the output must be only `{"tool_calls":[...]}`.
+- Kept the lane primitive narrow: no retries, no broader controller fallback,
+  no eval-specific symbols.
+
+Expected impact:
+
+Level 3 should convert more first-mutation turns into immediate parsed
+`file_patch` or `file_write` calls without adding another model turn.

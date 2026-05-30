@@ -791,10 +791,15 @@ fn load_workflow_context(raw_workflow_id: Option<&String>) -> Result<Option<(Str
         .unwrap_or(Value::Null);
     let persistence_summary = compact_persistence_safety_summary(&persistence_safety_contract);
     let preamble = format!(
-        "Native Infring execution brief v2\nWorkflow: {workflow_id}\nSource: {source_path}\nPurpose: {description}\nStages: {stages}\nChild workflow calls: {}\nNative capability packs: {}\nNative permission template: {}\nSuccess evidence contract: {success_summary}\nPublic reasoning trace contract: {reasoning_summary}\nPersistence safety contract: {persistence_summary}\nExecution rule: follow the workflow, but keep the run concrete. For local coding mutation tasks, use native file tools for reads and writes, emit a public reasoning trace/rollup when requested, and return a structured blocker instead of a completion if receipt-backed evidence cannot be produced.",
-        children.join(", "),
-        native_capability_packs.join(", "),
-        native_permission_template
+        "Native Infring execution brief v3\nWorkflow: {workflow_id}\nSource: {source_path}\nPurpose: {}\nStages: {}\nChildren: {}\nNative packs: {}\nPermission template: {}\nEvidence: {}\nReasoning: {}\nPersistence: {}\nRules: execute the concrete local task with native tools; keep claims receipt-backed; run requested validation; return a structured blocker instead of completion when evidence cannot be produced.",
+        compact_workflow_brief_fragment(description, 240),
+        compact_workflow_brief_fragment(&stages, 180),
+        compact_workflow_brief_fragment(&children.join(", "), 220),
+        compact_workflow_brief_fragment(&native_capability_packs.join(", "), 160),
+        compact_workflow_brief_fragment(native_permission_template, 80),
+        compact_workflow_brief_fragment(&success_summary, 260),
+        compact_workflow_brief_fragment(&reasoning_summary, 160),
+        compact_workflow_brief_fragment(&persistence_summary, 160)
     );
     let metadata = json!({
         "native_execution_brief_version": "native_execution_brief_v2",
@@ -821,6 +826,16 @@ fn load_workflow_context(raw_workflow_id: Option<&String>) -> Result<Option<(Str
         "coding_persistence_safety_contract": persistence_safety_contract,
     });
     Ok(Some((preamble, metadata)))
+}
+
+fn compact_workflow_brief_fragment(value: &str, max_chars: usize) -> String {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= max_chars {
+        return compact;
+    }
+    let mut out = compact.chars().take(max_chars).collect::<String>();
+    out.push_str("...");
+    out
 }
 
 fn compact_success_criteria_summary(criteria: &Value) -> String {

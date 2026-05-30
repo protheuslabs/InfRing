@@ -302,6 +302,8 @@
       "auto_validation_command_detection_enabled": true,
       "validation_failure_repair_uses_command_output": true,
       "synthesize_final_after_successful_validation": true,
+      "coding_execution_spine_v1_enabled": true,
+      "first_mutation_artifact_lane_v1_enabled": true,
       "post_validation_closure_controller_enabled": true,
       "capability_evidence_gate_enabled": true,
       "mutation_only_recovery_gate_enabled": true,
@@ -336,9 +338,16 @@
       "fast_lane_repair_provider_timeout_seconds": 15,
       "fast_lane_omit_ollama_thinking_flags": true,
       "fast_lane_repair_omit_ollama_thinking_flags": false,
+      "public_api_extension_lane_enabled": true,
       "bounded_existing_project_pre_probe": true,
       "bounded_existing_project_edit_loop_enabled": true,
       "model_manifest_compact_system": true,
+      "model_manifest_planner_enabled_lanes": [
+        "implementation_slice"
+      ],
+      "capability_evidence_gate_enabled_lanes": [
+        "long_run_project_operator"
+      ],
       "bounded_direct_edit_lane": true,
       "bounded_fast_edit_preflight": true,
       "first_edit_batch_contract": false,

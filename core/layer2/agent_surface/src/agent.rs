@@ -1,5 +1,15 @@
 // Layer ownership: Core Layer 2 (Scheduling + Execution) - agent runtime surface coordination.
 use crate::capability_pack::CapabilityPackCatalog;
+use crate::coding_execution_spine::CodingSpineAction;
+use crate::coding_execution_spine_adapter::{
+    coding_execution_spine_decision_from_native_receipts, coding_execution_spine_v1_enabled,
+    coding_execution_spine_v1_routes_lane,
+};
+use crate::first_mutation_artifact_lane::{
+    first_mutation_artifact_lane_v1_enabled, first_mutation_artifact_lane_v1_metadata,
+    first_mutation_artifact_lane_v1_prompt, first_mutation_artifact_lane_v1_routes_lane,
+    first_mutation_artifact_lane_v1_system, first_mutation_artifact_lane_v1_tools,
+};
 use crate::native_evidence::{
     native_tool_artifact_contract_enabled, native_tool_artifact_repair_reasons,
     native_tool_changed_paths, native_tool_changed_paths_include, native_tool_coding_task_lane,
@@ -532,6 +542,151 @@ impl AgentContract {
                 prompt = format!(
                     "{prompt}\n\n{bootstrap_rule}{edit_owner_hint}\n\nNative tool observations:\n{observation}"
                 );
+            }
+        }
+        if first_mutation_artifact_lane_v1_enabled(&self.metadata)
+            && first_mutation_artifact_lane_v1_routes_lane(coding_task_lane)
+            && native_tool_has_successful_read_context_receipt(&all_receipts)
+            && !native_tool_has_successful_mutation(&all_receipts)
+        {
+            native_tool_persist_runtime_timeline_event(
+                &self.metadata,
+                &self.initial_prompt,
+                "first_mutation_artifact_lane_v1_start",
+                native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                json!({
+                    "coding_task_lane": coding_task_lane,
+                    "receipt_count": all_receipts.len(),
+                }),
+            );
+            provider_call_count += 1;
+            let lane_response = provider.complete(&ProviderRequest {
+                prompt: first_mutation_artifact_lane_v1_prompt(&self.initial_prompt, &all_receipts),
+                system: Some(first_mutation_artifact_lane_v1_system()),
+                tools: first_mutation_artifact_lane_v1_tools(tools),
+                model: self.model.clone(),
+                metadata: first_mutation_artifact_lane_v1_metadata(&self.metadata),
+            });
+            let lane_response = match lane_response {
+                Ok(response) => response,
+                Err(error) if native_tool_provider_error_is_timeout(&error) => {
+                    let response = native_tool_partial_progress_response(
+                        provider.provider_id(),
+                        self.model.as_deref(),
+                        "first_mutation_artifact_lane_v1_timeout",
+                        provider_call_count,
+                        &all_receipts,
+                    );
+                    native_tool_persist_run_journal(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "first_mutation_artifact_lane_v1_timeout",
+                        provider_call_count,
+                        &all_receipts,
+                        None,
+                        Some(error.message.as_str()),
+                    );
+                    return Ok((
+                        response,
+                        all_receipts,
+                        provider_call_count,
+                        "partial_timeout".to_string(),
+                    ));
+                }
+                Err(error) => return Err(error),
+            };
+            let lane_calls = parse_native_tool_calls(&lane_response.output);
+            let mut lane_receipts = native_tool_dispatch_first_mutation_artifact_lane_calls(
+                &dispatcher,
+                &self.initial_prompt,
+                lane_calls,
+                native_tool_max_calls_per_turn(&self.metadata),
+            );
+            all_receipts.extend(lane_receipts.clone());
+            native_tool_persist_runtime_timeline_event(
+                &self.metadata,
+                &self.initial_prompt,
+                "first_mutation_artifact_lane_v1_end",
+                native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                json!({
+                    "provider_call_count": provider_call_count,
+                    "receipt_count": lane_receipts.len(),
+                    "successful_mutation_in_batch": native_tool_has_successful_mutation(&lane_receipts),
+                }),
+            );
+            native_tool_persist_run_journal(
+                &self.metadata,
+                &self.initial_prompt,
+                "first_mutation_artifact_lane_v1",
+                provider_call_count,
+                &all_receipts,
+                Some(&lane_response.output),
+                None,
+            );
+            if native_tool_has_successful_mutation(&lane_receipts) {
+                if let Some(validation_receipt) =
+                    native_tool_auto_validation_receipt(&dispatcher, &self.initial_prompt, &all_receipts)
+                {
+                    all_receipts.push(validation_receipt);
+                    native_tool_persist_run_journal(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "first_mutation_artifact_lane_v1_auto_validation",
+                        provider_call_count,
+                        &all_receipts,
+                        Some(&lane_response.output),
+                        None,
+                    );
+                }
+                let spine_decision = coding_execution_spine_decision_from_native_receipts(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    &all_receipts,
+                );
+                if matches!(spine_decision.action, CodingSpineAction::CloseSuccess) {
+                    let mut response = native_tool_synthetic_completion_evidence_response(
+                        &lane_response,
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &all_receipts,
+                        "first_mutation_artifact_lane_v1_spine_closed_success",
+                    );
+                    response.raw = json!({
+                        "provider_raw": response.raw,
+                        "native_tool_loop": {
+                            "enabled": true,
+                            "provider_call_count": provider_call_count,
+                            "tool_call_count": all_receipts.len(),
+                            "empty_tool_retry_count": empty_tool_retry_count,
+                            "coding_task_lane": coding_task_lane,
+                            "tool_receipts": all_receipts.clone(),
+                            "terminal_status": "ok",
+                            "first_mutation_artifact_lane_v1": true,
+                            "coding_execution_spine_v1": spine_decision,
+                        }
+                    });
+                    return Ok((
+                        response,
+                        all_receipts,
+                        provider_call_count,
+                        "ok".to_string(),
+                    ));
+                }
+            }
+            if !native_tool_has_successful_mutation(&all_receipts) {
+                let response = native_tool_partial_progress_response(
+                    provider.provider_id(),
+                    self.model.as_deref(),
+                    "first_mutation_artifact_lane_v1_no_successful_mutation",
+                    provider_call_count,
+                    &all_receipts,
+                );
+                return Ok((
+                    response,
+                    all_receipts,
+                    provider_call_count,
+                    "partial_blocked".to_string(),
+                ));
             }
         }
         if native_tool_checkpointed_project_operator_tool_loop_active(
@@ -1404,21 +1559,28 @@ impl AgentContract {
                     &self.initial_prompt,
                     &call,
                 );
+                let shell_edit_receipt_paths = if shell_edit_paths.is_empty() {
+                    native_tool_shell_edit_receipt_synthesis_paths(&self.initial_prompt, &call)
+                } else {
+                    shell_edit_paths.clone()
+                };
                 let shell_edit_command = !shell_edit_paths.is_empty()
+                    && !native_tool_has_successful_mutation(&all_receipts);
+                let shell_edit_receipt_command = !shell_edit_receipt_paths.is_empty()
                     && !native_tool_has_successful_mutation(&all_receipts);
                 let unresolved_owner_source_blocked =
                     native_tool_unresolved_owner_source_first_blocked_receipt(
                         &all_receipts,
                         &call,
-                        &shell_edit_paths,
+                        &shell_edit_receipt_paths,
                     );
-                let pre_dispatch_receipts = if shell_edit_command {
+                let pre_dispatch_receipts = if shell_edit_receipt_command {
                     Some(all_receipts.clone())
                 } else {
                     None
                 };
-                let shell_edit_python_shape_snapshots = if shell_edit_command {
-                    native_tool_shell_edit_python_shape_snapshots(&shell_edit_paths)
+                let shell_edit_python_shape_snapshots = if shell_edit_receipt_command {
+                    native_tool_shell_edit_python_shape_snapshots(&shell_edit_receipt_paths)
                 } else {
                     std::collections::BTreeMap::new()
                 };
@@ -1475,7 +1637,7 @@ impl AgentContract {
                 };
                 turn_receipts.push(receipt.clone());
                 all_receipts.push(receipt.clone());
-                if shell_edit_command && native_tool_command_receipt_success(&receipt) {
+                if shell_edit_receipt_command && native_tool_command_receipt_success(&receipt) {
                     if let Some(blocked) = native_tool_shell_edit_python_existing_shape_blocked_receipt(
                         &receipt.call_id,
                         &shell_edit_python_shape_snapshots,
@@ -1495,7 +1657,7 @@ impl AgentContract {
                     }
                     let synthetic_receipts = native_tool_synthesize_shell_edit_mutation_receipts(
                         &receipt.call_id,
-                        &shell_edit_paths,
+                        &shell_edit_receipt_paths,
                         pre_dispatch_receipts.as_deref().unwrap_or(&[]),
                     );
                     for synthetic in synthetic_receipts {
@@ -1579,6 +1741,79 @@ impl AgentContract {
                         None,
                     );
                 }
+                }
+            }
+            if coding_execution_spine_v1_enabled(&self.metadata)
+                && coding_execution_spine_v1_routes_lane(coding_task_lane)
+            {
+                let mut spine_decision = coding_execution_spine_decision_from_native_receipts(
+                    &self.metadata,
+                    &self.initial_prompt,
+                    &all_receipts,
+                );
+                if matches!(spine_decision.action, CodingSpineAction::Validate) {
+                    if let Some(validation_receipt) =
+                        native_tool_auto_validation_receipt(&dispatcher, &self.initial_prompt, &all_receipts)
+                    {
+                        turn_receipts.push(validation_receipt.clone());
+                        all_receipts.push(validation_receipt);
+                        native_tool_persist_run_journal(
+                            &self.metadata,
+                            &self.initial_prompt,
+                            "coding_execution_spine_auto_validation",
+                            provider_call_count,
+                            &all_receipts,
+                            Some(&response.output),
+                            None,
+                        );
+                        spine_decision = coding_execution_spine_decision_from_native_receipts(
+                            &self.metadata,
+                            &self.initial_prompt,
+                            &all_receipts,
+                        );
+                    }
+                }
+                if matches!(spine_decision.action, CodingSpineAction::CloseSuccess) {
+                    if bounded_direct_edit_task {
+                        let direct_tool_call_count = all_receipts.len();
+                        native_tool_push_bounded_direct_edit_marker_once(
+                            &mut all_receipts,
+                            "success",
+                            json!({
+                                "terminal_status": "ok",
+                                "provider_call_count": provider_call_count,
+                                "tool_call_count": direct_tool_call_count,
+                                "reason": "coding_execution_spine_v1_closed_success",
+                                "coding_execution_spine_v1": spine_decision.clone()
+                            }),
+                        );
+                    }
+                    let mut response = native_tool_synthetic_completion_evidence_response(
+                        &response,
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &all_receipts,
+                        "coding_execution_spine_v1_closed_success",
+                    );
+                    response.raw = json!({
+                        "provider_raw": response.raw,
+                        "native_tool_loop": {
+                            "enabled": true,
+                            "provider_call_count": provider_call_count,
+                            "tool_call_count": all_receipts.len(),
+                            "empty_tool_retry_count": empty_tool_retry_count,
+                            "coding_task_lane": coding_task_lane,
+                            "tool_receipts": all_receipts.clone(),
+                            "terminal_status": "ok",
+                            "coding_execution_spine_v1": spine_decision,
+                        }
+                    });
+                    return Ok((
+                        response,
+                        all_receipts,
+                        provider_call_count,
+                        "ok".to_string(),
+                    ));
                 }
             }
             if native_tool_should_synthesize_micro_final(
@@ -3787,10 +4022,28 @@ fn native_tool_controlled_shell_edit_batch_paths(
     {
         return Vec::new();
     }
+    native_tool_shell_edit_safe_write_paths(original_prompt, call)
+}
+
+fn native_tool_shell_edit_receipt_synthesis_paths(
+    original_prompt: &str,
+    call: &NativeToolCall,
+) -> Vec<PathBuf> {
+    if !native_tool_call_is_command_run(call) {
+        return Vec::new();
+    }
+    native_tool_shell_edit_safe_write_paths(original_prompt, call)
+}
+
+fn native_tool_shell_edit_safe_write_paths(
+    original_prompt: &str,
+    call: &NativeToolCall,
+) -> Vec<PathBuf> {
     let Some(command_text) = native_tool_command_call_text(&call.args) else {
         return Vec::new();
     };
-    if native_tool_command_text_looks_like_validation(&command_text) {
+    let command_control_text = native_tool_shell_command_control_text(&command_text);
+    if native_tool_command_text_looks_like_validation(&command_control_text) {
         return Vec::new();
     }
     let project_root = native_tool_prompt_project_root(original_prompt)
@@ -3853,6 +4106,55 @@ fn native_tool_shell_edit_batch_blocked_receipt(
         }),
         error: Some("command_run_before_mutation_must_be_shell_edit_batch".to_string()),
     })
+}
+
+fn native_tool_first_mutation_artifact_lane_blocked_receipt(
+    call: &NativeToolCall,
+) -> NativeToolReceipt {
+    NativeToolReceipt {
+        call_id: call.id.clone(),
+        tool_name: call.name.trim().to_ascii_lowercase(),
+        status: "error".to_string(),
+        duration_ms: 0,
+        result: json!({
+            "blocked_by": "first_mutation_artifact_lane_v1",
+            "reason": "first_mutation_artifact_lane_allows_only_file_write_or_file_patch",
+            "required_next_tool": "file_write_or_file_patch"
+        }),
+        error: Some("first_mutation_artifact_lane_allows_only_file_write_or_file_patch".to_string()),
+    }
+}
+
+fn native_tool_dispatch_first_mutation_artifact_lane_calls(
+    dispatcher: &NativeToolDispatcher,
+    original_prompt: &str,
+    calls: Vec<NativeToolCall>,
+    max_calls: usize,
+) -> Vec<NativeToolReceipt> {
+    let mut lane_receipts = Vec::new();
+    for call in calls.into_iter().take(max_calls) {
+        let call = native_tool_call_with_prompt_defaults(call, original_prompt);
+        let receipt = if native_tool_call_is_mutation(&call) {
+            if let Some(blocked) = native_tool_preserved_api_write_blocked_receipt(original_prompt, &call)
+            {
+                blocked
+            } else if let Some(blocked) =
+                native_tool_python_existing_shape_blocked_receipt(original_prompt, &call)
+            {
+                blocked
+            } else if let Some(blocked) =
+                native_tool_python_src_prefix_import_blocked_receipt(original_prompt, &call)
+            {
+                blocked
+            } else {
+                dispatcher.dispatch(call)
+            }
+        } else {
+            native_tool_first_mutation_artifact_lane_blocked_receipt(&call)
+        };
+        lane_receipts.push(receipt);
+    }
+    lane_receipts
 }
 
 fn native_tool_command_receipt_success(receipt: &NativeToolReceipt) -> bool {
@@ -3959,6 +4261,44 @@ fn native_tool_shell_edit_write_path_candidates(command_text: &str) -> Vec<Strin
         }
     }
     paths
+}
+
+fn native_tool_shell_command_control_text(command_text: &str) -> String {
+    let mut lines = Vec::new();
+    let mut heredoc_end: Option<String> = None;
+    for line in command_text.lines() {
+        let trimmed = line.trim();
+        if let Some(end) = heredoc_end.as_deref() {
+            if trimmed == end {
+                heredoc_end = None;
+            }
+            continue;
+        }
+        lines.push(trimmed.to_string());
+        if let Some(marker) = native_tool_shell_heredoc_end_marker(trimmed) {
+            heredoc_end = Some(marker);
+        }
+    }
+    lines.join("\n")
+}
+
+fn native_tool_shell_heredoc_end_marker(line: &str) -> Option<String> {
+    let (_, rest) = line.split_once("<<")?;
+    let rest = rest.trim_start();
+    let rest = rest.strip_prefix('-').unwrap_or(rest).trim_start();
+    let marker = rest
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(';')
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim();
+    if marker.is_empty() {
+        None
+    } else {
+        Some(marker.to_string())
+    }
 }
 
 fn native_tool_shell_edit_quoted_path_before(rest: &str, delimiter: &str) -> Option<String> {
@@ -6408,6 +6748,22 @@ fn native_tool_python_import_surface_seed_receipts(
     if details == "<none>" {
         return Vec::new();
     }
+    native_tool_python_import_surface_seed_receipts_from_details(
+        dispatcher,
+        original_prompt,
+        receipts,
+        &details,
+        "runtime_python_import_surface_seed",
+    )
+}
+
+fn native_tool_python_import_surface_seed_receipts_from_details(
+    dispatcher: &NativeToolDispatcher,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+    details: &str,
+    call_id_prefix: &str,
+) -> Vec<NativeToolReceipt> {
     let mut by_module = BTreeMap::<String, Vec<String>>::new();
     for (symbol, module) in native_tool_python_cannot_import_name_errors(&details) {
         if native_tool_symbol_looks_private_or_generated(&symbol) {
@@ -6444,7 +6800,7 @@ fn native_tool_python_import_surface_seed_receipts(
         if source_next != source_original {
             seed_receipts.push(dispatcher.dispatch(NativeToolCall {
                 id: format!(
-                    "runtime_python_import_surface_seed_source_{}",
+                    "{call_id_prefix}_source_{}",
                     native_tool_receipt_id_slug(&module)
                 ),
                 name: "file_write".to_string(),
@@ -6466,7 +6822,7 @@ fn native_tool_python_import_surface_seed_receipts(
                 if export_next != export_original {
                     seed_receipts.push(dispatcher.dispatch(NativeToolCall {
                         id: format!(
-                            "runtime_python_import_surface_seed_export_{}",
+                            "{call_id_prefix}_export_{}",
                             native_tool_receipt_id_slug(&module)
                         ),
                         name: "file_write".to_string(),
@@ -10023,19 +10379,26 @@ fn native_tool_completion_evidence_repair_loop(
             let shell_edit_paths =
                 native_tool_controlled_shell_edit_batch_paths(metadata, original_prompt, &call);
             let shell_edit_command = product_work_required && !shell_edit_paths.is_empty();
+            let shell_edit_receipt_paths = if shell_edit_paths.is_empty() {
+                native_tool_shell_edit_receipt_synthesis_paths(original_prompt, &call)
+            } else {
+                shell_edit_paths.clone()
+            };
+            let shell_edit_receipt_command = product_work_required
+                && !shell_edit_receipt_paths.is_empty();
             let unresolved_owner_source_blocked =
                 native_tool_unresolved_owner_source_first_blocked_receipt(
                     &receipts,
                     &call,
-                    &shell_edit_paths,
+                    &shell_edit_receipt_paths,
                 );
-            let pre_dispatch_receipts = if shell_edit_command {
+            let pre_dispatch_receipts = if shell_edit_receipt_command {
                 Some(receipts.clone())
             } else {
                 None
             };
-            let shell_edit_python_shape_snapshots = if shell_edit_command {
-                native_tool_shell_edit_python_shape_snapshots(&shell_edit_paths)
+            let shell_edit_python_shape_snapshots = if shell_edit_receipt_command {
+                native_tool_shell_edit_python_shape_snapshots(&shell_edit_receipt_paths)
             } else {
                 std::collections::BTreeMap::new()
             };
@@ -10100,7 +10463,7 @@ fn native_tool_completion_evidence_repair_loop(
             };
             turn_receipts.push(receipt.clone());
             receipts.push(receipt.clone());
-            if shell_edit_command && native_tool_command_receipt_success(&receipt) {
+            if shell_edit_receipt_command && native_tool_command_receipt_success(&receipt) {
                 if let Some(blocked) = native_tool_shell_edit_python_existing_shape_blocked_receipt(
                     &receipt.call_id,
                     &shell_edit_python_shape_snapshots,
@@ -10120,7 +10483,7 @@ fn native_tool_completion_evidence_repair_loop(
                 }
                 let synthetic_receipts = native_tool_synthesize_shell_edit_mutation_receipts(
                     &receipt.call_id,
-                    &shell_edit_paths,
+                    &shell_edit_receipt_paths,
                     pre_dispatch_receipts.as_deref().unwrap_or(&[]),
                 );
                 for synthetic in synthetic_receipts {

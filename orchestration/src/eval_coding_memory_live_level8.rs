@@ -957,6 +957,18 @@ fn classify_worker_infra_failure(job: &LiveLevel8Job) -> Option<String> {
 
 fn classify_worker_infra_failure_text(text: &str) -> Option<String> {
     let lower = text.to_ascii_lowercase();
+    if lower.contains("native_tool_loop_wall_timeout")
+        && lower.contains("native_tool_receipts")
+        && lower.contains("[]")
+    {
+        return Some("native_tool_zero_receipt_timeout".to_string());
+    }
+    if lower.contains("\"terminal_status\": \"runner_error\"")
+        && lower.contains("native_tool_receipts")
+        && lower.contains("[]")
+    {
+        return Some("native_tool_zero_receipt_timeout".to_string());
+    }
     if lower.contains("502 bad gateway")
         || lower.contains("503 service unavailable")
         || lower.contains("504 gateway timeout")

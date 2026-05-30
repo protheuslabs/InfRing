@@ -7,6 +7,7 @@ pub fn required_abs_path(args: &Value) -> Result<PathBuf, String> {
         .or_else(|| args.get("file_path"))
         .or_else(|| args.get("filepath"))
         .or_else(|| args.get("target_path"))
+        .or_else(|| args.get("target_file_path"))
         .or_else(|| args.get("target"))
         .or_else(|| args.get("file"))
         .or_else(|| args.get("absolute_path"))

@@ -10,6 +10,60 @@ Level 1 reference trace: `docs/workspace/coding_level1_reference_trace_observati
 
 Purpose: define the exact implementation contract for rebuilding Infring coding as a primitive-first runtime spine. This document converts the behavioral model into buildable primitives, schemas, transitions, ownership boundaries, and eval promotion rules.
 
+## Reset decision: semi-aggressive controller rebuild
+
+Status: active as of 2026-05-30
+
+The current coding runtime contains useful primitives, but the controlling shape
+has become a set of overlapping controllers. That shape is now migration debt.
+The rebuild rule is:
+
+```text
+Keep primitives. Scrap competing controllers. Route behavior through one spine.
+```
+
+Keep:
+
+- native file tools
+- command execution tools
+- safe shell edit parsing
+- receipts and journals
+- timing probes
+- validation/probe harnesses
+- Workflow CD contracts
+- reference-framework trace corpus
+
+Quarantine unless reintroduced as evidence adapters:
+
+- layered planning controllers
+- seeded import-surface repair branches
+- mutation-only recovery branches
+- completion evidence repair loops
+- profile-specific controller behavior
+- staged controller branches
+- broad timeout recovery branches
+- eval-level-derived behavior
+
+Authoritative rebuild target:
+
+```text
+coding_execution_spine_v1
+```
+
+The spine owns deterministic state transition. It does not own provider calls,
+tool execution, language-specific symbol detection, fixture scoring, or final
+user projection. Those systems must feed normalized evidence into the spine and
+accept the spine decision.
+
+Initial routing scope:
+
+- Low-complexity lanes that correspond to Level 1 through Level 3 behavior:
+  `new_file_fast_path`, `micro_direct_mutation`, `existing_project_patch`,
+  `bounded_existing_project_edit`, and `implementation_slice`.
+- No Level 4+ optimization until Level 1-3 are monotonic.
+- Any higher-level patch must run at least one lower-level smoke before
+  promotion.
+
 ## Design goal
 
 The coding runtime must be cohesive enough to handle arbitrary local coding tasks without level-specific production logic.
