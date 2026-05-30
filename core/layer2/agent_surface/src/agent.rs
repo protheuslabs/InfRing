@@ -596,7 +596,7 @@ impl AgentContract {
                 Err(error) => return Err(error),
             };
             let lane_calls = parse_native_tool_calls(&lane_response.output);
-            let mut lane_receipts = native_tool_dispatch_first_mutation_artifact_lane_calls(
+            let lane_receipts = native_tool_dispatch_first_mutation_artifact_lane_calls(
                 &dispatcher,
                 &self.initial_prompt,
                 lane_calls,

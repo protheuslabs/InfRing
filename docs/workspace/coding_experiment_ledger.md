@@ -1042,7 +1042,7 @@ observed trace-backed failure, not broad terminal-status promotion.
 
 ## EXP-CODING-040: Existing-project shell edit receipt recognition
 
-Status: `patched_pending_measurement`
+Status: `rejected_after_measurement`
 
 Hypothesis:
 
@@ -1096,7 +1096,7 @@ broadly changing which profiles allow shell edit batches.
 
 ## EXP-CODING-041: Safe shell edit receipt normalization
 
-Status: `patched_pending_measurement`
+Status: `rejected_after_measurement`
 
 Hypothesis:
 
@@ -1287,3 +1287,110 @@ Expected impact:
 
 Level 3 should convert more first-mutation turns into immediate parsed
 `file_patch` or `file_write` calls without adding another model turn.
+
+## EXP-CODING-046: Native tool-call parser balanced-object scan
+
+Status: `patched_pending_measurement`
+
+Hypothesis:
+
+Some constrained tool lanes still produce visible reasoning before the final
+JSON object. The native parser previously considered fenced blocks, the first
+balanced JSON object, and the full raw output. That can miss a later valid
+`{"tool_calls":[...]}` object when an earlier prose example or placeholder
+object appears first.
+
+Patch:
+
+- Changed native tool-call parsing to scan all balanced JSON objects in the
+  response, bounded to 64 objects.
+- Kept the behavior generic across native tool lanes; this is not a Level 3 or
+  first-mutation special case.
+- Removed the leftover mutable binding from the reverted first-mutation retry.
+
+Expected impact:
+
+If the provider output contains a later valid `tool_calls` object after
+reasoning text, the runtime should materialize it instead of reporting
+`no_successful_mutation`.
+
+## EXP-CODING-047: Receipt-satisfied closeout
+
+Status: `patched_pending_measurement`
+
+Hypothesis:
+
+Level 2 produced real source/test mutations, passed validation, passed the
+semantic probe, and exposed expected symbols, but the runtime still ended
+`partial_blocked`. The closeout primitive was over-trusting prompt evidence-gap
+strings and under-trusting concrete receipts.
+
+Patch:
+
+- Added a receipt-satisfied closeout gate after runtime repair-reason
+  computation.
+- The gate closes only when successful mutation receipts exist, validation
+  passed after the latest mutation, no checkpointed project stage is live,
+  required test mutations exist when tests were requested, and semantic probe
+  success exists when the prompt requested a semantic probe.
+- The gate emits a bounded-direct-edit success marker and synthetic completion
+  evidence instead of falling through to `partial_blocked`.
+
+Expected impact:
+
+Level 2 should stop failing closeout after concrete validation/semantic evidence
+has already satisfied the task contract.
+
+Measurement:
+
+The follow-up Level 2 run did not reach closeout at all: it timed out around
+`240s` with zero native receipts and no mutation. A Level 3 sanity run still
+passed, but regressed to around `114s` because the first mutation lane emitted
+an incomplete source-only mutation and the runtime needed a second provider
+turn to finish tests and validation.
+
+Decision:
+
+Reverted the closeout patch. The current largest failure is not closeout; it is
+first-mutation slice completeness and pre-receipt/provider stall behavior.
+
+## EXP-CODING-048: First mutation required artifact roles
+
+Status: `patched_pending_measurement`
+
+Hypothesis:
+
+Slow Level 3 passes are often caused by an incomplete first mutation slice: the
+first lane mutates source only, auto-validation cannot satisfy the task, and
+the runtime falls into a second long provider turn to add tests and semantic
+proof. The first mutation primitive should express required artifact roles and
+fail fast when the lane emits an incomplete vertical slice.
+
+Patch:
+
+- Added required artifact roles to the first-mutation context packet.
+- Required roles are generic: `source` is always required; `test` is required
+  only when the prompt explicitly asks to add tests, unittest coverage, test
+  changes, or regression tests.
+- If a first-mutation lane batch mutates but omits a required role, the runtime
+  returns a structured incomplete-role block instead of falling into a broad
+  second provider turn.
+
+Expected impact:
+
+Level 3 should either complete source+test in the first lane or fail fast with
+`first_mutation_artifact_lane_v1_incomplete_required_roles`, avoiding slow
+two-turn completions.
+
+Measurement:
+
+One Level 3 run completed successfully with source and test mutations in the
+first lane, but wall time was still around `36s`. The patch did not restore the
+best compact-packet timings, and the extra role machinery risks turning a
+prompt-shaping issue into another controller branch.
+
+Decision:
+
+Reverted the runtime role enforcement. Keep the finding in the ledger, but use
+the compact context packet plus parser scan as the recoverable baseline before
+trying another first-mutation prompt simplification.

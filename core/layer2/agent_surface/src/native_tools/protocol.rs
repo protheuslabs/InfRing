@@ -259,19 +259,31 @@ fn json_candidates(raw: &str) -> Vec<String> {
         out.push(rest[..end].trim().to_string());
         rest = &rest[end + 3..];
     }
-    if let Some(object) = first_balanced_object(raw) {
-        out.push(object);
-    }
+    out.extend(balanced_objects(raw));
     out.push(raw.trim().to_string());
     out
 }
 
-fn first_balanced_object(raw: &str) -> Option<String> {
+fn balanced_objects(raw: &str) -> Vec<String> {
+    let mut objects = Vec::new();
+    let mut search_start = 0usize;
+    while search_start < raw.len() && objects.len() < 64 {
+        let Some((start, object)) = balanced_object_from(raw, search_start) else {
+            break;
+        };
+        search_start = start + object.len().max(1);
+        objects.push(object);
+    }
+    objects
+}
+
+fn balanced_object_from(raw: &str, search_start: usize) -> Option<(usize, String)> {
     let mut start = None;
     let mut depth = 0i32;
     let mut in_string = false;
     let mut escaped = false;
-    for (idx, ch) in raw.char_indices() {
+    for (offset, ch) in raw[search_start..].char_indices() {
+        let idx = search_start + offset;
         if start.is_none() {
             if ch == '{' {
                 start = Some(idx);
@@ -295,7 +307,7 @@ fn first_balanced_object(raw: &str) -> Option<String> {
             '}' => {
                 depth -= 1;
                 if depth == 0 {
-                    return start.map(|start_idx| raw[start_idx..=idx].to_string());
+                    return start.map(|start_idx| (start_idx, raw[start_idx..=idx].to_string()));
                 }
             }
             _ => {}
