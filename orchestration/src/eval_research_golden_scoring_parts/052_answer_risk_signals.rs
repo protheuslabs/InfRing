@@ -276,6 +276,9 @@ fn evidence_texts_support_term(evidence_texts: &[String], term: &str) -> bool {
     if term.is_empty() {
         return true;
     }
+    if evidence_texts_semantically_support_term(evidence_texts, term) {
+        return true;
+    }
     let stem = research_term_stem(term);
     evidence_texts.iter().any(|text| {
         (term.len() > 2 && text.contains(term))
@@ -285,6 +288,30 @@ fn evidence_texts_support_term(evidence_texts: &[String], term: &str) -> bool {
                 normalized == term || (!stem.is_empty() && research_term_stem(&normalized) == stem)
             })
     })
+}
+
+fn evidence_texts_semantically_support_term(evidence_texts: &[String], term: &str) -> bool {
+    let aliases = match term {
+        "profit" | "profitable" | "profitability" => &[
+            "business model",
+            "capital economics",
+            "cost",
+            "costs",
+            "economic",
+            "economics",
+            "margin",
+            "margins",
+            "revenue",
+            "utilization",
+            "utilisation",
+            "viability",
+            "viable",
+        ][..],
+        _ => return false,
+    };
+    evidence_texts
+        .iter()
+        .any(|text| aliases.iter().any(|alias| text.contains(alias)))
 }
 
 fn short_acronym_supported_by_compound(normalized_text: &str, term: &str) -> bool {

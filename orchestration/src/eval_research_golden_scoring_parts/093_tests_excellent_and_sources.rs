@@ -889,6 +889,37 @@ fn excellent_direct_answer_does_not_require_unneeded_gap_statement() {
 }
 
 #[test]
+fn answer_alignment_ignores_generic_presentation_terms() {
+    let payload = json!({
+        "evidence_claims": [
+            {
+                "claim": "Amazon Q Developer fits AWS-heavy environments where cloud-specific integration adds value.",
+                "support_snippet": "Amazon Q Developer is useful for AWS-heavy teams because cloud-specific context and integration add value.",
+                "source_domain": "vendor-notes.example"
+            },
+            {
+                "claim": "EV charging viability depends on utilization, location quality, cost burden, and driver density.",
+                "support_snippet": "EV charging business model viability depends on utilization, location quality, fixed operating costs, and driver density.",
+                "source_domain": "market-notes.example"
+            }
+        ]
+    });
+    let retrieval_quality = json!({
+        "usable_evidence": true
+    });
+    let response = "Amazon Q Developer — Strengths: tuned for AWS-heavy environments. \
+        Best fit: Organizations with significant AWS investment where cloud-specific context adds value. \
+        EV charging profitability depends on location quality, utilization, and fixed operating costs.";
+
+    let alignment = answer_unit_evidence_alignment(&payload, response, &retrieval_quality);
+    assert_eq!(
+        alignment.get("pass").and_then(Value::as_bool),
+        Some(true),
+        "{alignment:#?}"
+    );
+}
+
+#[test]
 fn user_facing_answer_quality_allows_light_source_framing_when_answer_is_direct() {
     let case = json!({
         "prompt": "Compare LangGraph and CrewAI for long-running production agents.",
