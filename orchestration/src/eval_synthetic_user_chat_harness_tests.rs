@@ -463,6 +463,30 @@ fn synthetic_user_harness_accepts_useful_plaintext_without_magic_words() {
             .any(|row| row == "missing_useful_plaintext_answer"),
         "{fragment_failures:?}"
     );
+
+    let recovery_turn = json!({
+        "user_message": "what? why are you repeating the same fallback text?",
+        "expect": {"require_useful_plaintext_answer": true}
+    });
+    let recovery_failures = evaluate_turn(TurnEvaluation {
+        live: false,
+        turn: &recovery_turn,
+        thresholds: &thresholds,
+        user_message: "what? why are you repeating the same fallback text?",
+        response_text: "You are right to call that out. The repeated fallback text happened because workflow telemetry was being surfaced as chat text instead of staying internal. I should answer your actual request directly and keep those diagnostics out of the visible reply.",
+        previous_response: "",
+        payload: &payload,
+        route_error_code: None,
+        latency_ms: 100,
+        response_token_count: 34,
+        workflow_stage_count: 1,
+    });
+    assert!(
+        !recovery_failures
+            .iter()
+            .any(|row| row == "missing_useful_plaintext_answer"),
+        "{recovery_failures:?}"
+    );
 }
 
 #[test]

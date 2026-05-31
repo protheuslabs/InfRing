@@ -263,7 +263,7 @@
           "turn_id": "recover_001",
           "user_message": "what? why are you repeating the same fallback text?",
           "mock_response": {
-            "response": "You are right to call that out. I should answer directly and use the monitor output only as telemetry, not as chat text.",
+            "response": "You are right to call that out. The repeated fallback text happened because workflow telemetry was being surfaced as chat text instead of staying internal. I should answer your actual request directly and keep those diagnostics out of the visible reply.",
             "response_workflow": {
               "selected_workflow": {
                 "id": "simple_conversation_v1",
