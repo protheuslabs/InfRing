@@ -504,6 +504,16 @@ fn maybe_apply_rejected_tool_evidence_fallback(
     } else {
         last_invalid_excerpt
     };
+    if rejected_llm_answer_is_visible_bounded_evidence_response(salvage_source_text) {
+        preserve_rejected_bounded_llm_answer(
+            workflow,
+            response_tools,
+            salvage_source_text,
+            last_reject_reason,
+            last_invalid_excerpt,
+        );
+        return true;
+    }
     let fallback_response = clean_text(
         &fallback_final_response_from_tool_evidence(message, response_tools),
         3_000,
@@ -586,6 +596,96 @@ fn maybe_apply_rejected_tool_evidence_fallback(
         "synthesis_failure_diagnostic",
     );
     true
+}
+
+fn rejected_llm_answer_is_visible_bounded_evidence_response(response_text: &str) -> bool {
+    let cleaned = clean_text(response_text, 1_600);
+    if cleaned.is_empty()
+        || response_looks_like_source_title_inventory(&cleaned)
+        || response_looks_like_retrieval_recap_substituted_for_answer(&cleaned)
+        || response_is_low_information_tool_evidence_fallback(&cleaned)
+    {
+        return false;
+    }
+    let lowered = cleaned.to_ascii_lowercase();
+    let bounded_evidence_answer = [
+        "couldn't locate",
+        "could not locate",
+        "can't locate",
+        "cannot locate",
+        "couldn't find",
+        "could not find",
+        "can't find",
+        "cannot find",
+        "can't make a reliable",
+        "cannot make a reliable",
+        "can't verify",
+        "cannot verify",
+        "does not support",
+        "did not return",
+        "not enough source-backed",
+        "not enough reliable",
+        "insufficient evidence",
+        "too thin",
+        "not source-backed",
+        "not reliable enough",
+        "no reliable",
+    ]
+    .iter()
+    .any(|needle| lowered.contains(needle));
+    if !bounded_evidence_answer {
+        return false;
+    }
+    workflow_answer_text_units(&cleaned).into_iter().any(|unit| {
+        let unit = clean_text(&unit, 520);
+        !unit.is_empty()
+            && !workflow_answer_unit_contains_ui_or_source_shell(&unit)
+            && !workflow_answer_unit_looks_like_source_title_fragment(&unit)
+            && !workflow_answer_unit_looks_like_datestamped_headline_shell(&unit)
+            && !workflow_answer_unit_is_process_or_metadata_fact(&unit)
+            && unit.split_whitespace().count() >= 8
+    })
+}
+
+fn preserve_rejected_bounded_llm_answer(
+    workflow: &mut Value,
+    response_tools: &[Value],
+    response_text: &str,
+    original_reject_reason: &str,
+    original_reject_excerpt: &str,
+) {
+    let cleaned_response = persist_workflow_visible_response(
+        workflow,
+        &clean_text(response_text, 3_000),
+    );
+    if cleaned_response.is_empty() {
+        return;
+    }
+    workflow["quality_telemetry"]["final_fallback_used"] = Value::Bool(false);
+    workflow["quality_telemetry"]["final_fallback_suppressed"] = Value::Bool(true);
+    workflow["quality_telemetry"]["runtime_visible_fallback_source"] =
+        Value::String("rejected_bounded_llm_answer_preserved".to_string());
+    workflow["final_llm_response"]["used"] = Value::Bool(true);
+    workflow["final_llm_response"]["status"] = Value::String("synthesized".to_string());
+    workflow["final_llm_response"]["runtime_interference_disabled"] = Value::Bool(true);
+    workflow["final_llm_response"]["visible_response_preserved"] = Value::Bool(true);
+    workflow["final_llm_response"]["replacement_response_used"] = Value::Bool(false);
+    workflow["final_llm_response"]["verifier_reject_suppressed"] = Value::Bool(true);
+    workflow["final_llm_response"]["verifier_reject_suppression_reason"] =
+        Value::String("bounded_evidence_answer_is_user_visible".to_string());
+    workflow["final_llm_response"]["original_reject_reason"] =
+        Value::String(clean_text(original_reject_reason, 240));
+    workflow["final_llm_response"]["original_reject_excerpt"] =
+        Value::String(clean_text(original_reject_excerpt, 600));
+    workflow["final_llm_response"]["preserved_response_excerpt"] =
+        Value::String(first_sentence(&cleaned_response, 240));
+    annotate_final_evidence_outcome_posture(workflow, response_tools);
+    record_workflow_diagnostic_event(
+        workflow,
+        "bounded_llm_answer_preserved_after_verifier_reject",
+        "synthesis_failure_diagnostic",
+    );
+    set_turn_workflow_final_stage_status(workflow, "synthesized");
 }
 
 fn fallback_response_has_substantive_depth(response_text: &str) -> bool {

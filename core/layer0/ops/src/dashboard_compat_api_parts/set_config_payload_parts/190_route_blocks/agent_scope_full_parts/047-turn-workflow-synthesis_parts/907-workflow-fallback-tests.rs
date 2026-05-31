@@ -161,6 +161,72 @@
     }
 
     #[test]
+    fn rejected_bounded_llm_answer_is_preserved_instead_of_runtime_tool_fragment() {
+        let mut workflow = json!({
+            "response": "",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": false,
+                "status": "synthesis_failed"
+            }
+        });
+        let tools = vec![json!({
+            "name": "batch_query",
+            "status": "no_results",
+            "summary": "No usable evidence claims or concrete answer units were extracted from the results.",
+            "evidence_refs": [{
+                "title": "Off-topic framework source",
+                "locator": "https://example.test/off-topic"
+            }],
+            "tool_result_quality": {
+                "status": "low_signal",
+                "flags": ["insufficient_evidence", "low_relevance_filtered"]
+            }
+        })];
+        let rejected_response =
+            "I can't make a reliable comparison from this search because the available evidence did not return source-backed coverage of the requested frameworks.";
+
+        let rewritten = maybe_apply_rejected_tool_evidence_fallback(
+            &mut workflow,
+            "Compare the current agentic framework landscape.",
+            &tools,
+            rejected_response,
+            rejected_response,
+            "final_response_verifier_contract:missing_coverage_lanes=frameworks",
+        );
+
+        assert!(rewritten);
+        assert_eq!(
+            workflow.get("response").and_then(Value::as_str),
+            Some(rejected_response)
+        );
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/status")
+                .and_then(Value::as_str),
+            Some("synthesized")
+        );
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/visible_response_preserved")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/replacement_response_used")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/verifier_reject_suppressed")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
     fn rejected_tool_backed_response_without_required_lane_presence_uses_fallback_rewrite() {
         let mut workflow = json!({
             "response": "",
