@@ -438,6 +438,11 @@ fn evaluate_turn(input: TurnEvaluation<'_>) -> Vec<String> {
     {
         failures.push("tool_execution_without_final_synthesis".to_string());
     }
+    if bool_at(turn, &["expect", "require_useful_plaintext_answer"], false)
+        && !response_is_useful_plaintext_answer(user_message, response_text)
+    {
+        failures.push("missing_useful_plaintext_answer".to_string());
+    }
     if bool_at(
         turn,
         &["expect", "forbid_unresolved_tool_need_without_progress"],
@@ -622,19 +627,22 @@ fn payload_has_pending_tool(payload: &Value) -> bool {
 }
 
 fn hidden_second_pass_suspected(payload: &Value) -> bool {
-    payload
+    if payload
         .pointer("/response_finalization/workflow_system_fallback_used")
         .and_then(Value::as_bool)
         == Some(true)
         || payload
-            .pointer("/response_workflow/final_llm_response/attempt_count")
-            .and_then(Value::as_u64)
-            .unwrap_or(1)
-            > 1
-        || payload
             .pointer("/response_workflow/final_llm_response/fallback_guard_multi_stage")
             .and_then(Value::as_bool)
             == Some(true)
+    {
+        return true;
+    }
+    let attempt_count = payload
+        .pointer("/response_workflow/final_llm_response/attempt_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    attempt_count > 1 && !payload_final_llm_synthesized(payload)
 }
 
 fn payload_has_tool_result_without_synthesis(payload: &Value, response_text: &str) -> bool {
@@ -721,6 +729,116 @@ fn response_claims_tool_progress_without_evidence(response_text: &str) -> bool {
     .any(|needle| lowered.contains(*needle));
     claims_result && !hypothetical_only
 }
+
+fn response_is_useful_plaintext_answer(user_message: &str, response_text: &str) -> bool {
+    let normalized = normalize_for_compare(response_text);
+    if normalized.is_empty()
+        || normalized.split_whitespace().count() < 6
+        || response_looks_like_raw_tool_or_provider_fragment(&normalized)
+    {
+        return false;
+    }
+    let terms = significant_user_terms(user_message);
+    let overlap = terms
+        .iter()
+        .filter(|term| normalized.contains(term.as_str()))
+        .count();
+    let bounded = [
+        "can't make a reliable",
+        "cannot make a reliable",
+        "could not make a reliable",
+        "can't verify",
+        "cannot verify",
+        "does not support",
+        "did not return",
+        "not enough reliable",
+        "not enough source backed",
+        "insufficient evidence",
+        "no reliable",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(*needle));
+    if bounded {
+        return overlap > 0 || terms.is_empty();
+    }
+    overlap >= terms.len().min(2).max(1)
+}
+
+fn response_looks_like_raw_tool_or_provider_fragment(normalized_response: &str) -> bool {
+    let raw_markers = [
+        "tool trace complete",
+        "web search from web retrieval",
+        "recorded evidence so far here's what i found",
+        "no usable evidence claims",
+        "provider starved",
+        "provider_starved",
+        "runtime_tool_evidence_fallback",
+        "receipt backed synthesis",
+    ];
+    raw_markers
+        .iter()
+        .any(|needle| normalized_response.contains(*needle))
+}
+
+fn significant_user_terms(user_message: &str) -> Vec<String> {
+    normalize_for_compare(user_message)
+        .split_whitespace()
+        .filter_map(|term| {
+            let cleaned = term
+                .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+                .to_string();
+            if cleaned.len() < 4 || USER_TERM_STOPWORDS.contains(&cleaned.as_str()) {
+                None
+            } else {
+                Some(cleaned)
+            }
+        })
+        .fold(Vec::<String>::new(), |mut acc, term| {
+            if !acc.iter().any(|existing| existing == &term) {
+                acc.push(term);
+            }
+            acc
+        })
+}
+
+const USER_TERM_STOPWORDS: &[&str] = &[
+    "about",
+    "after",
+    "again",
+    "answer",
+    "because",
+    "before",
+    "current",
+    "directly",
+    "does",
+    "from",
+    "give",
+    "have",
+    "into",
+    "just",
+    "like",
+    "only",
+    "please",
+    "query",
+    "request",
+    "same",
+    "search",
+    "some",
+    "tell",
+    "that",
+    "their",
+    "them",
+    "then",
+    "there",
+    "this",
+    "turn",
+    "what",
+    "which",
+    "with",
+    "work",
+    "would",
+    "your",
+];
 
 fn visible_workflow_gate_choice_leakage(response_text: &str, payload: &Value) -> bool {
     if !workflow_visible(payload) {

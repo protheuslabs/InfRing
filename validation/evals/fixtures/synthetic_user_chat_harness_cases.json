@@ -81,10 +81,10 @@
             }
           },
           "expect": {
-            "required_substrings": ["would use"],
             "require_workflow_visibility": true,
             "require_live_eval_monitor": true,
             "forbid_gate_choice_leakage": true,
+            "require_useful_plaintext_answer": true,
             "simple_direct_conversation": true
           }
         }
@@ -245,13 +245,13 @@
             }
           },
           "expect": {
-            "required_substrings": ["web result", "receipt-backed synthesis"],
             "require_workflow_visibility": true,
             "require_live_eval_monitor": true,
             "forbid_gate_choice_leakage": true,
             "require_tool_execution_evidence": true,
             "require_final_synthesis": true,
-            "require_tool_result_synthesis": true
+            "require_tool_result_synthesis": true,
+            "require_useful_plaintext_answer": true
           }
         }
       ]
@@ -281,10 +281,10 @@
             }
           },
           "expect": {
-            "required_substrings": ["answer directly"],
             "require_workflow_visibility": true,
             "require_live_eval_monitor": true,
             "forbid_gate_choice_leakage": true,
+            "require_useful_plaintext_answer": true,
             "simple_direct_conversation": true
           }
         }

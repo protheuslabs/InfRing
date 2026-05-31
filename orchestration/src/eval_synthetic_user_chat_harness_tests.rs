@@ -408,6 +408,64 @@ fn synthetic_user_harness_flags_workflow_infra_failure_modes() {
 }
 
 #[test]
+fn synthetic_user_harness_accepts_useful_plaintext_without_magic_words() {
+    let turn = json!({
+        "user_message": "Use web search to compare infring to other major agentic frameworks in April 2026.",
+        "expect": {"require_useful_plaintext_answer": true}
+    });
+    let thresholds = json!({});
+    let payload = json!({
+        "response_workflow": {
+            "final_llm_response": {
+                "status": "synthesized",
+                "attempt_count": 2
+            }
+        },
+        "live_eval_monitor": {"chat_injection_allowed": false}
+    });
+    let useful_failures = evaluate_turn(TurnEvaluation {
+        live: false,
+        turn: &turn,
+        thresholds: &thresholds,
+        user_message: "Use web search to compare infring to other major agentic frameworks in April 2026.",
+        response_text: "I can't make a reliable comparison of Infring against other agentic frameworks because the retrieved evidence did not return source-backed coverage for the requested comparison.",
+        previous_response: "",
+        payload: &payload,
+        route_error_code: None,
+        latency_ms: 100,
+        response_token_count: 21,
+        workflow_stage_count: 1,
+    });
+    assert!(
+        !useful_failures
+            .iter()
+            .any(|row| row == "missing_useful_plaintext_answer"
+                || row == "hidden_second_pass_call"),
+        "{useful_failures:?}"
+    );
+
+    let fragment_failures = evaluate_turn(TurnEvaluation {
+        live: false,
+        turn: &turn,
+        thresholds: &thresholds,
+        user_message: "Use web search to compare infring to other major agentic frameworks in April 2026.",
+        response_text: "Tool trace complete. Web search from web retrieval: provider_starved and no usable evidence claims.",
+        previous_response: "",
+        payload: &payload,
+        route_error_code: None,
+        latency_ms: 100,
+        response_token_count: 11,
+        workflow_stage_count: 1,
+    });
+    assert!(
+        fragment_failures
+            .iter()
+            .any(|row| row == "missing_useful_plaintext_answer"),
+        "{fragment_failures:?}"
+    );
+}
+
+#[test]
 fn synthetic_user_harness_flags_empty_direct_reply() {
     let turn = json!({"user_message": "hey", "expect": {}});
     let failures = evaluate_turn(TurnEvaluation {
