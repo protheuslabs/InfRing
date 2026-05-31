@@ -211,6 +211,12 @@ fn prompt_asks_for_process_or_schedule(normalized_prompt: &str) -> bool {
             " schedule",
             " scheduled",
             " deadline",
+            " timeline",
+            " obligation",
+            " obligations",
+            " compliance",
+            " prepare",
+            " practical obligations",
             " nomination",
             " nominations",
             " application",
@@ -616,6 +622,8 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "decision"
             | "design"
             | "designed"
+            | "detail"
+            | "details"
             | "does"
             | "ease"
             | "enforc"
@@ -634,6 +642,7 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "first"
             | "for"
             | "from"
+            | "available"
             | "gap"
             | "gaps"
             | "general"
@@ -671,6 +680,7 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "metric"
             | "metrics"
             | "momentum"
+            | "near"
             | "once"
             | "one"
             | "option"
@@ -687,6 +697,8 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "probably"
             | "prescrib"
             | "previous"
+            | "priority"
+            | "priorities"
             | "prioritize"
             | "prioritise"
             | "prioritiz"
@@ -723,6 +735,8 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "there"
             | "these"
             | "tailor"
+            | "term"
+            | "terms"
             | "third"
             | "this"
             | "those"
@@ -733,6 +747,7 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "tradeoff"
             | "tradeoffs"
             | "choose"
+            | "try"
             | "tuned"
             | "unreliable"
             | "unresolv"

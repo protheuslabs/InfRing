@@ -307,6 +307,7 @@ fn evidence_texts_semantically_support_term(evidence_texts: &[String], term: &st
             "viability",
             "viable",
         ][..],
+        "southern" => &["south", "postwar south"][..],
         _ => return false,
     };
     evidence_texts

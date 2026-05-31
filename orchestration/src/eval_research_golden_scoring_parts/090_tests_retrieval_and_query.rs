@@ -485,11 +485,21 @@ fn scoring_shape_accepts_general_research_findings_and_plans() {
     );
     assert!(has_recommendation_signal(&balanced_takeaway));
 
+    let priorities = normalize_for_compare(
+        "The highest priorities are maintaining a data inventory and validating public privacy claims. \
+         A key risk-reduction step is to focus on opt-out flows.",
+    );
+    assert!(has_recommendation_signal(&priorities));
+
     let historical_tension = normalize_for_compare(
         "The mainstream view is broadly democratizing. At the same time, scholars acknowledge \
          tensions over political symbolism, federal patronage, and representation.",
     );
     assert!(has_tradeoff_or_structure(&historical_tension));
+
+    assert!(prompt_asks_for_process_or_schedule(
+        &normalize_for_compare("Explain the implementation timeline and practical obligations for a SaaS company.")
+    ));
 }
 
 #[test]

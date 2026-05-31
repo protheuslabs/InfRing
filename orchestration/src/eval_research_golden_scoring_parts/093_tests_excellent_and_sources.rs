@@ -901,6 +901,16 @@ fn answer_alignment_ignores_generic_presentation_terms() {
                 "claim": "EV charging viability depends on utilization, location quality, cost burden, and driver density.",
                 "support_snippet": "EV charging business model viability depends on utilization, location quality, fixed operating costs, and driver density.",
                 "source_domain": "market-notes.example"
+            },
+            {
+                "claim": "Modern Reconstruction scholarship links political reversal to the restoration of white elite power in the postwar South.",
+                "support_snippet": "Historians connect political abandonment, economic conflict, and the restoration of white elite power in the postwar South.",
+                "source_domain": "history-notes.example"
+            },
+            {
+                "claim": "Climate adaptation funding affects households and businesses through resilience projects.",
+                "support_snippet": "Adaptation and resilience funding reaches households and businesses through heat, wildfire, flood, water, and grid projects.",
+                "source_domain": "climate-notes.example"
             }
         ]
     });
@@ -912,7 +922,10 @@ fn answer_alignment_ignores_generic_presentation_terms() {
         EV charging profitability depends on location quality, utilization, and fixed operating costs. \
         The available context does not include 2026-specific U.S. forecasts. \
         Bottom line: filter the landscape through your product risk. \
-        Call-focused option: make microphone clarity the primary filter.";
+        Call-focused option: make microphone clarity the primary filter. \
+        The prevailing view links political reversal to white Southern elites returning to power. \
+        Adaptation is a near-term priority, but the available detail is limited. \
+        Try the fit before committing.";
 
     let alignment = answer_unit_evidence_alignment(&payload, response, &retrieval_quality);
     assert_eq!(
