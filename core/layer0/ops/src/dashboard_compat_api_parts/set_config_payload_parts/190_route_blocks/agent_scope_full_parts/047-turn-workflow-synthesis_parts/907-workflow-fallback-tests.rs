@@ -928,6 +928,13 @@
     }
 
     #[test]
+    fn bounded_search_results_do_not_yield_answer_is_preservable_synthesis() {
+        assert!(rejected_llm_answer_is_visible_bounded_evidence_response(
+            "The search results don't yield a usable, source-backed comparison of Infring against other major agentic frameworks for April 2026."
+        ));
+    }
+
+    #[test]
     fn mixed_title_shell_and_coverage_fallback_is_repaired_from_reject_excerpt() {
         let mut workflow = json!({
             "response": "Family Guide to Hyde Park: Things to Do with Kids Chicago Parent Published: Tue, 17 Sep 2024 07:00:00 GMT. coverage gaps remain for Lincoln Park, Hyde Park, Wicker Park, South Loop, Loop, Museum Campus, family-friendly, museums.",

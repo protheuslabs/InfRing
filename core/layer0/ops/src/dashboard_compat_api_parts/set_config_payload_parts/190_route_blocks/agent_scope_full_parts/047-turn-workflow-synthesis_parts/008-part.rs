@@ -138,10 +138,69 @@ fn direct_gate_recovery_response_answers_user(
     direct_gate_recovery_turn: bool,
 ) -> bool {
     let _ = direct_gate_recovery_turn;
+    if recovery_complaint_about_response_loop(message)
+        && !response_handles_recovery_complaint(message, response_text)
+    {
+        return false;
+    }
     if response_answers_user_early(message, response_text) {
         return true;
     }
     false
+}
+
+fn recovery_complaint_about_response_loop(message: &str) -> bool {
+    let lowered = clean_text(message, 1_000).to_ascii_lowercase();
+    if lowered.is_empty() {
+        return false;
+    }
+    let complaint = lowered.contains("why")
+        || lowered.contains("what")
+        || lowered.contains("again")
+        || lowered.contains("same")
+        || lowered.contains("repeat")
+        || lowered.contains("repeating");
+    let response_loop = lowered.contains("fallback")
+        || lowered.contains("same text")
+        || lowered.contains("same response")
+        || lowered.contains("repeat")
+        || lowered.contains("repeating")
+        || lowered.contains("loop");
+    complaint && response_loop
+}
+
+fn response_handles_recovery_complaint(message: &str, response_text: &str) -> bool {
+    if !recovery_complaint_about_response_loop(message) {
+        return true;
+    }
+    let cleaned = clean_text(response_text, 2_000);
+    let lowered = cleaned.to_ascii_lowercase();
+    if lowered.is_empty()
+        || cleaned.trim_end().ends_with('?')
+        || lowered.contains("what do you need help")
+        || lowered.contains("how can i help")
+    {
+        return false;
+    }
+    let names_failure = lowered.contains("fallback")
+        || lowered.contains("loop")
+        || lowered.contains("repeat")
+        || lowered.contains("same text")
+        || lowered.contains("same response");
+    let gives_cause_or_boundary = lowered.contains("because")
+        || lowered.contains("came from")
+        || lowered.contains("happened")
+        || lowered.contains("workflow")
+        || lowered.contains("finalization")
+        || lowered.contains("telemetry")
+        || lowered.contains("diagnostic");
+    let names_correction = lowered.contains("answer directly")
+        || lowered.contains("keep")
+        || lowered.contains("diagnostic")
+        || lowered.contains("visible reply")
+        || lowered.contains("chat text")
+        || lowered.contains("not repeat");
+    names_failure && gives_cause_or_boundary && names_correction
 }
 
 fn response_answers_tool_confirmation_with_recorded_result(

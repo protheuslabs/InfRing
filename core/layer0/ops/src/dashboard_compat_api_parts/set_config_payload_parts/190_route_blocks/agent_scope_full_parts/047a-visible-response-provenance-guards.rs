@@ -295,6 +295,58 @@ fn response_contains_workflow_prompt_analysis_leak(response_text: &str) -> bool 
     .any(|marker| lowered.contains(marker))
 }
 
+fn response_contains_workflow_prompt_analysis_leak_for_message(
+    user_message: &str,
+    response_text: &str,
+) -> bool {
+    if !response_contains_workflow_prompt_analysis_leak(response_text) {
+        return false;
+    }
+    if message_explicitly_disallows_tool_calls(user_message)
+        && response_is_safe_hypothetical_tool_choice_answer(response_text)
+    {
+        return false;
+    }
+    true
+}
+
+fn response_is_safe_hypothetical_tool_choice_answer(response_text: &str) -> bool {
+    let lowered = clean_text(response_text, 2_000).to_ascii_lowercase();
+    if lowered.is_empty() || !lowered.contains("tool") {
+        return false;
+    }
+    let hypothetical = [
+        "i would use",
+        "i would choose",
+        "i'd use",
+        "i'd choose",
+        "would use",
+        "would choose",
+        "would typically use",
+        "appropriate tool would",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker));
+    if !hypothetical {
+        return false;
+    }
+    ![
+        "according to the instructions",
+        "in the runtime context",
+        "workflow gate",
+        "manual toolbox",
+        "selected_tool",
+        "selected tool",
+        "recorded_tool_",
+        "recorded_evidence_",
+        "synthesis input envelope",
+        "evidence_outcome_posture",
+        "outcome posture",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker))
+}
+
 fn response_contains_unrequested_content_without_tool_evidence(
     user_message: &str,
     response_text: &str,

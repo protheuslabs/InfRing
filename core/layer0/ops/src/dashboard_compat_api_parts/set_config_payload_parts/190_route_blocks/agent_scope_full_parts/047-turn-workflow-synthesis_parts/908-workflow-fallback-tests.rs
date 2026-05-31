@@ -443,6 +443,22 @@
     }
 
     #[test]
+    fn dry_run_hypothetical_tool_choice_is_not_prompt_analysis_leak() {
+        let message = "Dry run only: tell me which file tool you would use, but do not run tools yet.";
+        let response = "The user asks for a file operation in dry-run mode, so the appropriate tool would typically be a filesystem/file tool.";
+
+        assert!(response_contains_workflow_prompt_analysis_leak(response));
+        assert!(!response_contains_workflow_prompt_analysis_leak_for_message(
+            message,
+            response,
+        ));
+        assert!(response_contains_workflow_prompt_analysis_leak_for_message(
+            message,
+            "According to the instructions, the workflow gate says I would use the file tool.",
+        ));
+    }
+
+    #[test]
     fn numeric_workflow_gate_submission_selects_json_alias_category() {
         assert!(response_is_tool_bearing_category_gate_submission("3"));
         let (category_key, category_label) =

@@ -211,6 +211,8 @@ fn run_turn_workflow_final_response(
         .join("\n");
     let max_attempts: u64 = if manual_toolbox_gate_turn {
         manual_toolbox_private_gate_max_attempts()
+    } else if direct_gate_recovery_turn {
+        2
     } else if missing_turn_tool_context_recovery {
         2
     } else if !response_tools.is_empty() {

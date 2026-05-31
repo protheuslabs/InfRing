@@ -242,6 +242,11 @@
             "I will answer directly now.",
             true,
         ));
+        assert!(!direct_gate_recovery_response_answers_user(
+            message,
+            "I’m not trying to loop or repeat anything canned. If this felt like a fallback, that’s a glitch in how my response came through. What do you need help with right now?",
+            true,
+        ));
     }
 
     #[test]

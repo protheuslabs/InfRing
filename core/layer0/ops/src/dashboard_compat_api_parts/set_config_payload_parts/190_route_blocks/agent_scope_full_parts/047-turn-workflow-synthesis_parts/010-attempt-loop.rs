@@ -272,7 +272,6 @@ fn run_turn_workflow_final_response_attempts(
                     && !receipt_mapped_sources
                     && !response_has_evidence_tags(&retried_text);
                 let missing_direct_answer = !recorded_tool_result_answer
-                    && !direct_gate_recovery_turn
                     && !direct_gate_recovery_response_answers_user(
                         message,
                         &retried_text,
@@ -302,7 +301,10 @@ fn run_turn_workflow_final_response_attempts(
                 let raw_tool_payload_dump =
                     response_looks_like_raw_tool_payload_dump(&retried_text);
                 let prompt_analysis_leak =
-                    response_contains_workflow_prompt_analysis_leak(&retried_text);
+                    response_contains_workflow_prompt_analysis_leak_for_message(
+                        message,
+                        &retried_text,
+                    );
                 let reject_checks = [
                     (
                         visible_gate_choice_reply,
