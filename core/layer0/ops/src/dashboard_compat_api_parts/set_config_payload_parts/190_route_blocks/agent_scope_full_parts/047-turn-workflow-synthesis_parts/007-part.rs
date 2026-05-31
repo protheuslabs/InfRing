@@ -103,13 +103,14 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
     if !shell_partial.is_empty() {
         return shell_partial;
     }
-    let failure_reason = clean_text(
+    let raw_failure_reason = clean_text(
         &first_sentence(
             &response_tools_failure_reason_for_user(response_tools, 4),
             320,
         ),
         360,
     );
+    let failure_reason = visible_tool_failure_reason_for_fallback(&raw_failure_reason);
     let mut findings = clean_text(
         &first_sentence(&response_tools_summary_for_user(response_tools, 4), 420),
         480,
@@ -220,6 +221,27 @@ fn fallback_final_response_from_tool_evidence(message: &str, response_tools: &[V
         parts.push(coverage_note);
     }
     clean_text(&parts.join(" "), 900)
+}
+
+fn visible_tool_failure_reason_for_fallback(failure_reason: &str) -> String {
+    let cleaned = clean_text(failure_reason, 360);
+    if cleaned.is_empty() {
+        return String::new();
+    }
+    let lowered = cleaned.to_ascii_lowercase();
+    let blocked = lowered.contains("blocked")
+        || lowered.contains("permission")
+        || lowered.contains("denied")
+        || lowered.contains("403")
+        || lowered.contains("429");
+    let timed_out = lowered.contains("timeout") || lowered.contains("timed out");
+    if blocked {
+        "A required lookup was blocked before usable evidence was available.".to_string()
+    } else if timed_out {
+        "A required lookup timed out before usable evidence was available.".to_string()
+    } else {
+        "The lookup path did not return usable evidence for this turn.".to_string()
+    }
 }
 
 fn fallback_required_facet_lanes_for_tools(response_tools: &[Value], limit: usize) -> Vec<String> {

@@ -378,12 +378,33 @@ fn no_models_available_payload(agent_id: &str) -> Value {
 fn response_tool_summary_text_is_rejected(text: &str) -> bool {
     let lowered = text.to_ascii_lowercase();
     lowered.contains("model attempted this call as text")
+        || response_text_is_internal_provider_diagnostic(&lowered)
         || response_looks_like_tool_ack_without_findings(text)
         || response_is_no_findings_placeholder(text)
         || response_looks_like_unsynthesized_web_snippet_dump(text)
         || response_looks_like_raw_web_artifact_dump(text)
         || response_contains_tool_telemetry_dump(text)
         || looks_like_search_engine_chrome_summary(&lowered)
+}
+
+fn response_text_is_internal_provider_diagnostic(lowered_text: &str) -> bool {
+    [
+        "search provider chain exhausted",
+        "credentialed providers were not configured",
+        "credentialed providers",
+        "free providers returned low-signal",
+        "fallback providers did not return usable evidence",
+        "strong_search_provider",
+        "provider_starved",
+        "provider starved",
+        "provider timeout",
+        "provider timeouts",
+        "provider starvation",
+        "missing api key",
+        "api key",
+    ]
+    .iter()
+    .any(|marker| lowered_text.contains(marker))
 }
 
 fn response_tool_summary_snippet_is_rejected(text: &str) -> bool {

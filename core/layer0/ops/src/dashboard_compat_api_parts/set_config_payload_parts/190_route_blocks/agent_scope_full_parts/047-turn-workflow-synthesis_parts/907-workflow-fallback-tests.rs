@@ -99,6 +99,44 @@
     }
 
     #[test]
+    fn tool_evidence_fallback_sanitizes_provider_diagnostic_failures() {
+        let mut workflow = json!({
+            "response": "",
+            "quality_telemetry": {},
+            "final_llm_response": {}
+        });
+        let tools = vec![json!({
+            "name": "web_search",
+            "status": "no_results",
+            "result": "Search provider chain exhausted: credentialed providers were not configured, and available fallback providers did not return usable evidence.",
+            "tool_result_quality": {
+                "status": "provider_starved",
+                "flags": ["missing_strong_search_provider"]
+            }
+        })];
+
+        apply_final_empty_response_diagnostic(
+            &mut workflow,
+            "Give me current global news from this week.",
+            "",
+            &tools,
+        );
+
+        let response = workflow
+            .get("response")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(!response.trim().is_empty(), "{response}");
+        assert!(!response.contains("Search provider chain exhausted"), "{response}");
+        assert!(!response.contains("credentialed providers"), "{response}");
+        assert!(!response.contains("Tool failures:"), "{response}");
+        assert!(
+            response.contains("usable evidence") || response.contains("reliable information"),
+            "{response}"
+        );
+    }
+
+    #[test]
     fn rejected_tool_backed_response_suppresses_runtime_coverage_note_rewrite() {
         let mut workflow = json!({
             "response": "",
