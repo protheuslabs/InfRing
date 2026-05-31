@@ -260,6 +260,30 @@ Before merging a workflow/runtime patch, ask:
 - Is there a cheaper path for simple tasks?
 - What receipt, validation, or failure artifact proves the behavior?
 
+## Required patch packet
+
+Before writing a coding workflow/runtime patch, record a compact patch packet
+in the experiment ledger or implementation note:
+
+```text
+Primitive:
+Invariant:
+Expected measurable delta:
+Rollback condition:
+```
+
+Rules:
+
+- `Primitive` must name a reusable primitive or composition boundary, not an
+  eval level.
+- `Invariant` must describe behavior that remains correct outside the current
+  test case.
+- `Expected measurable delta` must name the trace, receipt, pass/fail, or
+  latency movement that should improve.
+- `Rollback condition` must name the result that proves the patch is entropy.
+- If the patch cannot fill all four fields, stop and update the behavioral
+  model before touching runtime code.
+
 ## Stop rule
 
 If the same level keeps failing after multiple local patches, stop patching and do a method reset:

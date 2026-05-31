@@ -100,6 +100,33 @@ Every runtime turn must be able to answer:
 - reason any higher profile was selected over a lower profile
 - lower profiles that must be smoke-tested before accepting the patch
 
+### Current model re-anchor: 2026-05-30 ladder failures
+
+Recent Level 1-5 native runs show that the runtime is not primarily missing
+file tools. It is missing stricter primitive boundaries for latency, first
+mutation, validation repair, and closeout.
+
+| Observed failure | Owning primitive | Required invariant |
+| --- | --- | --- |
+| Level 2 produced valid artifacts but took about `240s` | `tool_progress_watchdog` | Mutation-required low/mid-profile work must not wait through a long provider turn before the first useful receipt. |
+| Level 3 sometimes produced reasoning or schema examples before usable edits | `tool_call_normalization` | The parser may skip placeholder/example calls, but must not broadly salvage broken envelopes as trusted clean batches. |
+| Level 4 had failed validation evidence and local context, then produced no repair mutation | `validation_guided_repair_turn` | Failed pre-mutation validation must route to one repair-oriented mutation turn before broad open-loop continuation. |
+| A broad continuation could claim success while external harness validation still failed | `final_receipt_synthesis` | Success can close only against current mutation, validation, and semantic probe receipts that satisfy the task contract. |
+| Level 5 passed but spent about `88s` in the provider turn | `project_operator_context_packet` and `tool_progress_watchdog` | Larger slices may spend more time than Level 3, but provider latency must remain bounded by profile and produce observable progress. |
+
+Patch selection rule:
+
+Before changing runtime code, write the patch packet:
+
+- `Primitive`: the reusable primitive or composition boundary that owns the
+  behavior.
+- `Invariant`: the general rule being enforced.
+- `Expected measurable delta`: pass/fail, latency, receipt, or trace movement
+  expected from the next run.
+- `Rollback condition`: the result that proves the patch increased entropy.
+
+If a patch cannot name all four fields, it is not ready.
+
 ### Tier 0: direct mutation primitive
 
 Use when the task contract proves the change is fully specified and local.
@@ -272,6 +299,34 @@ Required properties:
 Runtime shape:
 
 `bounded context bootstrap -> explicit pre-mutation validation receipt -> repair-oriented model turn -> mutation receipts -> rerun validation -> final receipt synthesis`
+
+### Tier 3b: validation-guided repair turn
+
+Use when failed validation evidence already exists before a repair mutation.
+
+Reference trace basis:
+
+- Stronger coding agents route failing test output into a narrow repair edit
+  turn instead of letting the model re-plan the whole task or repeat discovery.
+- Infring Level 4 failures show the missing boundary: validation failed,
+  relevant context was loaded, but the runtime still allowed a no-mutation
+  outcome.
+
+Required properties:
+
+- requires a concrete failed validation receipt
+- requires local source/test context or a structured blocker explaining why the
+  failing owner cannot be identified
+- allows only source/test mutation tools during the repair turn
+- includes validation stderr/stdout as evidence, not as user-facing prose
+- forbids final success before a successful mutation and post-mutation
+  validation/probe receipt
+- has a short first-repair receipt deadline and returns a structured controller
+  failure if no mutation receipt appears
+
+Runtime shape:
+
+`failed validation receipt -> failure diagnosis -> compact repair packet -> repair mutation receipts -> rerun validation/probe -> final receipt synthesis`
 
 ForgeCode is the primary reference for this tier because its benchmark artifacts
 emphasize command execution, validation callbacks, retry reflection, and loop

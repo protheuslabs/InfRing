@@ -1394,3 +1394,53 @@ Decision:
 Reverted the runtime role enforcement. Keep the finding in the ledger, but use
 the compact context packet plus parser scan as the recoverable baseline before
 trying another first-mutation prompt simplification.
+
+## EXP-CODING-049: Executable tool-call candidate selection
+
+Status: `patched_refined_pending_measurement`
+
+Hypothesis:
+
+Some first-mutation failures are not missing edit intent. The provider may
+think aloud, echo the schema example with placeholder arguments, then emit the
+real patch JSON later. The parser should not stop at the first parseable
+placeholder/example call, and it should recover complete nested tool-call
+objects even when an outer JSON envelope is incomplete.
+
+Initial patch:
+
+- Keep scanning JSON candidates after placeholder-only tool calls such as
+  `/absolute/path`, `exact observed text`, or `replacement text`.
+- Prefer the first executable candidate instead of the first merely parseable
+  candidate.
+- Continue balanced-object scanning past incomplete outer objects so nested
+  complete tool-call objects can still be recovered.
+
+Expected impact:
+
+Level 3 no-mutation failures caused by echoed examples or broken outer
+`tool_calls` envelopes should become real mutation receipts without adding a
+second model turn or level-specific logic.
+
+Measurement:
+
+A five-run Level 3 batch improved the original no-mutation failure class but
+was not clean enough to promote: `4/5` passed, while one run spent about `88s`,
+fell into a broad second provider turn, and left a broken validation artifact.
+A one-pass Level 1-5 ladder then showed the broader failure map:
+
+- Level 1: `5/5` passed through deterministic file-write receipts.
+- Level 2: produced valid artifacts, passing validation, semantic probe, and
+  symbol checks, but failed latency at about `240s`.
+- Level 3: passed, but took about `39s`.
+- Level 4: failed with no successful mutation after pre-mutation validation
+  evidence.
+- Level 5: passed, but took about `88s`.
+
+Decision:
+
+Keep executable candidate selection and placeholder/example skipping as part of
+the reusable `tool_call_normalization` primitive. Revert the permissive
+broken-envelope nested-object recovery because it crosses from normalization
+into noisy salvage and can extract intermediate patch attempts that should not
+be trusted as a clean tool-call batch.

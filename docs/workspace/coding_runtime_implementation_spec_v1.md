@@ -274,6 +274,52 @@ Rules:
 - Reads, validation, handoff, and memory closure are forbidden in this lane.
 - If no safe mutation is possible from the packet, the lane returns no mutation
   and the controller may fall back to the normal staged loop.
+- Tool-call normalization may skip schema examples and placeholder calls before
+  choosing an executable candidate.
+- Tool-call normalization must not turn arbitrary incomplete/broken outer
+  envelopes into trusted broad edit batches; salvage belongs to a bounded
+  retry/reflection primitive, not the parser boundary.
+
+### `validation_guided_repair_turn`
+
+Input:
+
+```json
+{
+  "task_contract_ref": "receipt-ref",
+  "context_pack_ref": "receipt-ref",
+  "failed_validation_receipt_ref": "receipt-ref",
+  "allowed_write_scope": ["string"],
+  "max_repair_mutation_calls": 4,
+  "first_repair_receipt_deadline_seconds": 20
+}
+```
+
+Output:
+
+```json
+{
+  "type": "validation_guided_repair_turn_receipt_v1",
+  "repair_mutation_receipts": [],
+  "post_mutation_validation_receipt": "receipt-ref | null",
+  "status": "repaired | blocked | no_progress | validation_still_failing",
+  "reason": "string"
+}
+```
+
+Rules:
+
+- This primitive only runs after concrete validation evidence exists.
+- The repair packet must contain compact failing assertions, command status,
+  selected source/test file context, and allowed mutation tools.
+- The repair turn may mutate source or tests only when the task contract allows
+  that artifact role.
+- The repair turn must not run broad discovery, memory handoff, checkpointing,
+  or final synthesis.
+- If no mutation receipt appears by the deadline, return `no_progress` with the
+  failed validation receipt and selected context refs.
+- Final success remains owned by `final_receipt_synthesis`, not by this repair
+  primitive.
 
 Output:
 

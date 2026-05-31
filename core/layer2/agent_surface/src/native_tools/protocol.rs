@@ -13,15 +13,27 @@ pub struct NativeToolCall {
 pub fn parse_native_tool_calls(raw: &str) -> Vec<NativeToolCall> {
     let cleaned = strip_ansi(raw);
     let candidates = json_candidates(&cleaned);
+    let mut placeholder_fallback = Vec::new();
     for candidate in candidates {
         if let Ok(value) = serde_json::from_str::<Value>(&candidate) {
             let calls = tool_calls_from_value(&value);
-            if !calls.is_empty() {
-                return calls;
+            if calls.is_empty() {
+                continue;
+            }
+            let executable_calls = calls
+                .iter()
+                .filter(|call| !native_tool_call_has_placeholder_args(call))
+                .cloned()
+                .collect::<Vec<_>>();
+            if !executable_calls.is_empty() {
+                return executable_calls;
+            }
+            if placeholder_fallback.is_empty() {
+                placeholder_fallback = calls;
             }
         }
     }
-    Vec::new()
+    placeholder_fallback
 }
 
 pub fn native_tool_observation_prompt(receipts: &[NativeToolReceipt]) -> String {
@@ -236,6 +248,50 @@ fn tool_call_args_from_value(value: &Value) -> Value {
         }
     }
     Value::Object(args)
+}
+
+fn native_tool_call_has_placeholder_args(call: &NativeToolCall) -> bool {
+    let placeholder_strings = [
+        "/absolute/path",
+        "absolute/path",
+        "/path/to/file",
+        "path/to/file",
+        "exact observed text",
+        "replacement text",
+    ];
+    for value in native_tool_call_arg_strings(&call.args) {
+        let normalized = value.trim().to_ascii_lowercase();
+        if placeholder_strings
+            .iter()
+            .any(|placeholder| normalized == *placeholder)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn native_tool_call_arg_strings(value: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    native_tool_call_arg_strings_into(value, &mut out);
+    out
+}
+
+fn native_tool_call_arg_strings_into(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::String(raw) => out.push(raw.clone()),
+        Value::Array(items) => {
+            for item in items {
+                native_tool_call_arg_strings_into(item, out);
+            }
+        }
+        Value::Object(object) => {
+            for value in object.values() {
+                native_tool_call_arg_strings_into(value, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn normalize_tool_args(args: &Value) -> Value {
