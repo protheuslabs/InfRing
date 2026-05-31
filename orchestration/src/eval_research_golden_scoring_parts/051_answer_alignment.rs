@@ -539,7 +539,7 @@ fn answer_specific_term_pieces(token: &str) -> Vec<&str> {
         return vec![token];
     }
     let pieces = token
-        .split(|ch| matches!(ch, '/' | '-' | '_' | '+' | '—' | '–'))
+        .split(|ch| matches!(ch, '/' | '-' | '_' | '+' | '—' | '–' | '\u{2010}' | '\u{2011}' | '\u{2012}'))
         .filter(|piece| !piece.is_empty())
         .collect::<Vec<_>>();
     if pieces.len() <= 1 {
@@ -626,6 +626,9 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "evidence"
             | "example"
             | "factor"
+            | "filter"
+            | "filtered"
+            | "filtering"
             | "explicitly"
             | "final"
             | "first"
@@ -655,6 +658,9 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "known"
             | "look"
             | "main"
+            | "make"
+            | "makes"
+            | "making"
             | "maintain"
             | "match"
             | "matched"

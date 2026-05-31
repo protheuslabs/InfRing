@@ -909,7 +909,10 @@ fn answer_alignment_ignores_generic_presentation_terms() {
     });
     let response = "Amazon Q Developer — Strengths: tuned for AWS-heavy environments. \
         Best fit: Organizations with significant AWS investment where cloud-specific context adds value. \
-        EV charging profitability depends on location quality, utilization, and fixed operating costs.";
+        EV charging profitability depends on location quality, utilization, and fixed operating costs. \
+        The available context does not include 2026-specific U.S. forecasts. \
+        Bottom line: filter the landscape through your product risk. \
+        Call-focused option: make microphone clarity the primary filter.";
 
     let alignment = answer_unit_evidence_alignment(&payload, response, &retrieval_quality);
     assert_eq!(

@@ -484,6 +484,12 @@ fn scoring_shape_accepts_general_research_findings_and_plans() {
          The key milestone to watch for is durable field performance at commercial scale.",
     );
     assert!(has_recommendation_signal(&balanced_takeaway));
+
+    let historical_tension = normalize_for_compare(
+        "The mainstream view is broadly democratizing. At the same time, scholars acknowledge \
+         tensions over political symbolism, federal patronage, and representation.",
+    );
+    assert!(has_tradeoff_or_structure(&historical_tension));
 }
 
 #[test]
