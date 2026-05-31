@@ -51,6 +51,7 @@ lower primitives, but it must not globally alter, slow, or narrow them.
 | `preserved_api_guard` | 2 | no for profiles 0-1 | Only when preserving existing public behavior is part of the task or owner-source evidence. |
 | `validation_runner` | 3 | no for profiles 0-2 unless explicitly requested | Only after mutation, except explicit pre-mutation validation bootstrap. |
 | `failure_diagnosis` | 3 | no for profiles 0-2 | Only from failed receipts. |
+| `seeded_repair_controller` | 3 | no for profiles 0-2 | Only after concrete failed validation/import-surface evidence or a deterministic seed receipt; converts evidence into bounded owner/export mutations, then validation. |
 | `bounded_repair_loop` | 3 | no for profiles 0-2 | Only after concrete failed tool/validation/interface evidence. |
 | `tool_retry_reflection` | 3 | no for profiles 0-2 | Tool schema repair only; must not broaden task scope. |
 | `controlled_shell_edit_batch` | 4 | no for profiles 0-3 by default | Only for multi-file project slices or explicit profile opt-in. |
@@ -77,6 +78,48 @@ These are model violations observed during the Level 2 regression investigation:
 | `completion_evidence` and owner-source repair prompts accumulated contradictory constraints. | The model received too many active controllers for a small task. | Only the earliest active primitive may issue a blocking repair instruction. |
 | Tool schema aliases such as `target_file_path` and `patch_content` were unsupported. | Tooling primitive was too narrow for common coding-agent edit forms. | Tool compatibility belongs in `file_mutation_executor`, not workflow prompts. |
 | Final artifact sometimes reported zero tool calls despite internal journal mutations. | Finalization/accounting hid partial progress. | `receipt_journal` and `final_receipt_synthesis` must flush partial progress before timeout. |
+
+## Current model amendment: repair must be evidence-to-mutation, not retry-first
+
+The EXP-CODING-052 compact first-mutation retry was rejected because it did not
+improve the dominant failure classes:
+
+```text
+Level 2 -> no_successful_mutation
+Level 5+ -> seeded_repair_timeout / import_surface_missing
+```
+
+This means the next primitive must not be another generic retry wrapper. The
+unified model now treats repair as a Profile 3 evidence-to-mutation controller:
+
+```text
+failed validation/import evidence
+-> diagnose owner/export gap
+-> emit bounded source/export mutation
+-> run validation/probe
+-> close with receipt-backed success or structured blocker
+```
+
+Activation constraints:
+
+- It must activate only after concrete failed validation, failed import, failed
+  probe, or deterministic seed evidence exists.
+- It must not activate for Profile 0-2 direct mutation tasks unless the prompt
+  explicitly requests validation or the runtime has already produced failed
+  validation/import evidence.
+- It must own no eval-level names, fixture paths, symbol names, or task-specific
+  shortcuts.
+- It must preserve the smaller primitive stack: file mutation, receipt journal,
+  validation runner, failure diagnosis, final synthesis.
+- It must emit a structured blocker quickly when evidence is insufficient
+  instead of widening the context or entering an opaque provider stall.
+
+Patch rule:
+
+Any implementation of this controller must update the experiment ledger with
+its declared profile, activation evidence, rollback condition, and lower-profile
+smoke results. A Profile 3 repair patch is invalid if Profile 1 or Profile 2
+regresses.
 
 ## Enforcement rule
 

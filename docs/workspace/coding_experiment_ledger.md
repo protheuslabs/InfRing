@@ -1175,7 +1175,7 @@ Action:
 
 ## EXP-CODING-043: First mutation artifact lane v1
 
-Status: `patched_pending_measurement`
+Status: `measured_partial_progress_pending_runtime_enforcement`
 
 Hypothesis:
 
@@ -1227,7 +1227,7 @@ Level 1-3 are stable and monotonic.
 
 ## EXP-CODING-044: First mutation format retry
 
-Status: `patched_pending_measurement`
+Status: `rejected_after_measurement`
 
 Hypothesis:
 
@@ -1261,7 +1261,7 @@ add another model turn after a no-output lane response.
 
 ## EXP-CODING-045: First mutation compact context packet
 
-Status: `patched_pending_measurement`
+Status: `rejected_after_measurement`
 
 Hypothesis:
 
@@ -1290,7 +1290,7 @@ Level 3 should convert more first-mutation turns into immediate parsed
 
 ## EXP-CODING-046: Native tool-call parser balanced-object scan
 
-Status: `patched_pending_measurement`
+Status: `rejected_after_measurement`
 
 Hypothesis:
 
@@ -1316,7 +1316,7 @@ reasoning text, the runtime should materialize it instead of reporting
 
 ## EXP-CODING-047: Receipt-satisfied closeout
 
-Status: `patched_pending_measurement`
+Status: `measured_partial_success_kept`
 
 Hypothesis:
 
@@ -1444,3 +1444,303 @@ the reusable `tool_call_normalization` primitive. Revert the permissive
 broken-envelope nested-object recovery because it crosses from normalization
 into noisy salvage and can extract intermediate patch attempts that should not
 be trusted as a clean tool-call batch.
+
+## EXP-CODING-050: Workflow-CD tool progress watchdog budget
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: tool_progress_watchdog
+Invariant: mutation-required tasks must produce useful receipts or structured no-progress before long provider/controller wall-time budgets are consumed.
+Expected measurable delta: Level 2 and Level 5 should stop ending as opaque 200s+ stalls; Level 1 remains deterministic; Level 3/4 should not regress.
+Rollback condition: Level 1-4 regress, or Level 2/5 still burn long wall-time without clearer structured failure.
+```
+
+Hypothesis:
+
+The current largest failure is not local file tooling or parser capability. The
+runtime allows broad provider/recovery paths to consume `90s` to `240s` after
+low/mid-profile tasks should already have either produced receipts or returned
+a structured no-progress result.
+
+Patch:
+
+- Lowered the broad provider timeout to `30s`.
+- Lowered broad recovery timeout to `45s` where it was still longer.
+- Lowered broad native wall timeout to `90s`.
+- Capped partial recovery to one turn in the lab mutation spine.
+- Applied the same broad budget to the lab mutation spine and official coding
+  project operator so the policy remains a workflow primitive rather than a
+  harness-only tweak.
+
+Expected impact:
+
+This should not make Level 2/5 magically more capable, but it should prevent
+them from hiding capability failures behind multi-minute stalls. If the run has
+already produced sufficient receipts, later patches can close from evidence;
+if it has not, this watchdog budget should return a faster structured failure.
+
+Measurement:
+
+One Level 1-5 ladder with `kimi-k2.6:cloud`:
+
+- Level 1: `5/5` pass, unchanged.
+- Level 2: failed `no_successful_mutation`, but wall time improved from about
+  `240s` to about `100s`; still missed the `90s` fast budget and produced no
+  mutation receipt.
+- Level 3: passed at about `33s`; slower than the prior `24s` sample.
+- Level 4: passed at about `34s`; functionally healthy but slower than the
+  prior `3.5s` sample.
+- Level 5: failed `seeded_repair_timeout`, but wall time improved from about
+  `205s` to about `36s`; the run produced seeded mutation receipts but did not
+  repair behavior before timeout.
+
+Decision:
+
+Keep this as evidence that workflow-CD budgets can cap the worst Level 5 stall,
+but do not treat it as the complete `tool_progress_watchdog` implementation.
+The next patch must enforce runtime first-useful-receipt behavior, not only
+lower metadata timeouts.
+
+## EXP-CODING-051: First-mutation lane obeys CD provider budget
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: tool_progress_watchdog
+Invariant: first mutation artifact lanes must obey the workflow-CD provider budget instead of overriding it with a hardcoded longer timeout.
+Expected measurable delta: Level 2/3/4 first-mutation stalls should be capped by the configured provider budget; Level 1 remains unchanged; Level 5 should not regress.
+Rollback condition: Level 1-4 regress materially, or broad Level 1-7 still shows long no-mutation stalls with no clearer failure.
+```
+
+Hypothesis:
+
+The previous CD budget patch reduced some broad-loop stalls, but the
+first-mutation artifact lane still inserted a hardcoded `45s` provider timeout.
+That means workflow-level budget changes could not fully control
+first-useful-receipt timing for low/mid-profile edit lanes.
+
+Patch:
+
+- The first-mutation lane now computes its provider timeout from the workflow
+  metadata, honoring the smallest configured provider budget while preserving a
+  `45s` maximum fallback.
+- The patch remains generic: no eval level names, fixture paths, or task
+  symbols are referenced.
+
+Expected impact:
+
+This should make timeout policy genuinely CD-driven for the first mutation
+artifact lane. If the broad 1-7 ladder still shows slow no-progress behavior,
+the missing primitive is an interruptible provider watchdog rather than another
+timeout value.
+
+Measurement:
+
+One Level 1-7 ladder with `kimi-k2.6:cloud`:
+
+- Level 1: `5/5` pass.
+- Level 2: failed `no_successful_mutation` at about `100s`, unchanged from the
+  CD-budget-only result.
+- Level 3: regressed to `no_successful_mutation` at about `10s`.
+- Level 4: regressed to `no_successful_mutation` at about `30s`.
+- Level 5: failed `seeded_repair_timeout` at about `42s`.
+- Level 6: failed `seeded_repair_timeout` at about `34s`.
+- Level 7: failed `seeded_repair_timeout` at about `36s`.
+
+Decision:
+
+Rejected and reverted the runtime timeout-code change because it triggered the
+declared rollback condition: lower/mid levels 3 and 4 regressed materially.
+Keep the evidence: the current first-mutation lane needs better output forcing
+or a compact retry/reflection primitive, not simply a shorter provider timeout.
+
+## EXP-CODING-052: Compact first-mutation retry/reflection
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: tool_progress_watchdog
+Invariant: when a mutation-required first edit turn returns no mutation receipts, the runtime may make exactly one compact retry using the already-loaded context and previous output, then must fail fast if still no mutation.
+Expected measurable delta: Level 3/4 no-mutation failures should recover to mutation receipts or fail with a bounded retry timeout; Level 1 remains unchanged; Level 2/5+ should avoid multi-minute opaque stalls.
+Rollback condition: Level 1 regresses, Level 3/4 reliability worsens, or the retry reintroduces 200s-style stalls.
+```
+
+Hypothesis:
+
+The first-mutation lane sometimes has enough loaded context but returns
+reasoning, examples, or no executable mutation. A shorter timeout worsened this
+by denying enough time for useful output. A bounded compact retry should keep
+the provider budget explicit while giving the model one chance to convert the
+same context into a valid mutation-only batch.
+
+Patch:
+
+- Added a retry-only first-mutation system prompt.
+- Added a compact retry prompt with task, loaded context, and prior output
+  preview.
+- Added one retry call after a zero-mutation first batch.
+- Retry is capped at `15s` and uses only mutation tools.
+- Timeout returns structured partial progress instead of falling into broad
+  unbounded continuation.
+
+Expected impact:
+
+This should recover some Level 3/4 no-mutation failures without changing the
+direct Level 1 path. If the weak model still cannot emit usable mutation JSON,
+the failure should become bounded and easier to diagnose.
+
+Measurement:
+
+One Level 1-7 ladder with `kimi-k2.6:cloud`:
+
+- Level 1: `5/5` pass.
+- Level 2: failed `no_successful_mutation` at about `100s`, unchanged from the
+  CD-budget-only result.
+- Level 3: passed at about `36s`.
+- Level 4: passed at about `22s`.
+- Level 5: failed `seeded_repair_timeout` at about `40s`.
+- Level 6: failed `seeded_repair_timeout` at about `38s`.
+- Level 7: failed `seeded_repair_timeout` at about `39s`.
+
+Decision:
+
+Rejected and reverted the compact retry runtime change because it did not
+address the largest current failures. Level 2 still produced no successful
+mutation, and Level 5+ still failed in the seeded repair path. The evidence
+points away from another first-mutation retry and toward a more primitive
+repair-path controller that can convert failed validation/import-surface
+evidence into bounded repair mutations.
+
+## EXP-CODING-053: Import-surface evidence expansion for seeded repair
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: seeded_repair_controller
+Profile touched: 3
+Activation evidence: failed Python validation/import-surface details that include cannot-import errors or explicit `from module import symbol` lines.
+Invariant: a failed import surface should be converted into bounded owner/export mutations for the whole observed public import line, not just the first symbol named by Python's ImportError.
+Expected measurable delta: Level 5+ seeded-repair failures caused by repeated missing import symbols should advance to semantic validation/repair instead of timing out after one-at-a-time scaffolding.
+Rollback condition: Level 1-2 regress, or Level 5+ still times out with no clearer evidence.
+```
+
+Hypothesis:
+
+Python reports only the first missing symbol in a `from package import A, B, C`
+statement. The previous seed primitive scaffolded that first symbol, which left
+later symbols to fail in follow-up validation and pushed the workflow into
+provider-bound seeded repair timeouts. The validation traceback often includes
+the original import line, so the primitive can derive the whole requested public
+surface from evidence already present.
+
+Patch:
+
+- Added generic parsing for `from module import symbol_a, symbol_b` lines in
+  failed validation details.
+- Merged those symbols with existing `cannot import name` extraction.
+- Kept activation fixture-agnostic: no eval levels, paths, or expected symbol
+  names are encoded.
+- Kept output bounded to the existing Python import-surface seed mutation path.
+
+Expected impact:
+
+This should make Profile 3 seeded repair more atomic: one evidence packet can
+produce one owner/export mutation batch for the full import surface, rather than
+forcing repeated model/provider repair turns for each newly exposed missing
+symbol.
+
+Measurement:
+
+One Level 1-7 ladder with `kimi-k2.6:cloud`:
+
+- Level 1: `5/5` pass.
+- Level 2: failed `no_successful_mutation` at about `100s`.
+- Level 3: failed `no_successful_mutation` at about `45s`.
+- Level 4: failed `no_successful_mutation` at about `45s`.
+- Level 5: failed `seeded_repair_timeout` at about `41s`.
+- Level 6: failed `seeded_repair_timeout` at about `39s`.
+- Level 7: failed `seeded_repair_timeout` at about `42s`.
+
+Decision:
+
+Rejected and reverted. The patch did not produce an obvious positive delta:
+Level 5+ still timed out in seeded repair, and Level 3/4 failed at the
+first-mutation boundary. The useful evidence is that the current dominant issue
+is not missing import-line breadth alone; the runtime still needs a cleaner
+primitive boundary between first mutation, failed-validation evidence, and
+bounded repair execution.
+
+## EXP-CODING-054: First-mutation timeout demotion
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: tool_progress_watchdog
+Profile touched: 2
+Activation evidence: bounded first-mutation artifact lane provider timeout before any successful mutation receipt.
+Invariant: an optional fast-path mutation lane timeout is local no-progress evidence, not terminal task failure.
+Expected measurable delta: Level 2/3/4 no-mutation failures should either produce a mutation through the parent native tool loop or fail with clearer parent-loop timing/evidence instead of terminating at the first-mutation lane.
+Rollback condition: Level 1 regresses, Level 2/3/4 wall time increases without mutation, or higher levels lose seeded repair evidence.
+```
+
+Hypothesis:
+
+The first-mutation artifact lane is a fast-path primitive. Its timeout should
+not terminate the whole task, because the parent native tool loop still has the
+loaded context and can attempt the mutation under the normal controller. Treating
+the fast-path timeout as terminal collapses Profile 2/3 work before repair or
+validation evidence can exist.
+
+Patch:
+
+- Changed first-mutation lane timeout handling from terminal partial-timeout
+  return to local demotion evidence.
+- The parent prompt receives a tiny no-progress instruction: use already loaded
+  context, avoid repeated discovery, and mutate before final output.
+- No eval levels, fixture paths, or expected symbols are encoded.
+
+Expected impact:
+
+This should restore the primitive boundary:
+
+```text
+fast mutation lane timeout
+-> parent native tool loop
+-> mutation or structured parent-loop failure
+```
+
+The patch is intentionally smaller than a repair controller. It only prevents
+an optional fast path from becoming a task-level terminal failure.
+
+Measurement:
+
+One Level 1-7 ladder with `kimi-k2.6:cloud`:
+
+- Level 1: `5/5` pass.
+- Level 2: failed `no_successful_mutation` at about `100s`, unchanged.
+- Level 3: failed `no_successful_mutation` at about `5.7s`, improved from the
+  previous `45s` no-mutation failure but still not a pass.
+- Level 4: passed at about `3.4s`.
+- Level 5: passed at about `27.9s`.
+- Level 6: passed at about `22.8s`.
+- Level 7: passed at about `20.6s`.
+
+Decision:
+
+Keep as a partial primitive improvement. It did not fix Level 2 or Level 3, but
+it preserved Level 1, converted Level 4 back to a fast pass, and restored
+Level 5-7 seeded-repair execution. The remaining lower-profile problem is now
+clearer: some existing-project patch cases return from the first-mutation lane
+with no mutation and no parent-loop continuation, but they fail quickly enough
+to patch in a targeted next step.

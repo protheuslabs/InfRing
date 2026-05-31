@@ -8,7 +8,8 @@ use crate::coding_execution_spine_adapter::{
 use crate::first_mutation_artifact_lane::{
     first_mutation_artifact_lane_v1_enabled, first_mutation_artifact_lane_v1_metadata,
     first_mutation_artifact_lane_v1_prompt, first_mutation_artifact_lane_v1_routes_lane,
-    first_mutation_artifact_lane_v1_system, first_mutation_artifact_lane_v1_tools,
+    first_mutation_artifact_lane_v1_system,
+    first_mutation_artifact_lane_v1_tools,
 };
 use crate::native_evidence::{
     native_tool_artifact_contract_enabled, native_tool_artifact_repair_reasons,
@@ -586,12 +587,19 @@ impl AgentContract {
                         None,
                         Some(error.message.as_str()),
                     );
-                    return Ok((
-                        response,
-                        all_receipts,
-                        provider_call_count,
-                        "partial_timeout".to_string(),
-                    ));
+                    native_tool_persist_runtime_timeline_event(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "first_mutation_artifact_lane_v1_timeout_demoted",
+                        native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                        json!({
+                            "provider_call_count": provider_call_count,
+                            "receipt_count": all_receipts.len(),
+                            "demoted_to_parent_runtime_loop": true,
+                        }),
+                    );
+                    prompt.push_str("\n\nFirst mutation fast lane evidence:\n- The bounded first-mutation lane timed out before emitting a successful mutation receipt.\n- Continue in the parent native tool loop using the already loaded context.\n- Do not repeat discovery before the next mutation unless a later validation receipt names a new missing file.\n- Return file_patch or file_write before final output.");
+                    response
                 }
                 Err(error) => return Err(error),
             };
