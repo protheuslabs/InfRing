@@ -130,6 +130,11 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
         str_at(row, &["answer_unit_evidence_alignment", "top_blocker"], "");
     let answer_unit_usefulness_top_blocker =
         str_at(row, &["answer_unit_usefulness", "top_blocker"], "");
+    let requested_specificity_top_blocker = str_at(
+        row,
+        &["requested_specificity_satisfaction", "top_blocker"],
+        "",
+    );
     let evidence_layer_failed = !bool_at(
         row,
         &[
@@ -155,6 +160,13 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
             && bool_at(row, &["answer_unit_evidence_alignment", "evaluated"], false);
     let answer_unit_usefulness_failed = !bool_at(row, &["answer_unit_usefulness", "pass"], true)
         && bool_at(row, &["answer_unit_usefulness", "evaluated"], false);
+    let requested_specificity_failed =
+        !bool_at(row, &["requested_specificity_satisfaction", "pass"], true)
+            || !bool_at(
+                row,
+                &["requested_specificity_satisfaction", "excellent_ready"],
+                true,
+            );
     let authoritative_contract_failures = collect_authoritative_contract_failures(row);
     let mut soft_smoke_flags = string_array_at(row, &["soft_quality_smoke", "blockers"]);
     soft_smoke_flags.extend(
@@ -172,6 +184,11 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
             .into_iter()
             .map(|blocker| format!("answer_unit_usefulness:{blocker}")),
     );
+    soft_smoke_flags.extend(
+        string_array_at(row, &["requested_specificity_satisfaction", "blockers"])
+            .into_iter()
+            .map(|blocker| format!("requested_specificity_satisfaction:{blocker}")),
+    );
     soft_smoke_flags.sort();
     soft_smoke_flags.dedup();
 
@@ -180,6 +197,7 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
         && !user_facing_failed
         && !answer_unit_alignment_failed
         && !answer_unit_usefulness_failed
+        && !requested_specificity_failed
     {
         ("none".to_string(), "none".to_string())
     } else if transport_failure
@@ -277,6 +295,15 @@ pub(super) fn upstream_failure_localization(row: &Value) -> Value {
             answer_unit_usefulness_top_blocker
         } else {
             "answer_unit_usefulness_flagged".to_string()
+        };
+        ("synthesis_quality".to_string(), boundary)
+    } else if requested_specificity_failed {
+        let boundary = if !requested_specificity_top_blocker.is_empty()
+            && requested_specificity_top_blocker != "none"
+        {
+            requested_specificity_top_blocker
+        } else {
+            "requested_specificity_flagged".to_string()
         };
         ("synthesis_quality".to_string(), boundary)
     } else {

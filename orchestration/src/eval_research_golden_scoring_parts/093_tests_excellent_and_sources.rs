@@ -1193,6 +1193,123 @@ fn user_facing_answer_quality_flags_source_recap_as_not_good() {
 }
 
 #[test]
+fn requested_specificity_gap_can_pass_but_blocks_excellent() {
+    let case = json!({
+        "prompt": "What are some source-backed scientific breakthroughs or notable research milestones from April 2026? Separate confirmed findings from early or preliminary claims.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "web_search",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": []
+    });
+    let payload = json!({
+        "response": "No specific named studies, article titles, or research teams for April 2026 are listed. The available guidance for that month instead describes how source-backed findings and early leads are distributed across fields. Confirmed findings are peer-reviewed experimental results in materials science, climate modeling, and biomedical methods with clear methods and independent expert context. Early or preliminary claims are lab announcements, prototype demonstrations, and grant-funded milestones still limited by small samples, prototype conditions, or unpublished datasets. The practical answer is to separate confirmed results from preliminary leads rather than treat novelty or media attention as evidence strength.",
+        "pending_tool_request": {
+            "status": "pending_confirmation",
+            "selected_tool_family": "web_research",
+            "tool_name": "web_search",
+            "tool_key": "web_search",
+            "input": {
+                "query": "scientific breakthroughs April 2026 confirmed preliminary",
+                "aperture": "web"
+            }
+        },
+        "tools": [{
+            "name": "web_search",
+            "status": "ok",
+            "candidate_count": 4,
+            "content_rich_candidate_count": 4,
+            "claim_hint_count": 3,
+            "evidence_refs": [{
+                "title": "April 2026 research milestone assessment",
+                "locator": "https://example.test/april-2026-research",
+                "snippet": "Guidance distinguishes peer-reviewed materials science, climate modeling, and biomedical methods from lab announcements and prototype demonstrations, but does not name specific studies.",
+                "claim_hints": ["Confirmed findings require peer review and independent context."]
+            }]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert!(grade.pass, "{:?}", grade.failures);
+    assert!(!grade.excellent);
+    assert_eq!(
+        grade
+            .requested_specificity_satisfaction
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{:#?}",
+        grade.requested_specificity_satisfaction
+    );
+    assert_eq!(
+        grade
+            .requested_specificity_satisfaction
+            .get("excellent_ready")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{:#?}",
+        grade.requested_specificity_satisfaction
+    );
+    assert!(string_array_at(&grade.excellent_diagnostics, &["blockers"])
+        .contains(&"requested_specificity_not_excellent_ready".to_string()));
+}
+
+#[test]
+fn requested_specificity_is_ready_when_answer_delivers_named_units() {
+    let case = json!({
+        "prompt": "Give me a source-backed shortlist of AI research systems in 2026.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "web_search",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["AI"]
+    });
+    let payload = json!({
+        "response": "A practical source-backed shortlist is OpenAI Deep Research for multi-step cited reports, Perplexity Enterprise for fast cited answer retrieval, and Google Gemini Deep Research when workspace integration matters. The main tradeoff is depth versus speed: OpenAI Deep Research is stronger for longer synthesis, Perplexity Enterprise is better for quick evidence-backed briefs, and Google Gemini Deep Research fits teams already working inside Google's suite.",
+        "pending_tool_request": {
+            "status": "pending_confirmation",
+            "selected_tool_family": "web_research",
+            "tool_name": "web_search",
+            "tool_key": "web_search",
+            "input": {
+                "query": "AI research systems 2026 shortlist OpenAI Deep Research Perplexity Gemini",
+                "aperture": "web"
+            }
+        },
+        "tools": [{
+            "name": "web_search",
+            "status": "ok",
+            "candidate_count": 5,
+            "content_rich_candidate_count": 5,
+            "claim_hint_count": 5,
+            "evidence_refs": [{
+                "title": "AI research systems comparison",
+                "locator": "https://example.test/ai-research-systems",
+                "snippet": "OpenAI Deep Research supports multi-step cited reports; Perplexity Enterprise emphasizes fast cited answer retrieval; Google Gemini Deep Research integrates with Google's workspace tools.",
+                "claim_hints": ["OpenAI Deep Research is suited to longer synthesis.", "Perplexity Enterprise is useful for quick evidence-backed briefs.", "Google Gemini Deep Research fits Google workspace teams."]
+            }]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .requested_specificity_satisfaction
+            .get("excellent_ready")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{:#?}",
+        grade.requested_specificity_satisfaction
+    );
+    assert!(!string_array_at(&grade.excellent_diagnostics, &["blockers"])
+        .contains(&"requested_specificity_not_excellent_ready".to_string()));
+}
+
+#[test]
 fn thin_source_inventory_answer_frame_fails_user_facing_quality() {
     let case = json!({
         "prompt": "Find recent benchmarks comparing agent frameworks. If the benchmark evidence is weak, explain why and suggest a practical evaluation plan.",

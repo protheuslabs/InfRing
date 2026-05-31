@@ -23,6 +23,7 @@ pub(super) struct CaseGrade {
     pub(super) user_facing_answer_quality: Value,
     pub(super) answer_unit_evidence_alignment: Value,
     pub(super) answer_unit_usefulness: Value,
+    pub(super) requested_specificity_satisfaction: Value,
 }
 
 pub(super) fn grade_case(
@@ -112,6 +113,12 @@ pub(super) fn grade_case(
         answer_unit_evidence_alignment(payload, &response_text, &retrieval_quality);
     let answer_unit_usefulness =
         answer_unit_usefulness_for_prompt(&normalized_prompt, &response_text, &retrieval_quality);
+    let requested_specificity_satisfaction = requested_specificity_satisfaction(
+        &normalized_prompt,
+        &response_text,
+        &normalized,
+        &answer_unit_usefulness,
+    );
     let direct_useful_units = answer_unit_usefulness
         .get("direct_useful_units")
         .and_then(Value::as_u64)
@@ -252,6 +259,9 @@ pub(super) fn grade_case(
     if answer_unit_usefulness_hard_failure(&answer_unit_usefulness) {
         failures.push("answer_units_not_useful_for_prompt".to_string());
     }
+    if requested_specificity_hard_failure(&requested_specificity_satisfaction) {
+        failures.push("requested_specificity_not_satisfied".to_string());
+    }
     if user_facing_answer_hard_failure(&user_facing_answer_quality)
         && !response_explicitly_cannot_answer_goal_from_current_evidence(&normalized)
     {
@@ -279,10 +289,15 @@ pub(super) fn grade_case(
         answer_unit_evidence_alignment: &answer_unit_evidence_alignment,
         answer_unit_usefulness: &answer_unit_usefulness,
         user_facing_answer_quality: &user_facing_answer_quality,
+        requested_specificity_satisfaction: &requested_specificity_satisfaction,
     });
     let excellent_blockers = string_array_at(&excellent_diagnostics, &["blockers"]);
     let user_facing_quality_blocks_excellent = !user_facing_answer_quality
         .get("pass")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let requested_specificity_blocks_excellent = !requested_specificity_satisfaction
+        .get("excellent_ready")
         .and_then(Value::as_bool)
         .unwrap_or(true);
     CaseGrade {
@@ -293,7 +308,8 @@ pub(super) fn grade_case(
             && excellent_blockers.is_empty()
             && !answer_unit_alignment_blocks_excellent
             && !answer_unit_usefulness_blocks_excellent
-            && !user_facing_quality_blocks_excellent,
+            && !user_facing_quality_blocks_excellent
+            && !requested_specificity_blocks_excellent,
         gates,
         dimension_scores,
         failures,
@@ -313,7 +329,34 @@ pub(super) fn grade_case(
         user_facing_answer_quality,
         answer_unit_evidence_alignment,
         answer_unit_usefulness,
+        requested_specificity_satisfaction,
     }
+}
+
+fn requested_specificity_hard_failure(specificity: &Value) -> bool {
+    if !specificity
+        .get("requested")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    if specificity
+        .get("pass")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+    {
+        return false;
+    }
+    let direct_useful_units = specificity
+        .get("direct_useful_units")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let explicit_gap = specificity
+        .get("explicit_specificity_gap")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    direct_useful_units == 0 && !explicit_gap
 }
 
 fn evidence_gap_statement_needed(retrieval_quality: &Value, query_satisfaction: &Value) -> bool {

@@ -5,6 +5,7 @@ struct ExcellentDiagnosticInput<'a> {
     answer_unit_evidence_alignment: &'a Value,
     answer_unit_usefulness: &'a Value,
     user_facing_answer_quality: &'a Value,
+    requested_specificity_satisfaction: &'a Value,
     normalized_response: &'a str,
     source_signal: bool,
     final_answer_present: bool,
@@ -82,6 +83,11 @@ fn excellent_diagnostics(input: ExcellentDiagnosticInput<'_>) -> Value {
         .get("pass")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    let requested_specificity_ready = input
+        .requested_specificity_satisfaction
+        .get("excellent_ready")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
     let mut subgates = serde_json::Map::new();
     subgates.insert(
         "excellent_1_query_satisfaction".to_string(),
@@ -138,6 +144,10 @@ fn excellent_diagnostics(input: ExcellentDiagnosticInput<'_>) -> Value {
         "excellent_16_user_facing_answer_quality".to_string(),
         json!(user_facing_quality_ready),
     );
+    subgates.insert(
+        "excellent_17_requested_specificity_satisfied".to_string(),
+        json!(requested_specificity_ready),
+    );
 
     let ordered = [
         (
@@ -163,6 +173,10 @@ fn excellent_diagnostics(input: ExcellentDiagnosticInput<'_>) -> Value {
         (
             "excellent_16_user_facing_answer_quality",
             "user_facing_quality_not_excellent_ready",
+        ),
+        (
+            "excellent_17_requested_specificity_satisfied",
+            "requested_specificity_not_excellent_ready",
         ),
         (
             "excellent_1_query_satisfaction",

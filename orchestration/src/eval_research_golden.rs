@@ -535,7 +535,8 @@ pub fn run_research_golden(args: &[String]) -> i32 {
                 "soft_quality_smoke",
                 "user_facing_answer_quality",
                 "answer_unit_evidence_alignment",
-                "answer_unit_usefulness"
+                "answer_unit_usefulness",
+                "requested_specificity_satisfaction"
             ]
         },
         "summary": {

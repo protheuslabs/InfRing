@@ -9,6 +9,7 @@ include!("eval_research_golden_scoring_parts/040_response_contracts.rs");
 include!("eval_research_golden_scoring_parts/050_soft_quality.rs");
 include!("eval_research_golden_scoring_parts/051_answer_alignment.rs");
 include!("eval_research_golden_scoring_parts/052_answer_risk_signals.rs");
+include!("eval_research_golden_scoring_parts/053_requested_specificity.rs");
 include!("eval_research_golden_scoring_parts/060_prompt_entities.rs");
 include!("eval_research_golden_scoring_parts/070_retrieval_quality.rs");
 include!("eval_research_golden_scoring_parts/071_retrieval_relevance.rs");

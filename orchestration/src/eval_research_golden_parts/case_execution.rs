@@ -447,6 +447,10 @@ pub(super) fn run_research_golden_cases(
                 grade.answer_unit_usefulness,
             );
             object.insert(
+                "requested_specificity_satisfaction".to_string(),
+                grade.requested_specificity_satisfaction,
+            );
+            object.insert(
                 "citation_artifacts".to_string(),
                 citation_artifact_summary(&payload),
             );
@@ -625,6 +629,10 @@ fn strong_bounded_answer_proven(excellent_diagnostics: &Value) -> bool {
         false,
     ) && bool_at(
         excellent_diagnostics,
+        &["subgates", "excellent_17_requested_specificity_satisfied"],
+        true,
+    ) && bool_at(
+        excellent_diagnostics,
         &["subgates", "excellent_5_evidence_gaps_named_when_needed"],
         false,
     ) && bool_at(
@@ -646,7 +654,8 @@ mod tests {
                 "excellent_7_projection_clean": true,
                 "excellent_11_answer_units_trace_to_evidence": true,
                 "excellent_15_answer_units_useful_for_prompt": true,
-                "excellent_16_user_facing_answer_quality": true
+                "excellent_16_user_facing_answer_quality": true,
+                "excellent_17_requested_specificity_satisfied": true
             },
             "blockers": [],
             "top_blocker": "none"
