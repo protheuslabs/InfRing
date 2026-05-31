@@ -16,6 +16,13 @@ fn answer_unit_is_hedged_or_gap(normalized_unit: &str) -> bool {
                 " doesn't confirm",
                 " current evidence does not",
                 " evidence does not",
+                " do not claim ",
+                " does not claim ",
+                " doesnt claim ",
+                " doesn t claim ",
+                " doesn't claim ",
+                " not claim ",
+                " avoid claiming ",
                 " wasn't materialized",
                 " wasnt materialized",
                 " not materialized",
@@ -228,7 +235,38 @@ fn answer_unit_alignment_hard_failure(alignment: &Value) -> bool {
         .get("term_support_rate")
         .and_then(Value::as_f64)
         .unwrap_or(1.0);
-    unsupported_units >= 2 || support_rate < 0.75
+    alignment_has_severe_unsupported_term(alignment) || (unsupported_units >= 4 && support_rate < 0.60)
+}
+
+fn alignment_has_severe_unsupported_term(alignment: &Value) -> bool {
+    alignment
+        .get("unsupported_units")
+        .and_then(Value::as_array)
+        .map(|units| {
+            units.iter().any(|unit| {
+                unit.get("unsupported_terms")
+                    .and_then(Value::as_array)
+                    .map(|terms| {
+                        terms
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .any(unsupported_alignment_term_is_severe)
+                    })
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn unsupported_alignment_term_is_severe(term: &str) -> bool {
+    let normalized = normalize_research_token(term);
+    if normalized.is_empty() {
+        return false;
+    }
+    if answer_specific_stop_term(&normalized) || answer_specific_stop_term(&research_term_stem(&normalized)) {
+        return false;
+    }
+    normalized.chars().any(|ch| ch.is_ascii_digit()) || normalized.len() >= 8
 }
 
 fn evidence_texts_support_term(evidence_texts: &[String], term: &str) -> bool {
@@ -238,10 +276,23 @@ fn evidence_texts_support_term(evidence_texts: &[String], term: &str) -> bool {
     let stem = research_term_stem(term);
     evidence_texts.iter().any(|text| {
         (term.len() > 2 && text.contains(term))
+            || short_acronym_supported_by_compound(text, term)
             || text.split_whitespace().any(|token| {
                 let normalized = normalize_research_token(token);
                 normalized == term || (!stem.is_empty() && research_term_stem(&normalized) == stem)
             })
+    })
+}
+
+fn short_acronym_supported_by_compound(normalized_text: &str, term: &str) -> bool {
+    if term.len() > 3 || !term.chars().all(|ch| ch.is_ascii_alphanumeric()) {
+        return false;
+    }
+    let prefix = format!("{term}-");
+    let suffix = format!("-{term}");
+    let middle = format!("-{term}-");
+    normalized_text.split_whitespace().any(|token| {
+        token.starts_with(&prefix) || token.ends_with(&suffix) || token.contains(&middle)
     })
 }
 

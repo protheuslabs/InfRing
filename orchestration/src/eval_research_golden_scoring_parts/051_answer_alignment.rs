@@ -459,7 +459,7 @@ fn push_answer_unit(units: &mut Vec<String>, raw: &str) {
 fn answer_unit_specific_terms(unit: &str) -> Vec<String> {
     let mut seen = BTreeSet::<String>::new();
     let mut terms = Vec::<String>::new();
-    for raw in unit.split_whitespace() {
+    for (token_index, raw) in unit.split_whitespace().enumerate() {
         let mut cleaned = raw.trim_matches(|ch: char| {
             !ch.is_ascii_alphanumeric() && ch != '-' && ch != '.' && ch != '/'
         });
@@ -472,14 +472,20 @@ fn answer_unit_specific_terms(unit: &str) -> Vec<String> {
             continue;
         }
         for piece in answer_specific_term_pieces(cleaned) {
-            let normalized = normalize_research_token(piece);
-            if normalized.len() < 3
-                && normalized != "ai"
-                && !normalized.chars().any(|ch| ch.is_ascii_digit())
+            let normalized_token = normalize_research_token(&piece);
+            if normalized_token.len() <= 2
+                && normalized_token.chars().all(|ch| ch.is_ascii_digit())
             {
                 continue;
             }
-            if answer_specific_stop_term(&normalized) {
+            let normalized_stem = research_term_stem(&normalized_token);
+            if normalized_stem.len() < 3
+                && normalized_stem != "ai"
+                && !normalized_stem.chars().any(|ch| ch.is_ascii_digit())
+            {
+                continue;
+            }
+            if answer_specific_stop_term(&normalized_token) || answer_specific_stop_term(&normalized_stem) {
                 continue;
             }
             let letters = piece
@@ -502,7 +508,18 @@ fn answer_unit_specific_terms(unit: &str) -> Vec<String> {
                 || is_acronym
                 || has_internal_capital
                 || domain_like
-                || (is_capitalized && normalized.len() >= 3);
+                || (token_index > 0 && is_capitalized && normalized_stem.len() >= 3);
+            let normalized = if specific
+                && (has_digit
+                    || is_acronym
+                    || has_internal_capital
+                    || domain_like
+                    || is_capitalized)
+            {
+                normalized_token
+            } else {
+                normalized_stem
+            };
             if specific && seen.insert(normalized.clone()) {
                 terms.push(normalized);
             }
@@ -522,7 +539,7 @@ fn answer_specific_term_pieces(token: &str) -> Vec<&str> {
         return vec![token];
     }
     let pieces = token
-        .split(|ch| matches!(ch, '/' | '-' | '_' | '+'))
+        .split(|ch| matches!(ch, '/' | '-' | '_' | '+' | '—' | '–'))
         .filter(|piece| !piece.is_empty())
         .collect::<Vec<_>>();
     if pieces.len() <= 1 {
@@ -570,23 +587,44 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "based"
             | "bestsupported"
             | "because"
+            | "avoid"
+            | "avoids"
+            | "active"
+            | "allocat"
+            | "allocated"
+            | "apply"
             | "between"
+            | "best"
             | "bottom"
+            | "build"
+            | "built"
             | "boundary"
             | "case"
             | "caveat"
             | "caveats"
             | "comparative"
+            | "continue"
             | "coverage"
             | "critical"
             | "core"
+            | "differentiat"
             | "current"
             | "currently"
+            | "concurrent"
+            | "common"
             | "dimension"
+            | "decision"
+            | "design"
+            | "designed"
             | "does"
             | "ease"
+            | "enforc"
+            | "enforced"
+            | "ensure"
+            | "ensur"
             | "evidence"
             | "example"
+            | "factor"
             | "explicitly"
             | "final"
             | "first"
@@ -596,50 +634,98 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "gaps"
             | "general"
             | "given"
+            | "good"
+            | "guidance"
             | "here"
             | "however"
+            | "how"
             | "important"
             | "include"
             | "included"
             | "includes"
             | "including"
             | "integrated"
+            | "individual"
             | "instead"
             | "key"
+            | "keep"
             | "known"
+            | "look"
             | "main"
+            | "maintain"
             | "more"
             | "most"
+            | "medium"
+            | "metric"
+            | "metrics"
+            | "momentum"
+            | "once"
             | "one"
+            | "option"
+            | "options"
             | "officer"
             | "overall"
             | "parliamentary"
+            | "pay"
             | "positioning"
             | "probably"
+            | "prescrib"
+            | "previous"
+            | "prioritize"
+            | "prioritise"
+            | "prioritiz"
+            | "put"
+            | "putt"
+            | "push"
+            | "quieter"
+            | "recommend"
+            | "recommendation"
+            | "recommended"
             | "recent"
             | "retrieved"
             | "safest"
             | "second"
             | "source"
             | "sources"
+            | "specific"
+            | "specifically"
             | "strong"
             | "stronger"
             | "summary"
+            | "save"
+            | "set"
             | "than"
             | "that"
             | "the"
             | "their"
             | "there"
             | "these"
+            | "tailor"
             | "third"
             | "this"
             | "those"
             | "through"
+            | "think"
+            | "treat"
+            | "trade"
+            | "tradeoff"
+            | "tradeoffs"
+            | "choose"
+            | "unreliable"
+            | "unresolv"
+            | "unresolved"
+            | "use"
+            | "using"
+            | "watch"
             | "what"
+            | "whether"
             | "while"
             | "with"
             | "within"
             | "without"
+            | "you"
+            | "your"
+            | "youll"
             | "january"
             | "february"
             | "march"

@@ -222,6 +222,26 @@
             Some("unsupported_answer_units")
         );
         assert!(alignment.to_string().contains("phantomx"), "{}", alignment);
+        assert!(answer_unit_alignment_hard_failure(&alignment), "{alignment}");
+    }
+
+    #[test]
+    fn answer_unit_alignment_minor_traceability_warnings_do_not_hard_fail() {
+        let alignment = json!({
+            "evaluated": true,
+            "pass": false,
+            "usable_evidence": true,
+            "term_support_rate": 0.66,
+            "unsupported_unit_count": 3,
+            "unsupported_units": [{
+                "unsupported_terms": ["active", "enforced", "allocated"]
+            }]
+        });
+
+        assert!(
+            !answer_unit_alignment_hard_failure(&alignment),
+            "{alignment}"
+        );
     }
 
     #[test]
@@ -487,6 +507,250 @@
             "{:#?}",
             usefulness
         );
+    }
+
+    #[test]
+    fn direct_evidence_claim_relevance_uses_linked_source_context() {
+        let payload = json!({
+            "evidence_claims": [{
+                "claim": "Efficiency progress is real in controlled lab settings.",
+                "source_ref": "source_a",
+                "locator": "fixture://source-a",
+                "confidence": "usable"
+            }],
+            "evidence_pack_quality": {
+                "status": "usable",
+                "usable_count": 1,
+                "content_rich_item_count": 1
+            },
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "candidate_count": 1,
+                "materialized_candidate_count": 1,
+                "content_rich_candidate_count": 1,
+                "claim_hint_count": 1,
+                "evidence_pack": [{
+                    "id": "source_a",
+                    "locator": "fixture://source-a",
+                    "relevant_extract": "Perovskite-silicon tandem solar cells have higher lab conversion efficiency than silicon-only cells, but the evidence remains a controlled-lab result.",
+                    "claim_hints": ["Efficiency progress is real in controlled lab settings."]
+                }],
+                "evidence_refs": [{
+                    "id": "source_a",
+                    "locator": "fixture://source-a",
+                    "title": "Tandem cell lab note"
+                }]
+            }]
+        });
+
+        let quality = retrieval_provider_quality(
+            &payload,
+            &normalize_for_compare("Research progress on perovskite-silicon tandem solar cells."),
+        );
+
+        assert_eq!(
+            quality.get("status").and_then(Value::as_str),
+            Some("usable"),
+            "{:#?}",
+            quality
+        );
+        assert_eq!(
+            quality
+                .pointer("/prompt_relevance/topic_relevant_evidence")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{:#?}",
+            quality
+        );
+    }
+
+    #[test]
+    fn direct_evidence_claim_relevance_matches_short_acronym_and_adjective_family() {
+        let payload = json!({
+            "evidence_claims": [{
+                "claim": "Governance and reliability are central buyer concerns.",
+                "source_ref": "source_a",
+                "locator": "fixture://source-a",
+                "confidence": "usable"
+            }],
+            "evidence_pack_quality": {
+                "status": "usable",
+                "usable_count": 1,
+                "content_rich_item_count": 1
+            },
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "candidate_count": 1,
+                "materialized_candidate_count": 1,
+                "content_rich_candidate_count": 1,
+                "claim_hint_count": 1,
+                "evidence_pack": [{
+                    "id": "source_a",
+                    "locator": "fixture://source-a",
+                    "relevant_extract": "The enterprise-ai brief says agent adoption is moving toward constrained workflows with approvals, audit logs, and human review.",
+                    "claim_hints": ["Agentic capability without boundaries is not the current enterprise norm."]
+                }]
+            }]
+        });
+
+        let quality = retrieval_provider_quality(
+            &payload,
+            &normalize_for_compare("Give me an update on the AI agentic landscape."),
+        );
+
+        assert_eq!(
+            quality.get("status").and_then(Value::as_str),
+            Some("usable"),
+            "{:#?}",
+            quality
+        );
+    }
+
+    #[test]
+    fn answer_alignment_ignores_sentence_initial_generic_action_words() {
+        let payload = json!({
+            "response": "Prioritize enacted laws over headlines. Pay special attention to high-risk automated decisions. Specific harms include deepfakes and child safety.",
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "candidate_count": 1,
+                "materialized_candidate_count": 1,
+                "content_rich_candidate_count": 1,
+                "claim_hint_count": 1,
+                "evidence_refs": [{
+                    "title": "State AI legislation tracker",
+                    "locator": "https://example.test/state-ai",
+                    "snippet": "The tracker says startups should monitor enacted laws, high-risk automated decisions, deepfakes, and child safety rules rather than relying on legislative headlines.",
+                    "claim_hints": ["Bill status and enacted-law status must be kept separate."]
+                }]
+            }]
+        });
+        let retrieval_quality = retrieval_provider_quality(&payload, "state ai regulation");
+        let alignment = answer_unit_evidence_alignment(
+            &payload,
+            "Prioritize enacted laws over headlines. Pay special attention to high-risk automated decisions. Specific harms include deepfakes and child safety.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(alignment.get("pass").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            alignment
+                .get("unsupported_unit_count")
+                .and_then(Value::as_u64),
+            Some(0),
+            "{:#?}",
+            alignment
+        );
+    }
+
+    #[test]
+    fn answer_alignment_ignores_checklist_verbs_as_claim_terms() {
+        let payload = json!({
+            "response": "The highest-priority areas are: - Maintaining an accurate data inventory - Ensuring privacy notices match product practices - Putting vendor terms in place - Offering clear opt-outs - Keeping request records - Use durable file formats - Continue preserving originals - Look for maintenance friction - Factor in location - Set a repeatable workflow - Save ordinary file formats.",
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "candidate_count": 1,
+                "materialized_candidate_count": 1,
+                "content_rich_candidate_count": 1,
+                "claim_hint_count": 1,
+                "evidence_refs": [{
+                    "title": "Privacy compliance checklist",
+                    "locator": "https://example.test/privacy",
+                    "snippet": "Mid-size internet businesses should maintain a data inventory, align privacy notices with actual practices, use vendor data-processing terms, offer opt-outs, and keep records of consumer requests.",
+                    "claim_hints": ["Operational readiness matters more than tracking every statutory nuance."]
+                }]
+            }]
+        });
+        let retrieval_quality = retrieval_provider_quality(&payload, "consumer privacy law");
+        let alignment = answer_unit_evidence_alignment(
+            &payload,
+            "The highest-priority areas are: - Maintaining an accurate data inventory - Ensuring privacy notices match product practices - Putting vendor terms in place - Offering clear opt-outs - Keeping request records - Use durable file formats - Continue preserving originals - Look for maintenance friction - Factor in location - Set a repeatable workflow - Save ordinary file formats.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(alignment.get("pass").and_then(Value::as_bool), Some(true));
+    }
+
+    #[test]
+    fn answer_alignment_ignores_list_markers_and_scaffold_adjectives() {
+        let terms = answer_unit_specific_terms(
+            "Your immediate priorities should be: 1. Economic dimensions: Unresolved conflicts over land and labor shaped the collapse.",
+        );
+
+        assert!(!terms.contains(&"1".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"unresolved".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"unresolv".to_string()), "{terms:?}");
+    }
+
+    #[test]
+    fn answer_alignment_ignores_generic_action_verbs_as_claim_terms() {
+        let payload = json!({
+            "response": "What looks supported: Individualized screening and management tailors care around symptom flares. Pacing specifically supports patients whose symptoms worsen after exertion. Where people are overgeneralizing: Prescribing uniform exercise, pushing fixed escalation, applying aggressive graded exercise, or treating patient reports as trial data all overstate the evidence.",
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "candidate_count": 3,
+                "materialized_candidate_count": 3,
+                "content_rich_candidate_count": 3,
+                "claim_hint_count": 3,
+                "evidence_refs": [{
+                    "title": "Long COVID clinical management review",
+                    "locator": "https://example.test/long-covid",
+                    "snippet": "The review supports individualized symptom management, screening for post-exertional symptom exacerbation, rehabilitation matched to tolerance, and pacing for patients whose symptoms worsen after exertion. It warns against one-size-fits-all exercise prescriptions.",
+                    "claim_hints": ["Pacing is supported for patients with post-exertional symptom worsening."]
+                }, {
+                    "title": "Rehabilitation caution statement",
+                    "locator": "https://example.test/rehab",
+                    "snippet": "The guidance distinguishes graded rehabilitation for some deconditioned patients from aggressive graded exercise for patients with post-exertional malaise. Programs should monitor setbacks and stop escalation when symptoms flare, rather than forcing progression on a fixed schedule.",
+                    "claim_hints": ["Fixed escalation can be harmful for some patients."]
+                }, {
+                    "title": "Patient advocacy evidence synthesis",
+                    "locator": "https://example.test/patient-reports",
+                    "snippet": "Patient reports highlight relapses after overexertion and practical management harms. Anecdotal reports are not trials but are important for identifying harms and practical management needs.",
+                    "claim_hints": ["Patient experience should inform caution without replacing clinical evidence."]
+                }]
+            }]
+        });
+        let retrieval_quality = retrieval_provider_quality(&payload, "long covid pacing exercise");
+        let alignment = answer_unit_evidence_alignment(
+            &payload,
+            "What looks supported: Individualized screening and management tailors care around symptom flares. Pacing specifically supports patients whose symptoms worsen after exertion. Where people are overgeneralizing: Prescribing uniform exercise, pushing fixed escalation, applying aggressive graded exercise, or treating patient reports as trial data all overstate the evidence.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(alignment.get("pass").and_then(Value::as_bool), Some(true), "{alignment}");
+    }
+
+    #[test]
+    fn answer_alignment_treats_negative_timeline_caveats_as_hedged() {
+        let payload = json!({
+            "response": "These accounts do not claim a simple, direct pipeline from the 1920s to the 1950s and 1960s.",
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "candidate_count": 1,
+                "materialized_candidate_count": 1,
+                "content_rich_candidate_count": 1,
+                "claim_hint_count": 1,
+                "evidence_refs": [{
+                    "title": "Civil-rights movement continuity essay",
+                    "locator": "https://example.test/harlem",
+                    "snippet": "The essay links Harlem Renaissance networks, publications, patronage, and public intellectual life to later civil-rights organizing and Black political consciousness. It avoids claiming a simple direct pipeline, instead describing a cultural and institutional foundation that later movements drew from.",
+                    "claim_hints": ["A useful answer should avoid a simplistic cause-effect chain."]
+                }]
+            }]
+        });
+        let retrieval_quality = retrieval_provider_quality(&payload, "harlem renaissance political impact");
+        let alignment = answer_unit_evidence_alignment(
+            &payload,
+            "These accounts do not claim a simple, direct pipeline from the 1920s to the 1950s and 1960s.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(alignment.get("pass").and_then(Value::as_bool), Some(true), "{alignment}");
     }
 
     #[test]
