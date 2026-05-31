@@ -682,19 +682,42 @@ impl AgentContract {
                 }
             }
             if !native_tool_has_successful_mutation(&all_receipts) {
-                let response = native_tool_partial_progress_response(
-                    provider.provider_id(),
-                    self.model.as_deref(),
-                    "first_mutation_artifact_lane_v1_no_successful_mutation",
-                    provider_call_count,
-                    &all_receipts,
-                );
-                return Ok((
-                    response,
-                    all_receipts,
-                    provider_call_count,
-                    "partial_blocked".to_string(),
-                ));
+                let can_enter_compact_recovery = native_tool_mutation_only_recovery_enabled(&self.metadata)
+                    && native_tool_compact_mutation_entry_packet_enabled(&self.metadata)
+                    && (native_tool_has_successful_read_context_receipt(&all_receipts)
+                        || native_tool_has_successful_context_receipt(&all_receipts)
+                        || native_tool_has_any_validation_command(&all_receipts));
+                if can_enter_compact_recovery {
+                    mutation_only_recovery_pending = true;
+                    mutation_only_recovery_reason = Some(
+                        "first_mutation_artifact_lane_v1_no_successful_mutation".to_string(),
+                    );
+                    native_tool_persist_runtime_timeline_event(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "first_mutation_artifact_lane_v1_compact_recovery_armed",
+                        native_tool_bounded_patch_elapsed_ms(native_timeline_started),
+                        json!({
+                            "provider_call_count": provider_call_count,
+                            "receipt_count": all_receipts.len(),
+                            "reason": "first_mutation_artifact_lane_v1_no_successful_mutation",
+                        }),
+                    );
+                } else {
+                    let response = native_tool_partial_progress_response(
+                        provider.provider_id(),
+                        self.model.as_deref(),
+                        "first_mutation_artifact_lane_v1_no_successful_mutation",
+                        provider_call_count,
+                        &all_receipts,
+                    );
+                    return Ok((
+                        response,
+                        all_receipts,
+                        provider_call_count,
+                        "partial_blocked".to_string(),
+                    ));
+                }
             }
         }
         if native_tool_checkpointed_project_operator_tool_loop_active(
@@ -1051,11 +1074,16 @@ impl AgentContract {
                 mutation_only_recovery_pending
                     && native_tool_mutation_only_recovery_enabled(&self.metadata)
                     && !native_tool_has_successful_mutation(&all_receipts);
+            let seeded_import_surface_repair_turn =
+                native_tool_seeded_import_surface_compact_repair_enabled(&self.metadata)
+                    && native_tool_has_python_import_surface_seed_receipt(&all_receipts)
+                    && !native_tool_has_successful_validation_after_latest_mutation(&all_receipts);
             let compact_bootstrap_mutation_turn =
                 native_tool_compact_mutation_entry_packet_enabled(&self.metadata)
                     && native_tool_requires_successful_mutation(&self.metadata)
                     && native_tool_has_successful_read_context_receipt(&all_receipts)
                     && !native_tool_has_successful_mutation(&all_receipts)
+                    && !seeded_import_surface_repair_turn
                     && !first_edit_batch_turn
                     && !staged_edit_turn
                     && !mutation_only_recovery_turn;
@@ -1102,7 +1130,13 @@ impl AgentContract {
                     object.insert("provider_stream_until_tool_calls".to_string(), json!(true));
                 }
             }
-            let request_prompt = if mutation_only_recovery_turn {
+            let request_prompt = if seeded_import_surface_repair_turn {
+                    native_tool_seeded_import_surface_repair_prompt(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        &all_receipts,
+                    )
+                } else if mutation_only_recovery_turn {
                     let mutation_packet =
                         native_tool_mutation_entry_packet(&self.metadata, &self.initial_prompt, &all_receipts);
                     native_tool_mutation_only_recovery_prompt(
@@ -1139,7 +1173,9 @@ impl AgentContract {
                 } else {
                     prompt.clone()
                 };
-            let request_system = if mutation_only_recovery_turn || compact_bootstrap_mutation_turn {
+            let request_system = if seeded_import_surface_repair_turn {
+                native_tool_seeded_import_surface_repair_system()
+            } else if mutation_only_recovery_turn || compact_bootstrap_mutation_turn {
                 native_tool_mutation_only_recovery_system()
             } else if first_edit_batch_turn {
                 native_tool_first_edit_batch_system()
@@ -1148,7 +1184,9 @@ impl AgentContract {
             } else {
                 system.clone()
             };
-            let request_tools = if mutation_only_recovery_turn || compact_bootstrap_mutation_turn {
+            let request_tools = if seeded_import_surface_repair_turn {
+                native_tool_staged_edit_tools(tools)
+            } else if mutation_only_recovery_turn || compact_bootstrap_mutation_turn {
                 native_tool_mutation_recovery_tools(&self.metadata, tools)
             } else if first_edit_batch_turn {
                 native_tool_bounded_fast_edit_preflight_tools(tools)
@@ -1179,6 +1217,7 @@ impl AgentContract {
                     "tool_count": request.tools.len(),
                     "stream_until_tool_calls": stream_until_tool_calls,
                     "staged_edit_turn": staged_edit_turn,
+                    "seeded_import_surface_repair_turn": seeded_import_surface_repair_turn,
                     "mutation_only_recovery_turn": mutation_only_recovery_turn,
                 }),
             );
@@ -1214,6 +1253,7 @@ impl AgentContract {
                     "status": if provider_result.is_ok() { "ok" } else { "error" },
                     "stream_until_tool_calls": stream_until_tool_calls,
                     "staged_edit_turn": staged_edit_turn,
+                    "seeded_import_surface_repair_turn": seeded_import_surface_repair_turn,
                     "mutation_only_recovery_turn": mutation_only_recovery_turn,
                     "stream_diagnostics": provider_result
                         .as_ref()
@@ -1553,6 +1593,10 @@ impl AgentContract {
                     && !native_tool_has_successful_mutation(&all_receipts)
                     && !native_tool_has_successful_mutation(&turn_receipts)
                     && native_tool_call_is_command_run(&call);
+                let seeded_import_surface_context_blocked =
+                    seeded_import_surface_repair_turn && native_tool_call_is_context_only(&call);
+                let seeded_import_surface_command_blocked =
+                    seeded_import_surface_repair_turn && native_tool_call_is_command_run(&call);
                 let staged_edit_context_blocked =
                     staged_edit_turn && native_tool_call_is_context_only(&call);
                 let staged_edit_command_blocked =
@@ -1625,6 +1669,10 @@ impl AgentContract {
                         native_tool_bounded_fast_edit_preflight_context_blocked_receipt(call)
                     } else if first_edit_batch_command_blocked {
                         native_tool_first_edit_batch_command_blocked_receipt(call)
+                    } else if seeded_import_surface_context_blocked {
+                        native_tool_staged_edit_context_blocked_receipt(call)
+                    } else if seeded_import_surface_command_blocked {
+                        native_tool_staged_edit_command_blocked_receipt(call)
                     } else if staged_edit_context_blocked {
                         native_tool_staged_edit_context_blocked_receipt(call)
                     } else if staged_edit_command_blocked {
@@ -3360,6 +3408,24 @@ fn native_tool_python_import_surface_seed_enabled(metadata: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn native_tool_seeded_import_surface_compact_repair_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("seeded_import_surface_compact_repair_turn"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_seeded_import_surface_contract_packet_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("seeded_import_surface_contract_packet_enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 fn native_tool_mutation_recovery_tools(metadata: &Value, tools: &[String]) -> Vec<String> {
     if !native_tool_controlled_shell_edit_batch_enabled(metadata) {
         return native_tool_staged_edit_tools(tools);
@@ -4527,6 +4593,242 @@ fn native_tool_staged_edit_tools(tools: &[String]) -> Vec<String> {
     } else {
         filtered
     }
+}
+
+fn native_tool_seeded_import_surface_repair_system() -> String {
+    "Seeded import-surface repair turn.\n\
+Return only JSON tool_calls.\n\
+Use file_patch/file_write only.\n\
+No read/list/stat/resolve/command_run/prose/final answer.\n\
+Patch the seeded source/export files into a real implementation; runtime will validate."
+        .to_string()
+}
+
+fn native_tool_seeded_import_surface_repair_prompt(
+    metadata: &Value,
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> String {
+    let mutation_packet = native_tool_mutation_entry_packet(metadata, original_prompt, receipts);
+    let contract_packet = if native_tool_seeded_import_surface_contract_packet_enabled(metadata) {
+        native_tool_seeded_import_surface_contract_packet(original_prompt, receipts)
+    } else {
+        String::new()
+    };
+    let rule = native_tool_orchestration_prompt_text(
+        metadata,
+        "seeded_import_surface_repair_rule",
+        "Runtime created a minimal Python source/export import surface from failed validation evidence. That seed is not completion. Treat tests/probes/import lines as immutable contract evidence, mutate only source/export owner files, and return one small file_patch/file_write batch replacing placeholders with requested behavior. Do not call read/list/validation tools or finalize; runtime validates after mutation.",
+    );
+    let contract_section = if contract_packet.trim().is_empty() {
+        String::new()
+    } else {
+        format!("\n\n{contract_packet}")
+    };
+    format!(
+        "User task:\n{}\n\n{}{}\n\n{}",
+        original_prompt.trim(),
+        rule,
+        contract_section,
+        mutation_packet
+    )
+}
+
+fn native_tool_seeded_import_surface_contract_packet(
+    original_prompt: &str,
+    receipts: &[NativeToolReceipt],
+) -> String {
+    let project_root = native_tool_prompt_project_root(original_prompt)
+        .unwrap_or_else(|| "the local project root".to_string());
+    let project_root_path = PathBuf::from(&project_root);
+    let mut seeded_paths = Vec::<String>::new();
+    let mut seed_source_sections = Vec::<String>::new();
+    let mut public_contract_lines = Vec::<String>::new();
+    let mut validation_lines = Vec::<String>::new();
+
+    for receipt in receipts {
+        native_tool_seeded_import_surface_collect_contract_file(
+            receipt,
+            &project_root_path,
+            &mut seeded_paths,
+            &mut seed_source_sections,
+            &mut public_contract_lines,
+        );
+        native_tool_seeded_import_surface_collect_validation_lines(
+            receipt,
+            &mut validation_lines,
+        );
+    }
+
+    seeded_paths.sort_by_key(|path| native_tool_mutation_entry_path_score(path));
+    seeded_paths.dedup();
+    seed_source_sections.sort();
+    seed_source_sections.dedup();
+
+    format!(
+        "Seeded import-surface implementation contract:\n\
+Owner mutation targets:\n{}\n\n\
+Immutable public contract evidence from tests/probes/exports:\n{}\n\n\
+Failed validation/import evidence:\n{}\n\n\
+Current seeded source/export skeletons:\n{}",
+        if seeded_paths.is_empty() {
+            "- source/export owner paths inferred from latest seed receipts".to_string()
+        } else {
+            seeded_paths
+                .iter()
+                .take(8)
+                .map(|path| format!("- {path}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        },
+        if public_contract_lines.is_empty() {
+            "- use the user task and import failure evidence as the contract".to_string()
+        } else {
+            public_contract_lines
+                .iter()
+                .take(24)
+                .map(|line| format!("- {line}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        },
+        if validation_lines.is_empty() {
+            "- no compact validation excerpt available".to_string()
+        } else {
+            validation_lines
+                .iter()
+                .take(20)
+                .map(|line| format!("- {line}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        },
+        if seed_source_sections.is_empty() {
+            "- no seeded source skeleton content available".to_string()
+        } else {
+            seed_source_sections
+                .iter()
+                .take(4)
+                .map(|section| section.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        }
+    )
+}
+
+fn native_tool_seeded_import_surface_collect_contract_file(
+    receipt: &NativeToolReceipt,
+    project_root_path: &Path,
+    seeded_paths: &mut Vec<String>,
+    seed_source_sections: &mut Vec<String>,
+    public_contract_lines: &mut Vec<String>,
+) {
+    if let Some(files) = receipt.result.get("files").and_then(Value::as_array) {
+        for file in files {
+            if let Some(path) = native_tool_packet_value_path(file) {
+                native_tool_seeded_import_surface_collect_contract_content(
+                    receipt,
+                    project_root_path,
+                    &path,
+                    file.get("content").and_then(Value::as_str),
+                    seeded_paths,
+                    seed_source_sections,
+                    public_contract_lines,
+                );
+            }
+        }
+    }
+    if let Some(path) = receipt.result.get("path").and_then(Value::as_str) {
+        native_tool_seeded_import_surface_collect_contract_content(
+            receipt,
+            project_root_path,
+            path,
+            receipt.result.get("content").and_then(Value::as_str),
+            seeded_paths,
+            seed_source_sections,
+            public_contract_lines,
+        );
+    }
+}
+
+fn native_tool_seeded_import_surface_collect_contract_content(
+    receipt: &NativeToolReceipt,
+    project_root_path: &Path,
+    path: &str,
+    content: Option<&str>,
+    seeded_paths: &mut Vec<String>,
+    seed_source_sections: &mut Vec<String>,
+    public_contract_lines: &mut Vec<String>,
+) {
+    let display_path = native_tool_mutation_entry_display_path(project_root_path, path);
+    if let Some(content) = content {
+        native_tool_mutation_entry_extend_public_contract_lines(
+            public_contract_lines,
+            &display_path,
+            content,
+        );
+    }
+    if receipt.call_id.contains("runtime_python_import_surface_seed") {
+        native_tool_push_unique_string(seeded_paths, display_path.clone());
+        if let Some(content) = content {
+            seed_source_sections.push(format!(
+                "--- {display_path}\n{}",
+                native_tool_mutation_entry_content_brief(content)
+            ));
+        }
+    }
+}
+
+fn native_tool_seeded_import_surface_collect_validation_lines(
+    receipt: &NativeToolReceipt,
+    validation_lines: &mut Vec<String>,
+) {
+    let mut text = String::new();
+    if let Some(error) = receipt.error.as_deref() {
+        text.push_str(error);
+        text.push('\n');
+    }
+    for key in ["stdout", "stderr", "message", "summary", "diagnostic"] {
+        if let Some(value) = receipt.result.get(key).and_then(Value::as_str) {
+            text.push_str(value);
+            text.push('\n');
+        }
+    }
+    if text.trim().is_empty() {
+        return;
+    }
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !native_tool_seeded_import_surface_validation_line_is_useful(trimmed) {
+            continue;
+        }
+        native_tool_push_unique_string(
+            validation_lines,
+            trimmed.chars().take(240).collect::<String>(),
+        );
+        if validation_lines.len() >= 48 {
+            break;
+        }
+    }
+}
+
+fn native_tool_seeded_import_surface_validation_line_is_useful(line: &str) -> bool {
+    if line.is_empty() || line.len() > 500 {
+        return false;
+    }
+    let lower = line.to_ascii_lowercase();
+    lower.contains("importerror")
+        || lower.contains("modulenotfounderror")
+        || lower.contains("attributeerror")
+        || lower.contains("nameerror")
+        || lower.contains("notimplementederror")
+        || lower.contains("assertionerror")
+        || lower.contains("expected")
+        || lower.contains("actual")
+        || lower.contains("failed")
+        || lower.contains("traceback")
+        || lower.contains("cannot import")
+        || lower.contains("no module named")
+        || line.contains("from ")
+        || line.contains("import ")
 }
 
 fn native_tool_first_edit_batch_system() -> String {

@@ -304,10 +304,13 @@
       "synthesize_final_after_successful_validation": true,
       "coding_execution_spine_v1_enabled": true,
       "first_mutation_artifact_lane_v1_enabled": true,
+      "first_mutation_artifact_lane_v1_provider_timeout_seconds": 15,
       "post_validation_closure_controller_enabled": true,
       "capability_evidence_gate_enabled": true,
       "mutation_only_recovery_gate_enabled": true,
       "compact_mutation_entry_packet_enabled": true,
+      "seeded_import_surface_compact_repair_turn": true,
+      "seeded_import_surface_contract_packet_enabled": true,
       "controlled_shell_edit_batch_enabled": true,
       "first_turn_timeout_recovery": true,
       "premature_validation_recovery_gate_enabled": true,
@@ -437,6 +440,7 @@
         "coverage_finalization_guard_rule": "Completion evidence guard: this is a multi-requirement coding task and the previous answer did not include task_requirement_checklist coverage. Include task_requirement_checklist now. If any user-stated requirement is not evidence-backed by changed files, validation, or native receipts, mark it uncovered or blocked and set completion_status/status to partial_or_blocked rather than success.",
         "empty_tool_retry_rule": "This coding run requires native tool receipts before it can complete. Return only JSON with a tool_calls array now. For explicit isolated create-file work, call file_write directly. For existing or unclear project work, start with file_list or file_stat, then read relevant existing files. If implementation is requested and no successful file_write/file_patch receipt exists yet, do not run validation, summarize, or finalize; return a source/test mutation batch now. If tests, validation, or test status are requested after edits, call command_run with the relevant local validation command before finalizing. For multi-requirement mutation tasks, do not return a final answer or partial report while required target paths or categories still lack mutation or validation receipts. Continue until each user-stated requirement has receipt-backed evidence, or return a structured blocker only if local files, permissions, or missing user information genuinely prevent mutation.",
         "edit_context_packet_rule": "Use the compact edit context packet as sufficient setup. Patch relevant source/export files first, then run requested validation/probes. Do not reopen discovery unless the packet proves a needed file is missing.",
+        "seeded_import_surface_repair_rule": "Runtime created a minimal Python source/export import surface from failed validation evidence. That seed is not completion. Treat tests/probes/import lines as immutable contract evidence, mutate only source/export owner files, and return one small file_patch/file_write batch replacing placeholders with requested behavior. Do not call read/list/validation tools or finalize; runtime validates after mutation.",
         "first_edit_batch_contract_rule": "Use preflight observations. Return only JSON tool_calls. Mutate first with file_write/file_patch, then validate. No discovery/prose; blocker only if receipts prove unsafe.",
         "mutation_transition_guard_rule": "Native mutation transition guard: successful discovery/read context has already been gathered for a task that requires file mutation. On the next assistant turn, do not call more discovery/read-only tools and do not run validation before mutation. Return only JSON tool_calls containing at least one file_write or file_patch now, with no prose or final answer. For multi-file implementation tasks, batch a vertical implementation slice across source, tests, and CLI/docs/report surfaces when requested. Provide a structured blocker only when observations prove the exact missing information or constraint that prevents mutation.",
         "partial_progress_recovery_rule": "Native partial-progress recovery pass. This is a bounded repair/finalization pass, not a new implementation pass. Use receipt-backed changed files as context, fix only obvious syntax/import/serialization/persistence/runtime errors inside those files, do not expand scope, and provide the final response if no safe repair remains. Final output must include public_reasoning_trace, reasoning_rollup, redaction_policy: no_hidden_chain_of_thought, blockers if any, and receipt-backed evidence references.",
@@ -456,81 +460,6 @@
     "owner": "orchestration_control_plane",
     "purpose": "Own coding-workflow final artifact schema names and public summary text outside the Layer 0 native execution substrate.",
     "workflow_id": "coding_project_operator",
-    "runtime_task_shape_classifier": {
-      "version": "coding_runtime_task_shape_classifier_v1",
-      "classification_basis": "execution_shape_not_eval_level",
-      "reference_patterns": [
-        "codex_style_context_edit_validate_loop",
-        "claude_code_style_direct_tool_work_when_scope_is_obvious",
-        "aider_style_file_scope_before_edit",
-        "swe_agent_style_validation_driven_repair"
-      ],
-      "forbidden_inputs": [
-        "eval_level_number",
-        "fixture_name",
-        "test_case_id",
-        "hardcoded_expected_marker"
-      ],
-      "signals": [
-        "is_target_file_explicit",
-        "is_existing_project_context_required",
-        "is_validation_requested_or_failed",
-        "is_multi_file_or_vertical_slice",
-        "is_checkpoint_resume_or_memory_operation",
-        "is_architecture_or_long_horizon_work"
-      ],
-      "runtime_shapes": [
-        {
-          "shape": "direct_create_or_write",
-          "native_lane": "new_file_fast_path",
-          "profile": 0,
-          "requires_discovery": false,
-          "requires_validation_by_default": false,
-          "owner": "file_mutation_executor"
-        },
-        {
-          "shape": "bounded_existing_project_edit",
-          "native_lane": "existing_project_patch",
-          "profile": 2,
-          "requires_discovery": true,
-          "requires_validation_by_default": false,
-          "owner": "bounded_direct_edit_or_patch_artifact"
-        },
-        {
-          "shape": "validation_guided_repair",
-          "native_lane": "validation_repair",
-          "profile": 3,
-          "requires_discovery": true,
-          "requires_validation_by_default": true,
-          "owner": "validation_repair_controller"
-        },
-        {
-          "shape": "multi_file_project_slice",
-          "native_lane": "multi_file_slice",
-          "profile": 4,
-          "requires_discovery": true,
-          "requires_validation_by_default": true,
-          "owner": "staged_execution_controller"
-        },
-        {
-          "shape": "checkpointed_project_operation",
-          "native_lane": "long_run_project_operator",
-          "profile": 5,
-          "requires_discovery": true,
-          "requires_validation_by_default": true,
-          "owner": "checkpointed_project_operator"
-        },
-        {
-          "shape": "general_native_tool_task",
-          "native_lane": "general_native_tool_task",
-          "profile": 2,
-          "requires_discovery": true,
-          "requires_validation_by_default": false,
-          "owner": "native_tool_loop_with_structured_blockers"
-        }
-      ],
-      "invariant": "Eval levels are a test gauntlet only. Runtime lanes must remain reusable execution-shape categories that real user tasks can enter without knowing eval level names."
-    },
     "micro_heading": "Task completed through the native micro direct-write path.",
     "completion_heading": "Runtime synthesized completion-evidence finalization.",
     "completion_status_field": "completion_status",

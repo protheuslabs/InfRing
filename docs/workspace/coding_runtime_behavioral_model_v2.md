@@ -865,3 +865,19 @@ Tier 0 mutation primitives
 It also prevents the earlier regression pattern where Level 8 changes broke
 lower levels: higher tiers may orchestrate lower tiers, but may not alter their
 primitive contracts or inject eval-specific behavior into them.
+
+## Seeded import-surface repair primitive
+
+When validation proves a missing Python source/export surface, the runtime may
+create a minimal importable seed. That seed is only scaffolding. The next model
+turn should receive a compact implementation-contract packet containing:
+
+- owner source/export paths created or touched by the seed
+- immutable public contract evidence from tests, probes, and export files
+- compact failed validation/import evidence
+- current seeded skeleton snippets
+
+The repair lane should expose only `file_write` and `file_patch`. Tests and
+probes are evidence for the product contract, not mutation targets. This keeps
+the primitive reusable across Python package tasks without encoding eval levels
+or fixture-specific marker strings.

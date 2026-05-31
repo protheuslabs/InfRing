@@ -111,10 +111,21 @@ fn first_mutation_artifact_lane_v1_file_packet(value: &Value) -> Option<Value> {
 
 pub(crate) fn first_mutation_artifact_lane_v1_metadata(metadata: &Value) -> Value {
     let mut metadata = metadata.clone();
+    let timeout_seconds = first_mutation_artifact_lane_v1_provider_timeout_seconds(&metadata);
     if let Some(object) = metadata.as_object_mut() {
-        object.insert("provider_timeout_seconds".to_string(), json!(45));
+        object.insert("provider_timeout_seconds".to_string(), json!(timeout_seconds));
         object.insert("provider_stream_until_tool_calls".to_string(), json!(true));
         object.insert("omit_ollama_thinking_flags".to_string(), json!(true));
     }
     metadata
+}
+
+fn first_mutation_artifact_lane_v1_provider_timeout_seconds(metadata: &Value) -> u64 {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|criteria| criteria.get("first_mutation_artifact_lane_v1_provider_timeout_seconds"))
+        .and_then(Value::as_u64)
+        .unwrap_or(15)
+        .clamp(5, 60)
 }

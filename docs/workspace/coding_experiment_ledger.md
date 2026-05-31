@@ -1966,7 +1966,24 @@ bounded context loaded
 
 Measurement:
 
-Pending.
+First focused Level 5-7 run:
+
+- Level 5: runtime completed successfully, validation passed, semantic probe
+  passed, but harness failed `missing_expected_markers` because the compact
+  repair turn rewrote the test file instead of treating tests as immutable
+  evidence.
+- Level 6: failed `seeded_repair_timeout`; compact turn reduced prompt/system
+  and tools, but still timed out at the inherited `30s` provider budget.
+- Level 7: failed `seeded_repair_timeout`; compact turn reduced prompt/system
+  and tools, but still timed out at the inherited `30s` provider budget.
+
+Follow-up patch:
+
+- Block test-file mutations during seeded import-surface repair; this repair
+  primitive owns source/export mutation, not evidence/test rewriting.
+- Add CD-controlled `seeded_import_surface_repair_provider_timeout_seconds`
+  with a `45s` budget so this compact lane is not bound to the broad tool-loop
+  timeout.
 
 ### EXP-CODING-058 measurement update
 
@@ -1981,3 +1998,120 @@ One rebuilt Level 3 run with `kimi-k2.6:cloud`:
 Decision:
 
 Rejected and reverted. The patch proved that the primary direct-edit topology can mutate and pass, but it made Level 3 much slower than the previous stable and reference-framework baselines. The useful lesson is narrower: direct edit must also close/finalize without extra heavy controller/finalization latency, or it is not a viable replacement for the artifact lane.
+
+## EXP-CODING-059: Compact seeded import-surface repair turn
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: seeded_import_surface_compact_repair_turn
+Profile touched: 3
+Activation evidence: deterministic Python import-surface seed receipts exist and validation after the latest mutation is unresolved.
+Reference pattern: validation/import failure -> source/export repair mutation -> validation, without broad discovery/planning tools in the repair turn.
+Invariant: import-surface seeding is not completion; the next model-owned turn must be a compact file mutation repair, not the broad native tool loop.
+Rollback condition: Level 3/4 regress, Level 5-7 remain seeded_repair_timeout with no prompt/tool-size improvement, or the repair turn blocks legitimate non-Python tasks.
+```
+
+Hypothesis:
+
+The current 5-7 failures are not first-mutation failures. The runtime writes
+seeded source/export files almost immediately, then sends the model into a broad
+repair turn with `8k-11k` prompt chars, about `3.6k` system chars, and `8`
+tools. Kimi times out before replacing the placeholder seed with real behavior.
+
+Patch:
+
+- Added CD-gated `seeded_import_surface_compact_repair_turn`.
+- Activates only after Python import-surface seed receipts and unresolved
+  validation after the latest mutation.
+- Uses a compact mutation-entry packet and file_write/file_patch tools only.
+- Blocks read/list/command calls during that repair turn.
+
+Expected impact:
+
+```text
+failed validation/import evidence
+-> deterministic source/export seed
+-> compact source/export repair mutation
+-> runtime validation
+```
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-059 follow-up measurement
+
+Second focused Level 5-7 run after adding a test-mutation block and extending
+the compact repair timeout to `45s`:
+
+- Level 5 regressed to `partial_blocked` at about `189s`; marker preservation
+  improved, but the implementation stayed as the seeded `NotImplementedError`.
+- Level 6 still failed `seeded_repair_timeout`, now at about `67s`.
+- Level 7 still failed `seeded_repair_timeout`, now at about `56.7s`.
+
+Decision:
+
+Rejected and reverted the follow-up timeout/test-block patch. It was not an
+obvious positive delta. Keep only the first compact seeded-repair turn for now,
+because that reduced the prompt/system/tool surface and got Level 5 to runtime
+success with validation and semantic probes passing, even though the harness
+still rejected the test-file rewrite.
+
+### EXP-CODING-060: Seeded import-surface implementation-contract packet
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: seeded_import_surface_contract_packet
+Profile touched: 3
+Activation evidence: compact seeded import-surface repair turn is active.
+Reference pattern: failed import/validation evidence -> owner source/export repair, with tests/probes treated as contract evidence rather than edit targets.
+Invariant: the model receives enough behavior evidence to implement the seeded source without reopening broad discovery/planning or mutating tests.
+Rollback condition: lower levels regress, Level 5 remains seeded_repair_timeout with no clearer failure, or test/probe mutation increases.
+```
+
+Patch:
+
+- Added a compact owner/contract/validation/skeleton packet for seeded
+  import-surface repair.
+- Reused the existing public-contract line extractor rather than adding
+  level-specific rules.
+- Kept the repair tool menu narrowed to `file_write`/`file_patch`.
+- Added runtime timing flags for seeded repair turns so traces can distinguish
+  this lane from generic mutation recovery.
+
+### EXP-CODING-061: First-mutation artifact timeout compact recovery
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: first_mutation_artifact_no_mutation_recovery
+Profile touched: 2-3
+Activation evidence: first mutation artifact lane timed out or returned no successful mutation after context/validation evidence already exists.
+Reference pattern: narrow failed fast-edit attempt -> compact mutation-only recovery, rather than finalizing partial before a second mutation attempt.
+Invariant: no eval-level special cases; recovery is keyed only to receipts and the existing mutation-only recovery gate.
+Rollback condition: Level 3/5 regress, Level 4 still fails with no mutation, or retry loops add latency without successful mutation.
+```
+
+Patch:
+
+- Replaced the immediate `partial_blocked` return after first-mutation artifact
+  no-mutation with an armed compact mutation-only recovery path.
+- Requires existing context or validation receipts, plus the existing compact
+  mutation/recovery gates.
+- Leaves the original partial-blocked behavior intact when the compact recovery
+  preconditions are absent.
+
+Follow-up patch:
+
+- Moved the first-mutation artifact lane provider timeout out of Rust hardcoding
+  and into workflow CD policy.
+- Set the bounded first-mutation lane timeout to `15s` so no-mutation demotion
+  can reach compact recovery before the run spends most of its wall budget.
