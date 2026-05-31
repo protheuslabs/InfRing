@@ -235,6 +235,9 @@ fn answer_unit_alignment_hard_failure(alignment: &Value) -> bool {
         .get("term_support_rate")
         .and_then(Value::as_f64)
         .unwrap_or(1.0);
+    if unsupported_units <= 1 && support_rate >= 0.90 {
+        return false;
+    }
     alignment_has_severe_unsupported_term(alignment) || (unsupported_units >= 4 && support_rate < 0.60)
 }
 

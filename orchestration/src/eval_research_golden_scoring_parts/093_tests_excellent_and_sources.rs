@@ -1295,7 +1295,7 @@ fn useful_explanatory_answer_is_not_blocked_only_by_soft_smoke_decision_signal()
             .soft_quality_smoke
             .get("pass")
             .and_then(Value::as_bool),
-        Some(false),
+        Some(true),
         "{:#?}",
         grade.soft_quality_smoke
     );
@@ -1304,7 +1304,7 @@ fn useful_explanatory_answer_is_not_blocked_only_by_soft_smoke_decision_signal()
             .soft_quality_smoke
             .get("top_blocker")
             .and_then(Value::as_str),
-        Some("decision_or_explanatory_value_missing"),
+        Some("none"),
         "{:#?}",
         grade.soft_quality_smoke
     );

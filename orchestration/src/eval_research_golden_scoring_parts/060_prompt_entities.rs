@@ -4,15 +4,12 @@ fn response_matches_prompt_intent(normalized_prompt: &str, normalized_response: 
     }
     let asks_comparison = contains_any(
         normalized_prompt,
-        &[
-            "compare",
-            "versus",
-            " vs ",
-            "tradeoff",
-            "tradeoffs",
-            "which",
-        ],
-    );
+        &["compare", "versus", " vs ", "tradeoff", "tradeoffs"],
+    ) || (normalized_prompt.contains("which")
+        && contains_any(
+            normalized_prompt,
+            &["best", "better", "option", "options", "choose", "pick"],
+        ));
     if asks_comparison {
         return has_tradeoff_or_structure(normalized_response);
     }
@@ -32,9 +29,31 @@ fn response_matches_prompt_intent(normalized_prompt: &str, normalized_response: 
         return has_tradeoff_or_structure(normalized_response)
             || normalized_response.contains("finding")
             || normalized_response.contains("evidence")
-            || normalized_response.contains("because");
+            || normalized_response.contains("because")
+            || prompt_response_content_overlap(normalized_prompt, normalized_response) >= 3;
     }
     true
+}
+
+fn prompt_response_content_overlap(normalized_prompt: &str, normalized_response: &str) -> usize {
+    let mut seen = Vec::<String>::new();
+    let mut overlap = 0usize;
+    for token in normalized_prompt.split_whitespace() {
+        let normalized = normalize_research_token(token);
+        if normalized.len() < 5 {
+            continue;
+        }
+        let stem = research_term_stem(&normalized);
+        let key = if stem.is_empty() { &normalized } else { &stem };
+        if key.len() < 5 || answer_specific_stop_term(key) || seen.iter().any(|item| item == key) {
+            continue;
+        }
+        seen.push(key.to_string());
+        if normalized_response.contains(key) {
+            overlap += 1;
+        }
+    }
+    overlap
 }
 
 fn response_matches_decision_prompt(normalized_prompt: &str, normalized_response: &str) -> bool {

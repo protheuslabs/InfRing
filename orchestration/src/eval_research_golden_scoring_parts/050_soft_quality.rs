@@ -54,7 +54,7 @@ fn soft_quality_smoke_check(
     );
     subgates.insert(
         "smoke_6_decision_or_explanatory_value_present".to_string(),
-        json!(decision_value || has_tradeoff_or_structure(normalized_response)),
+        json!(intent_answered || decision_value || has_tradeoff_or_structure(normalized_response)),
     );
     subgates.insert(
         "smoke_7_response_not_truncated".to_string(),

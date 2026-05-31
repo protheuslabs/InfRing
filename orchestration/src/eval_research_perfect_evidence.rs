@@ -16,6 +16,12 @@ const DEFAULT_OUT_LATEST_PATH: &str = "artifacts/research_perfect_evidence_lates
 const DEFAULT_MARKDOWN_PATH: &str = "local/workspace/reports/RESEARCH_PERFECT_EVIDENCE_CURRENT.md";
 const DEFAULT_TEST_MODE_RESPONSES_PATH: &str =
     "core/local/artifacts/research_perfect_evidence_test_mode_responses.json";
+const DEFAULT_HANDOFF_OUT_PATH: &str =
+    "core/local/artifacts/research_perfect_evidence_handoff_current.json";
+const DEFAULT_HANDOFF_OUT_LATEST_PATH: &str =
+    "artifacts/research_perfect_evidence_handoff_latest.json";
+const DEFAULT_HANDOFF_MARKDOWN_PATH: &str =
+    "local/workspace/reports/RESEARCH_PERFECT_EVIDENCE_HANDOFF_CURRENT.md";
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:4173";
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
 const DEFAULT_AGENT_ID: &str = "research-perfect-evidence-test-lane";
@@ -51,6 +57,12 @@ pub fn run_research_perfect_evidence(args: &[String]) -> i32 {
         "test-input-regrade" | "regrade" | "regrade-responses"
     ) {
         return run_test_input_regrade(args);
+    }
+    if matches!(
+        mode.trim(),
+        "production-handoff-replay" | "handoff-replay" | "handoff"
+    ) {
+        return run_production_handoff_replay(args);
     }
 
     let cases_path = parse_flag(args, "cases").unwrap_or_else(|| DEFAULT_CASES_PATH.to_string());
@@ -677,6 +689,224 @@ fn run_test_input_regrade(args: &[String]) -> i32 {
     }
 }
 
+fn run_production_handoff_replay(args: &[String]) -> i32 {
+    let cases_path = parse_flag(args, "cases").unwrap_or_else(|| DEFAULT_CASES_PATH.to_string());
+    let responses_path = parse_flag(args, "responses")
+        .unwrap_or_else(|| DEFAULT_TEST_MODE_RESPONSES_PATH.to_string());
+    let out_path = parse_flag(args, "out").unwrap_or_else(|| DEFAULT_HANDOFF_OUT_PATH.to_string());
+    let out_latest_path = parse_flag(args, "out-latest")
+        .unwrap_or_else(|| DEFAULT_HANDOFF_OUT_LATEST_PATH.to_string());
+    let markdown_path = parse_flag(args, "out-markdown")
+        .unwrap_or_else(|| DEFAULT_HANDOFF_MARKDOWN_PATH.to_string());
+    let limit = parse_usize_flag(args, "limit", 30);
+    let strict = parse_bool_flag(args, "strict", false);
+
+    let dataset = match fs::read_to_string(&cases_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+    {
+        Some(value) => value,
+        None => {
+            eprintln!("research-perfect-evidence handoff: failed to read cases from {cases_path}");
+            return 2;
+        }
+    };
+    let responses = match fs::read_to_string(&responses_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+    {
+        Some(value) => value,
+        None => {
+            eprintln!(
+                "research-perfect-evidence handoff: failed to read responses from {responses_path}"
+            );
+            return 2;
+        }
+    };
+    let case_map = dataset
+        .get("cases")
+        .and_then(Value::as_array)
+        .map(|cases| {
+            cases
+                .iter()
+                .filter_map(|case| {
+                    let id = str_at(case, "id");
+                    (!id.is_empty()).then(|| (id, case.clone()))
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+
+    let mut rows = Vec::new();
+    let mut setup_failures = Vec::<String>::new();
+    for response_row in responses
+        .get("responses")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .take(limit)
+    {
+        let case_id = str_at(response_row, "case_id");
+        let mut case_setup_failures = Vec::<String>::new();
+        let case = match case_map.get(&case_id) {
+            Some(case) => case,
+            None => {
+                case_setup_failures.push("handoff_case_not_found".to_string());
+                &Value::Null
+            }
+        };
+        let saved_payload = response_row
+            .get("response_payload")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let scoring_payload = build_production_handoff_replay_payload(case, &saved_payload);
+        let handoff_contract = production_handoff_contract(&scoring_payload);
+        let grade = grade_case(case, &scoring_payload, 85, 95);
+        let response_diagnostics = response_diagnostics(&scoring_payload, &grade.response_text);
+        let contract_ok = handoff_contract
+            .get("ok")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let transport_failure = scoring_payload_transport_failure(&scoring_payload);
+        let final_llm_status = response_diagnostics
+            .get("final_llm_status")
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| {
+                if grade.response_text.trim().is_empty() {
+                    "empty"
+                } else {
+                    "synthesized"
+                }
+            });
+        let empty_final_response =
+            final_llm_status == "empty" || grade.response_text.trim().is_empty();
+        let transport_or_harness_failure =
+            !case_setup_failures.is_empty() || transport_failure || empty_final_response;
+        let case_pass = grade.pass
+            && contract_ok
+            && !transport_or_harness_failure
+            && case_setup_failures.is_empty();
+        let case_excellent = grade.excellent
+            && contract_ok
+            && !transport_or_harness_failure
+            && case_setup_failures.is_empty();
+        let measurement_class = if transport_or_harness_failure {
+            "transport_or_harness_failure"
+        } else if !contract_ok {
+            "handoff_contract_failure"
+        } else if case_pass {
+            "handoff_synthesis_pass"
+        } else {
+            "handoff_synthesis_hard_failure"
+        };
+        let mut failures = grade.failures.clone();
+        failures.extend(
+            handoff_contract
+                .get("failures")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string),
+        );
+        failures.extend(case_setup_failures.clone());
+        failures.sort();
+        failures.dedup();
+        rows.push(json!({
+            "case_id": case_id,
+            "category": str_at(case, "category"),
+            "prompt": str_at(case, "prompt"),
+            "input_lane": TEST_INPUT_LANE_ID,
+            "production_handoff_replay": true,
+            "score": grade.score,
+            "pass": case_pass,
+            "excellent": case_excellent,
+            "failures": failures,
+            "setup_failures": case_setup_failures,
+            "handoff_contract": handoff_contract,
+            "measurement_class": measurement_class,
+            "synthesized_case": measurement_class == "handoff_synthesis_pass" || measurement_class == "handoff_synthesis_hard_failure",
+            "transport_or_harness_failure": transport_or_harness_failure,
+            "lane_isolation": {
+                "ok": true,
+                "live_payload_tools_count": 0,
+                "live_payload_pending_tool_request": false,
+                "production_web_lane_touched": false
+            },
+            "response_preview": clean_text(&grade.response_text, 700),
+            "response_full": clean_text(&grade.response_text, 12_000),
+            "response_diagnostics": response_diagnostics,
+            "soft_quality_smoke": grade.soft_quality_smoke,
+            "user_facing_answer_quality": grade.user_facing_answer_quality,
+            "answer_unit_evidence_alignment": grade.answer_unit_evidence_alignment,
+            "answer_unit_usefulness": grade.answer_unit_usefulness,
+            "query_satisfaction": grade.query_satisfaction,
+            "citation_behavior": grade.citation_behavior,
+            "retrieval_quality": grade.retrieval_quality,
+            "live_payload_transport_error": scoring_payload
+                .pointer("/live_payload/transport_error")
+                .cloned()
+                .unwrap_or(Value::Null),
+        }));
+    }
+
+    if rows.is_empty() {
+        setup_failures.push("no_responses_replayed".to_string());
+    }
+    let mut summary = replay_summary(&rows, limit, &setup_failures);
+    augment_handoff_summary(&mut summary, &rows);
+    let ok = summary
+        .get("transport_or_harness_failures")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        == 0
+        && summary
+            .get("handoff_contract_failures")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            == 0
+        && summary
+            .get("synthesis_hard_failures")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            == 0
+        && setup_failures.is_empty();
+    let report = json!({
+        "type": "research_perfect_evidence_production_handoff_replay",
+        "schema_version": 1,
+        "generated_at": now_iso_like(),
+        "ok": ok,
+        "input_lane": {
+            "id": TEST_INPUT_LANE_ID,
+            "test_mode": true,
+            "production_handoff_replay": true,
+            "live_web_retrieval_allowed": false,
+            "production_input_lanes_allowed": false,
+            "evidence_source": cases_path,
+            "responses_source": responses_path,
+            "note": "Offline replay that projects saved rich-evidence answers into the production finalization package shape. No LLM call or web/provider call is made."
+        },
+        "summary": summary,
+        "cases": rows
+    });
+    let markdown = render_handoff_markdown(&report);
+    let write_ok = write_json(&out_path, &report).is_ok()
+        && write_json(&out_latest_path, &report).is_ok()
+        && write_text(&markdown_path, &markdown).is_ok();
+    if !write_ok {
+        eprintln!("research-perfect-evidence handoff: failed to write one or more outputs");
+        return 2;
+    }
+    print_structured(&report);
+    if strict && !ok {
+        1
+    } else {
+        0
+    }
+}
+
 fn evaluate_case(case: &Value) -> CaseReadiness {
     let id = str_at(case, "id");
     let prompt = str_at(case, "prompt");
@@ -863,6 +1093,9 @@ fn build_test_replay_scoring_payload(
     });
     json!({
         "response": response_text,
+        "visible_response_source": "llm_final",
+        "citations": source_refs,
+        "source_refs": source_refs,
         "test_input_lane": {
             "id": TEST_INPUT_LANE_ID,
             "test_mode": true,
@@ -913,12 +1146,15 @@ fn build_test_replay_scoring_payload(
             "test_mode": true,
             "evidence_refs": source_refs,
             "evidence_pack": evidence_pack,
+            "citations": source_refs,
+            "source_refs": source_refs,
             "final_llm_response": {
                 "status": if response_text.trim().is_empty() { "empty" } else { "synthesized" },
                 "text": response_text,
                 "used": !response_text.trim().is_empty(),
                 "source_refs": source_refs,
                 "citations": source_refs,
+                "visible_response_source": "llm_final",
                 "provider": live_payload.get("provider").and_then(Value::as_str),
                 "model": live_payload.get("model").and_then(Value::as_str),
                 "runtime_model": live_payload.get("runtime_model").and_then(Value::as_str)
@@ -927,7 +1163,15 @@ fn build_test_replay_scoring_payload(
         "response_finalization": {
             "outcome": "test_input_lane:synthetic_perfect_evidence+live_llm_synthesis",
             "test_input_lane": TEST_INPUT_LANE_ID,
+            "visible_response_source": "llm_final",
+            "finalized_output": response_text,
+            "final_output": response_text,
             "final_response": {
+                "text": response_text,
+                "source_refs": source_refs,
+                "citations": source_refs
+            },
+            "final_llm_response": {
                 "text": response_text,
                 "source_refs": source_refs,
                 "citations": source_refs
@@ -952,6 +1196,255 @@ fn build_test_replay_scoring_payload(
             "pending_tool_request": live_pending_tool,
             "transport_error": live_payload.get("transport_error").cloned().unwrap_or(Value::Null)
         }
+    })
+}
+
+fn build_production_handoff_replay_payload(case: &Value, saved_payload: &Value) -> Value {
+    let response_text = assistant_text_from_payload(saved_payload);
+    let live_payload = json!({
+        "response": response_text,
+        "provider": saved_payload
+            .pointer("/response_workflow/final_llm_response/provider")
+            .or_else(|| saved_payload.pointer("/live_payload/provider"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        "model": saved_payload
+            .pointer("/response_workflow/final_llm_response/model")
+            .or_else(|| saved_payload.pointer("/live_payload/model"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        "runtime_model": saved_payload
+            .pointer("/response_workflow/final_llm_response/runtime_model")
+            .or_else(|| saved_payload.pointer("/live_payload/runtime_model"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        "response_workflow": {
+            "final_llm_response": {
+                "status": if response_text.trim().is_empty() { "empty" } else { "synthesized" },
+                "used": !response_text.trim().is_empty(),
+                "text": response_text
+            }
+        },
+        "response_finalization": {
+            "visible_response_source": "llm_final",
+            "final_response": {
+                "text": response_text
+            }
+        }
+    });
+    let mut payload =
+        build_test_replay_scoring_payload(case, &response_text, &live_payload, true, 0, false);
+    let evidence_pack = evidence_pack_for_case(case);
+    let source_refs = source_refs_for_evidence(&evidence_pack);
+    let evidence_claims = evidence_claims_for_evidence(&evidence_pack);
+    let tool_result_quality = json!({
+        "status": if evidence_pack.is_empty() { "no_evidence" } else { "usable" },
+        "usable_evidence": !evidence_pack.is_empty(),
+        "candidate_count": evidence_pack.len(),
+        "evidence_count": evidence_pack.len(),
+        "content_rich_candidate_count": evidence_pack.len(),
+        "claim_hint_count": evidence_claims.len(),
+        "materialized_candidate_count": evidence_pack.len(),
+        "coverage": {
+            "bucket_status": "covered",
+            "missing_buckets": []
+        }
+    });
+    payload["production_handoff_replay"] = json!({
+        "source": "saved_perfect_evidence_response_fixture",
+        "saved_payload_had_response_finalization_text": text_at_pointer(saved_payload, "/response_finalization/final_response/text").is_some(),
+        "saved_payload_had_workflow_final_llm_text": text_at_pointer(saved_payload, "/response_workflow/final_llm_response/text").is_some(),
+        "saved_payload_had_visible_response_source": text_at_pointer(saved_payload, "/response_finalization/visible_response_source")
+            .or_else(|| text_at_pointer(saved_payload, "/visible_response_source"))
+            .is_some()
+    });
+    payload["response"] = json!(response_text);
+    payload["visible_response_source"] = json!("llm_final");
+    payload["citations"] = json!(source_refs);
+    payload["source_refs"] = json!(source_refs);
+    payload["evidence_claims"] = json!(evidence_claims);
+    payload["evidence_pack_quality"] = json!({
+        "status": if evidence_pack.is_empty() { "no_evidence" } else { "usable" },
+        "usable_count": evidence_pack.len(),
+        "content_rich_item_count": evidence_pack.len()
+    });
+    payload["tool_result_quality"] = tool_result_quality.clone();
+    payload["tools"] = json!([{
+        "name": "batch_query",
+        "status": "done",
+        "synthetic_replay": true,
+        "input_lane": TEST_INPUT_LANE_ID,
+        "result": "Synthetic perfect-evidence replay payload supplied by eval test mode.",
+        "raw_results": evidence_pack.iter().map(|item| {
+            json!({
+                "title": str_at(item, "title"),
+                "locator": str_at(item, "locator"),
+                "snippet": str_at(item, "relevant_extract"),
+                "source_domain": str_at(item, "source_domain")
+            })
+        }).collect::<Vec<_>>(),
+        "evidence_refs": source_refs,
+        "source_refs": source_refs,
+        "citations": source_refs,
+        "evidence_pack": evidence_pack,
+        "tool_result_quality": tool_result_quality
+    }]);
+    payload["response_workflow"] = json!({
+        "input_lane": TEST_INPUT_LANE_ID,
+        "test_mode": true,
+        "production_handoff_replay": true,
+        "evidence_refs": source_refs,
+        "source_refs": source_refs,
+        "citations": source_refs,
+        "evidence_pack": evidence_pack,
+        "evidence_claims": evidence_claims,
+        "tool_result_quality": tool_result_quality,
+        "final_llm_response": {
+            "status": if response_text.trim().is_empty() { "empty" } else { "synthesized" },
+            "text": response_text,
+            "used": !response_text.trim().is_empty(),
+            "visible_response_source": "llm_final",
+            "source_refs": source_refs,
+            "citations": source_refs
+        }
+    });
+    payload["response_finalization"] = json!({
+        "outcome": "production_handoff_replay:synthetic_perfect_evidence+saved_llm_synthesis",
+        "test_input_lane": TEST_INPUT_LANE_ID,
+        "visible_response_source": "llm_final",
+        "finalized_output": response_text,
+        "final_output": response_text,
+        "final_response": {
+            "text": response_text,
+            "source_refs": source_refs,
+            "citations": source_refs
+        },
+        "final_llm_response": {
+            "text": response_text,
+            "source_refs": source_refs,
+            "citations": source_refs
+        },
+        "tool_completion": {
+            "completion_state": "synthetic_replay",
+            "findings_available": !evidence_pack.is_empty(),
+            "evidence_refs": source_refs,
+            "source_refs": source_refs,
+            "citations": source_refs,
+            "evidence_pack": evidence_pack,
+            "evidence_claims": evidence_claims,
+            "evidence_refs_used": source_refs,
+            "tool_attempts": [{
+                "tool": "batch_query",
+                "status": "done",
+                "synthetic": true,
+                "input_lane": TEST_INPUT_LANE_ID
+            }]
+        }
+    });
+    payload["live_payload"] = json!({
+        "response_preview": clean_text(&response_text, 700),
+        "tools_count": 0,
+        "pending_tool_request": false,
+        "transport_error": Value::Null
+    });
+    payload
+}
+
+fn production_handoff_contract(payload: &Value) -> Value {
+    let visible_text = assistant_text_from_payload(payload);
+    let finalization_text = text_at_pointer(payload, "/response_finalization/final_response/text")
+        .or_else(|| text_at_pointer(payload, "/response_finalization/finalized_output"))
+        .unwrap_or_default();
+    let workflow_final_text =
+        text_at_pointer(payload, "/response_workflow/final_llm_response/text").unwrap_or_default();
+    let root_response = text_at_pointer(payload, "/response").unwrap_or_default();
+    let visible_source = text_at_pointer(payload, "/response_finalization/visible_response_source")
+        .or_else(|| text_at_pointer(payload, "/visible_response_source"))
+        .or_else(|| {
+            text_at_pointer(
+                payload,
+                "/response_workflow/final_llm_response/visible_response_source",
+            )
+        })
+        .unwrap_or_default();
+    let citations_count = max_array_len(
+        payload,
+        &[
+            "/citations",
+            "/response_finalization/final_response/citations",
+            "/response_finalization/final_llm_response/citations",
+            "/response_workflow/citations",
+            "/response_workflow/final_llm_response/citations",
+        ],
+    );
+    let source_refs_count = max_array_len(
+        payload,
+        &[
+            "/source_refs",
+            "/response_finalization/final_response/source_refs",
+            "/response_finalization/final_llm_response/source_refs",
+            "/response_workflow/source_refs",
+            "/response_workflow/final_llm_response/source_refs",
+        ],
+    );
+    let evidence_pack_count = max_array_len(
+        payload,
+        &[
+            "/tools/0/evidence_pack",
+            "/response_workflow/evidence_pack",
+            "/response_finalization/tool_completion/evidence_pack",
+        ],
+    );
+    let evidence_claim_count = max_array_len(
+        payload,
+        &[
+            "/evidence_claims",
+            "/response_workflow/evidence_claims",
+            "/response_finalization/tool_completion/evidence_claims",
+        ],
+    );
+    let mut failures = Vec::<String>::new();
+    if visible_text.trim().len() < 80 {
+        failures.push("final_visible_text_missing_or_too_thin".to_string());
+    }
+    if finalization_text.trim().is_empty() {
+        failures.push("response_finalization_final_text_missing".to_string());
+    }
+    if workflow_final_text.trim().is_empty() {
+        failures.push("workflow_final_llm_text_missing".to_string());
+    }
+    if root_response.trim().is_empty() {
+        failures.push("root_response_text_missing".to_string());
+    }
+    if visible_source != "llm_final" {
+        failures.push("visible_response_source_not_llm_final".to_string());
+    }
+    if citations_count == 0 {
+        failures.push("citations_not_carried".to_string());
+    }
+    if source_refs_count == 0 {
+        failures.push("source_refs_not_carried".to_string());
+    }
+    if evidence_pack_count > 0 && evidence_claim_count == 0 {
+        failures.push("evidence_claims_not_carried".to_string());
+    }
+    if looks_like_source_inventory_answer(&visible_text) {
+        failures.push("visible_answer_looks_like_source_inventory".to_string());
+    }
+    json!({
+        "ok": failures.is_empty(),
+        "failures": failures,
+        "final_visible_text_present": visible_text.trim().len() >= 80,
+        "response_finalization_final_text_present": !finalization_text.trim().is_empty(),
+        "workflow_final_llm_text_present": !workflow_final_text.trim().is_empty(),
+        "root_response_text_present": !root_response.trim().is_empty(),
+        "visible_response_source": visible_source,
+        "visible_response_source_llm_final": visible_source == "llm_final",
+        "citations_count": citations_count,
+        "source_refs_count": source_refs_count,
+        "evidence_pack_count": evidence_pack_count,
+        "evidence_claim_count": evidence_claim_count,
+        "source_inventory_like": looks_like_source_inventory_answer(&visible_text),
     })
 }
 
@@ -1422,6 +1915,232 @@ fn render_replay_markdown(report: &Value) -> String {
     out
 }
 
+fn augment_handoff_summary(summary: &mut Value, rows: &[Value]) {
+    let handoff_contract_passed = rows
+        .iter()
+        .filter(|row| {
+            row.pointer("/handoff_contract/ok")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .count();
+    let handoff_contract_failures = rows.len().saturating_sub(handoff_contract_passed);
+    let finalization_text_present = count_bool_pointer(
+        rows,
+        "/handoff_contract/response_finalization_final_text_present",
+    );
+    let workflow_final_text_present =
+        count_bool_pointer(rows, "/handoff_contract/workflow_final_llm_text_present");
+    let visible_source_llm_final =
+        count_bool_pointer(rows, "/handoff_contract/visible_response_source_llm_final");
+    let citation_package_present = rows
+        .iter()
+        .filter(|row| {
+            row.pointer("/handoff_contract/citations_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                > 0
+        })
+        .count();
+    let source_refs_present = rows
+        .iter()
+        .filter(|row| {
+            row.pointer("/handoff_contract/source_refs_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                > 0
+        })
+        .count();
+    let evidence_claims_present = rows
+        .iter()
+        .filter(|row| {
+            row.pointer("/handoff_contract/evidence_claim_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                > 0
+        })
+        .count();
+    let source_inventory_like = count_bool_pointer(rows, "/handoff_contract/source_inventory_like");
+    let handoff_contract_failure_ids = rows
+        .iter()
+        .filter(|row| {
+            !row.pointer("/handoff_contract/ok")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .filter_map(|row| row.get("case_id").and_then(Value::as_str))
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let mut failure_counts = BTreeMap::<String, usize>::new();
+    for failure in rows
+        .iter()
+        .flat_map(|row| {
+            row.pointer("/handoff_contract/failures")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+        })
+        .filter_map(Value::as_str)
+    {
+        *failure_counts.entry(failure.to_string()).or_default() += 1;
+    }
+
+    if let Some(map) = summary.as_object_mut() {
+        map.insert(
+            "handoff_contract_passed_cases".to_string(),
+            json!(handoff_contract_passed),
+        );
+        map.insert(
+            "handoff_contract_pass_rate".to_string(),
+            json!(rate(handoff_contract_passed, rows.len())),
+        );
+        map.insert(
+            "handoff_contract_failures".to_string(),
+            json!(handoff_contract_failures),
+        );
+        map.insert(
+            "handoff_contract_failure_ids".to_string(),
+            json!(handoff_contract_failure_ids),
+        );
+        map.insert(
+            "handoff_contract_failure_counts".to_string(),
+            json!(failure_counts),
+        );
+        map.insert(
+            "response_finalization_final_text_rate".to_string(),
+            json!(rate(finalization_text_present, rows.len())),
+        );
+        map.insert(
+            "workflow_final_llm_text_rate".to_string(),
+            json!(rate(workflow_final_text_present, rows.len())),
+        );
+        map.insert(
+            "visible_source_llm_final_rate".to_string(),
+            json!(rate(visible_source_llm_final, rows.len())),
+        );
+        map.insert(
+            "citation_package_present_rate".to_string(),
+            json!(rate(citation_package_present, rows.len())),
+        );
+        map.insert(
+            "source_refs_present_rate".to_string(),
+            json!(rate(source_refs_present, rows.len())),
+        );
+        map.insert(
+            "evidence_claims_present_rate".to_string(),
+            json!(rate(evidence_claims_present, rows.len())),
+        );
+        map.insert(
+            "source_inventory_like_cases".to_string(),
+            json!(source_inventory_like),
+        );
+        map.insert(
+            "source_inventory_like_rate".to_string(),
+            json!(rate(source_inventory_like, rows.len())),
+        );
+        map.insert(
+            "note".to_string(),
+            json!("Production handoff replay isolates rich-evidence-to-final-package behavior. It does not call web providers or prove the UI route triggers research."),
+        );
+    }
+}
+
+fn count_bool_pointer(rows: &[Value], pointer: &str) -> usize {
+    rows.iter()
+        .filter(|row| {
+            row.pointer(pointer)
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .count()
+}
+
+fn render_handoff_markdown(report: &Value) -> String {
+    let summary = report.get("summary").unwrap_or(&Value::Null);
+    let mut out = String::new();
+    out.push_str("# Research Perfect Evidence Production Handoff Replay\n\n");
+    out.push_str(&format!(
+        "- ok: {}\n",
+        report.get("ok").and_then(Value::as_bool).unwrap_or(false)
+    ));
+    out.push_str(&format!(
+        "- cases: {}\n",
+        summary
+            .get("cases_total")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    ));
+    out.push_str(&format!(
+        "- pass_rate: {:.3}\n",
+        summary
+            .get("pass_rate")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    ));
+    out.push_str(&format!(
+        "- synthesized_sounds_good_rate: {:.3}\n",
+        summary
+            .get("synthesized_sounds_good_rate")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    ));
+    out.push_str(&format!(
+        "- handoff_contract_pass_rate: {:.3}\n",
+        summary
+            .get("handoff_contract_pass_rate")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    ));
+    out.push_str(&format!(
+        "- response_finalization_final_text_rate: {:.3}\n",
+        summary
+            .get("response_finalization_final_text_rate")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    ));
+    out.push_str(&format!(
+        "- workflow_final_llm_text_rate: {:.3}\n",
+        summary
+            .get("workflow_final_llm_text_rate")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    ));
+    out.push_str(&format!(
+        "- visible_source_llm_final_rate: {:.3}\n",
+        summary
+            .get("visible_source_llm_final_rate")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    ));
+    out.push_str(&format!(
+        "- citation_package_present_rate: {:.3}\n",
+        summary
+            .get("citation_package_present_rate")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    ));
+    out.push_str("\n## Handoff Contract Failures\n\n");
+    render_case_id_list(
+        &mut out,
+        summary
+            .get("handoff_contract_failure_ids")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]),
+    );
+    out.push_str("\n## Synthesis Hard Failures\n\n");
+    render_case_id_list(
+        &mut out,
+        summary
+            .get("synthesis_hard_failure_ids")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]),
+    );
+    out
+}
+
 fn render_case_id_list(out: &mut String, ids: &[Value]) {
     if ids.is_empty() {
         out.push_str("- none\n");
@@ -1430,6 +2149,56 @@ fn render_case_id_list(out: &mut String, ids: &[Value]) {
     for id in ids.iter().filter_map(Value::as_str) {
         out.push_str(&format!("- `{id}`\n"));
     }
+}
+
+fn text_at_pointer(value: &Value, pointer: &str) -> Option<String> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .map(|raw| clean_text(raw, 32_000))
+        .filter(|text| !text.trim().is_empty())
+}
+
+fn max_array_len(value: &Value, pointers: &[&str]) -> usize {
+    pointers
+        .iter()
+        .filter_map(|pointer| value.pointer(pointer).and_then(Value::as_array))
+        .map(Vec::len)
+        .max()
+        .unwrap_or(0)
+}
+
+fn looks_like_source_inventory_answer(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    let sourceish_markers = [
+        "here's what i found",
+        "search surfaced",
+        "recorded evidence",
+        "tool trace",
+        "web search:",
+        "provider starvation",
+        "source:",
+        "sources:",
+    ];
+    let marker_hits = sourceish_markers
+        .iter()
+        .filter(|marker| lower.contains(**marker))
+        .count();
+    let direct_answer_markers = [
+        "because",
+        "the main",
+        "the best",
+        "i'd",
+        "recommend",
+        "you should",
+        "in short",
+        "bottom line",
+    ];
+    let answer_marker_hits = direct_answer_markers
+        .iter()
+        .filter(|marker| lower.contains(**marker))
+        .count();
+    marker_hits >= 2 && answer_marker_hits == 0
 }
 
 fn assistant_text_from_payload(payload: &Value) -> String {

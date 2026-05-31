@@ -546,6 +546,32 @@ fn query_satisfaction_reports_entity_aliases_without_requiring_format() {
 }
 
 #[test]
+fn query_satisfaction_accepts_explanatory_prompt_overlap() {
+    let response = normalize_for_compare(
+        "The Works Progress Administration shaped American public art through \
+             New Deal art programs, especially the Federal Art Project, and \
+             historians generally interpret the legacy as democratizing access \
+             to civic art while still noting political and regional tensions.",
+    );
+    let satisfaction = query_satisfaction(
+        &normalize_for_compare(
+            "Research how the Works Progress Administration influenced American public art. Which programs mattered most?",
+        ),
+        &response,
+        &["Works Progress Administration".to_string()],
+        1.0,
+        true,
+        true,
+        true,
+        false,
+    );
+    assert_eq!(
+        satisfaction.get("intent_answered").and_then(Value::as_bool),
+        Some(true)
+    );
+}
+
+#[test]
 fn broad_scope_descriptors_do_not_get_derived_initialism_aliases() {
     assert_eq!(
         entity_coverage_aliases("AI agentic landscape"),
