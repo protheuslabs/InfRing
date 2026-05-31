@@ -239,8 +239,10 @@ fn run_test_input_replay(args: &[String]) -> i32 {
     let requested_agent_id =
         parse_flag(args, "agent-id").unwrap_or_else(|| DEFAULT_AGENT_ID.to_string());
     let model_ref = parse_flag(args, "model");
+    let case_id_filter = parse_flag(args, "case-id");
     let limit = parse_usize_flag(args, "limit", 5);
     let timeout_seconds = parse_u64_flag(args, "timeout-seconds", 45);
+    let synthesis_retry_count = parse_usize_flag(args, "synthesis-retry-count", 1);
     let fresh_agent_per_case = parse_bool_flag(args, "fresh-agent-per-case", true);
     let cleanup_fresh_agents = parse_bool_flag(args, "cleanup-fresh-agents", true);
     let strict = parse_bool_flag(args, "strict", false);
@@ -265,7 +267,16 @@ fn run_test_input_replay(args: &[String]) -> i32 {
     let mut response_rows = Vec::new();
     let mut setup_failures = Vec::<String>::new();
 
-    for case in cases.iter().take(limit) {
+    for case in cases
+        .iter()
+        .filter(|case| {
+            case_id_filter
+                .as_ref()
+                .map(|wanted| str_at(case, "id") == wanted.trim())
+                .unwrap_or(true)
+        })
+        .take(limit)
+    {
         let case_id = str_at(case, "id");
         eprintln!("research-perfect-evidence replay: case start {case_id}");
         let readiness = evaluate_case(case);
@@ -308,6 +319,22 @@ fn run_test_input_replay(args: &[String]) -> i32 {
             )
         } else {
             json!({})
+        };
+        let live_payload = if case_setup_failures.is_empty()
+            && !use_dashboard_agent
+            && synthesis_retry_count > 0
+        {
+            retry_direct_ollama_synthesis_if_needed(
+                live_payload,
+                &ollama_base_url,
+                model_ref.as_deref().unwrap_or(DEFAULT_REPLAY_MODEL),
+                &prompt,
+                timeout_seconds,
+                synthesis_retry_count,
+                &case_id,
+            )
+        } else {
+            live_payload
         };
         if agent_created && cleanup_fresh_agents {
             let _ = delete_live_agent(&base_url, &agent_id, timeout_seconds);
@@ -452,8 +479,10 @@ fn run_test_input_replay(args: &[String]) -> i32 {
             "ollama_base_url": ollama_base_url,
             "synthesis_engine": synthesis_engine,
             "requested_agent_id": requested_agent_id,
+            "case_id_filter": case_id_filter,
             "fresh_agent_per_case": fresh_agent_per_case,
             "cleanup_fresh_agents": cleanup_fresh_agents,
+            "synthesis_retry_count": synthesis_retry_count,
             "model": model_ref,
             "timeout_seconds": timeout_seconds
         },
@@ -1194,6 +1223,9 @@ fn build_test_replay_scoring_payload(
             "response_preview": clean_text(&assistant_text_from_payload(live_payload), 700),
             "tools_count": live_tool_count,
             "pending_tool_request": live_pending_tool,
+            "direct_ollama_attempts": live_payload.get("direct_ollama_attempts").cloned().unwrap_or(Value::Null),
+            "synthesis_calls": live_payload.get("test_input_replay_synthesis_calls").cloned().unwrap_or(Value::Null),
+            "synthesis_retry_reasons": live_payload.get("test_input_replay_synthesis_retry_reasons").cloned().unwrap_or_else(|| json!([])),
             "transport_error": live_payload.get("transport_error").cloned().unwrap_or(Value::Null)
         }
     })
@@ -2409,6 +2441,62 @@ fn invoke_direct_ollama_synthesis(
     })
 }
 
+fn retry_direct_ollama_synthesis_if_needed(
+    first_payload: Value,
+    ollama_base_url: &str,
+    model: &str,
+    prompt: &str,
+    timeout_seconds: u64,
+    retry_count: usize,
+    case_id: &str,
+) -> Value {
+    let mut payload = first_payload;
+    let mut calls = 1usize;
+    let mut retry_reasons = Vec::<String>::new();
+    while calls <= retry_count {
+        let Some(reason) = direct_synthesis_retry_reason(&payload) else {
+            break;
+        };
+        retry_reasons.push(reason.clone());
+        eprintln!(
+            "research-perfect-evidence replay: retrying synthesis for {case_id} after {reason}"
+        );
+        sleep(Duration::from_millis(500 * calls as u64));
+        let retry_timeout = timeout_seconds.saturating_add(30 * calls as u64);
+        payload = invoke_direct_ollama_synthesis(ollama_base_url, model, prompt, retry_timeout);
+        calls += 1;
+    }
+    if let Some(map) = payload.as_object_mut() {
+        map.insert(
+            "test_input_replay_synthesis_calls".to_string(),
+            json!(calls),
+        );
+        map.insert(
+            "test_input_replay_synthesis_retry_reasons".to_string(),
+            json!(retry_reasons),
+        );
+    }
+    payload
+}
+
+fn direct_synthesis_retry_reason(payload: &Value) -> Option<String> {
+    if payload.get("transport_error").is_some() {
+        return Some("transport_error".to_string());
+    }
+    if payload
+        .get("ok")
+        .and_then(Value::as_bool)
+        .map(|ok| !ok)
+        .unwrap_or(false)
+    {
+        return Some("provider_not_ok".to_string());
+    }
+    if assistant_text_from_payload(payload).trim().is_empty() {
+        return Some("empty_final_response".to_string());
+    }
+    None
+}
+
 fn create_live_agent(
     base_url: &str,
     name: &str,
@@ -2739,6 +2827,22 @@ mod tests {
                 .and_then(|ids| ids.first())
                 .and_then(Value::as_str),
             Some("hard")
+        );
+    }
+
+    #[test]
+    fn direct_synthesis_retry_reason_catches_empty_and_transport_payloads() {
+        assert_eq!(
+            direct_synthesis_retry_reason(&json!({"transport_error": "curl_failed"})),
+            Some("transport_error".to_string())
+        );
+        assert_eq!(
+            direct_synthesis_retry_reason(&json!({"ok": true, "response": ""})),
+            Some("empty_final_response".to_string())
+        );
+        assert_eq!(
+            direct_synthesis_retry_reason(&json!({"ok": true, "response": "A useful answer."})),
+            None
         );
     }
 
