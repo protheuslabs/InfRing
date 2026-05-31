@@ -68,6 +68,9 @@ pub(super) fn grade_case(
         citation_signal,
         limitation_signal,
     );
+    let gap_statement_needed =
+        evidence_gap_statement_needed(&retrieval_quality, &query_satisfaction);
+    let limitation_or_gap_credit = limitation_signal || !gap_statement_needed;
     let query_satisfaction_score = query_satisfaction
         .get("score")
         .and_then(Value::as_u64)
@@ -164,7 +167,7 @@ pub(super) fn grade_case(
     let evidence_score = (if source_signal { 6 } else { 0 })
         + (if citation_signal { 6 } else { 0 })
         + (if !raw_tool_leak { 5 } else { 0 })
-        + (if limitation_signal { 4 } else { 0 })
+        + (if limitation_or_gap_credit { 4 } else { 0 })
         + (if !unsupported_claim { 4 } else { 0 });
     let synthesis_score_raw = (if final_answer_present { 6 } else { 0 })
         + ((entity_coverage * 7.0).round() as u64)
@@ -186,7 +189,7 @@ pub(super) fn grade_case(
         } else {
             0
         })
-        + (if limitation_signal { 2 } else { 0 })
+        + (if limitation_or_gap_credit { 2 } else { 0 })
         + query_satisfaction_score.min(10);
     let synthesis_score =
         synthesis_score_raw.saturating_sub(if source_summary_without_answer { 8 } else { 0 });
@@ -311,6 +314,25 @@ pub(super) fn grade_case(
         answer_unit_evidence_alignment,
         answer_unit_usefulness,
     }
+}
+
+fn evidence_gap_statement_needed(retrieval_quality: &Value, query_satisfaction: &Value) -> bool {
+    let retrieval_status = str_at(retrieval_quality, &["status"], "unknown");
+    let scope_covered = query_satisfaction
+        .get("scope_covered")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    !scope_covered
+        || matches!(
+            retrieval_status.as_str(),
+            "low_signal"
+                | "no_results"
+                | "no_evidence"
+                | "provider_degraded"
+                | "raw_provider_absent"
+                | "conflicting_provider_state"
+                | "low_relevance"
+        )
 }
 
 fn answer_unit_usefulness_hard_failure(usefulness: &Value) -> bool {

@@ -478,6 +478,12 @@ fn scoring_shape_accepts_general_research_findings_and_plans() {
     assert!(has_tradeoff_or_structure(&sparse_benchmark));
     assert!(has_limitation_signal(&sparse_benchmark));
     assert!(has_recommendation_signal(&sparse_benchmark));
+
+    let balanced_takeaway = normalize_for_compare(
+        "The balanced view is that the technology is promising but not yet a finished replacement. \
+         The key milestone to watch for is durable field performance at commercial scale.",
+    );
+    assert!(has_recommendation_signal(&balanced_takeaway));
 }
 
 #[test]

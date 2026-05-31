@@ -777,6 +777,118 @@ fn user_facing_answer_quality_passes_coherent_useful_answer() {
 }
 
 #[test]
+fn excellent_direct_answer_does_not_require_unneeded_gap_statement() {
+    let case = json!({
+        "prompt": "Compare Alpha and Beta for production versus exploratory workflows.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["Alpha", "Beta"]
+    });
+    let payload = json!({
+        "response": "For production, Alpha is the better default because its deployment docs emphasize repeatable release workflows and stable maintenance (alpha.example). Beta is the better exploratory choice because its docs emphasize fast prototyping and flexible experiment loops (beta.example). The practical recommendation is Alpha for stable repository maintenance and Beta for prototypes.",
+        "evidence_pack_quality": {
+            "status": "usable",
+            "candidate_count": 5,
+            "materialized_candidate_count": 2,
+            "usable_count": 2,
+            "content_rich_item_count": 2
+        },
+        "evidence_claims": [
+            {
+                "claim": "Alpha is suited to production and stable repository maintenance because its deployment docs emphasize repeatable release workflows.",
+                "source_ref": "alpha-docs",
+                "support_snippet": "Alpha deployment and maintenance docs emphasize repeatable release workflows for stable repository maintenance.",
+                "source_domain": "alpha.example"
+            },
+            {
+                "claim": "Beta is suited to exploratory workflows because its docs emphasize fast prototyping and flexible experiment loops.",
+                "source_ref": "beta-docs",
+                "support_snippet": "Beta docs emphasize fast prototyping and flexible experiment loops for exploratory workflows.",
+                "source_domain": "beta.example"
+            }
+        ],
+        "evidence_refs": [
+            {
+                "id": "alpha-docs",
+                "title": "Alpha deployment and maintenance docs",
+                "locator": "https://alpha.example/docs",
+                "source_kind": "official_docs",
+                "materialization_quality": "trusted_structured_feed",
+                "counts_as_usable_evidence": true,
+                "snippet": "Alpha deployment and maintenance docs emphasize repeatable release workflows for stable repository maintenance. The source explains that production use depends on predictable release procedures, stable update paths, and maintainable operational routines."
+            },
+            {
+                "id": "beta-docs",
+                "title": "Beta exploratory workflow docs",
+                "locator": "https://beta.example/docs",
+                "source_kind": "official_docs",
+                "materialization_quality": "trusted_structured_feed",
+                "counts_as_usable_evidence": true,
+                "snippet": "Beta docs emphasize fast prototyping and flexible experiment loops for exploratory workflows. The source describes Beta as useful when teams want quick trials, adaptable experiments, and less ceremony before deciding whether a workflow should become production-grade."
+            }
+        ],
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "Alpha Beta production exploratory workflows",
+                "queries": ["Alpha production maintenance docs", "Beta exploratory workflow docs"],
+                "keywords": ["Alpha", "Beta", "production", "exploratory workflows"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 5,
+            "content_rich_candidate_count": 4,
+            "claim_hint_count": 3,
+            "evidence_refs": [
+                {
+                    "title": "Alpha deployment and maintenance docs",
+                    "locator": "https://alpha.example/docs",
+                    "source_kind": "official_docs",
+                    "materialization_quality": "trusted_structured_feed",
+                    "counts_as_usable_evidence": true,
+                    "snippet": "Alpha deployment and maintenance docs emphasize repeatable release workflows for stable repository maintenance. The source explains that production use depends on predictable release procedures, stable update paths, and maintainable operational routines.",
+                    "claim_hints": ["Alpha is suited to stable repository maintenance and repeatable release workflows."]
+                },
+                {
+                    "title": "Beta exploratory workflow docs",
+                    "locator": "https://beta.example/docs",
+                    "source_kind": "official_docs",
+                    "materialization_quality": "trusted_structured_feed",
+                    "counts_as_usable_evidence": true,
+                    "snippet": "Beta docs emphasize fast prototyping and flexible experiment loops for exploratory workflows. The source describes Beta as useful when teams want quick trials, adaptable experiments, and less ceremony before deciding whether a workflow should become production-grade.",
+                    "claim_hints": ["Beta is suited to prototypes and exploratory workflows."]
+                }
+            ]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert!(
+        grade.score >= 95,
+        "score={} blockers={:#?} diagnostics={:#?}",
+        grade.score,
+        grade.excellent_blockers,
+        grade.excellent_diagnostics
+    );
+    assert!(
+        grade.excellent,
+        "blockers={:#?} diagnostics={:#?}",
+        grade.excellent_blockers,
+        grade.excellent_diagnostics
+    );
+}
+
+#[test]
 fn user_facing_answer_quality_allows_light_source_framing_when_answer_is_direct() {
     let case = json!({
         "prompt": "Compare LangGraph and CrewAI for long-running production agents.",
