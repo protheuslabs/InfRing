@@ -456,6 +456,81 @@
     "owner": "orchestration_control_plane",
     "purpose": "Own coding-workflow final artifact schema names and public summary text outside the Layer 0 native execution substrate.",
     "workflow_id": "coding_project_operator",
+    "runtime_task_shape_classifier": {
+      "version": "coding_runtime_task_shape_classifier_v1",
+      "classification_basis": "execution_shape_not_eval_level",
+      "reference_patterns": [
+        "codex_style_context_edit_validate_loop",
+        "claude_code_style_direct_tool_work_when_scope_is_obvious",
+        "aider_style_file_scope_before_edit",
+        "swe_agent_style_validation_driven_repair"
+      ],
+      "forbidden_inputs": [
+        "eval_level_number",
+        "fixture_name",
+        "test_case_id",
+        "hardcoded_expected_marker"
+      ],
+      "signals": [
+        "is_target_file_explicit",
+        "is_existing_project_context_required",
+        "is_validation_requested_or_failed",
+        "is_multi_file_or_vertical_slice",
+        "is_checkpoint_resume_or_memory_operation",
+        "is_architecture_or_long_horizon_work"
+      ],
+      "runtime_shapes": [
+        {
+          "shape": "direct_create_or_write",
+          "native_lane": "new_file_fast_path",
+          "profile": 0,
+          "requires_discovery": false,
+          "requires_validation_by_default": false,
+          "owner": "file_mutation_executor"
+        },
+        {
+          "shape": "bounded_existing_project_edit",
+          "native_lane": "existing_project_patch",
+          "profile": 2,
+          "requires_discovery": true,
+          "requires_validation_by_default": false,
+          "owner": "bounded_direct_edit_or_patch_artifact"
+        },
+        {
+          "shape": "validation_guided_repair",
+          "native_lane": "validation_repair",
+          "profile": 3,
+          "requires_discovery": true,
+          "requires_validation_by_default": true,
+          "owner": "validation_repair_controller"
+        },
+        {
+          "shape": "multi_file_project_slice",
+          "native_lane": "multi_file_slice",
+          "profile": 4,
+          "requires_discovery": true,
+          "requires_validation_by_default": true,
+          "owner": "staged_execution_controller"
+        },
+        {
+          "shape": "checkpointed_project_operation",
+          "native_lane": "long_run_project_operator",
+          "profile": 5,
+          "requires_discovery": true,
+          "requires_validation_by_default": true,
+          "owner": "checkpointed_project_operator"
+        },
+        {
+          "shape": "general_native_tool_task",
+          "native_lane": "general_native_tool_task",
+          "profile": 2,
+          "requires_discovery": true,
+          "requires_validation_by_default": false,
+          "owner": "native_tool_loop_with_structured_blockers"
+        }
+      ],
+      "invariant": "Eval levels are a test gauntlet only. Runtime lanes must remain reusable execution-shape categories that real user tasks can enter without knowing eval level names."
+    },
     "micro_heading": "Task completed through the native micro direct-write path.",
     "completion_heading": "Runtime synthesized completion-evidence finalization.",
     "completion_status_field": "completion_status",

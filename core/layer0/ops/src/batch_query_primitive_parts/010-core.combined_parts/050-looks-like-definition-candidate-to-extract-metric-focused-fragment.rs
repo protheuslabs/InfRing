@@ -288,15 +288,152 @@ fn query_subject_phrases(query: &str) -> Vec<String> {
     out
 }
 
+fn push_topical_phrase_windows(
+    out: &mut Vec<String>,
+    seen: &mut HashSet<String>,
+    run: &[String],
+) {
+    if run.len() < 2 {
+        return;
+    }
+    let max_window = run.len().min(4);
+    for window_len in (2..=max_window).rev() {
+        for start in 0..=run.len() - window_len {
+            let phrase = run[start..start + window_len].join(" ");
+            push_unique_subject_phrase(out, seen, &phrase);
+        }
+    }
+}
+
+fn is_topical_phrase_scaffold_token(token: &str) -> bool {
+    matches!(
+        token,
+        "advice"
+            | "advisory"
+            | "approach"
+            | "approaches"
+            | "best"
+            | "better"
+            | "compare"
+            | "comparison"
+            | "current"
+            | "evidence"
+            | "goal"
+            | "goals"
+            | "guide"
+            | "guides"
+            | "help"
+            | "helps"
+            | "improve"
+            | "improves"
+            | "improving"
+            | "intervention"
+            | "interventions"
+            | "latest"
+            | "method"
+            | "methods"
+            | "operational"
+            | "option"
+            | "options"
+            | "practical"
+            | "productivity"
+            | "recent"
+            | "recommend"
+            | "recommendation"
+            | "recommendations"
+            | "reduce"
+            | "reduced"
+            | "reducing"
+            | "research"
+            | "result"
+            | "results"
+            | "specific"
+            | "strategies"
+            | "strategy"
+            | "strong"
+            | "stronger"
+            | "strongest"
+            | "support"
+            | "supported"
+            | "tips"
+            | "vague"
+            | "way"
+            | "ways"
+    )
+}
+
+fn query_topical_phrases(query: &str) -> Vec<String> {
+    let mut out = Vec::<String>::new();
+    let mut seen = HashSet::<String>::new();
+    let mut run = Vec::<String>::new();
+    let flush_run =
+        |run: &mut Vec<String>, out: &mut Vec<String>, seen: &mut HashSet<String>| {
+            push_topical_phrase_windows(out, seen, run);
+            run.clear();
+        };
+    for raw in clean_text(query, 800)
+        .to_ascii_lowercase()
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+    {
+        let normalized = raw.trim();
+        if normalized.is_empty() {
+            flush_run(&mut run, &mut out, &mut seen);
+            continue;
+        }
+        let canonical = canonicalize_relevance_token(normalized);
+        if canonical.len() < 3
+            || is_relevance_stop_token(&canonical)
+            || is_weak_relevance_token(&canonical)
+            || is_topical_phrase_scaffold_token(&canonical)
+        {
+            flush_run(&mut run, &mut out, &mut seen);
+            continue;
+        }
+        if run.last().map(|prior| prior == &canonical).unwrap_or(false) {
+            continue;
+        }
+        run.push(canonical);
+    }
+    flush_run(&mut run, &mut out, &mut seen);
+    out
+}
+
+fn query_relevance_phrases(query: &str) -> Vec<String> {
+    let mut out = query_subject_phrases(query);
+    let mut seen = out
+        .iter()
+        .map(|phrase| phrase.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    for phrase in query_topical_phrases(query) {
+        let lowered = phrase.to_ascii_lowercase();
+        if seen.insert(lowered) {
+            out.push(phrase);
+        }
+    }
+    out
+}
+
+fn query_phrase_matches_haystack(phrase: &str, haystack: &str, haystack_compact: &str) -> bool {
+    let lowered = clean_text(phrase, 160).to_ascii_lowercase();
+    if lowered.is_empty() {
+        return false;
+    }
+    if haystack.contains(&lowered) {
+        return true;
+    }
+    let compact_phrase = compact_alnum(&lowered);
+    compact_phrase.len() >= 8 && haystack_compact.contains(&compact_phrase)
+}
+
 fn query_subject_phrase_matches_candidate(query: &str, candidate: &Candidate) -> bool {
     let haystack = candidate_relevance_text(candidate).to_ascii_lowercase();
     if haystack.is_empty() {
         return false;
     }
-    query_subject_phrases(query)
+    let haystack_compact = compact_alnum(&haystack);
+    query_relevance_phrases(query)
         .iter()
-        .map(|phrase| phrase.to_ascii_lowercase())
-        .any(|phrase| haystack.contains(&phrase))
+        .any(|phrase| query_phrase_matches_haystack(phrase, &haystack, &haystack_compact))
 }
 
 fn official_lane_subject_tokens(query: &str) -> Vec<String> {

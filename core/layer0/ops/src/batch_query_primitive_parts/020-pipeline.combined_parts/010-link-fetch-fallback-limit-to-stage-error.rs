@@ -698,8 +698,10 @@ fn substantive_prefetch_context_bridge(
     {
         return false;
     }
+    let phrase_match = query_subject_phrase_matches_candidate(query, candidate);
     let score = fallback_link_score_with_context(query, link, context);
-    if score < 0.18 {
+    let min_score = if phrase_match { 0.08 } else { 0.18 };
+    if score < min_score {
         return false;
     }
     let trusted_or_article = trusted_prefetch_candidate
@@ -712,8 +714,7 @@ fn substantive_prefetch_context_bridge(
     if !content_rich {
         return false;
     }
-    query_subject_phrase_matches_candidate(query, candidate)
-        || (current_web_intent(query) && segment_has_current_signal(&combined))
+    phrase_match || (current_web_intent(query) && segment_has_current_signal(&combined))
 }
 
 fn citation_wrapper_link(link: &str) -> bool {

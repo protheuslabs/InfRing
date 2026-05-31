@@ -216,8 +216,6 @@ fn compact_web_finding_line(row: &Value) -> Option<String> {
                 format!("{title}: {snippet}")
             } else if !snippet.is_empty() {
                 snippet
-            } else if !title.is_empty() {
-                title
             } else {
                 clean_text(
                     obj.get("message").and_then(Value::as_str).unwrap_or(""),

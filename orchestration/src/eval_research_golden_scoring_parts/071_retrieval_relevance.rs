@@ -134,6 +134,7 @@ fn direct_evidence_claim_count(payload: &Value) -> u64 {
 }
 
 fn direct_evidence_claim_texts(payload: &Value) -> Vec<String> {
+    let linked_contexts = linked_source_context_texts(payload);
     let mut out = payload
         .get("evidence_claims")
         .and_then(Value::as_array)
@@ -164,6 +165,15 @@ fn direct_evidence_claim_texts(payload: &Value) -> Vec<String> {
                                 }
                             }
                         }
+                    } else if let Some(source_ref) = row.get("source_ref").and_then(Value::as_str)
+                    {
+                        append_linked_source_contexts(&mut parts, &linked_contexts, source_ref);
+                    }
+                    if let Some(locator) = row.get("locator").and_then(Value::as_str) {
+                        append_linked_source_contexts(&mut parts, &linked_contexts, locator);
+                    }
+                    if let Some(source_url) = row.get("source_url").and_then(Value::as_str) {
+                        append_linked_source_contexts(&mut parts, &linked_contexts, source_url);
                     }
                     if parts.is_empty() {
                         None
@@ -178,6 +188,107 @@ fn direct_evidence_claim_texts(payload: &Value) -> Vec<String> {
     out.sort();
     out.dedup();
     out
+}
+
+fn linked_source_context_texts(payload: &Value) -> BTreeMap<String, Vec<String>> {
+    let mut contexts = BTreeMap::<String, Vec<String>>::new();
+    for row in selected_tool_contexts(payload) {
+        collect_linked_source_context_texts(row, 0, &mut contexts);
+    }
+    contexts
+}
+
+fn collect_linked_source_context_texts(
+    value: &Value,
+    depth: usize,
+    contexts: &mut BTreeMap<String, Vec<String>>,
+) {
+    if depth > 7 {
+        return;
+    }
+    match value {
+        Value::Array(rows) => {
+            for row in rows {
+                collect_linked_source_context_texts(row, depth + 1, contexts);
+            }
+        }
+        Value::Object(map) => {
+            let mut keys = Vec::<String>::new();
+            for key in [
+                "id",
+                "ref_id",
+                "citation_id",
+                "source_ref",
+                "locator",
+                "url",
+                "source_url",
+                "href",
+                "link",
+            ] {
+                if let Some(raw) = map.get(key).and_then(Value::as_str) {
+                    let cleaned = clean_text(raw, 500);
+                    if !cleaned.is_empty() {
+                        keys.push(cleaned);
+                    }
+                }
+            }
+
+            let mut parts = Vec::<String>::new();
+            for key in [
+                "relevant_extract",
+                "why_relevant_to_query",
+                "support_snippet",
+                "snippet",
+                "summary",
+                "content",
+                "markdown",
+                "text",
+                "body",
+                "description",
+                "abstract",
+                "claim_hints",
+                "claims",
+                "extracted_claims",
+                "claim_candidates",
+                "key_findings",
+                "findings",
+                "coverage_facets",
+            ] {
+                if let Some(child) = map.get(key) {
+                    collect_relevance_doc_parts(child, depth + 1, &mut parts);
+                }
+            }
+            if !keys.is_empty() && !parts.is_empty() {
+                let combined = normalize_for_compare(&parts.join(" "));
+                if combined.split_whitespace().count() >= 3 {
+                    for key in keys {
+                        contexts.entry(key).or_default().push(combined.clone());
+                    }
+                }
+            }
+
+            for child in map.values() {
+                collect_linked_source_context_texts(child, depth + 1, contexts);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn append_linked_source_contexts(
+    parts: &mut Vec<String>,
+    contexts: &BTreeMap<String, Vec<String>>,
+    key: &str,
+) {
+    let cleaned = clean_text(key, 500);
+    if cleaned.is_empty() {
+        return;
+    }
+    if let Some(rows) = contexts.get(&cleaned) {
+        for row in rows.iter().take(3) {
+            parts.push(row.clone());
+        }
+    }
 }
 
 fn direct_tool_quality_flags(payload: &Value) -> Vec<String> {
@@ -232,6 +343,8 @@ fn collect_evidence_relevance_texts(value: &Value, depth: usize, out: &mut Vec<S
                 "body",
                 "description",
                 "abstract",
+                "relevant_extract",
+                "why_relevant_to_query",
                 "claim_hints",
                 "claims",
                 "extracted_claims",
@@ -511,6 +624,24 @@ fn prompt_term_overlap_count(prompt_terms: &[String], normalized_text: &str) -> 
         .collect::<Vec<_>>();
     prompt_terms
         .iter()
-        .filter(|term| text_terms.iter().any(|text_term| text_term == *term))
+        .filter(|term| prompt_term_supported_by_text_terms(term, normalized_text, &text_terms))
         .count()
+}
+
+fn prompt_term_supported_by_text_terms(
+    term: &str,
+    normalized_text: &str,
+    text_terms: &[String],
+) -> bool {
+    text_terms.iter().any(|text_term| text_term == term)
+        || short_acronym_supported_by_compound(normalized_text, term)
+        || prompt_adjective_base_supported_by_text_terms(term, text_terms)
+}
+
+fn prompt_adjective_base_supported_by_text_terms(term: &str, text_terms: &[String]) -> bool {
+    if term.len() < 7 || !term.ends_with("ic") {
+        return false;
+    }
+    let base = &term[..term.len() - 2];
+    base.len() >= 5 && text_terms.iter().any(|text_term| text_term == base)
 }

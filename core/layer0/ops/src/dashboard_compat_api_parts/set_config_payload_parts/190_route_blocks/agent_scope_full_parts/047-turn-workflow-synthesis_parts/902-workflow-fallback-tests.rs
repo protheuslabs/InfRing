@@ -135,6 +135,11 @@
             "I would choose a menu item for the user's current topic.",
             &[],
         ));
+        assert!(!response_claims_tool_success_without_current_turn_evidence(
+            "Compare web retrieval systems.",
+            "A web retrieval pipeline should separate discovery, crawl materialization, and text normalization.",
+            &[],
+        ));
     }
 
     #[test]

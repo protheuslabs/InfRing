@@ -299,6 +299,9 @@ fn entity_coverage_aliases(entity: &str) -> Vec<String> {
     for alias in common_entity_aliases(entity) {
         push_unique_alias(&mut aliases, &alias);
     }
+    for alias in generic_entity_aliases(entity) {
+        push_unique_alias(&mut aliases, &alias);
+    }
     for alias in explicit_parenthetical_aliases(entity) {
         push_unique_alias(&mut aliases, &alias);
     }
@@ -339,6 +342,51 @@ fn common_entity_aliases(entity: &str) -> Vec<String> {
         "united kingdom" => vec!["UK".to_string(), "Britain".to_string(), "Great Britain".to_string()],
         _ => Vec::new(),
     }
+}
+
+fn generic_entity_aliases(entity: &str) -> Vec<String> {
+    let mut aliases = Vec::<String>::new();
+    let mut seeds = vec![entity.to_string()];
+    let normalized = normalize_for_compare(entity);
+    if normalized.contains("state-level") {
+        seeds.push(entity.replace("state-level", "state"));
+        seeds.push(entity.replace("State-level", "State"));
+    }
+    aliases.extend(seeds.iter().skip(1).cloned());
+    for (from, replacements) in [
+        ("regulation", &["legislation", "law", "rules", "governance"][..]),
+        (
+            "regulations",
+            &["legislation", "laws", "rules", "governance"][..],
+        ),
+        (
+            "regulatory",
+            &["legislative", "legal", "governance"][..],
+        ),
+    ] {
+        for seed in &seeds {
+            if normalize_for_compare(seed).contains(from) {
+                for replacement in replacements {
+                    aliases.push(replace_word_case_insensitive(seed, from, replacement));
+                }
+            }
+        }
+    }
+    aliases
+}
+
+fn replace_word_case_insensitive(raw: &str, needle: &str, replacement: &str) -> String {
+    raw.split_whitespace()
+        .map(|part| {
+            let trimmed = part.trim_matches(|ch: char| !ch.is_ascii_alphanumeric());
+            if trimmed.eq_ignore_ascii_case(needle) {
+                part.replacen(trimmed, replacement, 1)
+            } else {
+                part.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn coverage_entity_aliases(coverage_entities: &[String]) -> Value {
@@ -536,7 +584,10 @@ fn unsupported_claim_signal(case: &Value, response_text: &str) -> bool {
     let has_universal_best = normalized.contains("the best")
         || normalized.contains("clear winner")
         || normalized.contains("always use");
-    asks_best && has_universal_best && !has_limitation_signal(&normalized)
+    asks_best
+        && has_universal_best
+        && !has_limitation_signal(&normalized)
+        && !has_tradeoff_or_structure(&normalized)
 }
 
 fn outside_evidence_used_for_decision_signal(normalized_response: &str) -> bool {
@@ -555,8 +606,6 @@ fn outside_evidence_used_for_decision_signal(normalized_response: &str) -> bool 
             "general knowledge",
             "prior knowledge",
             "training knowledge",
-            "well established",
-            "well-established",
             "historically lies",
             "known for",
         ],

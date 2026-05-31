@@ -481,6 +481,27 @@ fn scoring_shape_accepts_general_research_findings_and_plans() {
 }
 
 #[test]
+fn best_prompt_allows_bounded_ranked_strategy_answer() {
+    let case = json!({
+        "prompt": "Research the best neighborhoods to stay in Tokyo for a first-time visit."
+    });
+    let response = "The best strategy is to pick one convenient base rather than moving districts. \
+        Strong options include Shinjuku and Ginza, but the right choice depends on transit, food, and luggage tradeoffs.";
+
+    assert!(!unsupported_claim_signal(&case, response));
+}
+
+#[test]
+fn outside_evidence_detector_ignores_unsettled_evidence_language() {
+    let response = normalize_for_compare(
+        "The evidence for precise links between exposure levels and health outcomes is not well established. \
+        A practical recommendation is to reduce avoidable exposure without claiming diagnosed harm.",
+    );
+
+    assert!(!outside_evidence_used_for_decision_signal(&response));
+}
+
+#[test]
 fn entity_coverage_accepts_phrase_variants_without_case_specific_aliases() {
     let response = normalize_for_compare(
         "The evidence discusses agent evaluation frameworks and framework results, \
@@ -511,6 +532,22 @@ fn entity_coverage_accepts_derived_initialism_aliases() {
     ));
     assert_eq!(
         entity_coverage(&response, &["Model Context Protocol".to_string()]),
+        1.0
+    );
+}
+
+#[test]
+fn entity_coverage_accepts_generic_policy_phrase_aliases() {
+    let response = normalize_for_compare(
+        "US state AI legislation is clustering around automated decisions, \
+             disclosure, procurement, and governance requirements.",
+    );
+    assert!(normalized_response_covers_entity(
+        &response,
+        "US state-level AI regulation"
+    ));
+    assert_eq!(
+        entity_coverage(&response, &["US state-level AI regulation".to_string()]),
         1.0
     );
 }

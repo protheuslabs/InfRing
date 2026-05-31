@@ -195,6 +195,11 @@ pub(crate) fn native_tool_coding_task_lane(
     metadata: &Value,
     original_prompt: &str,
 ) -> &'static str {
+    // Runtime lanes classify execution shape, not eval difficulty. Keep this
+    // taxonomy aligned with coding-agent behavior such as Codex/Claude Code:
+    // direct write, bounded existing-project edit, validation repair,
+    // multi-file slice, and checkpointed/long-run operation. Test gauntlet
+    // levels must stay in eval fixtures and must not appear as lane names.
     if native_tool_is_probable_micro_direct_write_task(metadata, original_prompt) {
         return "new_file_fast_path";
     }

@@ -1640,3 +1640,115 @@ fn gap_dominated_partial_answer_does_not_count_as_prompt_useful() {
         grade.user_facing_answer_quality
     );
 }
+
+#[test]
+fn traceability_ignores_advisory_individual_factor_framing() {
+    let case = json!({
+        "prompt": "Summarize the current evidence on menopausal hormone therapy risk so a patient understands what matters before a clinical discussion.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["menopausal hormone therapy"]
+    });
+    let payload = json!({
+        "response": "The FDA removed black box warnings from six menopausal hormone therapy products in February 2026, reflecting updated safety reassessments. Individual factors—personal and family health history, timing of treatment initiation, and formulation—remain critical to weighing benefits against potential harms.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "menopausal hormone therapy risk FDA black box warning 2026",
+                "keywords": ["menopausal hormone therapy", "FDA", "black box warning", "2026"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 5,
+            "content_rich_candidate_count": 3,
+            "claim_hint_count": 2,
+            "evidence_refs": [{
+                "title": "FDA warning update",
+                "locator": "https://example.test/fda-warning-update",
+                "source_kind": "news",
+                "snippet": "The FDA removed black box warnings from six menopausal hormone therapy products in February 2026 after updated safety review."
+            }]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .answer_unit_evidence_alignment
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{:#?}",
+        grade.answer_unit_evidence_alignment
+    );
+}
+
+#[test]
+fn traceability_ignores_dash_join_artifacts_and_decision_framing() {
+    let case = json!({
+        "prompt": "Compare Playwright, browser-use, and Selenium for browser QA automation in 2026. I care about repeatability, CI cost, and current fit for LLM-driven workflows.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "batch_query",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["Playwright", "browser-use", "Selenium"]
+    });
+    let payload = json!({
+        "response": "For stable scripted testing in 2026, Playwright leads on measurable momentum—30M downloads versus Cypress's 6.5M as of March 2026—with stronger CI efficiency signals. One Medium piece positions browser-use alongside Playwright as part of an emerging browser-agents stack integrating LLMs, but no hard stability metrics for browser-use were returned. Decision boundary: choose Playwright if you need proven, repeatable scripted QA today.",
+        "pending_tool_request": {
+            "status": "executed",
+            "selected_tool_family": "web_research",
+            "tool_name": "batch_query",
+            "tool_key": "batch_query",
+            "input": {
+                "query": "Playwright browser-use Selenium QA automation 2026",
+                "keywords": ["Playwright", "browser-use", "Selenium", "QA automation", "2026", "LLM"],
+                "aperture": "medium"
+            }
+        },
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok",
+            "candidate_count": 8,
+            "content_rich_candidate_count": 4,
+            "claim_hint_count": 4,
+            "evidence_refs": [
+                {
+                    "title": "Playwright vs Cypress CI costs",
+                    "locator": "https://example.test/playwright-ci",
+                    "source_kind": "analysis",
+                    "snippet": "Playwright reached 30M downloads versus Cypress at 6.5M in March 2026, with lower CI cost in comparative workflow benchmarks."
+                },
+                {
+                    "title": "Browser agents landscape",
+                    "locator": "https://example.test/browser-agents",
+                    "source_kind": "analysis",
+                    "snippet": "Browser-use is discussed alongside Playwright in emerging browser-agent stacks for LLM-driven workflows, but repeatability metrics remain thin."
+                }
+            ]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .answer_unit_evidence_alignment
+            .get("pass")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{:#?}",
+        grade.answer_unit_evidence_alignment
+    );
+}

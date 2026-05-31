@@ -25,6 +25,21 @@ lower primitives, but it must not globally alter, slow, or narrow them.
 
 ## Profiles
 
+Profiles classify runtime execution shape. They are not eval levels.
+
+The test gauntlet may name scenarios as Level 1, Level 2, and so on, but the
+runtime must not select behavior from those labels. It must classify the task
+the way successful coding agents do: direct write, bounded existing-project
+edit, validation-guided repair, multi-file slice, checkpointed project
+operation, or long-horizon project work.
+
+This distinction is mandatory:
+
+```text
+eval level = measurement fixture
+runtime profile = reusable execution shape
+```
+
 | Profile | Name | Purpose |
 |---:|---|---|
 | 0 | `micro_direct_mutation` | Fully specified create/write/patch with no discovery or validation. |
@@ -78,6 +93,37 @@ These are model violations observed during the Level 2 regression investigation:
 | `completion_evidence` and owner-source repair prompts accumulated contradictory constraints. | The model received too many active controllers for a small task. | Only the earliest active primitive may issue a blocking repair instruction. |
 | Tool schema aliases such as `target_file_path` and `patch_content` were unsupported. | Tooling primitive was too narrow for common coding-agent edit forms. | Tool compatibility belongs in `file_mutation_executor`, not workflow prompts. |
 | Final artifact sometimes reported zero tool calls despite internal journal mutations. | Finalization/accounting hid partial progress. | `receipt_journal` and `final_receipt_synthesis` must flush partial progress before timeout. |
+
+## Runtime task-shape classifier
+
+The classifier should mirror the practical distinctions used by Codex, Claude
+Code, Aider, and SWE-agent, not the eval ladder:
+
+| Shape | Runtime lane | Primary question | Controller owner |
+|---|---|---|---|
+| `direct_create_or_write` | `new_file_fast_path` | Can this be safely written without discovery? | `file_mutation_executor` |
+| `bounded_existing_project_edit` | `existing_project_patch` | Which existing files are in edit scope? | `bounded_direct_edit_or_patch_artifact` |
+| `validation_guided_repair` | `validation_repair` | What failed, and which owner/export surface must mutate? | `validation_repair_controller` |
+| `multi_file_project_slice` | `multi_file_slice` | What source/test/operator slice satisfies the user goal? | `staged_execution_controller` |
+| `checkpointed_project_operation` | `long_run_project_operator` | What context, checkpoint, memory, and closure artifacts are required? | `checkpointed_project_operator` |
+| `general_native_tool_task` | `general_native_tool_task` | What minimal local context is needed before mutation or blocker? | `native_tool_loop_with_structured_blockers` |
+
+Forbidden classifier inputs:
+
+- eval level number
+- fixture name
+- test case id
+- expected marker string
+- one-off prompt phrase from a specific harness task
+
+Required classifier outputs:
+
+- selected runtime lane
+- selected profile
+- owning controller
+- required context/discovery flag
+- validation requirement flag
+- escalation reason when choosing a higher profile over a lower one
 
 ## Current model amendment: repair must be evidence-to-mutation, not retry-first
 

@@ -1790,6 +1790,19 @@ fn canonical_manual_toolbox_tool_name(family: &str, tool_label: &str) -> String 
         &family_key,
         tool_label,
     )
+    .if_empty_then(|| {
+        let cleaned = clean_text(tool_label, 120).to_ascii_lowercase();
+        let machine_key = cleaned
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+            && cleaned.chars().any(|ch| ch == '_' || ch == '-')
+            && cleaned.chars().any(|ch| ch.is_ascii_alphabetic());
+        if machine_key {
+            cleaned.replace('-', "_")
+        } else {
+            String::new()
+        }
+    })
 }
 
 fn response_is_visible_workflow_gate_choice(response: &str) -> bool {

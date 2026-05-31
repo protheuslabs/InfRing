@@ -78,6 +78,13 @@ complexity, but each primitive must declare the minimum profile that may
 activate it. A higher-profile primitive may compose lower-profile primitives; it
 may not globally change, slow, narrow, or block lower-profile behavior.
 
+Runtime classification must be by execution shape, not by eval level. The eval
+ladder is only a pressure harness. The production classifier should behave like
+successful coding frameworks: choose whether the task is a direct write,
+bounded existing-project edit, validation repair, multi-file slice,
+checkpointed operation, or long-horizon project. Those shapes may appear at
+many eval levels and must remain reusable outside the harness.
+
 The current activation audit is tracked in:
 
 `docs/workspace/coding_profile_activation_audit.md`

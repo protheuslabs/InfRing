@@ -3278,6 +3278,42 @@ mod quality_tests {
     }
 
     #[test]
+    fn topical_phrase_bridge_matches_lowercase_queries_with_hyphenated_or_compact_candidates() {
+        let query = "research current approaches to reducing meeting overload on remote teams";
+        let candidate = Candidate {
+            source_kind: "web".to_string(),
+            title: "Calendar-audit strategies for remote-team overload".to_string(),
+            locator: "https://example.org/2026/05/calendarauditstrategiesforremoteteamoverload"
+                .to_string(),
+            snippet: "Calendar audit strategies for remote-team overload can surface recurring meeting drag and support lighter collaboration cadences."
+                .to_string(),
+            excerpt_hash: "lowercase-topical-phrase-bridge".to_string(),
+            timestamp: Some("2026-05-22T12:00:00Z".to_string()),
+            permissions: Some("public_web;page_enriched".to_string()),
+            status_code: 200,
+        };
+        assert!(
+            query_subject_phrase_matches_candidate(query, &candidate),
+            "lowercase topical phrases like meeting overload / remote teams should bridge hyphenated and compact candidate forms"
+        );
+        assert!(
+            candidate_has_substantive_page_enriched_bridge(query, &candidate),
+            "page-enriched candidates should get the substantive bridge when the topical phrase match is real"
+        );
+    }
+
+    #[test]
+    fn page_extraction_allows_topical_phrase_bridge_before_low_relevance_rejection() {
+        let query = "Research current approaches to reducing meeting overload on remote teams. What interventions have stronger evidence or operational support than vague productivity advice?";
+        let link = "https://example.org/2026/05/calendarauditstrategiesforremoteteamoverload";
+        let context = "Calendar-audit strategies for remote-team overload can surface recurring meeting drag. The note summarizes calendar audits and async defaults used to reduce coordination burden in distributed teams.";
+        assert_eq!(
+            page_extraction_link_preflight_rejection_reason_with_context(query, link, context),
+            None
+        );
+    }
+
+    #[test]
     fn page_extraction_keeps_trusted_official_source_links_for_official_lanes() {
         let query = "LangGraph official documentation";
         let link = "https://docs.langchain.com/oss/python/langgraph/overview";

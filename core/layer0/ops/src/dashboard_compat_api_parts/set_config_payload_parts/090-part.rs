@@ -386,6 +386,16 @@ fn response_tool_summary_text_is_rejected(text: &str) -> bool {
         || looks_like_search_engine_chrome_summary(&lowered)
 }
 
+fn response_tool_summary_snippet_is_rejected(text: &str) -> bool {
+    let cleaned = clean_text(text, 320);
+    cleaned.is_empty()
+        || response_tool_summary_text_is_rejected(&cleaned)
+        || workflow_answer_unit_is_process_or_metadata_fact(&cleaned)
+        || workflow_answer_unit_contains_ui_or_source_shell(&cleaned)
+        || workflow_answer_unit_looks_like_source_title_fragment(&cleaned)
+        || workflow_answer_unit_looks_like_datestamped_headline_shell(&cleaned)
+}
+
 fn push_response_tool_summary_snippet(
     snippets: &mut Vec<String>,
     seen: &mut HashSet<String>,
@@ -393,7 +403,7 @@ fn push_response_tool_summary_snippet(
     max_len: usize,
 ) {
     let cleaned = clean_text(raw, max_len.max(1));
-    if cleaned.is_empty() {
+    if response_tool_summary_snippet_is_rejected(&cleaned) {
         return;
     }
     let key = cleaned.to_ascii_lowercase();

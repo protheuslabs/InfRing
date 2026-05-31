@@ -1471,6 +1471,57 @@ fn response_tools_summary_drops_key_findings_source_scaffold_rows() {
 }
 
 #[test]
+fn response_tools_summary_drops_promotional_title_shell_snippets() {
+    let synthesized = response_tools_summary_for_user(
+        &[json!({
+            "name": "batch_query",
+            "is_error": false,
+            "evidence_refs": [
+                {
+                    "title": "Web result from fool.com",
+                    "snippet": "Out Now Motley Fool Stock Advisor's list of Top 10 Stocks to BUY NOW. These are the stocks our analysts believe are the best positioned to beat the market."
+                },
+                {
+                    "title": "Chicago neighborhood guide",
+                    "snippet": "Lincoln Park and the Near North Side give families strong museum access, CTA connectivity, and easy walking routes."
+                }
+            ]
+        })],
+        4,
+    );
+    assert!(!synthesized.is_empty());
+    assert!(synthesized.contains("Lincoln Park"));
+    assert!(!synthesized.contains("Motley Fool"));
+    assert!(!synthesized.contains("Top 10 Stocks"));
+}
+
+#[test]
+fn response_tools_summary_drops_published_source_shell_snippets() {
+    let synthesized = response_tools_summary_for_user(
+        &[json!({
+            "name": "batch_query",
+            "is_error": false,
+            "evidence_refs": [
+                {
+                    "title": "Family Guide to Hyde Park: Things to Do with Kids - Chicago Parent",
+                    "snippet": "Family Guide to Hyde Park: Things to Do with Kids Chicago Parent Published: Tue, 17 Sep 2024 07:00:00 GMT. Source: Chicago Parent (www.chicagoparent.com)."
+                },
+                {
+                    "title": "Neighborhood tradeoffs",
+                    "snippet": "Hyde Park gives families strong museum access near MSI, but the current evidence set does not yet support a fair comparison against Lincoln Park, Wicker Park, or South Loop."
+                }
+            ]
+        })],
+        4,
+    );
+    assert!(!synthesized.is_empty());
+    assert!(synthesized.contains("Hyde Park"));
+    assert!(!synthesized.contains("Published"));
+    assert!(!synthesized.contains("GMT"));
+    assert!(!synthesized.contains("Chicago Parent"));
+}
+
+#[test]
 fn finalize_user_facing_response_replaces_ack_with_findings() {
     let (finalized, outcome, initial_ack_only) = finalize_user_facing_response_with_outcome(
         "Web search completed.".to_string(),

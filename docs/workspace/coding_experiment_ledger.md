@@ -1356,7 +1356,7 @@ first-mutation slice completeness and pre-receipt/provider stall behavior.
 
 ## EXP-CODING-048: First mutation required artifact roles
 
-Status: `patched_pending_measurement`
+Status: `rejected_after_measurement`
 
 Hypothesis:
 
@@ -1447,7 +1447,7 @@ be trusted as a clean tool-call batch.
 
 ## EXP-CODING-050: Workflow-CD tool progress watchdog budget
 
-Status: `patched_pending_measurement`
+Status: `rejected_after_measurement`
 
 Patch packet:
 
@@ -1506,7 +1506,7 @@ lower metadata timeouts.
 
 ## EXP-CODING-051: First-mutation lane obeys CD provider budget
 
-Status: `patched_pending_measurement`
+Status: `rejected_after_measurement`
 
 Patch packet:
 
@@ -1744,3 +1744,240 @@ Level 5-7 seeded-repair execution. The remaining lower-profile problem is now
 clearer: some existing-project patch cases return from the first-mutation lane
 with no mutation and no parent-loop continuation, but they fail quickly enough
 to patch in a targeted next step.
+
+## EXP-CODING-055: First-mutation no-op demotion
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: tool_progress_watchdog
+Profile touched: 2
+Activation evidence: first-mutation artifact lane returns successfully but emits zero successful mutation receipts.
+Invariant: a successful-but-empty fast lane is local no-progress evidence, not terminal task failure.
+Expected measurable delta: Level 3 no-mutation failure should continue into the parent native tool loop and either mutate or fail with parent-loop evidence; Level 4-7 should remain passing.
+Rollback condition: Level 1 regresses, Level 4-7 lose their restored pass path, or Level 3 wall time increases materially without mutation.
+```
+
+Hypothesis:
+
+EXP-CODING-054 fixed first-mutation timeout demotion, but the Level 3 trace
+showed a second boundary bug: the first-mutation lane could return normally with
+zero receipts and the runtime immediately closed as `partial_blocked`. That
+prevented the parent native tool loop from attempting the mutation even though
+bounded context had already been loaded.
+
+Patch:
+
+- Changed successful-but-empty first-mutation lane handling from terminal
+  `partial_blocked` return to local no-op demotion.
+- Added a tiny parent-loop rule: use loaded context, do not repeat discovery,
+  and emit file mutation before final output.
+- Kept the patch profile-scoped and fixture-agnostic.
+
+Expected impact:
+
+This should complete the pair with EXP-CODING-054:
+
+```text
+fast mutation lane timeout OR no-op
+-> parent native tool loop
+-> mutation or structured parent-loop failure
+```
+
+Measurement:
+
+Focused Level 1 and Level 3-7 ladder with `kimi-k2.6:cloud`:
+
+- Level 1: `5/5` pass.
+- Level 3: passed at about `24s`.
+- Level 4: failed `no_successful_mutation` at about `62s`.
+- Level 5: failed `seeded_repair_timeout` at about `58s`.
+- Level 6: failed `seeded_repair_timeout` at about `54s`.
+- Level 7: failed `seeded_repair_timeout` at about `37s`.
+
+Decision:
+
+Rejected and reverted. The patch proved the concept for Level 3, but it broke
+the restored Level 4-7 path and added unacceptable latency. The useful evidence
+is that no-op demotion cannot be broad. It needs tighter activation, likely
+only for bounded existing-project patches with no pre-mutation validation or
+seeded import-surface repair in play.
+
+## EXP-CODING-056: Scoped first-mutation no-op demotion
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: tool_progress_watchdog
+Profile touched: 2
+Activation evidence: first-mutation artifact lane returns zero mutation receipts for an existing-project patch without pre-mutation validation, seeded import-surface repair, failed validation evidence, or checkpoint/project-operator control active.
+Invariant: no-op demotion is allowed only for bounded Profile 2 edit tasks; validation/repair/project-slice paths keep their owning controllers.
+Expected measurable delta: Level 3 recovers without the Level 4-7 regressions seen in EXP-CODING-055.
+Rollback condition: Level 1 regresses, Level 4-7 lose the restored pass path, or Level 3 wall time increases materially without mutation.
+```
+
+Hypothesis:
+
+EXP-CODING-055 proved that no-op demotion can recover a simple existing-project
+edit, but broad activation stole control from validation and seeded-repair
+controllers. The primitive should only activate when the task is still a clean
+Profile 2 bounded edit with loaded context and no validation/repair evidence.
+
+Patch:
+
+- Demote zero-receipt first-mutation lane output only for `existing_project_patch`.
+- Block demotion when pre-mutation validation ran.
+- Block demotion when Python import-surface seed receipts exist.
+- Block demotion when failed validation evidence exists.
+- Block demotion when checkpoint/project-operator control is active.
+
+Expected impact:
+
+This should preserve the useful Level 3 recovery from EXP-CODING-055 while
+keeping Level 4-7 on the stable EXP-CODING-054 path.
+
+Measurement:
+
+Focused Level 1 and Level 3-7 ladder with `kimi-k2.6:cloud`:
+
+- Level 1: `5/5` pass.
+- Level 3: passed at about `39s`.
+- Level 4: passed at about `34s`.
+- Level 5: failed `seeded_repair_timeout` at about `48s`.
+- Level 6: failed `seeded_repair_timeout` at about `45s`.
+- Level 7: failed `seeded_repair_timeout` at about `46s`.
+
+Decision:
+
+Rejected and reverted. The scoped activation recovered Level 3 and preserved
+Level 4, but it still disrupted the Level 5-7 seeded-repair path. The failure
+suggests the parent-loop continuation itself is too broad/heavy for this
+runtime location. A future version should not reuse the full parent loop after a
+fast-lane no-op; it needs a smaller deterministic/local mutation fallback or a
+separate Profile 2-only lane that cannot affect seeded-repair execution.
+
+## EXP-CODING-057: Profile 2 direct-edit fallback after first-mutation no-op
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: direct_edit_fallback
+Profile touched: 2
+Activation evidence: first-mutation artifact lane returns zero mutation receipts for an existing-project patch with already-loaded context and no validation/seeded-repair/project-operator evidence active.
+Reference pattern: Claude Code/Codex successful traces use exact file context plus direct Edit/Write, then validation, instead of broad parent-loop fallback.
+Invariant: a Profile 2 no-op recovery may run one tiny mutation-only model call over already-loaded context; it must not call read/list/command tools or steal control from validation/repair profiles.
+Expected measurable delta: Level 3 recovers without Level 4-7 seeded-repair regressions.
+Rollback condition: Level 1 regresses, Level 4-7 lose the restored EXP-CODING-054 pass path, or Level 3 recovers only with worse latency than the broad fallback.
+```
+
+Hypothesis:
+
+The reference systems that pass Level 3 and higher levels do not recover no-op
+edits by falling into a broad parent loop. They use a bounded direct edit step:
+read/observe exact files, edit exact files, then validate. Infring already has
+the read context before the first-mutation no-op, so the missing primitive is a
+single direct-edit fallback constrained to `file_patch`/`file_write`.
+
+Patch:
+
+- Added one Profile 2-only direct-edit fallback after a zero-receipt
+  first-mutation artifact lane.
+- Fallback is inactive when pre-mutation validation, failed validation evidence,
+  Python import-surface seed receipts, or checkpoint/project-operator control is
+  active.
+- Fallback uses only `file_patch`/`file_write` tools and already-loaded context.
+- On successful mutation it runs existing auto-validation and closes through the
+  coding execution spine when evidence is satisfied.
+
+Expected impact:
+
+This should preserve the successful reference pattern without reintroducing the
+broad parent-loop leakage that broke Level 5-7 in EXP-CODING-055 and
+EXP-CODING-056.
+
+Measurement:
+
+Focused Level 1 and Level 3-7 ladder with `kimi-k2.6:cloud`:
+
+- Level 1: `5/5` pass.
+- Level 3: failed `no_successful_mutation` at about `52s`.
+- Level 4: passed at about `30s`.
+- Level 5: failed `seeded_repair_timeout` at about `39s`.
+- Level 6: failed `seeded_repair_timeout` at about `38s`.
+- Level 7: failed `seeded_repair_timeout` at about `64s`.
+
+Decision:
+
+Rejected and reverted. The patch followed the reference pattern structurally,
+but the runtime placement was still wrong. It introduced an extra provider call
+that timed out on Level 3 and still failed to preserve Level 5-7. The reference
+lesson remains useful: winning systems perform direct edits from exact file
+context, but Infring should not add that as an after-the-fact fallback inside
+the first-mutation no-op branch. The direct-edit shape needs to be the primary
+Profile 2 lane or a deterministic local lane, not a second provider call after
+another model no-op.
+
+## EXP-CODING-058: Profile 2 direct-edit primary lane
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: profile2_direct_edit_primary_lane
+Profile touched: 2
+Activation evidence: bounded existing-project edit with loaded local context and selected lane `existing_project_patch` or `bounded_existing_project_edit`.
+Reference pattern: Claude Code and Codex traces perform exact context read -> direct Edit/Write -> validation, instead of letting an artifact-synthesis lane terminate before mutation.
+Invariant: Profile 2 direct edit owns the first mutation slot for small existing-project edits; artifact synthesis must not block that lane.
+Rollback condition: Level 1 regresses, Level 3 still fails without mutation, or Level 4-7 lose the EXP-CODING-054 pass path.
+```
+
+Hypothesis:
+
+EXP-CODING-057 failed because direct edit was bolted on as a fallback after a
+first-mutation no-op. The winning framework traces show direct edit as the
+primary small-edit shape, not as a second provider call after another lane has
+already failed.
+
+Patch:
+
+- Added CD-gated `profile2_direct_edit_primary_lane`.
+- Skips `first_mutation_artifact_lane_v1` only for bounded Profile 2 existing
+  project edit lanes.
+- Gives the first provider turn a tiny direct-edit prompt with only
+  `file_patch`/`file_write` tools.
+- Leaves validation repair, multi-file/project slices, and checkpointed project
+  operation on their existing controllers.
+
+Expected impact:
+
+```text
+bounded context loaded
+-> Profile 2 direct edit owns first mutation
+-> file_patch/file_write receipt
+-> existing validation/spine closure
+```
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-058 measurement update
+
+One rebuilt Level 3 run with `kimi-k2.6:cloud`:
+
+- Result: pass.
+- Wall time: about `122.7s`.
+- Time to first mutation: about `62.6s`.
+- Native tool sequence: `file_list`, `file_read_many`, `file_write`, `file_write`, `command_run`, `bounded_direct_edit_lane`.
+- Provider timing probe: one recorded direct-edit provider turn, `21.8s` provider latency, prompt about `3249` chars, system about `240` chars, tool count `2`.
+
+Decision:
+
+Rejected and reverted. The patch proved that the primary direct-edit topology can mutate and pass, but it made Level 3 much slower than the previous stable and reference-framework baselines. The useful lesson is narrower: direct edit must also close/finalize without extra heavy controller/finalization latency, or it is not a viable replacement for the artifact lane.

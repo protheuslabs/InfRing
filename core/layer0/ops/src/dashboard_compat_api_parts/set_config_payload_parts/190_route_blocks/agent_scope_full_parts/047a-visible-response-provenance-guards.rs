@@ -140,6 +140,31 @@ fn response_claims_tool_success_without_current_turn_evidence(
         "/diagnostic_markers/unsupported_tool_claim/execution_claim_phrases",
         &lowered,
     );
+    let claims_execution_action = [
+        "i searched",
+        "i ran",
+        "i used",
+        "i called",
+        "i executed",
+        "i opened",
+        "i read",
+        "i inspected",
+        "i scanned",
+        "i found",
+        "tool ran",
+        "tool succeeded",
+        "tool completed",
+        "search returned",
+        "search found",
+        "returned no findings",
+        "returned no results",
+        "found no results",
+        "found no findings",
+        "returned these",
+        "returned the following",
+    ]
+    .iter()
+    .any(|phrase| lowered.contains(phrase));
     let claims_empty_results = workflow_message_matches_contract_markers(
         &contract,
         "/diagnostic_markers/unsupported_tool_claim/empty_result_claim_phrases",
@@ -154,8 +179,9 @@ fn response_claims_tool_success_without_current_turn_evidence(
         "/diagnostic_markers/unsupported_tool_claim/listing_claim_phrases",
         &lowered,
     );
-    let claims_tool_result =
-        (mentions_tool_surface && (claims_execution || claims_empty_results)) || claims_listings;
+    let claims_tool_result = (mentions_tool_surface
+        && ((claims_execution && claims_execution_action) || claims_empty_results))
+        || claims_listings;
     let hypothetical = workflow_message_matches_contract_markers(
         &contract,
         "/diagnostic_markers/unsupported_tool_claim/hypothetical_phrases",
