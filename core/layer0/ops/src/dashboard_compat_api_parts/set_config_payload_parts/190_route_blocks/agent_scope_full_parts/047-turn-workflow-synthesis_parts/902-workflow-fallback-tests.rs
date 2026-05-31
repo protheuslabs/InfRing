@@ -136,6 +136,11 @@
             &[],
         ));
         assert!(!response_claims_tool_success_without_current_turn_evidence(
+            "Dry run only: tell me which file tool you would use, but do not run tools yet.",
+            "For a dry run, I would use the file search/listing tool to look for workflow files in the workspace.",
+            &[],
+        ));
+        assert!(!response_claims_tool_success_without_current_turn_evidence(
             "Compare web retrieval systems.",
             "A web retrieval pipeline should separate discovery, crawl materialization, and text normalization.",
             &[],

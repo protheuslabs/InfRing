@@ -227,6 +227,66 @@
     }
 
     #[test]
+    fn rejected_concise_named_evidence_gap_is_preserved_as_synthesis() {
+        let mut workflow = json!({
+            "response": "",
+            "quality_telemetry": {},
+            "final_llm_response": {
+                "used": false,
+                "status": "synthesis_failed"
+            }
+        });
+        let tools = vec![json!({
+            "name": "web_search",
+            "status": "success",
+            "summary": "Search completed with low-confidence snippets.",
+            "evidence_refs": [{
+                "title": "Framework comparison search",
+                "locator": "https://example.test/frameworks"
+            }],
+            "tool_result_quality": {
+                "status": "low_signal",
+                "flags": ["insufficient_evidence"]
+            }
+        })];
+        let rejected_response =
+            "The web search did not return source-backed evidence on agentic framework comparisons for April 2026.";
+
+        let rewritten = maybe_apply_rejected_tool_evidence_fallback(
+            &mut workflow,
+            "Synthesize the current framework comparison from the tool result.",
+            &tools,
+            rejected_response,
+            rejected_response,
+            "final_response_verifier_contract:status_before_answer",
+        );
+
+        assert!(rewritten);
+        assert_eq!(
+            workflow.get("response").and_then(Value::as_str),
+            Some(rejected_response)
+        );
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/status")
+                .and_then(Value::as_str),
+            Some("synthesized")
+        );
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/replacement_response_used")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            workflow
+                .pointer("/final_llm_response/verifier_reject_suppressed")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
     fn rejected_tool_backed_response_without_required_lane_presence_uses_fallback_rewrite() {
         let mut workflow = json!({
             "response": "",

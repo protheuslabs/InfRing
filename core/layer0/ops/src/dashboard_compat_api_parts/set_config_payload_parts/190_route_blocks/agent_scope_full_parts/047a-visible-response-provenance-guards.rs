@@ -117,7 +117,7 @@ fn response_has_current_turn_tool_evidence(response_tools: &[Value]) -> bool {
 }
 
 fn response_claims_tool_success_without_current_turn_evidence(
-    _user_message: &str,
+    user_message: &str,
     response_text: &str,
     response_tools: &[Value],
 ) -> bool {
@@ -127,6 +127,11 @@ fn response_claims_tool_success_without_current_turn_evidence(
     let response = clean_chat_text(response_text, 32_000);
     let lowered = response.to_ascii_lowercase();
     if lowered.is_empty() {
+        return false;
+    }
+    if message_explicitly_disallows_tool_calls(user_message)
+        && response_explicitly_denies_tool_execution(&lowered)
+    {
         return false;
     }
     let contract = default_workflow_tool_menu_contract();
@@ -187,10 +192,35 @@ fn response_claims_tool_success_without_current_turn_evidence(
         "/diagnostic_markers/unsupported_tool_claim/hypothetical_phrases",
         &lowered,
     );
+    if hypothetical && !claims_execution && !claims_execution_action && !claims_empty_results {
+        return false;
+    }
     if hypothetical && !claims_tool_result {
         return false;
     }
     claims_tool_result
+}
+
+fn response_explicitly_denies_tool_execution(lowered_response: &str) -> bool {
+    [
+        "no tools executed",
+        "no tool executed",
+        "no tools were executed",
+        "no tool was executed",
+        "no tools have been run",
+        "no tool has been run",
+        "no tools ran",
+        "no tool ran",
+        "i have not run tools",
+        "i haven't run tools",
+        "i did not run tools",
+        "i didn't run tools",
+        "without running tools",
+        "before running tools",
+        "not run tools yet",
+    ]
+    .iter()
+    .any(|phrase| lowered_response.contains(phrase))
 }
 
 fn response_has_gate_choice_prefix_leakage(response_text: &str) -> bool {

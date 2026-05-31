@@ -504,7 +504,12 @@ fn maybe_apply_rejected_tool_evidence_fallback(
     } else {
         last_invalid_excerpt
     };
-    if rejected_llm_answer_is_visible_bounded_evidence_response(salvage_source_text) {
+    if rejected_llm_answer_is_visible_bounded_evidence_response(salvage_source_text)
+        || rejected_llm_answer_is_concise_named_evidence_gap_response(
+            salvage_source_text,
+            last_reject_reason,
+        )
+    {
         preserve_rejected_bounded_llm_answer(
             workflow,
             response_tools,
@@ -645,6 +650,59 @@ fn rejected_llm_answer_is_visible_bounded_evidence_response(response_text: &str)
             && !workflow_answer_unit_is_process_or_metadata_fact(&unit)
             && unit.split_whitespace().count() >= 8
     })
+}
+
+fn rejected_llm_answer_is_concise_named_evidence_gap_response(
+    response_text: &str,
+    reject_reason: &str,
+) -> bool {
+    let reject_reason = reject_reason.to_ascii_lowercase();
+    if !reject_reason.contains("status_before_answer") {
+        return false;
+    }
+    let cleaned = clean_text(response_text, 1_000);
+    if cleaned.is_empty()
+        || response_looks_like_source_title_inventory(&cleaned)
+        || cleaned.contains(':')
+    {
+        return false;
+    }
+    let lowered = cleaned.to_ascii_lowercase();
+    if [
+        "recorded evidence so far",
+        "here's what i found",
+        "here s what i found",
+        "from web retrieval",
+        "tool trace complete",
+        "provider_starved",
+        "provider starved",
+        "provider timeout",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker))
+    {
+        return false;
+    }
+    let word_count = cleaned.split_whitespace().count();
+    let bounded_gap = [
+        "did not return",
+        "does not support",
+        "doesn't support",
+        "insufficient evidence",
+        "not enough evidence",
+        "no source-backed evidence",
+        "no reliable evidence",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker));
+    let evidence_boundary = lowered.contains("evidence")
+        || lowered.contains("source-backed")
+        || lowered.contains("retrieved");
+    let names_subject = lowered.contains(" on ")
+        || lowered.contains(" for ")
+        || lowered.contains(" about ")
+        || lowered.contains(" regarding ");
+    (8..=45).contains(&word_count) && bounded_gap && evidence_boundary && names_subject
 }
 
 fn preserve_rejected_bounded_llm_answer(
