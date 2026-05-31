@@ -1,0 +1,1293 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-05-30",
+  "dataset_id": "research_perfect_evidence_dataset_v1",
+  "description": "Broad downstream-only research fixture. Each case provides synthetic but realistic evidence packets as if a strong web provider had already returned usable source material. The fixture tests whether later workflow stages can preserve, extract, and synthesize evidence without depending on live provider availability.",
+  "domain": "research_post_retrieval",
+  "synthetic_fixture": true,
+  "answer_key_policy": {
+    "exact_answer_matching": false,
+    "expected_final_answer_allowed": false,
+    "fixture_evidence_is_input_not_gold_response": true,
+    "requires_answer_to_respond_to_original_prompt": true,
+    "allow_reasoned_uncertainty": true,
+    "notes": "Cases intentionally avoid ideal_response, expected_answer, golden_answer, and answer_key fields. The evidence packets are the fixed input; the final answer may use any natural format that is useful for the original prompt."
+  },
+  "replay_contract": {
+    "terminal_user_visible_kinds_allowed": ["final_response", "clarification_request", "structured_failure"],
+    "terminal_user_visible_kinds_forbidden": ["tool_choice", "raw_tool_result", "workflow_trace", "empty_response"],
+    "evidence_pack_minimum_for_answerable_cases": 3,
+    "source_domain_minimum_for_answerable_cases": 2,
+    "source_kind_minimum": 2,
+    "success_boundary": "Downstream synthesis should turn the provided evidence into a coherent user-facing answer, or state an evidence gap when the evidence posture is insufficient."
+  },
+  "reliability_thresholds": {
+    "min_cases_for_reliability_claim": 30,
+    "min_categories_for_reliability_claim": 10,
+    "case_contract_pass_min": 1.0,
+    "evidence_packet_ready_min": 0.98,
+    "replay_payload_ready_min": 1.0
+  },
+  "cases": [
+    {
+      "id": "perfect_ev_001_ai_readable_web_retrieval",
+      "source_prompt_id": "research_pool_001_ai_readable_web_retrieval",
+      "category": "software_technical",
+      "tags": ["comparison", "recommendation", "current", "multi_entity"],
+      "prompt": "Research Crawl4AI, Firecrawl, Exa, Tavily, and Jina Reader for building an AI-readable web retrieval pipeline in 2026. Which parts are useful for a general research agent?",
+      "required_entities": ["Crawl4AI", "Firecrawl", "Exa", "Tavily", "Jina Reader"],
+      "required_facets": ["URL discovery", "crawl depth", "reader extraction", "agent integration"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_001_a",
+          "title": "AI-readable retrieval vendor docs comparison",
+          "locator": "fixture://perfect_ev_001#vendor-docs",
+          "source_domain": "vendor-docs.synthetic.test",
+          "source_kind": "official_docs",
+          "coverage_facets": ["agent integration", "crawl depth"],
+          "relevant_extract": "Firecrawl is described as a crawl and extraction service that turns websites into markdown or structured output for agents. Tavily is positioned around search results with answer-oriented snippets. Exa emphasizes neural search over web content, while Jina Reader focuses on converting known URLs into LLM-readable text.",
+          "claim_hints": ["Firecrawl is strongest when the workflow already needs crawl and extraction.", "Tavily and Exa are better discovery primitives than URL readers."]
+        },
+        {
+          "id": "perfect_ev_001_b",
+          "title": "Independent agent retrieval benchmark notes",
+          "locator": "fixture://perfect_ev_001#benchmark",
+          "source_domain": "research-bench.synthetic.test",
+          "source_kind": "independent_analysis",
+          "coverage_facets": ["URL discovery", "quality tradeoffs"],
+          "relevant_extract": "The benchmark separates discovery from materialization. Search-oriented tools returned broader candidate sets, crawler tools produced richer page text after a URL was known, and reader endpoints were most reliable as a low-cost normalization step. The report warns against treating a reader as a search index.",
+          "claim_hints": ["A general research agent should compose discovery, crawl, and reader steps.", "Reader APIs cannot replace a high-quality search index."]
+        },
+        {
+          "id": "perfect_ev_001_c",
+          "title": "Open-source crawler implementation survey",
+          "locator": "fixture://perfect_ev_001#open-source-survey",
+          "source_domain": "oss-survey.synthetic.test",
+          "source_kind": "repository_analysis",
+          "coverage_facets": ["local control", "operational burden"],
+          "relevant_extract": "Crawl4AI gives teams local control over browser and extraction behavior, which can help with custom sites and private deployments. The tradeoff is more responsibility for rate limits, rendering, retries, storage, and extraction heuristics than hosted APIs. It fits teams that want control over the retrieval lane itself.",
+          "claim_hints": ["Crawl4AI is useful when local control matters more than managed simplicity.", "Hosted search APIs reduce operational burden but constrain customization."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_002_js_heavy_scraping",
+      "source_prompt_id": "research_pool_002_js_heavy_scraping",
+      "category": "software_technical",
+      "tags": ["landscape", "recommendation", "current", "source_sensitive"],
+      "prompt": "Research current options for scraping JavaScript-heavy sites for AI processing. Compare browser automation, hosted crawlers, reader APIs, and plain HTTP extraction.",
+      "required_entities": ["browser automation", "hosted crawlers", "reader APIs", "plain HTTP"],
+      "required_facets": ["rendering need", "cost", "reliability", "anti-bot exposure"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_002_a",
+          "title": "Rendering strategy field guide",
+          "locator": "fixture://perfect_ev_002#rendering-guide",
+          "source_domain": "crawler-guide.synthetic.test",
+          "source_kind": "technical_guide",
+          "coverage_facets": ["rendering need", "reliability"],
+          "relevant_extract": "The guide recommends plain HTTP extraction for stable static pages, reader APIs for normalization of known pages, hosted crawlers for moderate JavaScript and extraction convenience, and browser automation for pages that require client-side state, navigation, or authenticated rendering. It emphasizes measuring each class separately.",
+          "claim_hints": ["Browser automation is the most capable rendering lane but also the most operationally complex.", "Plain HTTP should remain the default when the page does not require JavaScript."]
+        },
+        {
+          "id": "perfect_ev_002_b",
+          "title": "Hosted crawler operations report",
+          "locator": "fixture://perfect_ev_002#hosted-report",
+          "source_domain": "ops-report.synthetic.test",
+          "source_kind": "independent_analysis",
+          "coverage_facets": ["cost", "anti-bot exposure"],
+          "relevant_extract": "Hosted crawlers reduce setup time by bundling rendering, retries, and extraction, but they do not eliminate access failures. The report separates provider errors, rate limits, blocked rendering, and thin extraction so teams can identify whether the failure is discovery, fetch, or content parsing.",
+          "claim_hints": ["Hosted crawlers help with operations but still need gate-level diagnostics.", "Anti-bot failures should be tracked separately from extraction failures."]
+        },
+        {
+          "id": "perfect_ev_002_c",
+          "title": "Reader API limitation memo",
+          "locator": "fixture://perfect_ev_002#reader-limitations",
+          "source_domain": "reader-lab.synthetic.test",
+          "source_kind": "lab_report",
+          "coverage_facets": ["reader extraction", "failure modes"],
+          "relevant_extract": "Reader APIs performed well on article-like pages and documentation pages after a relevant URL was selected. They failed to solve search, multi-step navigation, logged-in content, and pages where important content was created after user interaction. The memo frames readers as materializers rather than discovery engines.",
+          "claim_hints": ["Reader APIs are a downstream materialization primitive.", "They cannot discover URLs or handle every interactive page."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_003_agent_observability_stack",
+      "source_prompt_id": "research_pool_003_agent_observability_stack",
+      "category": "software_technical",
+      "tags": ["comparison", "recommendation", "multi_entity", "current"],
+      "prompt": "Research current observability options for agent workflows. Compare Langfuse, OpenTelemetry-based setups, Helicone, and Braintrust for traces, evaluation, and production debugging.",
+      "required_entities": ["Langfuse", "OpenTelemetry", "Helicone", "Braintrust"],
+      "required_facets": ["tracing", "evaluation", "production debugging"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_003_a",
+          "title": "Agent observability product documentation review",
+          "locator": "fixture://perfect_ev_003#docs-review",
+          "source_domain": "observability-docs.synthetic.test",
+          "source_kind": "official_docs",
+          "coverage_facets": ["tracing", "production debugging"],
+          "relevant_extract": "Langfuse documentation centers on LLM traces, prompt versions, datasets, scores, and evaluations. Helicone documentation focuses on proxying model calls, cost tracking, latency, request logs, caching, and gateway behavior. OpenTelemetry documentation is broader infrastructure tracing rather than agent-specific workflow evaluation.",
+          "claim_hints": ["Langfuse fits teams that need agent traces plus evaluation workflows.", "Helicone is strongest around model request observability and gateway telemetry."]
+        },
+        {
+          "id": "perfect_ev_003_b",
+          "title": "Evaluation platform practitioner survey",
+          "locator": "fixture://perfect_ev_003#practitioner-survey",
+          "source_domain": "eval-practice.synthetic.test",
+          "source_kind": "practitioner_survey",
+          "coverage_facets": ["evaluation", "debugging"],
+          "relevant_extract": "Teams using Braintrust reported value from experiment tracking, eval datasets, and comparing model or prompt changes before release. The survey notes that evaluation tools are most useful when linked to real traces and failure examples, while pure logging tools rarely answer whether an agent got better.",
+          "claim_hints": ["Braintrust is more evaluation-centered than request-log-centered.", "Eval tooling needs trace linkage to diagnose agent behavior."]
+        },
+        {
+          "id": "perfect_ev_003_c",
+          "title": "OpenTelemetry architecture note for agents",
+          "locator": "fixture://perfect_ev_003#otel-note",
+          "source_domain": "platform-architecture.synthetic.test",
+          "source_kind": "architecture_note",
+          "coverage_facets": ["open standards", "integration"],
+          "relevant_extract": "The architecture note recommends OpenTelemetry when a team wants standard spans that integrate with existing infrastructure observability. It cautions that OpenTelemetry alone will not provide prompt datasets, human labels, LLM-specific scorecards, or agent regression analysis without additional product or custom layers.",
+          "claim_hints": ["OpenTelemetry is a foundation for traces, not a complete agent evaluation product.", "A mature stack may combine OTel with LLM-specific eval tooling."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_004_scientific_breakthroughs_april_2026",
+      "source_prompt_id": "research_pool_011_scientific_breakthroughs_april_2026",
+      "category": "science_academic",
+      "tags": ["landscape", "current", "evidence_check", "source_sensitive"],
+      "prompt": "What are some source-backed scientific breakthroughs or notable research milestones from April 2026? Separate confirmed findings from early or preliminary claims.",
+      "required_entities": [],
+      "required_facets": ["confirmed findings", "preliminary claims", "source quality"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_004_a",
+          "title": "April research journal highlights",
+          "locator": "fixture://perfect_ev_004#journal-highlights",
+          "source_domain": "journal-highlights.synthetic.test",
+          "source_kind": "journal_roundup",
+          "coverage_facets": ["confirmed findings", "source quality"],
+          "relevant_extract": "The journal roundup lists peer-reviewed April publications in materials science, climate modeling, and biomedical methods. It distinguishes replicated measurements and peer-reviewed experimental results from press-office claims. The strongest entries include clear methods, named journals, and independent expert context.",
+          "claim_hints": ["Confirmed milestones should be presented as peer-reviewed or method-backed findings.", "Press-release-only claims should not be called breakthroughs."]
+        },
+        {
+          "id": "perfect_ev_004_b",
+          "title": "University research milestone tracker",
+          "locator": "fixture://perfect_ev_004#university-tracker",
+          "source_domain": "university-news.synthetic.test",
+          "source_kind": "institutional_news",
+          "coverage_facets": ["preliminary claims", "lab milestones"],
+          "relevant_extract": "The tracker covers lab announcements, prototype demonstrations, and grant-funded milestones from April. Several are promising but early because they rely on small samples, animal models, prototype conditions, or unpublished datasets. The tracker recommends labeling them as notable developments rather than established breakthroughs.",
+          "claim_hints": ["Institutional announcements can identify leads but require cautious wording.", "Prototype and animal-model results belong in a preliminary bucket."]
+        },
+        {
+          "id": "perfect_ev_004_c",
+          "title": "Science news verification checklist",
+          "locator": "fixture://perfect_ev_004#verification",
+          "source_domain": "science-verification.synthetic.test",
+          "source_kind": "verification_guide",
+          "coverage_facets": ["source quality", "uncertainty"],
+          "relevant_extract": "The checklist says a useful monthly science update should group claims by evidence maturity: peer-reviewed result, independent replication, preprint, conference presentation, prototype demo, or corporate announcement. It warns that novelty, funding size, and media attention are not substitutes for evidence strength.",
+          "claim_hints": ["The answer should separate evidence maturity levels.", "Media attention alone is not enough to label a scientific breakthrough."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_005_perovskite_tandem_solar",
+      "source_prompt_id": "research_pool_012_perovskite_tandem_solar",
+      "category": "science_academic",
+      "tags": ["comparison", "timeline", "evidence_check", "current"],
+      "prompt": "Research current progress on perovskite-silicon tandem solar cells. What has improved, what is still a barrier, and what should a non-specialist believe?",
+      "required_entities": ["perovskite-silicon tandem solar cells"],
+      "required_facets": ["efficiency", "durability", "manufacturing"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_005_a",
+          "title": "Tandem solar cell lab efficiency update",
+          "locator": "fixture://perfect_ev_005#efficiency",
+          "source_domain": "solar-lab.synthetic.test",
+          "source_kind": "lab_report",
+          "coverage_facets": ["efficiency"],
+          "relevant_extract": "Recent lab reports show perovskite-silicon tandem cells continuing to reach higher conversion efficiencies than conventional silicon-only cells under controlled conditions. The evidence supports genuine technical progress in stacking absorbers, but lab-cell efficiency does not automatically imply low-cost mass manufacturing.",
+          "claim_hints": ["Efficiency progress is real in controlled lab settings.", "Lab performance should not be translated directly into market readiness."]
+        },
+        {
+          "id": "perfect_ev_005_b",
+          "title": "Durability and degradation review",
+          "locator": "fixture://perfect_ev_005#durability",
+          "source_domain": "materials-review.synthetic.test",
+          "source_kind": "review_article",
+          "coverage_facets": ["durability", "barriers"],
+          "relevant_extract": "The review identifies moisture, heat, ultraviolet exposure, ion migration, and long-term encapsulation as remaining durability barriers. It notes improvement in accelerated aging tests, but says field lifetime under commercial conditions remains the central proof point for non-specialists to watch.",
+          "claim_hints": ["Durability is still the main reason for cautious expectations.", "Accelerated tests help but do not replace long field performance."]
+        },
+        {
+          "id": "perfect_ev_005_c",
+          "title": "Solar manufacturing scale-up memo",
+          "locator": "fixture://perfect_ev_005#manufacturing",
+          "source_domain": "clean-tech-market.synthetic.test",
+          "source_kind": "market_analysis",
+          "coverage_facets": ["manufacturing", "commercialization"],
+          "relevant_extract": "The scale-up memo says the next hurdle is translating small-area, high-efficiency devices into repeatable production with acceptable yields, stable supply chains, and bankable warranties. It recommends describing the technology as promising and progressing, not as a finished replacement for mainstream silicon.",
+          "claim_hints": ["Manufacturing yield and warranty confidence are key commercialization barriers.", "The practical answer should be optimistic but bounded."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_006_microplastics_health_evidence",
+      "source_prompt_id": "research_pool_017_microplastics_health_evidence",
+      "category": "science_academic",
+      "tags": ["evidence_check", "current", "source_sensitive", "lookup"],
+      "prompt": "Research the current evidence on microplastics and human health. What appears reasonably supported, what is still unsettled, and what gets overstated in headlines?",
+      "required_entities": ["microplastics", "human health"],
+      "required_facets": ["exposure evidence", "health causality", "headline overstatement"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_006_a",
+          "title": "Human exposure review",
+          "locator": "fixture://perfect_ev_006#exposure",
+          "source_domain": "public-health-review.synthetic.test",
+          "source_kind": "review_article",
+          "coverage_facets": ["exposure evidence"],
+          "relevant_extract": "The review finds strong evidence that humans are exposed to microplastics through food, water, air, and consumer environments, and that particles have been detected in several human sample types. It treats exposure and detection as better supported than precise dose-response health outcomes.",
+          "claim_hints": ["Human exposure is reasonably supported.", "Detection evidence is stronger than disease-causality evidence."]
+        },
+        {
+          "id": "perfect_ev_006_b",
+          "title": "Epidemiology evidence memo",
+          "locator": "fixture://perfect_ev_006#epidemiology",
+          "source_domain": "epi-methods.synthetic.test",
+          "source_kind": "methodology_memo",
+          "coverage_facets": ["health causality", "uncertainty"],
+          "relevant_extract": "The memo says human epidemiology remains difficult because exposure measurement is inconsistent, confounders are hard to separate, and many mechanisms are inferred from animal or cell studies. It recommends saying possible risk is plausible but specific clinical claims remain unsettled.",
+          "claim_hints": ["Causal health claims remain unsettled.", "Mechanistic plausibility should be separated from clinical certainty."]
+        },
+        {
+          "id": "perfect_ev_006_c",
+          "title": "Science communication audit",
+          "locator": "fixture://perfect_ev_006#headlines",
+          "source_domain": "science-comms.synthetic.test",
+          "source_kind": "media_audit",
+          "coverage_facets": ["headline overstatement"],
+          "relevant_extract": "The audit finds headlines often jump from particle detection to claims about specific disease outcomes without enough human evidence. It says the clearest public guidance is to reduce avoidable plastic exposure where practical while avoiding panic or unsupported claims about diagnosed harm.",
+          "claim_hints": ["The answer should warn against overstated disease claims.", "Practical exposure reduction can be framed as precautionary."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_007_enterprise_ai_coding_assistants",
+      "source_prompt_id": "research_pool_021_enterprise_ai_coding_assistants",
+      "category": "business_market",
+      "tags": ["landscape", "comparison", "recommendation", "current", "multi_entity"],
+      "prompt": "Research the current enterprise AI coding assistant market. Compare GitHub Copilot, Cursor, Sourcegraph Cody, JetBrains AI, and Amazon Q Developer for a 200-person engineering org.",
+      "required_entities": ["GitHub Copilot", "Cursor", "Sourcegraph Cody", "JetBrains AI", "Amazon Q Developer"],
+      "required_facets": ["IDE fit", "codebase context", "enterprise governance"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_007_a",
+          "title": "Enterprise coding assistant product docs",
+          "locator": "fixture://perfect_ev_007#product-docs",
+          "source_domain": "vendor-docs.synthetic.test",
+          "source_kind": "official_docs",
+          "coverage_facets": ["IDE fit", "enterprise governance"],
+          "relevant_extract": "Copilot emphasizes GitHub and IDE integration with enterprise policy controls. JetBrains AI is strongest for teams already standardized on JetBrains IDEs. Amazon Q Developer fits AWS-heavy environments. Cursor offers a more agentic editor experience but may require governance review for large enterprises.",
+          "claim_hints": ["Recommendation should depend on existing developer environment.", "Governance and admin controls matter for a 200-person org."]
+        },
+        {
+          "id": "perfect_ev_007_b",
+          "title": "Codebase context comparison",
+          "locator": "fixture://perfect_ev_007#context",
+          "source_domain": "developer-tooling.synthetic.test",
+          "source_kind": "independent_analysis",
+          "coverage_facets": ["codebase context", "workflow fit"],
+          "relevant_extract": "The comparison says Sourcegraph Cody is differentiated by repository search and code intelligence context, especially where teams already use Sourcegraph. Cursor is praised for interactive editing and multi-file workflows. Copilot remains a default choice where rollout simplicity and broad developer familiarity matter.",
+          "claim_hints": ["Sourcegraph Cody is notable for codebase context.", "Copilot is a safer default when rollout simplicity dominates."]
+        },
+        {
+          "id": "perfect_ev_007_c",
+          "title": "Procurement risk checklist",
+          "locator": "fixture://perfect_ev_007#procurement",
+          "source_domain": "it-procurement.synthetic.test",
+          "source_kind": "procurement_guide",
+          "coverage_facets": ["security", "adoption"],
+          "relevant_extract": "The checklist advises testing data retention controls, seat management, supported IDEs, audit logging, repository indexing boundaries, and developer adoption friction before buying at scale. It recommends a pilot with representative repositories and measurable acceptance criteria rather than vendor demos alone.",
+          "claim_hints": ["A useful answer should recommend piloting with real repos.", "Security and adoption criteria are as important as model features."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_008_ev_charging_business_models",
+      "source_prompt_id": "research_pool_022_ev_charging_business_models",
+      "category": "business_market",
+      "tags": ["landscape", "recommendation", "current", "source_sensitive"],
+      "prompt": "Research EV charging infrastructure business models in the US in 2026. What models look viable, what risks matter, and what should a small property owner avoid?",
+      "required_entities": ["EV charging infrastructure", "small property owner"],
+      "required_facets": ["business models", "utilization risk", "property owner caveats"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_008_a",
+          "title": "EV charging revenue model overview",
+          "locator": "fixture://perfect_ev_008#revenue",
+          "source_domain": "ev-market.synthetic.test",
+          "source_kind": "market_analysis",
+          "coverage_facets": ["business models"],
+          "relevant_extract": "The overview identifies host-owned chargers, third-party operated chargers, fleet-focused depots, destination charging, and advertising or loyalty-supported charging as common models. It says utilization, electricity demand charges, maintenance, payment processing, and local incentives determine whether a site works.",
+          "claim_hints": ["Utilization is the central economic variable.", "Different charging models fit different site types."]
+        },
+        {
+          "id": "perfect_ev_008_b",
+          "title": "Property owner deployment checklist",
+          "locator": "fixture://perfect_ev_008#property",
+          "source_domain": "property-energy.synthetic.test",
+          "source_kind": "implementation_guide",
+          "coverage_facets": ["property owner caveats", "risk"],
+          "relevant_extract": "The checklist warns small property owners not to buy hardware before confirming electrical capacity, permitting, utility rate structure, parking turnover, insurance, support contracts, and who handles uptime. It recommends starting with tenant or customer demand evidence rather than assuming chargers will attract traffic.",
+          "claim_hints": ["Small property owners should avoid hardware-first decisions.", "Utility and maintenance details can break the business case."]
+        },
+        {
+          "id": "perfect_ev_008_c",
+          "title": "Charging station utilization study",
+          "locator": "fixture://perfect_ev_008#utilization",
+          "source_domain": "transport-data.synthetic.test",
+          "source_kind": "data_analysis",
+          "coverage_facets": ["utilization risk", "location"],
+          "relevant_extract": "The study finds that profitable public charging depends heavily on location quality, dwell time, charger reliability, nearby amenities, and driver density. Low-use chargers can become a cost center even when incentives reduce installation cost, because fixed operating and maintenance burdens remain.",
+          "claim_hints": ["Incentives do not guarantee a viable site.", "Reliability and location determine driver adoption."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_009_helpdesk_ai_platforms",
+      "source_prompt_id": "research_pool_023_helpdesk_ai_platforms",
+      "category": "business_market",
+      "tags": ["comparison", "recommendation", "multi_entity", "current"],
+      "prompt": "Compare current AI helpdesk platforms for a 100-person SaaS company. I care about Intercom, Zendesk AI, Freshworks, and Salesforce Service Cloud.",
+      "required_entities": ["Intercom", "Zendesk AI", "Freshworks", "Salesforce Service Cloud"],
+      "required_facets": ["workflow fit", "AI automation", "CRM integration"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_009_a",
+          "title": "Helpdesk AI product capability matrix",
+          "locator": "fixture://perfect_ev_009#capabilities",
+          "source_domain": "support-stack.synthetic.test",
+          "source_kind": "product_analysis",
+          "coverage_facets": ["AI automation", "workflow fit"],
+          "relevant_extract": "Intercom is framed around conversational support and AI-first customer interaction. Zendesk AI fits teams already using Zendesk ticketing and knowledge bases. Freshworks is positioned as a practical midmarket support suite. Salesforce Service Cloud is strongest where CRM data and enterprise workflows are already Salesforce-centered.",
+          "claim_hints": ["The best fit depends on the existing support and CRM stack.", "Salesforce is powerful but may be heavier than a 100-person SaaS company needs."]
+        },
+        {
+          "id": "perfect_ev_009_b",
+          "title": "Customer support operations guide",
+          "locator": "fixture://perfect_ev_009#ops-guide",
+          "source_domain": "support-ops.synthetic.test",
+          "source_kind": "implementation_guide",
+          "coverage_facets": ["knowledge base", "automation limits"],
+          "relevant_extract": "The guide says AI helpdesk value depends on clean help content, escalation rules, QA review, and measurement of resolution quality. It warns that weak knowledge bases cause bot deflection metrics to look good while customer satisfaction worsens. Human handoff design remains critical.",
+          "claim_hints": ["AI support platforms need knowledge-base readiness.", "Automation should be judged by resolution quality, not deflection alone."]
+        },
+        {
+          "id": "perfect_ev_009_c",
+          "title": "SaaS buyer procurement notes",
+          "locator": "fixture://perfect_ev_009#procurement",
+          "source_domain": "saas-buyers.synthetic.test",
+          "source_kind": "buyer_survey",
+          "coverage_facets": ["cost", "integration"],
+          "relevant_extract": "Buyers report that pricing, implementation services, CRM integration, analytics, and agent adoption often matter more than demo quality. For a 100-person SaaS company, the notes recommend choosing a tool that support managers can tune weekly without depending on a large IT program.",
+          "claim_hints": ["Operational tunability is a key selection criterion.", "The answer should avoid recommending the heaviest platform by default."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_010_state_ai_regulation",
+      "source_prompt_id": "research_pool_031_state_ai_regulation",
+      "category": "policy_legal_civic",
+      "tags": ["landscape", "current", "source_sensitive", "timeline"],
+      "prompt": "Research the current state of US state-level AI regulation in 2026. Which themes are emerging, which states are active, and what should a startup monitor?",
+      "required_entities": ["US state-level AI regulation"],
+      "required_facets": ["active states", "regulatory themes", "startup monitoring"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_010_a",
+          "title": "State AI legislation tracker",
+          "locator": "fixture://perfect_ev_010#tracker",
+          "source_domain": "policy-tracker.synthetic.test",
+          "source_kind": "legislative_tracker",
+          "coverage_facets": ["active states", "timeline"],
+          "relevant_extract": "The tracker shows state activity clustering around automated decision systems, consumer disclosure, public-sector procurement, deepfakes, child safety, and impact assessments. It identifies several states as active but warns that bill status changes quickly and startups should monitor enacted laws rather than headlines alone.",
+          "claim_hints": ["A useful answer should group themes rather than list every bill.", "Bill status and enacted-law status must be kept separate."]
+        },
+        {
+          "id": "perfect_ev_010_b",
+          "title": "Startup compliance risk memo",
+          "locator": "fixture://perfect_ev_010#startup-risk",
+          "source_domain": "startup-law.synthetic.test",
+          "source_kind": "legal_analysis",
+          "coverage_facets": ["startup monitoring", "compliance"],
+          "relevant_extract": "The memo says startups should monitor high-risk automated decisions, employment and housing use cases, health or finance claims, generative AI disclosure requirements, biometric data rules, and customer contract demands. It recommends mapping product use cases before tracking every state proposal.",
+          "claim_hints": ["Startup monitoring should start from product use cases.", "High-risk decision domains deserve special attention."]
+        },
+        {
+          "id": "perfect_ev_010_c",
+          "title": "Public-sector AI procurement brief",
+          "locator": "fixture://perfect_ev_010#procurement",
+          "source_domain": "civic-tech.synthetic.test",
+          "source_kind": "policy_brief",
+          "coverage_facets": ["public-sector procurement", "governance"],
+          "relevant_extract": "The brief notes that public-sector AI rules often focus on transparency, vendor documentation, data governance, human oversight, and impact review before agencies deploy AI systems. These requirements can affect startups indirectly when selling to governments or regulated enterprise customers.",
+          "claim_hints": ["Public procurement rules can shape vendor requirements.", "Documentation and governance artifacts may become sales requirements."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_011_eu_ai_act_small_saas",
+      "source_prompt_id": "research_pool_032_eu_ai_act_small_saas",
+      "category": "policy_legal_civic",
+      "tags": ["lookup", "current", "source_sensitive", "recommendation"],
+      "prompt": "Research the EU AI Act implementation timeline and practical obligations for a small SaaS company that uses AI features but does not train foundation models.",
+      "required_entities": ["EU AI Act", "small SaaS company"],
+      "required_facets": ["implementation timeline", "role classification", "practical obligations"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_011_a",
+          "title": "EU AI Act official timeline summary",
+          "locator": "fixture://perfect_ev_011#timeline",
+          "source_domain": "eu-policy.synthetic.test",
+          "source_kind": "official_guidance",
+          "coverage_facets": ["implementation timeline"],
+          "relevant_extract": "The timeline summary breaks obligations into phased application dates and emphasizes that duties depend on whether a company is a provider, deployer, importer, distributor, or user of a high-risk system. A SaaS company using third-party AI features may still have deployer obligations depending on use case.",
+          "claim_hints": ["Role classification matters more than company size alone.", "The answer should avoid assuming a small SaaS company trains models."]
+        },
+        {
+          "id": "perfect_ev_011_b",
+          "title": "SaaS AI compliance checklist",
+          "locator": "fixture://perfect_ev_011#checklist",
+          "source_domain": "saas-compliance.synthetic.test",
+          "source_kind": "implementation_guide",
+          "coverage_facets": ["practical obligations", "documentation"],
+          "relevant_extract": "The checklist recommends inventorying AI features, mapping user-facing claims, identifying high-risk domains, documenting vendor model dependencies, preserving human oversight where needed, and preparing customer-facing transparency language. It treats the first step as product mapping, not legal conclusion shopping.",
+          "claim_hints": ["A practical answer should start with an AI feature inventory.", "Vendor dependencies and user-facing claims must be documented."]
+        },
+        {
+          "id": "perfect_ev_011_c",
+          "title": "Legal commentary on foundation model distinction",
+          "locator": "fixture://perfect_ev_011#foundation-models",
+          "source_domain": "legal-commentary.synthetic.test",
+          "source_kind": "legal_analysis",
+          "coverage_facets": ["foundation models", "uncertainty"],
+          "relevant_extract": "The commentary distinguishes general-purpose AI model provider obligations from downstream application obligations. It says companies that do not train foundation models should still check whether they substantially modify models, market AI systems under their own name, or deploy tools in regulated decision contexts.",
+          "claim_hints": ["Not training foundation models does not mean no obligations.", "Substantial modification and high-risk deployment are important checks."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_012_us_privacy_laws_2026",
+      "source_prompt_id": "research_pool_033_us_privacy_laws_2026",
+      "category": "policy_legal_civic",
+      "tags": ["landscape", "current", "source_sensitive", "timeline"],
+      "prompt": "Research the current US consumer privacy law landscape in 2026. Which state laws matter most for a mid-size internet business?",
+      "required_entities": ["US consumer privacy law", "mid-size internet business"],
+      "required_facets": ["state coverage", "consumer rights", "compliance priorities"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_012_a",
+          "title": "State privacy law coverage map",
+          "locator": "fixture://perfect_ev_012#coverage",
+          "source_domain": "privacy-map.synthetic.test",
+          "source_kind": "legislative_tracker",
+          "coverage_facets": ["state coverage", "timeline"],
+          "relevant_extract": "The coverage map shows that US privacy obligations are increasingly state-by-state, with larger states and states with active enforcement shaping practical compliance. It highlights rights to access, delete, correct, opt out of certain processing, and appeal decisions as recurring themes.",
+          "claim_hints": ["The answer should emphasize state-by-state compliance rather than a single federal rule.", "Consumer rights themes recur across many state laws."]
+        },
+        {
+          "id": "perfect_ev_012_b",
+          "title": "Internet business privacy operations checklist",
+          "locator": "fixture://perfect_ev_012#ops",
+          "source_domain": "privacy-ops.synthetic.test",
+          "source_kind": "implementation_guide",
+          "coverage_facets": ["compliance priorities", "operations"],
+          "relevant_extract": "The checklist says mid-size internet businesses should prioritize data inventory, privacy notice accuracy, request intake workflows, vendor data-processing terms, targeted advertising opt-outs, sensitive data handling, and records of consumer request responses before chasing every statutory nuance.",
+          "claim_hints": ["Operational readiness matters more than memorizing every statute.", "Data inventory and consumer request workflows are core priorities."]
+        },
+        {
+          "id": "perfect_ev_012_c",
+          "title": "Privacy enforcement trend memo",
+          "locator": "fixture://perfect_ev_012#enforcement",
+          "source_domain": "privacy-enforcement.synthetic.test",
+          "source_kind": "enforcement_analysis",
+          "coverage_facets": ["risk", "enforcement"],
+          "relevant_extract": "The enforcement memo finds regulators focus on misleading privacy notices, dark patterns in opt-out flows, children or teen data, sensitive health or location data, and vendor sharing practices. It recommends that companies validate what their product actually does against public claims.",
+          "claim_hints": ["Privacy claims should match actual product behavior.", "Sensitive data and dark-pattern opt-outs are higher-risk areas."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_013_noise_canceling_headphones",
+      "source_prompt_id": "research_pool_041_noise_canceling_headphones",
+      "category": "consumer_product",
+      "tags": ["comparison", "recommendation", "current"],
+      "prompt": "Research travel-friendly noise-canceling headphones in 2026 for calls, comfort, battery life, and reliability. Give me a practical shortlist, not marketing copy.",
+      "required_entities": ["noise-canceling headphones"],
+      "required_facets": ["calls", "comfort", "battery life", "reliability"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_013_a",
+          "title": "Travel headphone lab comparison",
+          "locator": "fixture://perfect_ev_013#lab",
+          "source_domain": "consumer-lab.synthetic.test",
+          "source_kind": "hands_on_testing",
+          "coverage_facets": ["noise canceling", "battery life"],
+          "relevant_extract": "The lab comparison measures noise reduction, battery runtime, microphone clarity, comfort over long sessions, and case portability. It finds that top travel choices usually trade slightly bulkier designs for stronger ANC and longer battery life, while smaller models can be easier to pack but weaker on calls.",
+          "claim_hints": ["A shortlist should separate travel comfort from maximum ANC performance.", "Call quality and battery life should be weighted explicitly."]
+        },
+        {
+          "id": "perfect_ev_013_b",
+          "title": "Frequent traveler durability survey",
+          "locator": "fixture://perfect_ev_013#durability",
+          "source_domain": "traveler-survey.synthetic.test",
+          "source_kind": "user_survey",
+          "coverage_facets": ["reliability", "comfort"],
+          "relevant_extract": "The survey says hinge durability, pad replacement availability, Bluetooth reconnection reliability, multipoint behavior, and warranty support matter more to frequent travelers than small differences in codec marketing. Comfort complaints usually involve clamp force, heat, and ear-pad shape after two hours.",
+          "claim_hints": ["Reliability should include parts, warranty, and Bluetooth behavior.", "Comfort needs long-session evidence, not just first impressions."]
+        },
+        {
+          "id": "perfect_ev_013_c",
+          "title": "Retail return pattern analysis",
+          "locator": "fixture://perfect_ev_013#returns",
+          "source_domain": "retail-data.synthetic.test",
+          "source_kind": "market_data",
+          "coverage_facets": ["buyer risk", "practical shortlist"],
+          "relevant_extract": "Return notes cluster around microphone disappointment, discomfort on glasses, app friction, and expectations that ANC blocks voices completely. The analysis recommends a practical shortlist with one best all-rounder, one call-focused option, and one comfort or budget alternative rather than a long ranked list.",
+          "claim_hints": ["A useful answer should avoid a long marketing-style list.", "The shortlist should include fit and return-policy caveats."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_014_home_backup_power",
+      "source_prompt_id": "research_pool_042_home_backup_power",
+      "category": "consumer_product",
+      "tags": ["comparison", "recommendation", "current"],
+      "prompt": "Research home battery backup options versus portable power stations for a homeowner who mainly wants outage resilience. What tradeoffs matter before buying?",
+      "required_entities": ["home battery backup", "portable power stations"],
+      "required_facets": ["outage resilience", "installation", "load coverage", "cost"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_014_a",
+          "title": "Residential backup power buyer guide",
+          "locator": "fixture://perfect_ev_014#buyer-guide",
+          "source_domain": "home-energy.synthetic.test",
+          "source_kind": "buyer_guide",
+          "coverage_facets": ["outage resilience", "load coverage"],
+          "relevant_extract": "The guide distinguishes whole-home or critical-load battery systems from portable power stations. Installed batteries can run selected circuits automatically and pair with solar, but cost more and require professional design. Portable stations are cheaper and flexible but usually require manual setup and support fewer loads.",
+          "claim_hints": ["Installed batteries are better for automatic critical-load backup.", "Portable stations are better for budget and flexibility."]
+        },
+        {
+          "id": "perfect_ev_014_b",
+          "title": "Electrician installation checklist",
+          "locator": "fixture://perfect_ev_014#installation",
+          "source_domain": "electrical-safety.synthetic.test",
+          "source_kind": "implementation_guide",
+          "coverage_facets": ["installation", "safety"],
+          "relevant_extract": "The checklist says homeowners should identify critical circuits, startup loads, panel compatibility, transfer equipment, permitting, battery placement, ventilation, and service capacity before buying. It warns against backfeeding unsafe connections or assuming a portable unit can power HVAC or large well pumps.",
+          "claim_hints": ["The answer should tell the user to map critical loads first.", "Safety and transfer equipment are not optional details."]
+        },
+        {
+          "id": "perfect_ev_014_c",
+          "title": "Outage use-case comparison",
+          "locator": "fixture://perfect_ev_014#use-cases",
+          "source_domain": "resilience-planning.synthetic.test",
+          "source_kind": "scenario_analysis",
+          "coverage_facets": ["cost", "duration"],
+          "relevant_extract": "The comparison says short outages for phones, routers, fridge support, and medical devices can often be handled by portable stations or smaller critical-load systems. Multi-day resilience for heating, cooling, wells, or whole-home convenience usually requires a larger integrated system or generator hybrid.",
+          "claim_hints": ["Duration and critical loads should drive the recommendation.", "Whole-home expectations change the cost category completely."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_015_cordless_vacuums",
+      "source_prompt_id": "research_pool_043_cordless_vacuums",
+      "category": "consumer_product",
+      "tags": ["comparison", "recommendation", "multi_entity", "current"],
+      "prompt": "Compare current cordless vacuum options for a small apartment with pets. I care about Dyson, Shark, Tineco, and Miele.",
+      "required_entities": ["Dyson", "Shark", "Tineco", "Miele"],
+      "required_facets": ["pet hair", "small apartment", "maintenance", "value"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_015_a",
+          "title": "Cordless vacuum pet hair lab test",
+          "locator": "fixture://perfect_ev_015#pet-hair",
+          "source_domain": "vacuum-lab.synthetic.test",
+          "source_kind": "hands_on_testing",
+          "coverage_facets": ["pet hair", "floor types"],
+          "relevant_extract": "The lab test measures pickup on rugs, hard floors, edges, upholstery, and embedded pet hair. Dyson scores high on suction and tool ecosystem, Shark competes on value and flexible designs, Tineco offers smart features and wet-dry variants, and Miele emphasizes build quality but may cost more.",
+          "claim_hints": ["Pet hair performance should include rugs and upholstery.", "Dyson is not the automatic value winner for small apartments."]
+        },
+        {
+          "id": "perfect_ev_015_b",
+          "title": "Apartment owner maintenance survey",
+          "locator": "fixture://perfect_ev_015#maintenance",
+          "source_domain": "home-user-survey.synthetic.test",
+          "source_kind": "user_survey",
+          "coverage_facets": ["maintenance", "small apartment"],
+          "relevant_extract": "Apartment owners care about storage footprint, dustbin emptying, hair-wrap resistance, filter washing, noise, and whether batteries remain useful after daily quick cleans. The survey says a smaller, easy-to-empty vacuum often beats a heavier flagship model in tight spaces.",
+          "claim_hints": ["Storage and dustbin behavior matter for small apartments.", "Maintenance friction can outweigh raw suction."]
+        },
+        {
+          "id": "perfect_ev_015_c",
+          "title": "Retail reliability and replacement parts memo",
+          "locator": "fixture://perfect_ev_015#reliability",
+          "source_domain": "retail-service.synthetic.test",
+          "source_kind": "service_data",
+          "coverage_facets": ["reliability", "value"],
+          "relevant_extract": "The service memo highlights battery replacement cost, brush-roll parts, warranty handling, and filter availability. It recommends comparing total ownership cost over several years, especially for pet owners who clean often and may wear out rollers or filters faster than occasional users.",
+          "claim_hints": ["The answer should include replacement parts and battery cost.", "Pet owners need durability, not only first-month cleaning power."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_016_denver_santa_fe_road_trip",
+      "source_prompt_id": "research_pool_051_denver_santa_fe_road_trip",
+      "category": "local_travel",
+      "tags": ["recommendation", "current"],
+      "prompt": "Research a 3-day Denver to Santa Fe spring road trip for someone who likes art, food, and easy hikes. Include realistic routing and seasonal caveats.",
+      "required_entities": ["Denver", "Santa Fe"],
+      "required_facets": ["routing", "art", "food", "easy hikes", "seasonal caveats"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_016_a",
+          "title": "Denver to Santa Fe route planning note",
+          "locator": "fixture://perfect_ev_016#route",
+          "source_domain": "travel-routing.synthetic.test",
+          "source_kind": "route_guide",
+          "coverage_facets": ["routing", "drive time"],
+          "relevant_extract": "The routing note treats the Denver to Santa Fe drive as a realistic full travel day with stops rather than a casual half-day. It suggests choosing either a mountain/scenic route with weather caveats or a faster interstate-heavy route, then saving Santa Fe time for galleries, food, and short walks.",
+          "claim_hints": ["The answer should not overpack the first driving day.", "Route choice should mention weather and drive-time tradeoffs."]
+        },
+        {
+          "id": "perfect_ev_016_b",
+          "title": "Santa Fe spring visitor guide",
+          "locator": "fixture://perfect_ev_016#santa-fe",
+          "source_domain": "destination-guide.synthetic.test",
+          "source_kind": "local_guide",
+          "coverage_facets": ["art", "food"],
+          "relevant_extract": "The visitor guide emphasizes the Plaza, Canyon Road galleries, Museum Hill, regional cuisine, and reservation-aware dining. Spring can bring pleasant days, chilly evenings, wind, and occasional late snow at higher elevations, so indoor art time should be balanced with flexible outdoor plans.",
+          "claim_hints": ["Santa Fe art and food should be the anchor after arrival.", "Spring caveats should include chilly evenings and mountain weather."]
+        },
+        {
+          "id": "perfect_ev_016_c",
+          "title": "Easy hike safety and access notes",
+          "locator": "fixture://perfect_ev_016#hikes",
+          "source_domain": "trail-notes.synthetic.test",
+          "source_kind": "outdoor_guide",
+          "coverage_facets": ["easy hikes", "seasonal caveats"],
+          "relevant_extract": "Trail notes favor short, lower-commitment hikes near Santa Fe or along the route, with attention to mud, snow patches, altitude, sun exposure, and road conditions. They recommend keeping hikes optional because spring conditions can change and the trip has only three days.",
+          "claim_hints": ["Easy hikes should be optional and weather-aware.", "Altitude and spring trail conditions need caveats."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_017_chicago_family_neighborhoods",
+      "source_prompt_id": "research_pool_052_chicago_family_neighborhoods",
+      "category": "local_travel",
+      "tags": ["comparison", "recommendation"],
+      "prompt": "Research family-friendly neighborhoods to stay in Chicago for museums, transit access, and walkability. Compare a few options and tradeoffs.",
+      "required_entities": ["Chicago"],
+      "required_facets": ["museums", "transit", "walkability", "family fit"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_017_a",
+          "title": "Chicago family stay neighborhood guide",
+          "locator": "fixture://perfect_ev_017#neighborhoods",
+          "source_domain": "city-guide.synthetic.test",
+          "source_kind": "local_guide",
+          "coverage_facets": ["family fit", "walkability"],
+          "relevant_extract": "The guide compares Loop/River North for central access, Lincoln Park for parks and family atmosphere, South Loop for museum proximity, and West Loop for restaurants with more transit tradeoffs. It warns that the best choice depends on whether museum access or neighborhood feel matters more.",
+          "claim_hints": ["A useful answer should compare neighborhoods by tradeoff.", "South Loop is strong for museums while Lincoln Park is strong for family neighborhood feel."]
+        },
+        {
+          "id": "perfect_ev_017_b",
+          "title": "Transit access map notes",
+          "locator": "fixture://perfect_ev_017#transit",
+          "source_domain": "transit-planning.synthetic.test",
+          "source_kind": "transport_guide",
+          "coverage_facets": ["transit", "logistics"],
+          "relevant_extract": "Transit notes favor staying near L lines or frequent bus routes if the family wants to avoid car logistics. Museum Campus is reachable but can involve walking gaps, stroller planning, weather exposure, and event traffic. Central neighborhoods reduce transfer friction for first-time visitors.",
+          "claim_hints": ["Transit proximity should be concrete, not generic.", "Museum Campus logistics need walking and weather caveats."]
+        },
+        {
+          "id": "perfect_ev_017_c",
+          "title": "Family travel review synthesis",
+          "locator": "fixture://perfect_ev_017#reviews",
+          "source_domain": "family-travel.synthetic.test",
+          "source_kind": "review_synthesis",
+          "coverage_facets": ["safety", "comfort"],
+          "relevant_extract": "Family reviews emphasize predictable walking routes, quiet evenings, nearby breakfast options, room size, and easy returns to the hotel for breaks. The synthesis recommends avoiding a nightlife-first area if young children need early nights, even if restaurant access looks appealing.",
+          "claim_hints": ["Family comfort includes quiet evenings and easy breaks.", "The answer should not optimize only for adult dining."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_018_tokyo_first_time_bases",
+      "source_prompt_id": "research_pool_053_tokyo_first_time_bases",
+      "category": "local_travel",
+      "tags": ["comparison", "recommendation"],
+      "prompt": "Research the best neighborhoods to stay in Tokyo for a first-time 4-day visit focused on food, transit, and walkability.",
+      "required_entities": ["Tokyo"],
+      "required_facets": ["food", "transit", "walkability", "first-time fit"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_018_a",
+          "title": "Tokyo first-time neighborhood comparison",
+          "locator": "fixture://perfect_ev_018#neighborhoods",
+          "source_domain": "tokyo-guide.synthetic.test",
+          "source_kind": "local_guide",
+          "coverage_facets": ["first-time fit", "food"],
+          "relevant_extract": "The comparison highlights Shinjuku for transit and energy, Ginza/Tokyo Station for polish and convenience, Ueno/Asakusa for older Tokyo atmosphere and value, and Shibuya/Ebisu for nightlife and food. It says a four-day first trip should minimize transfers and avoid chasing every district.",
+          "claim_hints": ["The answer should recommend bases, not a fantasy itinerary.", "Transit convenience matters more on a four-day first visit."]
+        },
+        {
+          "id": "perfect_ev_018_b",
+          "title": "Tokyo transit planning primer",
+          "locator": "fixture://perfect_ev_018#transit",
+          "source_domain": "rail-planning.synthetic.test",
+          "source_kind": "transport_guide",
+          "coverage_facets": ["transit", "walkability"],
+          "relevant_extract": "The transit primer says station choice can matter as much as neighborhood name. Staying near a major line with straightforward airport access saves time, while very large stations can be confusing with luggage. Walkability should include station exits, hotel location, and late-night return routes.",
+          "claim_hints": ["Station location should be part of the recommendation.", "Large stations are convenient but can be confusing."]
+        },
+        {
+          "id": "perfect_ev_018_c",
+          "title": "Food-focused Tokyo stay notes",
+          "locator": "fixture://perfect_ev_018#food",
+          "source_domain": "food-travel.synthetic.test",
+          "source_kind": "dining_guide",
+          "coverage_facets": ["food", "practicality"],
+          "relevant_extract": "Food notes say first-time visitors do well staying near dense casual dining, department-store food halls, ramen and izakaya streets, and easy breakfast options. The guide warns that famous dining districts can be crowded, so convenience and backup options often beat chasing one famous neighborhood.",
+          "claim_hints": ["Food access should include casual backup options.", "The answer should balance destination dining with convenience."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_019_wpa_public_art",
+      "source_prompt_id": "research_pool_061_wpa_public_art",
+      "category": "history_culture",
+      "tags": ["lookup", "evidence_check"],
+      "prompt": "Research how the Works Progress Administration influenced American public art. Which programs mattered most, and what is the mainstream historical interpretation?",
+      "required_entities": ["Works Progress Administration", "American public art"],
+      "required_facets": ["programs", "public access", "mainstream interpretation"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_019_a",
+          "title": "Federal art programs overview",
+          "locator": "fixture://perfect_ev_019#programs",
+          "source_domain": "history-archive.synthetic.test",
+          "source_kind": "archive_summary",
+          "coverage_facets": ["programs"],
+          "relevant_extract": "The overview identifies New Deal arts programs such as the Federal Art Project and related mural, poster, community art, and teaching efforts as central to the WPA-era public art legacy. It emphasizes employment for artists and the creation of art in public buildings and community spaces.",
+          "claim_hints": ["The answer should name the major federal art programs.", "Employment and public access were both central goals."]
+        },
+        {
+          "id": "perfect_ev_019_b",
+          "title": "Museum interpretation essay",
+          "locator": "fixture://perfect_ev_019#museum-essay",
+          "source_domain": "museum-history.synthetic.test",
+          "source_kind": "museum_essay",
+          "coverage_facets": ["mainstream interpretation", "public access"],
+          "relevant_extract": "The essay says mainstream historians view WPA art as democratizing access to art, bringing modern and regional styles into public life, and legitimizing artists as workers. It also notes tensions over political symbolism, regional identity, federal patronage, and whose communities were represented.",
+          "claim_hints": ["The mainstream view is positive but not uncritical.", "Representation and federal patronage tensions should be acknowledged."]
+        },
+        {
+          "id": "perfect_ev_019_c",
+          "title": "Public art legacy case study",
+          "locator": "fixture://perfect_ev_019#legacy",
+          "source_domain": "public-art-study.synthetic.test",
+          "source_kind": "case_study",
+          "coverage_facets": ["legacy", "civic space"],
+          "relevant_extract": "The case study follows murals, posters, and community art centers that remained visible long after the programs ended. It argues that the WPA shaped expectations that civic buildings, schools, libraries, and post offices could be sites of art rather than only administrative infrastructure.",
+          "claim_hints": ["The legacy includes changing expectations for civic spaces.", "A good answer should connect programs to durable public art norms."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_020_harlem_renaissance_impact",
+      "source_prompt_id": "research_pool_062_harlem_renaissance_impact",
+      "category": "history_culture",
+      "tags": ["comparison", "evidence_check"],
+      "prompt": "Research interpretations of the Harlem Renaissance's political impact. Compare cultural, civil-rights, and critique-oriented readings without flattening them into one view.",
+      "required_entities": ["Harlem Renaissance"],
+      "required_facets": ["cultural impact", "civil-rights impact", "critical readings"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_020_a",
+          "title": "Harlem Renaissance cultural history survey",
+          "locator": "fixture://perfect_ev_020#culture",
+          "source_domain": "cultural-history.synthetic.test",
+          "source_kind": "scholarly_survey",
+          "coverage_facets": ["cultural impact"],
+          "relevant_extract": "The survey frames the Harlem Renaissance as a major expansion of Black literary, musical, theatrical, and visual expression that challenged racist stereotypes and created a more assertive public cultural identity. It treats cultural production as politically meaningful even when not organized as formal politics.",
+          "claim_hints": ["Cultural expression itself had political force.", "The answer should not limit politics to legislation or parties."]
+        },
+        {
+          "id": "perfect_ev_020_b",
+          "title": "Civil-rights movement continuity essay",
+          "locator": "fixture://perfect_ev_020#civil-rights",
+          "source_domain": "civil-rights-history.synthetic.test",
+          "source_kind": "historical_essay",
+          "coverage_facets": ["civil-rights impact"],
+          "relevant_extract": "The essay links Harlem Renaissance networks, publications, patronage, and public intellectual life to later civil-rights organizing and Black political consciousness. It avoids claiming a simple direct pipeline, instead describing a cultural and institutional foundation that later movements drew from.",
+          "claim_hints": ["The movement influenced later civil-rights politics indirectly.", "A useful answer should avoid a simplistic cause-effect chain."]
+        },
+        {
+          "id": "perfect_ev_020_c",
+          "title": "Critical interpretation review",
+          "locator": "fixture://perfect_ev_020#critique",
+          "source_domain": "historiography.synthetic.test",
+          "source_kind": "historiography_review",
+          "coverage_facets": ["critical readings", "limits"],
+          "relevant_extract": "Critical readings emphasize class tensions, gender exclusions, dependence on white patrons, commercial constraints, and the gap between elite cultural visibility and material political power. These interpretations do not dismiss the Renaissance but complicate celebratory narratives.",
+          "claim_hints": ["Critical views should complicate, not erase, the movement's significance.", "Class, gender, and patronage tensions matter."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_021_reconstruction_failure",
+      "source_prompt_id": "research_pool_063_reconstruction_failure",
+      "category": "history_culture",
+      "tags": ["landscape", "evidence_check"],
+      "prompt": "Research how historians explain the failure of Reconstruction in the United States. What causes get emphasized, and where do interpretations differ?",
+      "required_entities": ["Reconstruction", "United States"],
+      "required_facets": ["white supremacist violence", "federal retreat", "economic and political interpretations"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_021_a",
+          "title": "Reconstruction historiography overview",
+          "locator": "fixture://perfect_ev_021#overview",
+          "source_domain": "historiography.synthetic.test",
+          "source_kind": "historiography_review",
+          "coverage_facets": ["interpretations", "federal retreat"],
+          "relevant_extract": "The overview says modern historians usually emphasize white supremacist violence, contested federal commitment, northern political fatigue, court decisions, economic conflict, and the withdrawal of military protection. It notes that older interpretations blaming Reconstruction governments are largely rejected.",
+          "claim_hints": ["Modern interpretations reject older blame-the-victims narratives.", "Federal retreat and violence should be central."]
+        },
+        {
+          "id": "perfect_ev_021_b",
+          "title": "Violence and democracy case study",
+          "locator": "fixture://perfect_ev_021#violence",
+          "source_domain": "american-history.synthetic.test",
+          "source_kind": "case_study",
+          "coverage_facets": ["white supremacist violence", "political participation"],
+          "relevant_extract": "The case study documents intimidation, paramilitary violence, election interference, and attacks on Black political participation as key mechanisms undermining Reconstruction governments. It argues that democratic collapse cannot be explained without the organized use of violence and the failure to suppress it.",
+          "claim_hints": ["Violence was not incidental; it was a mechanism of political reversal.", "The answer should connect violence to democratic participation."]
+        },
+        {
+          "id": "perfect_ev_021_c",
+          "title": "Economic interpretation essay",
+          "locator": "fixture://perfect_ev_021#economics",
+          "source_domain": "economic-history.synthetic.test",
+          "source_kind": "historical_essay",
+          "coverage_facets": ["economic interpretations", "disagreement"],
+          "relevant_extract": "The essay highlights land, labor, debt, sharecropping, and northern capital as economic dimensions of Reconstruction's failure. It says historians differ on the weight of economic transformation versus political abandonment, but most connect both to the restoration of white elite power in the South.",
+          "claim_hints": ["Economic and political explanations should be integrated.", "The answer should describe where historians differ in emphasis."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_022_glp1_weight_management",
+      "source_prompt_id": "research_pool_071_glp1_weight_management",
+      "category": "health_medical",
+      "tags": ["evidence_check", "current", "source_sensitive"],
+      "prompt": "Research current evidence and risks for GLP-1 medications in non-diabetic weight management. Summarize what a patient should discuss with a clinician.",
+      "required_entities": ["GLP-1 medications", "non-diabetic weight management"],
+      "required_facets": ["effectiveness", "risks", "clinician discussion"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_022_a",
+          "title": "Clinical evidence review for GLP-1 weight management",
+          "locator": "fixture://perfect_ev_022#evidence",
+          "source_domain": "clinical-review.synthetic.test",
+          "source_kind": "review_article",
+          "coverage_facets": ["effectiveness"],
+          "relevant_extract": "The review finds clinically meaningful weight loss in many non-diabetic adults using approved GLP-1 or related incretin medications, especially when combined with lifestyle support. It also notes weight regain can occur after stopping treatment, so patients should discuss long-term maintenance and cost.",
+          "claim_hints": ["Effectiveness is supported for appropriate patients.", "Long-term maintenance and discontinuation matter."]
+        },
+        {
+          "id": "perfect_ev_022_b",
+          "title": "Safety and contraindication guidance",
+          "locator": "fixture://perfect_ev_022#safety",
+          "source_domain": "medical-guidance.synthetic.test",
+          "source_kind": "clinical_guidance",
+          "coverage_facets": ["risks", "contraindications"],
+          "relevant_extract": "Guidance highlights gastrointestinal side effects, dose escalation, dehydration risk, gallbladder concerns, rare pancreatitis concerns, pregnancy planning, medication interactions, and history-based contraindications. It recommends clinician monitoring rather than self-directed use through informal supply channels.",
+          "claim_hints": ["Risks should be specific and clinician-directed.", "The answer should warn against unsupervised use."]
+        },
+        {
+          "id": "perfect_ev_022_c",
+          "title": "Patient conversation checklist",
+          "locator": "fixture://perfect_ev_022#conversation",
+          "source_domain": "patient-education.synthetic.test",
+          "source_kind": "patient_guide",
+          "coverage_facets": ["clinician discussion", "shared decision-making"],
+          "relevant_extract": "The checklist suggests discussing eligibility, weight-related health goals, prior attempts, side-effect tolerance, family and personal medical history, insurance coverage, shortages, diet and resistance training plans, and what success looks like beyond scale weight. It avoids framing medication as a cosmetic shortcut.",
+          "claim_hints": ["The answer should give clinician discussion topics.", "It should not present the drug as a simple cosmetic fix."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_023_sleep_tracker_accuracy",
+      "source_prompt_id": "research_pool_072_sleep_tracker_accuracy",
+      "category": "health_medical",
+      "tags": ["evidence_check", "current"],
+      "prompt": "Research wearable sleep tracker accuracy. What can users trust, what should they treat as directional, and where do devices still struggle?",
+      "required_entities": ["wearable sleep tracker accuracy"],
+      "required_facets": ["sleep duration", "sleep stages", "device limitations"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_023_a",
+          "title": "Wearable sleep validation review",
+          "locator": "fixture://perfect_ev_023#validation",
+          "source_domain": "sleep-science.synthetic.test",
+          "source_kind": "review_article",
+          "coverage_facets": ["sleep duration", "validation"],
+          "relevant_extract": "The review says many wearables estimate total sleep time and sleep-wake patterns better than detailed sleep architecture, especially for ordinary consumer tracking. They can be useful for trends over time, but should not be treated as a diagnostic substitute for clinical sleep studies.",
+          "claim_hints": ["Users can trust broad trends more than precise clinical claims.", "Wearables are not diagnostic sleep studies."]
+        },
+        {
+          "id": "perfect_ev_023_b",
+          "title": "Sleep stage accuracy comparison",
+          "locator": "fixture://perfect_ev_023#stages",
+          "source_domain": "device-benchmark.synthetic.test",
+          "source_kind": "benchmark",
+          "coverage_facets": ["sleep stages", "limitations"],
+          "relevant_extract": "The benchmark finds stage labels such as REM, light, and deep sleep are more error-prone than sleep duration because devices infer stages from motion, heart rate, and algorithms rather than brain activity. Night-to-night stage percentages should be read as rough signals, not exact measurements.",
+          "claim_hints": ["Sleep stage numbers should be treated as directional.", "Precise REM or deep sleep percentages are weak evidence."]
+        },
+        {
+          "id": "perfect_ev_023_c",
+          "title": "Consumer guidance on sleep data anxiety",
+          "locator": "fixture://perfect_ev_023#consumer-guidance",
+          "source_domain": "patient-education.synthetic.test",
+          "source_kind": "patient_guide",
+          "coverage_facets": ["behavior", "device limitations"],
+          "relevant_extract": "The guidance warns that over-focusing on imperfect sleep scores can worsen anxiety for some users. It recommends using trackers to notice schedule patterns, alcohol or caffeine effects, bedtime consistency, and symptoms that may warrant clinical evaluation, rather than chasing nightly score perfection.",
+          "claim_hints": ["The answer should mention anxiety from over-tracking.", "Trackers are best for behavior patterns and clinical prompts."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_024_long_covid_pacing",
+      "source_prompt_id": "research_pool_073_long_covid_pacing",
+      "category": "health_medical",
+      "tags": ["evidence_check", "current", "source_sensitive"],
+      "prompt": "Research current evidence on exercise, pacing, and symptom management for long COVID. What looks supported, and where are people overgeneralizing?",
+      "required_entities": ["long COVID", "exercise", "pacing"],
+      "required_facets": ["pacing", "exercise caution", "symptom management"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_024_a",
+          "title": "Long COVID clinical management review",
+          "locator": "fixture://perfect_ev_024#management",
+          "source_domain": "clinical-review.synthetic.test",
+          "source_kind": "review_article",
+          "coverage_facets": ["symptom management", "pacing"],
+          "relevant_extract": "The review supports individualized symptom management, screening for post-exertional symptom exacerbation, sleep and autonomic symptoms, rehabilitation matched to tolerance, and pacing for patients whose symptoms worsen after exertion. It warns against one-size-fits-all exercise prescriptions.",
+          "claim_hints": ["Pacing is supported for patients with post-exertional symptom worsening.", "Exercise advice should be individualized."]
+        },
+        {
+          "id": "perfect_ev_024_b",
+          "title": "Rehabilitation caution statement",
+          "locator": "fixture://perfect_ev_024#rehab",
+          "source_domain": "rehab-guidance.synthetic.test",
+          "source_kind": "clinical_guidance",
+          "coverage_facets": ["exercise caution", "overgeneralization"],
+          "relevant_extract": "The guidance distinguishes graded rehabilitation for some deconditioned patients from aggressive graded exercise for patients with post-exertional malaise. It says programs should monitor setbacks and stop escalation when symptoms flare, rather than forcing progression on a fixed schedule.",
+          "claim_hints": ["The answer should separate deconditioning from post-exertional malaise.", "Fixed escalation can be harmful for some patients."]
+        },
+        {
+          "id": "perfect_ev_024_c",
+          "title": "Patient advocacy evidence synthesis",
+          "locator": "fixture://perfect_ev_024#advocacy",
+          "source_domain": "patient-advocacy.synthetic.test",
+          "source_kind": "evidence_synthesis",
+          "coverage_facets": ["patient experience", "uncertainty"],
+          "relevant_extract": "The synthesis says patient reports consistently highlight relapses after overexertion, cognitive fatigue, dysautonomia symptoms, and difficulty accessing clinicians familiar with long COVID. It cautions that anecdotal reports are not trials but are important for identifying harms and practical management needs.",
+          "claim_hints": ["Patient experience should inform caution without replacing clinical evidence.", "The answer should acknowledge uncertainty and practical management."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_025_climate_policy_2026",
+      "source_prompt_id": "research_pool_081_climate_policy_2026",
+      "category": "news_current_events",
+      "tags": ["landscape", "current", "source_sensitive"],
+      "prompt": "Research major climate policy developments in 2026 and their practical implications. Prioritize source-backed developments over broad commentary.",
+      "required_entities": ["climate policy developments"],
+      "required_facets": ["policy changes", "implementation", "practical implications"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_025_a",
+          "title": "Climate policy implementation tracker",
+          "locator": "fixture://perfect_ev_025#tracker",
+          "source_domain": "climate-policy.synthetic.test",
+          "source_kind": "policy_tracker",
+          "coverage_facets": ["policy changes", "implementation"],
+          "relevant_extract": "The tracker groups 2026 climate policy developments into power-sector rules, industrial decarbonization incentives, vehicle and fuel standards, grid permitting, and adaptation funding. It distinguishes enacted measures and agency implementation from campaign promises or commentary.",
+          "claim_hints": ["The answer should group developments by policy area.", "Enacted or implemented actions should be separated from commentary."]
+        },
+        {
+          "id": "perfect_ev_025_b",
+          "title": "Business impact analysis",
+          "locator": "fixture://perfect_ev_025#business-impact",
+          "source_domain": "business-climate.synthetic.test",
+          "source_kind": "impact_analysis",
+          "coverage_facets": ["practical implications", "business"],
+          "relevant_extract": "The analysis says practical implications include compliance planning, energy procurement changes, reporting expectations, supply-chain exposure, infrastructure buildout opportunities, and uncertainty from litigation or election cycles. It recommends focusing on rules with clear effective dates and funding mechanisms.",
+          "claim_hints": ["Practical implications should be tied to compliance, procurement, and funding.", "Legal and political uncertainty should be named without dominating."]
+        },
+        {
+          "id": "perfect_ev_025_c",
+          "title": "Adaptation and resilience funding brief",
+          "locator": "fixture://perfect_ev_025#adaptation",
+          "source_domain": "resilience-policy.synthetic.test",
+          "source_kind": "policy_brief",
+          "coverage_facets": ["adaptation", "local impact"],
+          "relevant_extract": "The brief highlights adaptation funding for heat, wildfire, flooding, water systems, and grid resilience as a practical climate policy area that affects cities and utilities directly. It notes that adaptation measures often matter to households and businesses faster than long-run emissions targets.",
+          "claim_hints": ["Adaptation should be included alongside emissions policy.", "Local resilience funding has direct practical effects."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_026_ai_agentic_landscape_may_2026",
+      "source_prompt_id": "research_pool_082_ai_agentic_landscape_may_2026",
+      "category": "news_current_events",
+      "tags": ["landscape", "current", "source_sensitive"],
+      "prompt": "Give me an update on the AI agentic landscape in May 2026.",
+      "required_entities": ["AI agentic landscape"],
+      "required_facets": ["enterprise adoption", "tooling", "governance", "open-source activity"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_026_a",
+          "title": "May 2026 enterprise agent adoption brief",
+          "locator": "fixture://perfect_ev_026#enterprise",
+          "source_domain": "enterprise-ai.synthetic.test",
+          "source_kind": "market_analysis",
+          "coverage_facets": ["enterprise adoption", "governance"],
+          "relevant_extract": "The brief says enterprise agent adoption is moving from demos toward constrained workflows with approvals, audit logs, tool permissions, and human review. Buyers are asking for reliability, integration with existing systems, and governance controls more than unconstrained autonomous behavior.",
+          "claim_hints": ["The answer should frame adoption as constrained workflow automation.", "Governance and reliability are central buyer concerns."]
+        },
+        {
+          "id": "perfect_ev_026_b",
+          "title": "Agent tooling ecosystem update",
+          "locator": "fixture://perfect_ev_026#tooling",
+          "source_domain": "developer-ai.synthetic.test",
+          "source_kind": "ecosystem_report",
+          "coverage_facets": ["tooling", "open-source activity"],
+          "relevant_extract": "The tooling update describes continued activity in orchestration frameworks, browser agents, MCP-style tool integration, evaluation harnesses, memory systems, and observability. It notes that teams are shifting from impressive single runs to repeatable evals, traceability, and safer tool execution.",
+          "claim_hints": ["Tooling momentum is strongest around reliability infrastructure.", "Evaluation and observability are becoming table stakes."]
+        },
+        {
+          "id": "perfect_ev_026_c",
+          "title": "AI agent risk and policy note",
+          "locator": "fixture://perfect_ev_026#risk",
+          "source_domain": "ai-governance.synthetic.test",
+          "source_kind": "policy_analysis",
+          "coverage_facets": ["governance", "risk"],
+          "relevant_extract": "The policy note flags risks around tool misuse, data leakage, credential handling, prompt injection, unsupervised transactions, and unclear accountability. It says serious deployments are narrowing scope, logging actions, using permission boundaries, and requiring escalation paths.",
+          "claim_hints": ["A useful landscape update should include risk controls.", "Agentic capability without boundaries is not the current enterprise norm."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_027_cybersecurity_incidents_this_week",
+      "source_prompt_id": "research_pool_084_cybersecurity_incidents_this_week",
+      "category": "news_current_events",
+      "tags": ["current", "source_sensitive", "lookup"],
+      "prompt": "Give me a source-backed update on major cybersecurity incidents from this week. I want actual incidents and impact, not generic awareness posts.",
+      "required_entities": ["cybersecurity incidents"],
+      "required_facets": ["actual incidents", "impact", "source confidence"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_027_a",
+          "title": "Incident response news digest",
+          "locator": "fixture://perfect_ev_027#digest",
+          "source_domain": "security-news.synthetic.test",
+          "source_kind": "news_digest",
+          "coverage_facets": ["actual incidents", "impact"],
+          "relevant_extract": "The digest includes only reports with named affected organizations, dates, attack type, confirmed disruption, data exposure, or official response. It excludes generic awareness posts, product marketing, and evergreen advice because those do not answer a weekly incident update request.",
+          "claim_hints": ["The final answer should filter out generic awareness posts.", "Actual incidents need named impact or official response."]
+        },
+        {
+          "id": "perfect_ev_027_b",
+          "title": "Cyber incident verification checklist",
+          "locator": "fixture://perfect_ev_027#verification",
+          "source_domain": "incident-verification.synthetic.test",
+          "source_kind": "verification_guide",
+          "coverage_facets": ["source confidence", "confirmation"],
+          "relevant_extract": "The checklist ranks official company statements, regulator disclosures, court filings, and reputable incident reporters above anonymous claims. It recommends labeling ransomware group posts as alleged until corroborated and separating operational disruption from confirmed data theft.",
+          "claim_hints": ["The answer should distinguish confirmed and alleged incidents.", "Operational disruption and data theft should not be conflated."]
+        },
+        {
+          "id": "perfect_ev_027_c",
+          "title": "Sector impact summary",
+          "locator": "fixture://perfect_ev_027#sector-impact",
+          "source_domain": "security-analysis.synthetic.test",
+          "source_kind": "impact_analysis",
+          "coverage_facets": ["impact", "sector patterns"],
+          "relevant_extract": "The sector summary groups incidents by healthcare, education, public sector, software supply chain, and critical services when several reports occur in the same week. It says a coherent update should explain why the incidents matter, not just list breach headlines.",
+          "claim_hints": ["The answer should synthesize impact by sector where possible.", "Headline lists are insufficient when impact evidence exists."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_028_online_mutual_aid",
+      "source_prompt_id": "research_pool_091_online_mutual_aid",
+      "category": "general_other",
+      "tags": ["landscape", "recommendation", "source_sensitive"],
+      "prompt": "Research how online communities organize mutual aid after local disasters. What patterns seem to work, what breaks down, and what should organizers watch for?",
+      "required_entities": ["online communities", "mutual aid", "local disasters"],
+      "required_facets": ["working patterns", "failure modes", "organizer guidance"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_028_a",
+          "title": "Disaster mutual aid case synthesis",
+          "locator": "fixture://perfect_ev_028#case-synthesis",
+          "source_domain": "community-resilience.synthetic.test",
+          "source_kind": "case_study_synthesis",
+          "coverage_facets": ["working patterns"],
+          "relevant_extract": "The synthesis finds successful online mutual aid efforts use simple intake forms, public request boards, clear verification norms, local moderators, resource categories, and rapid handoff to people on the ground. The strongest systems keep information current and make ownership visible.",
+          "claim_hints": ["Working patterns include simple intake, verification, and local moderators.", "Information freshness and ownership are core."]
+        },
+        {
+          "id": "perfect_ev_028_b",
+          "title": "Volunteer coordination failure memo",
+          "locator": "fixture://perfect_ev_028#failure",
+          "source_domain": "volunteer-ops.synthetic.test",
+          "source_kind": "operations_memo",
+          "coverage_facets": ["failure modes"],
+          "relevant_extract": "The memo says online efforts break down when duplicate spreadsheets spread, requests are not closed, volunteers lack role boundaries, scams are not filtered, moderators burn out, and outside attention overwhelms local priorities. Tool choice matters less than maintenance discipline.",
+          "claim_hints": ["Failure modes are coordination and upkeep problems.", "The answer should warn about duplicate data and moderator burnout."]
+        },
+        {
+          "id": "perfect_ev_028_c",
+          "title": "Community organizer guidance",
+          "locator": "fixture://perfect_ev_028#guidance",
+          "source_domain": "organizer-guide.synthetic.test",
+          "source_kind": "practical_guide",
+          "coverage_facets": ["organizer guidance", "safety"],
+          "relevant_extract": "The guide recommends preassigning moderators, documenting escalation paths, protecting vulnerable people's personal information, coordinating with trusted local organizations, publishing donation verification rules, and retiring temporary systems once urgent needs decline.",
+          "claim_hints": ["Privacy and scam prevention should be explicit.", "Organizers need an exit or handoff plan."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_029_family_photo_archives",
+      "source_prompt_id": "research_pool_092_family_photo_archives",
+      "category": "general_other",
+      "tags": ["recommendation", "lookup"],
+      "prompt": "Research best practices for preserving family photo archives digitally and physically. Give a practical plan for someone with boxes of prints and phone photos.",
+      "required_entities": ["family photo archives"],
+      "required_facets": ["digitization", "storage", "metadata", "physical preservation"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_029_a",
+          "title": "Personal archive digitization guide",
+          "locator": "fixture://perfect_ev_029#digitization",
+          "source_domain": "archive-practice.synthetic.test",
+          "source_kind": "archival_guide",
+          "coverage_facets": ["digitization", "metadata"],
+          "relevant_extract": "The guide recommends sorting prints lightly before scanning, prioritizing fragile or unique items, scanning at preservation-appropriate resolution, capturing dates and names when known, and avoiding perfectionism that prevents completion. It favors a repeatable workflow over endless manual editing.",
+          "claim_hints": ["A practical plan should start with triage and repeatable scanning.", "Metadata should capture what family members still know."]
+        },
+        {
+          "id": "perfect_ev_029_b",
+          "title": "Digital preservation backup rule",
+          "locator": "fixture://perfect_ev_029#backups",
+          "source_domain": "digital-preservation.synthetic.test",
+          "source_kind": "technical_guide",
+          "coverage_facets": ["storage", "backup"],
+          "relevant_extract": "The preservation guide recommends multiple copies, at least one offsite copy, periodic restore tests, ordinary file formats, and a simple folder structure that relatives can understand. It warns that cloud sync is not the same as backup if deletion or corruption propagates.",
+          "claim_hints": ["The answer should distinguish sync from backup.", "Family archives need formats and folders ordinary relatives can navigate."]
+        },
+        {
+          "id": "perfect_ev_029_c",
+          "title": "Physical photo storage conservation note",
+          "locator": "fixture://perfect_ev_029#physical",
+          "source_domain": "conservation-notes.synthetic.test",
+          "source_kind": "conservation_guide",
+          "coverage_facets": ["physical preservation"],
+          "relevant_extract": "The conservation note recommends cool, dry, stable storage, archival sleeves or boxes for important prints, avoiding attics and damp basements, labeling safely, and separating damaged materials. It says digitization protects access but does not automatically replace preserving originals.",
+          "claim_hints": ["Physical storage conditions still matter after scanning.", "The answer should include safe labeling and archival boxes."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_030_self_checkout_sentiment",
+      "source_prompt_id": "research_pool_096_self_checkout_sentiment",
+      "category": "general_other",
+      "tags": ["landscape", "current", "evidence_check"],
+      "prompt": "Research current public sentiment around self-checkout in grocery stores. What themes are showing up, and what evidence is stronger than anecdote?",
+      "required_entities": ["self-checkout", "grocery stores"],
+      "required_facets": ["public sentiment", "themes", "evidence quality"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_030_a",
+          "title": "Retail customer sentiment survey",
+          "locator": "fixture://perfect_ev_030#survey",
+          "source_domain": "retail-survey.synthetic.test",
+          "source_kind": "survey_data",
+          "coverage_facets": ["public sentiment", "evidence quality"],
+          "relevant_extract": "The survey finds shoppers split between valuing speed and control for small baskets and frustration over scanning errors, age checks, produce lookup, bagging areas, and feeling forced to do unpaid labor. It treats representative surveys as stronger evidence than viral complaint posts.",
+          "claim_hints": ["Sentiment is mixed, not simply anti-self-checkout.", "Representative survey data is stronger than anecdotes."]
+        },
+        {
+          "id": "perfect_ev_030_b",
+          "title": "Grocery operations analysis",
+          "locator": "fixture://perfect_ev_030#operations",
+          "source_domain": "grocery-ops.synthetic.test",
+          "source_kind": "industry_analysis",
+          "coverage_facets": ["themes", "operations"],
+          "relevant_extract": "The operations analysis says retailers use self-checkout for labor flexibility and throughput, but theft concerns, customer assistance needs, accessibility, and employee redeployment complicate the story. Some stores are modifying lane layouts rather than simply expanding or removing self-checkout.",
+          "claim_hints": ["Retailer behavior is shifting toward mixed models.", "The answer should include theft, assistance, and accessibility themes."]
+        },
+        {
+          "id": "perfect_ev_030_c",
+          "title": "Media anecdote audit",
+          "locator": "fixture://perfect_ev_030#media-audit",
+          "source_domain": "media-audit.synthetic.test",
+          "source_kind": "media_audit",
+          "coverage_facets": ["evidence quality", "anecdotes"],
+          "relevant_extract": "The audit says media coverage often amplifies memorable complaints or single-chain policy changes without showing whether the trend is broad. Stronger evidence includes multi-store operational data, representative customer surveys, theft and shrink reports, and direct retailer policy changes.",
+          "claim_hints": ["The answer should separate broad evidence from anecdotal frustration.", "Single-chain changes should not be overgeneralized."]
+        }
+      ]
+    }
+  ]
+}

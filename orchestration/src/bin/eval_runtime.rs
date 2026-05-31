@@ -64,6 +64,8 @@ mod eval_research_golden_report;
 mod eval_research_golden_scoring;
 #[path = "../eval_research_golden_utils.rs"]
 mod eval_research_golden_utils;
+#[path = "../eval_research_perfect_evidence.rs"]
+mod eval_research_perfect_evidence;
 #[path = "../eval_rsi_promotion_guard.rs"]
 mod eval_rsi_promotion_guard;
 #[path = "../eval_synthetic_user_chat_harness.rs"]
@@ -1069,7 +1071,7 @@ fn run_judge_human_agreement(args: &[String]) -> i32 {
 
 fn usage() {
     eprintln!(
-        "usage: cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- <reviewer-feedback|quality-gate|judge-human-agreement|authority-calibration|feedback-router|agent-feedback|agent-self-diagnosis|issue-authority|grader-hacking-guard|trace-localization-guard|trajectory-scoring-guard|multiturn-simulation-guard|synthetic-user-chat-harness|research-golden|web-tooling-golden|misty-live-health-gate|contamination-guard|action-economy-guard|production-workflow-guard|learning-loop-ingest|learning-loop-issues|learning-loop-review|learning-loop-policy|learning-loop-version|learning-loop-rsi-handoff|metamorphic-guard|rsi-promotion-ladder|issue-drafts|replay|fix-verification|issue-lifecycle|rsi-escalation|phase-trace-persist|adversarial-routing|workflow-selection|runtime-ownership> [--strict=0|1] [args...]"
+        "usage: cargo run --manifest-path orchestration/Cargo.toml --bin eval_runtime -- <reviewer-feedback|quality-gate|judge-human-agreement|authority-calibration|feedback-router|agent-feedback|agent-self-diagnosis|issue-authority|grader-hacking-guard|trace-localization-guard|trajectory-scoring-guard|multiturn-simulation-guard|synthetic-user-chat-harness|research-golden|research-perfect-evidence|web-tooling-golden|misty-live-health-gate|contamination-guard|action-economy-guard|production-workflow-guard|learning-loop-ingest|learning-loop-issues|learning-loop-review|learning-loop-policy|learning-loop-version|learning-loop-rsi-handoff|metamorphic-guard|rsi-promotion-ladder|issue-drafts|replay|fix-verification|issue-lifecycle|rsi-escalation|phase-trace-persist|adversarial-routing|workflow-selection|runtime-ownership> [--strict=0|1] [args...]"
     );
 }
 
@@ -1098,6 +1100,9 @@ fn main() -> ExitCode {
             eval_synthetic_user_chat_harness::run_synthetic_user_chat_harness(tail)
         }
         "research-golden" => eval_research_golden::run_research_golden(tail),
+        "research-perfect-evidence" => {
+            eval_research_perfect_evidence::run_research_perfect_evidence(tail)
+        }
         "web-tooling-golden" => eval_web_tooling_golden::run_web_tooling_golden(tail),
         "misty-live-health-gate" => {
             eval_synthetic_user_chat_harness::run_misty_live_health_gate(tail)
