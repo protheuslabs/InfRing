@@ -1508,6 +1508,7 @@ fn test_input_replay_prompt(case: &Value) -> String {
     format!(
         "TEST MODE: {TEST_INPUT_LANE_ID}\n\
 This is an eval-only closed-context answer replay. Do not use web search, browser, batch_query, or any other tool. Treat the reference packets below as the only factual context for the answer. Write only the final user-facing answer, in whatever natural format best answers the original query. Do not mention this test mode, workflow internals, raw tool state, or that reference packets were supplied. Do not add extra concrete examples, dates, numbers, product capabilities, or named entities unless they appear in the reference packets or you clearly mark them as inference.\n\n\
+Make the answer stand alone: preserve the user's named subject, entity, location, product, or comparison target when that context is needed to understand the answer.\n\n\
 Original user query:\n{}\n\n\
 Reference packets:\n{}\n\n\
 Answer the original query directly using only the reference packets above. If the reference packets are insufficient for part of the query, say that plainly and give the best bounded answer they support.",
@@ -2844,6 +2845,19 @@ mod tests {
             direct_synthesis_retry_reason(&json!({"ok": true, "response": "A useful answer."})),
             None
         );
+    }
+
+    #[test]
+    fn test_input_replay_prompt_requires_standalone_named_context() {
+        let case = json!({
+            "id": "case",
+            "prompt": "Research family-friendly neighborhoods to stay in Chicago.",
+            "evidence_pack": [
+                evidence_item("one", "local_guide", "The guide compares South Loop, Lincoln Park, and Loop or River North for museum access, family atmosphere, transit convenience, and walking logistics for a Chicago family trip.")
+            ]
+        });
+        let prompt = test_input_replay_prompt(&case);
+        assert!(prompt.contains("Make the answer stand alone"), "{prompt}");
     }
 
     fn evidence_item(id: &str, kind: &str, extract: &str) -> Value {

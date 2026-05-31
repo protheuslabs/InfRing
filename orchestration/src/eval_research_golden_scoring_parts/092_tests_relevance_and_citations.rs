@@ -264,6 +264,25 @@
     }
 
     #[test]
+    fn answer_unit_alignment_generic_action_verbs_do_not_hard_fail() {
+        let alignment = json!({
+            "evaluated": true,
+            "pass": false,
+            "usable_evidence": true,
+            "term_support_rate": 0.25,
+            "unsupported_unit_count": 1,
+            "unsupported_units": [{
+                "unsupported_terms": ["securing", "implementing", "establishing", "wherever"]
+            }]
+        });
+
+        assert!(
+            !answer_unit_alignment_hard_failure(&alignment),
+            "{alignment}"
+        );
+    }
+
+    #[test]
     fn answer_unit_alignment_allows_explicitly_hedged_gap_units() {
         let payload = json!({
             "response": "Alpha launched Beta in 2026. Alpha may also be associated with PhantomX, but current evidence does not confirm it.",
