@@ -93,6 +93,11 @@ fn dispatch_security_gate_exempt(script_rel: &str, args: &[String]) -> bool {
     {
         return true;
     }
+    if script_rel == "client/runtime/systems/ops/infring_setup_wizard.ts"
+        && args.first().map(String::as_str) == Some("status")
+    {
+        return true;
+    }
     if matches!(
         script_rel,
         "core://unknown-command"

@@ -558,7 +558,7 @@
     {
       "id": "ops:kernel-sentinel:heartbeat",
       "group": "ops",
-      "command": "cargo run --quiet --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops -- kernel-sentinel heartbeat --strict=0 --cadence=heartbeat --schedule-artifact=core/local/artifacts/kernel_sentinel_heartbeat_current.json --auto-artifact=core/local/artifacts/kernel_sentinel_auto_run_current.json --quiet-success=1",
+      "command": "node client/runtime/lib/ts_entrypoint.ts tools/commands/timeout_command.ts --timeout-ms=10000 -- node client/runtime/lib/ts_entrypoint.ts tools/commands/infring_ops_binary_command.ts -- kernel-sentinel heartbeat --strict=0 --cadence=heartbeat --schedule-artifact=core/local/artifacts/kernel_sentinel_heartbeat_current.json --auto-artifact=core/local/artifacts/kernel_sentinel_auto_run_current.json --quiet-success=1 --cascade-dream=0",
       "lifecycle": "canonical_entrypoint",
       "owner": "observability.sentinel",
       "source": "package.json:scripts",
@@ -1238,7 +1238,7 @@
     {
       "id": "ops:kernel-sentinel:schedule",
       "group": "ops",
-      "command": "cargo run --quiet --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops -- kernel-sentinel schedule --strict=0 --cadence=maintenance --schedule-artifact=core/local/artifacts/kernel_sentinel_schedule_current.json --auto-artifact=core/local/artifacts/kernel_sentinel_auto_run_current.json --quiet-success=1",
+      "command": "node client/runtime/lib/ts_entrypoint.ts tools/commands/timeout_command.ts --timeout-ms=15000 -- node client/runtime/lib/ts_entrypoint.ts tools/commands/infring_ops_binary_command.ts -- kernel-sentinel schedule --strict=0 --cadence=maintenance --schedule-artifact=core/local/artifacts/kernel_sentinel_schedule_current.json --auto-artifact=core/local/artifacts/kernel_sentinel_auto_run_current.json --quiet-success=1",
       "lifecycle": "curated_operator_command",
       "owner": "observability.sentinel",
       "source": "package.json:scripts",

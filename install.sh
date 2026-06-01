@@ -5161,15 +5161,24 @@ exec \"$pure_bin\" \"\$@\""
     write_wrapper "infringctl" "${gateway_shim}
 exec \"$pure_bin\" conduit \"\$@\""
   else
-    ops_domain_dispatch="ops_domain=\"\${INFRING_OPS_DOMAIN:-}\"
+    ops_domain_dispatch="ops_bin_candidate=\"$ops_bin\"
+if [ \"\${1:-}\" = \"setup\" ] && [ -n \"\${INFRING_WORKSPACE_ROOT:-}\" ]; then
+  for dev_ops_bin in \"\$INFRING_WORKSPACE_ROOT/target/release/infring-ops\" \"\$INFRING_WORKSPACE_ROOT/target/debug/infring-ops\"; do
+    if [ -x \"\$dev_ops_bin\" ]; then
+      ops_bin_candidate=\"\$dev_ops_bin\"
+      break
+    fi
+  done
+fi
+ops_domain=\"\${INFRING_OPS_DOMAIN:-}\"
 if [ -z \"\$ops_domain\" ]; then
-  if \"$ops_bin\" infringctl --help >/dev/null 2>&1; then
+  if \"\$ops_bin_candidate\" infringctl --help >/dev/null 2>&1; then
     ops_domain=\"infringctl\"
   else
     ops_domain=\"infringctl\"
   fi
 fi
-exec \"$ops_bin\" \"\$ops_domain\" \"\$@\""
+exec \"\$ops_bin_candidate\" \"\$ops_domain\" \"\$@\""
     write_wrapper "infring" "${infring_help_shim}
 ${gateway_shim}
 ${ops_domain_dispatch}"
