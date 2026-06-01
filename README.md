@@ -7,6 +7,8 @@
 InfRing is a deterministic, receipt-first autonomous runtime built on a three-plane metakernel.
 It is designed for verifiable execution, fail-closed safety, and reproducible operator workflows.
 
+Canonical long-term vision: [InfRing Vision: Adaptive Intelligence Under User Authority](VISION.md).
+
 Kernel authority is Rust-first (`core/**` path compatibility).
 Orchestration Control Plane coordination lives in `orchestration/**` (non-canonical, contract-driven coordination).
 Shell/runtime surfaces remain thin presentation wrappers around policy-governed Kernel lanes (`client/**` path compatibility).
