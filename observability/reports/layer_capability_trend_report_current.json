@@ -1,10 +1,10 @@
 {
-  "trace_id": "observability:2026-05-24T07:10:19.402Z:66989",
-  "span_id": "span:observability:2026-05-24T07:10:19.402Z:66989",
+  "trace_id": "observability:2026-06-01T02:22:58.077Z:69880",
+  "span_id": "span:observability:2026-06-01T02:22:58.077Z:69880",
   "parent_span_id": null,
   "source_domain": "observability",
   "type": "layer_capability_trend_report",
-  "generated_at": "2026-05-24T07:10:19.411Z",
+  "generated_at": "2026-06-01T02:22:58.078Z",
   "policy_path": "observability/sentinel/layer_capability_trend_policy.json",
   "source_report_path": "core/local/artifacts/layer_placement_policy_report_current.json",
   "changed_file_report_path": "core/local/artifacts/layer_placement_policy_check_current.json",
@@ -16,15 +16,15 @@
     "changed_file_layer0_capability_violations"
   ],
   "summary": {
-    "scanned_files": 11560,
-    "total_violations": 4586,
-    "missing_ownership_headers": 3427,
+    "scanned_files": 11633,
+    "total_violations": 4573,
+    "missing_ownership_headers": 3418,
     "client_authority_wrapper_violations": 44,
-    "layer0_total_violations": 3428,
-    "layer0_missing_ownership_headers": 2313,
-    "layer0_capability_path_debt": 691,
-    "layer0_capability_concept_debt": 424,
-    "layer0_capability_debt_total": 1115,
+    "layer0_total_violations": 3431,
+    "layer0_missing_ownership_headers": 2320,
+    "layer0_capability_path_debt": 689,
+    "layer0_capability_concept_debt": 422,
+    "layer0_capability_debt_total": 1111,
     "changed_file_ok": true,
     "changed_file_violations": 0,
     "changed_file_layer0_capability_violations": 0
@@ -33,24 +33,9 @@
     "layer0_capability_debt_from_previous": 0,
     "layer0_capability_debt_from_best": 0
   },
-  "best_historical_layer0_capability_debt": 1115,
-  "previous_sample_generated_at": "2026-05-24T06:40:57.526Z",
+  "best_historical_layer0_capability_debt": 1111,
+  "previous_sample_generated_at": "2026-06-01T02:21:09.380Z",
   "recent_samples": [
-    {
-      "generated_at": "2026-05-24T03:30:23.392Z",
-      "layer0_capability_debt_total": 1115,
-      "changed_file_layer0_capability_violations": 0
-    },
-    {
-      "generated_at": "2026-05-24T04:10:58.898Z",
-      "layer0_capability_debt_total": 1115,
-      "changed_file_layer0_capability_violations": 0
-    },
-    {
-      "generated_at": "2026-05-24T04:13:02.021Z",
-      "layer0_capability_debt_total": 1115,
-      "changed_file_layer0_capability_violations": 0
-    },
     {
       "generated_at": "2026-05-24T04:20:34.832Z",
       "layer0_capability_debt_total": 1115,
@@ -94,6 +79,21 @@
     {
       "generated_at": "2026-05-24T07:10:19.408Z",
       "layer0_capability_debt_total": 1115,
+      "changed_file_layer0_capability_violations": 0
+    },
+    {
+      "generated_at": "2026-06-01T02:17:11.839Z",
+      "layer0_capability_debt_total": 1111,
+      "changed_file_layer0_capability_violations": 0
+    },
+    {
+      "generated_at": "2026-06-01T02:21:09.380Z",
+      "layer0_capability_debt_total": 1111,
+      "changed_file_layer0_capability_violations": 0
+    },
+    {
+      "generated_at": "2026-06-01T02:22:58.078Z",
+      "layer0_capability_debt_total": 1111,
       "changed_file_layer0_capability_violations": 0
     }
   ],

@@ -1,9 +1,9 @@
 {
-  "trace_id": "observability:2026-05-16T18:02:47.518Z:sentinel-stage-runner",
+  "trace_id": "observability:2026-06-01T02:22:54.441Z:sentinel-stage-runner",
   "source_domain": "observability",
   "ok": true,
   "type": "sentinel_full_run_stage_runner",
-  "generated_at": "2026-05-16T18:02:47.518Z",
+  "generated_at": "2026-06-01T02:22:54.441Z",
   "policy_path": "observability/sentinel/sentinel_full_run_stage_split_policy.json",
   "cadence": "release",
   "state_path": "local/state/observability/sentinel/full_run_stage_state_current.json",
@@ -22,9 +22,9 @@
     {
       "id": "evidence_collect",
       "ok": true,
-      "started_at": "2026-05-16T18:02:47.505Z",
-      "finished_at": "2026-05-16T18:02:47.508Z",
-      "duration_ms": 3,
+      "started_at": "2026-06-01T02:22:54.439Z",
+      "finished_at": "2026-06-01T02:22:54.439Z",
+      "duration_ms": 0,
       "input_refs": [
         "core/local/artifacts/kernel_sentinel_auto_run_current.json",
         "local/state/kernel_sentinel/kernel_sentinel_final_report_current.json"
@@ -37,30 +37,30 @@
         "evidence_refs": [
           {
             "rel": "core/local/artifacts/kernel_sentinel_auto_run_current.json",
-            "exists": true,
-            "size_bytes": 1493
+            "exists": false,
+            "size_bytes": null
           },
           {
             "rel": "local/state/kernel_sentinel/kernel_sentinel_final_report_current.json",
             "exists": true,
-            "size_bytes": 2185
+            "size_bytes": 2186
           }
         ],
         "timeout_observed": false,
         "stale_timeout_observed": false,
         "running_observed": false,
         "stale_running_repaired": false,
-        "auto_run_age_ms": 481998076,
-        "final_report_age_ms": 122282.69091796875,
+        "auto_run_age_ms": null,
+        "final_report_age_ms": 108492.76782226562,
         "signals": []
       }
     },
     {
       "id": "freshness_filter",
       "ok": true,
-      "started_at": "2026-05-16T18:02:47.508Z",
-      "finished_at": "2026-05-16T18:02:47.509Z",
-      "duration_ms": 1,
+      "started_at": "2026-06-01T02:22:54.439Z",
+      "finished_at": "2026-06-01T02:22:54.439Z",
+      "duration_ms": 0,
       "input_refs": [
         "local/state/observability/sentinel/full_run_stage_state_current.json"
       ],
@@ -77,8 +77,8 @@
     {
       "id": "root_cause_cluster",
       "ok": true,
-      "started_at": "2026-05-16T18:02:47.509Z",
-      "finished_at": "2026-05-16T18:02:47.509Z",
+      "started_at": "2026-06-01T02:22:54.439Z",
+      "finished_at": "2026-06-01T02:22:54.439Z",
       "duration_ms": 0,
       "input_refs": [
         "local/state/observability/sentinel/full_run_stage_state_current.json"
@@ -94,15 +94,15 @@
     {
       "id": "report_synthesis",
       "ok": true,
-      "started_at": "2026-05-16T18:02:47.509Z",
-      "finished_at": "2026-05-16T18:02:47.518Z",
-      "duration_ms": 9,
+      "started_at": "2026-06-01T02:22:54.439Z",
+      "finished_at": "2026-06-01T02:22:54.441Z",
+      "duration_ms": 2,
       "input_refs": [
         "local/state/observability/sentinel/full_run_stage_state_current.json"
       ],
       "output_refs": [
         "local/state/observability/sentinel/full_run_stage_state_current.json",
-        "observability/reports/sentinel_staged_compact_report_2026-05-16.json",
+        "observability/reports/sentinel_staged_compact_report_2026-06-01.json",
         "local/state/kernel_sentinel/kernel_sentinel_final_report_current.json",
         "local/state/kernel_sentinel/kernel_sentinel_report_current.json",
         "local/state/kernel_sentinel/kernel_sentinel_verdict.json",
@@ -110,7 +110,7 @@
       ],
       "resume_cursor": "report_synthesis",
       "summary": {
-        "compact_report": "observability/reports/sentinel_staged_compact_report_2026-05-16.json",
+        "compact_report": "observability/reports/sentinel_staged_compact_report_2026-06-01.json",
         "finding_count": 0,
         "canonical_truth_refreshed": true
       }
@@ -118,11 +118,11 @@
     {
       "id": "self_study",
       "ok": true,
-      "started_at": "2026-05-16T18:02:47.518Z",
-      "finished_at": "2026-05-16T18:02:47.518Z",
+      "started_at": "2026-06-01T02:22:54.441Z",
+      "finished_at": "2026-06-01T02:22:54.441Z",
       "duration_ms": 0,
       "input_refs": [
-        "observability/reports/sentinel_staged_compact_report_2026-05-16.json"
+        "observability/reports/sentinel_staged_compact_report_2026-06-01.json"
       ],
       "output_refs": [
         "local/state/observability/sentinel/full_run_stage_state_current.json"
@@ -141,9 +141,9 @@
     {
       "id": "evidence_collect",
       "ok": true,
-      "started_at": "2026-05-16T18:02:47.505Z",
-      "finished_at": "2026-05-16T18:02:47.508Z",
-      "duration_ms": 3,
+      "started_at": "2026-06-01T02:22:54.439Z",
+      "finished_at": "2026-06-01T02:22:54.439Z",
+      "duration_ms": 0,
       "input_refs": [
         "core/local/artifacts/kernel_sentinel_auto_run_current.json",
         "local/state/kernel_sentinel/kernel_sentinel_final_report_current.json"
@@ -156,30 +156,30 @@
         "evidence_refs": [
           {
             "rel": "core/local/artifacts/kernel_sentinel_auto_run_current.json",
-            "exists": true,
-            "size_bytes": 1493
+            "exists": false,
+            "size_bytes": null
           },
           {
             "rel": "local/state/kernel_sentinel/kernel_sentinel_final_report_current.json",
             "exists": true,
-            "size_bytes": 2185
+            "size_bytes": 2186
           }
         ],
         "timeout_observed": false,
         "stale_timeout_observed": false,
         "running_observed": false,
         "stale_running_repaired": false,
-        "auto_run_age_ms": 481998076,
-        "final_report_age_ms": 122282.69091796875,
+        "auto_run_age_ms": null,
+        "final_report_age_ms": 108492.76782226562,
         "signals": []
       }
     },
     {
       "id": "freshness_filter",
       "ok": true,
-      "started_at": "2026-05-16T18:02:47.508Z",
-      "finished_at": "2026-05-16T18:02:47.509Z",
-      "duration_ms": 1,
+      "started_at": "2026-06-01T02:22:54.439Z",
+      "finished_at": "2026-06-01T02:22:54.439Z",
+      "duration_ms": 0,
       "input_refs": [
         "local/state/observability/sentinel/full_run_stage_state_current.json"
       ],
@@ -196,8 +196,8 @@
     {
       "id": "root_cause_cluster",
       "ok": true,
-      "started_at": "2026-05-16T18:02:47.509Z",
-      "finished_at": "2026-05-16T18:02:47.509Z",
+      "started_at": "2026-06-01T02:22:54.439Z",
+      "finished_at": "2026-06-01T02:22:54.439Z",
       "duration_ms": 0,
       "input_refs": [
         "local/state/observability/sentinel/full_run_stage_state_current.json"
@@ -213,15 +213,15 @@
     {
       "id": "report_synthesis",
       "ok": true,
-      "started_at": "2026-05-16T18:02:47.509Z",
-      "finished_at": "2026-05-16T18:02:47.518Z",
-      "duration_ms": 9,
+      "started_at": "2026-06-01T02:22:54.439Z",
+      "finished_at": "2026-06-01T02:22:54.441Z",
+      "duration_ms": 2,
       "input_refs": [
         "local/state/observability/sentinel/full_run_stage_state_current.json"
       ],
       "output_refs": [
         "local/state/observability/sentinel/full_run_stage_state_current.json",
-        "observability/reports/sentinel_staged_compact_report_2026-05-16.json",
+        "observability/reports/sentinel_staged_compact_report_2026-06-01.json",
         "local/state/kernel_sentinel/kernel_sentinel_final_report_current.json",
         "local/state/kernel_sentinel/kernel_sentinel_report_current.json",
         "local/state/kernel_sentinel/kernel_sentinel_verdict.json",
@@ -229,7 +229,7 @@
       ],
       "resume_cursor": "report_synthesis",
       "summary": {
-        "compact_report": "observability/reports/sentinel_staged_compact_report_2026-05-16.json",
+        "compact_report": "observability/reports/sentinel_staged_compact_report_2026-06-01.json",
         "finding_count": 0,
         "canonical_truth_refreshed": true
       }
@@ -237,11 +237,11 @@
     {
       "id": "self_study",
       "ok": true,
-      "started_at": "2026-05-16T18:02:47.518Z",
-      "finished_at": "2026-05-16T18:02:47.518Z",
+      "started_at": "2026-06-01T02:22:54.441Z",
+      "finished_at": "2026-06-01T02:22:54.441Z",
       "duration_ms": 0,
       "input_refs": [
-        "observability/reports/sentinel_staged_compact_report_2026-05-16.json"
+        "observability/reports/sentinel_staged_compact_report_2026-06-01.json"
       ],
       "output_refs": [
         "local/state/observability/sentinel/full_run_stage_state_current.json"
@@ -263,12 +263,12 @@
   "stage_timings": [
     {
       "stage": "evidence_collect",
-      "elapsed_ms": 3,
+      "elapsed_ms": 0,
       "ok": true
     },
     {
       "stage": "freshness_filter",
-      "elapsed_ms": 1,
+      "elapsed_ms": 0,
       "ok": true
     },
     {
@@ -278,7 +278,7 @@
     },
     {
       "stage": "report_synthesis",
-      "elapsed_ms": 9,
+      "elapsed_ms": 2,
       "ok": true
     },
     {
