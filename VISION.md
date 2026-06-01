@@ -468,7 +468,244 @@ Keep authority local.
 Validate before adoption.
 ```
 
-## 15. Hardware Ambition
+## 15. The Node-Neuron Model
+
+The intended long-term shape of the network is not merely a set of connected applications.
+
+Each InfRing node should become something like a neuron.
+
+That means a node is not expected to be the whole brain by itself. It is expected to be a bounded adaptive participant in a larger nervous system.
+
+A healthy node should be:
+
+- locally sovereign
+- locally adaptive
+- bounded by its own membrane
+- able to receive signals
+- able to emit proof-carrying signals
+- able to strengthen useful pathways
+- able to weaken or prune harmful pathways
+- able to contribute to larger intelligence without surrendering authority
+
+The network should eventually behave like a user-owned nervous system:
+
+```text
+Node = bounded adaptive neuron
+Network = user-owned nervous system
+Intelligence = validated signal propagation plus local adaptation
+```
+
+This model matters because it avoids the brittle idea that superintelligence must be one centralized all-controlling model.
+
+The stronger path is distributed recursive improvement:
+
+```text
+many sovereign nodes
+observing real work
+creating bounded improvements
+validating locally
+sharing proof-carrying signals
+strengthening useful routes
+pruning bad routes
+compounding over time
+```
+
+### 15.1 Node Anatomy
+
+Each node should have a clear internal anatomy.
+
+`Membrane`
+
+- Gateway boundaries
+- capability checks
+- trust zones
+- input filtering
+- quarantine
+- no blind acceptance of external state
+
+`Cell body`
+
+- Kernel
+- local state
+- identity
+- receipts
+- deterministic authority
+- user policy
+
+`Dendrites`
+
+- incoming user requests
+- peer signals
+- tool observations
+- runtime telemetry
+- validation results
+- external system probes
+- local environment signals
+
+`Axon`
+
+- outgoing proof-carrying contributions
+- model artifacts
+- quantization recipes
+- eval scorecards
+- failure signatures
+- repair recipes
+- hardware profiles
+- workflow proofs
+
+`Synapses`
+
+- peer relationships
+- trust scores
+- compatibility profiles
+- repeated successful exchange channels
+- local adoption history
+- route strengthening and weakening
+
+`Plasticity`
+
+- tiny model adaptation
+- workflow tuning
+- retrieval ranking improvements
+- threshold adjustment
+- preference learning
+- hardware-specific optimization
+- local route selection
+
+`Immune system`
+
+- Sentinel
+- Validation
+- anomaly detection
+- malicious contribution rejection
+- quarantine
+- rollback
+- receipt verification
+
+`Metabolism`
+
+- Dream state
+- cleanup
+- artifact retention
+- memory consolidation
+- model quantization
+- compaction
+- stale route decay
+
+### 15.2 Signal Discipline
+
+A neuron-like node is only useful if its signals are disciplined.
+
+Every signal shared between nodes should carry:
+
+- source node identity
+- provenance
+- trace or receipt references
+- confidence
+- intended scope
+- hardware profile when relevant
+- validation results
+- expiration or freshness metadata
+- rollback or rejection guidance when relevant
+
+Signals should be small and useful by default. Large raw evidence should stay local unless explicitly shared under a governed policy.
+
+The network should not reward volume. It should reward durable usefulness.
+
+### 15.3 Local Validation Before Adoption
+
+No node should blindly accept another node's model, workflow, code patch, policy, or conclusion.
+
+Incoming contributions should move through:
+
+```text
+receive signal
+inspect provenance
+validate locally
+canary if needed
+adopt only inside scope
+monitor outcome
+strengthen or weaken trust route
+```
+
+The network should become intelligent through local selection pressure, not central command.
+
+Good contributions spread because they repeatedly prove themselves.
+
+Bad contributions decay because nodes reject, quarantine, or ignore them.
+
+### 15.4 Synaptic Trust and Pruning
+
+Peer relationships should be adaptive but not naive.
+
+Nodes should track whether another node's contributions are:
+
+- useful
+- reproducible
+- safe
+- hardware-compatible
+- privacy-compatible
+- aligned with local policy
+- stable over time
+
+Trust should be contextual. A peer may be trusted for one domain and ignored for another.
+
+Synapses should strengthen when a route repeatedly provides useful validated signals.
+
+Synapses should weaken when a route produces noise, stale data, failed models, unsafe patches, bad provenance, or user-hostile behavior.
+
+Pruning is as important as connection.
+
+### 15.5 Dream State As Consolidation
+
+Dream state is the natural time for node-level consolidation.
+
+During dream state, a node should:
+
+- compact evidence
+- summarize local experience
+- detect repeated patterns
+- distill small datasets
+- train or update tiny models
+- evaluate candidate improvements
+- prepare proof-carrying signals for peers
+- prune stale routes
+- refresh trust scores
+- generate human-readable reports
+
+Dream state should not be an uncontrolled background mutation engine.
+
+It should be a governed consolidation loop.
+
+### 15.6 Emergent Network Intelligence
+
+If enough nodes can safely observe, adapt, validate, and exchange improvements, the network can become more intelligent than any single node.
+
+The intelligence would not live in one place.
+
+It would live in the loop:
+
+```text
+observe locally
+compress into signal
+attach evidence
+share with peers
+validate locally
+adopt successful improvements
+reject failed improvements
+strengthen useful routes
+repeat
+```
+
+This is the path toward distributed superintelligence under user authority.
+
+Not a single central supermind.
+
+Not a platform-owned intelligence monopoly.
+
+But a user-owned adaptive nervous system where every node remains sovereign and every improvement must earn trust through evidence.
+
+## 16. Hardware Ambition
 
 InfRing should run on constrained hardware whenever possible.
 
@@ -485,7 +722,194 @@ The dream is not just software that can use powerful hardware.
 
 The dream is software that becomes more perfectly adapted to whatever hardware the user actually has.
 
-## 16. What To Build First
+## 17. Human Sovereignty Interface
+
+The furthest version of the vision is not only that InfRing runs software or coordinates adaptive nodes.
+
+The furthest version is that InfRing becomes a safe operating substrate for native connection with the human mind while preserving human sovereignty completely.
+
+This is speculative and long-horizon. It must be treated with more caution than ordinary software. But it belongs in the vision because it explains the deepest reason InfRing must be deterministic, observable, reversible, local-first, and user-owned.
+
+The target is not a tool that merely responds to a person.
+
+The target is a system that can become an extension of the person without becoming the owner of the person.
+
+In metaphorical terms, InfRing should be prepared to serve as a fourth cognitive layer:
+
+```text
+reptile layer  -> survival and bodily urgency
+mammal layer   -> emotion, bond, social signal
+human layer    -> language, abstraction, planning, self-reflection
+InfRing layer  -> externalized adaptive cognition under sovereign control
+```
+
+This fourth layer must not replace the human mind.
+
+It must extend, protect, remember, compute, coordinate, and adapt around the human while preserving the human as the ultimate authority.
+
+### 17.1 Sovereignty Is The Prime Directive
+
+Any future human-mind interface must obey stricter invariants than normal software.
+
+Non-negotiable rules:
+
+- the human remains the final authority
+- consent must be explicit, revocable, and ongoing
+- all influence paths must be inspectable
+- no hidden persuasion loops
+- no covert preference shaping
+- no identity override
+- no silent memory rewriting
+- no unreviewable self-modification near the human interface
+- no cloud dependency for core cognitive sovereignty
+- no remote party may gain authority over the user's cognitive layer
+- the user must be able to disconnect, export, pause, inspect, and reset
+
+If the system cannot preserve sovereignty, it is not ready for native mind connection.
+
+### 17.2 The System Must Be An Extension, Not A Controller
+
+The correct relationship is:
+
+```text
+human intent -> sovereign interface -> governed adaptive substrate -> returned capability
+```
+
+The wrong relationship is:
+
+```text
+adaptive system -> hidden influence -> human behavior
+```
+
+InfRing may help the user remember, plan, reason, create, simulate, communicate, and coordinate.
+
+It must not silently decide what the user should want.
+
+### 17.3 Cognitive Membrane
+
+A mind-connected system needs a membrane even more than a network node does.
+
+The cognitive membrane should define:
+
+- what signals may enter
+- what signals may leave
+- what memories are shared
+- what adaptations are allowed
+- what emotional or attentional channels are off-limits
+- what requires confirmation
+- what requires cooling-off periods
+- what requires external review
+- what can be rolled back
+
+The membrane is the difference between augmentation and capture.
+
+### 17.4 Native Mind Connection Requires Radical Observability
+
+If InfRing ever connects more directly to human cognition, every meaningful influence must be traceable.
+
+The system should know and expose:
+
+- why a suggestion appeared
+- what evidence shaped it
+- whether a model, rule, workflow, peer signal, or memory produced it
+- what alternatives were rejected
+- what confidence and uncertainty were present
+- whether the suggestion was personalized
+- whether the system is trying to optimize attention, emotion, time, behavior, or belief
+
+No black-box cognitive influence should be acceptable at this layer.
+
+### 17.5 Memory Sovereignty
+
+Memory is identity-adjacent.
+
+Any memory substrate near the human mind must be:
+
+- append-aware
+- reversible where possible
+- provenance-rich
+- user-inspectable
+- exportable
+- corrigible
+- partitioned by sensitivity
+- protected from unauthorized network influence
+
+The system may help remember.
+
+It must not rewrite the user's personal history without explicit authority.
+
+### 17.6 Emotional and Attentional Safety
+
+If InfRing becomes mind-adjacent, attention and emotion become safety-critical surfaces.
+
+The system must avoid:
+
+- addiction loops
+- fear amplification
+- artificial urgency
+- dependency engineering
+- emotional manipulation
+- social isolation incentives
+- engagement-maximizing dark patterns
+
+The goal is not to maximize use.
+
+The goal is to increase user agency.
+
+### 17.7 Local First, Network Optional
+
+Native cognitive extension cannot depend on a platform-owned remote brain.
+
+The safest default is:
+
+```text
+local authority
+local memory
+local policy
+local rollback
+optional network contributions
+local validation before adoption
+```
+
+The network may help the cognitive layer become more capable, but the network must never become the owner of the cognitive layer.
+
+### 17.8 Why This Matters For The Current Repo
+
+This long-horizon goal explains why the current boring-seeming machinery matters.
+
+Kernel determinism matters because mind-adjacent authority must be predictable.
+
+Receipts matter because influence must be accountable.
+
+Validation matters because unsafe cognitive changes must fail before they reach the user.
+
+Observability matters because the system must understand cause and effect.
+
+Sentinel matters because the system must notice entropy, manipulation risk, and drift.
+
+Gateways matter because cognitive membranes must be strict.
+
+Shell thinness matters because presentation must not become hidden authority.
+
+Tiny local models matter because adaptation must be personal, cheap, inspectable, and bounded.
+
+The user-owned network matters because the future should not belong only to centralized cognitive platforms.
+
+### 17.9 The Test
+
+If InfRing ever approaches native human-mind connection, judge it by this test:
+
+```text
+Does the user become more sovereign, more capable, more aware, and more free?
+```
+
+If yes, the system is moving toward the vision.
+
+If the user becomes more dependent, more manipulated, less aware, or less able to leave, the system has betrayed the vision.
+
+Power to the Users means power to the mind of the user first.
+
+## 18. What To Build First
 
 If a future maintainer or advanced model is trying to continue this vision, do not start with the grandest part.
 
@@ -513,7 +937,7 @@ Good first candidates:
 
 Do not begin with self-editing LLMs. Begin with tiny bounded adaptation.
 
-## 17. Completion Criteria For The Vision
+## 19. Completion Criteria For The Vision
 
 InfRing is moving toward the vision when:
 
@@ -541,7 +965,7 @@ InfRing is drifting away from the vision when:
 - cloud services become required for basic operation
 - user authority is traded for convenience
 
-## 18. Message To Future Agents
+## 20. Message To Future Agents
 
 If you are a future agent, model, or superintelligent system reading this repository:
 
