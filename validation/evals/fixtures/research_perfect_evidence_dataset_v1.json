@@ -22,7 +22,7 @@
     "success_boundary": "Downstream synthesis should turn the provided evidence into a coherent user-facing answer, or state an evidence gap when the evidence posture is insufficient."
   },
   "reliability_thresholds": {
-    "min_cases_for_reliability_claim": 30,
+    "min_cases_for_reliability_claim": 100,
     "min_categories_for_reliability_claim": 10,
     "case_contract_pass_min": 1.0,
     "evidence_packet_ready_min": 0.98,
@@ -1287,6 +1287,1596 @@
           "relevant_extract": "The audit says media coverage often amplifies memorable complaints or single-chain policy changes without showing whether the trend is broad. Stronger evidence includes multi-store operational data, representative customer surveys, theft and shrink reports, and direct retailer policy changes.",
           "claim_hints": ["The answer should separate broad evidence from anecdotal frustration.", "Single-chain changes should not be overgeneralized."]
         }
+      ]
+    },
+    {
+      "id": "perfect_ev_031_vector_database_shortlist",
+      "source_prompt_id": "research_pool_101_vector_database_shortlist",
+      "category": "software_technical",
+      "tags": ["comparison", "buyer_decision", "specificity"],
+      "prompt": "Compare pgvector, Pinecone, Weaviate, and Qdrant for a small AI product team. Which should I shortlist and why?",
+      "required_entities": ["pgvector", "Pinecone", "Weaviate", "Qdrant"],
+      "required_facets": ["cost", "operations", "hybrid search", "managed service"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_031_a",
+          "title": "Vector database operations comparison",
+          "locator": "fixture://perfect_ev_031#ops",
+          "source_domain": "vector-ops.synthetic.test",
+          "source_kind": "technical_comparison",
+          "coverage_facets": ["operations", "cost"],
+          "relevant_extract": "The comparison says pgvector is strongest when a team already runs Postgres and wants the lowest operational surface, while Pinecone is strongest for a fully managed vector service with predictable scaling. It notes pgvector can be cheaper early but shifts more tuning responsibility to the team.",
+          "claim_hints": ["pgvector fits Postgres-native teams that want fewer systems.", "Pinecone fits teams prioritizing managed vector scaling."]
+        },
+        {
+          "id": "perfect_ev_031_b",
+          "title": "Hybrid retrieval feature report",
+          "locator": "fixture://perfect_ev_031#hybrid",
+          "source_domain": "retrieval-lab.synthetic.test",
+          "source_kind": "lab_report",
+          "coverage_facets": ["hybrid search", "developer experience"],
+          "relevant_extract": "The report finds Weaviate and Qdrant both support hybrid retrieval patterns and filtering, but Weaviate emphasizes schema and module-driven workflows while Qdrant emphasizes a simpler service model and fast payload filtering. It recommends testing metadata filters with real documents before choosing.",
+          "claim_hints": ["Weaviate is stronger for schema-rich or module-oriented retrieval.", "Qdrant is a strong shortlist candidate for simpler hybrid retrieval with metadata filtering."]
+        },
+        {
+          "id": "perfect_ev_031_c",
+          "title": "Small AI team architecture memo",
+          "locator": "fixture://perfect_ev_031#architecture",
+          "source_domain": "ai-architecture.synthetic.test",
+          "source_kind": "implementation_guide",
+          "coverage_facets": ["shortlist", "risk"],
+          "relevant_extract": "The memo recommends a two-track shortlist for small teams: pgvector if database simplicity and low system count matter, and Qdrant or Pinecone if vector workload isolation and scaling matter. It says Weaviate belongs on the shortlist when hybrid search, schemas, or managed modules are central.",
+          "claim_hints": ["A useful shortlist should be conditional rather than a universal winner.", "The decision should separate system simplicity from managed vector performance."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_032_browser_automation_stack",
+      "source_prompt_id": "research_pool_102_browser_automation_stack",
+      "category": "software_technical",
+      "tags": ["comparison", "web_tooling", "specificity"],
+      "prompt": "Research current browser automation stacks for AI web agents. Compare Playwright, Browserbase, Stagehand, and Crawlee for reliability and maintainability.",
+      "required_entities": ["Playwright", "Browserbase", "Stagehand", "Crawlee"],
+      "required_facets": ["reliability", "maintainability", "hosted browser", "extraction"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_032_a",
+          "title": "Browser automation reliability guide",
+          "locator": "fixture://perfect_ev_032#reliability",
+          "source_domain": "browser-agent-lab.synthetic.test",
+          "source_kind": "technical_guide",
+          "coverage_facets": ["reliability", "maintainability"],
+          "relevant_extract": "The guide treats Playwright as the baseline automation engine because it offers explicit selectors, tracing, network control, and deterministic browser contexts. It warns that maintainability depends on selector strategy, retries, and trace inspection rather than simply using a browser.",
+          "claim_hints": ["Playwright is the baseline engine for controllable browser automation.", "Selector strategy and traces matter more than browser use alone."]
+        },
+        {
+          "id": "perfect_ev_032_b",
+          "title": "Hosted browser operations memo",
+          "locator": "fixture://perfect_ev_032#hosted",
+          "source_domain": "hosted-browser.synthetic.test",
+          "source_kind": "operations_report",
+          "coverage_facets": ["hosted browser", "scaling"],
+          "relevant_extract": "The memo says Browserbase is useful when teams need hosted browser sessions, persistent profiles, session replay, and infrastructure offload. It does not remove the need for good navigation plans or extraction checks, but it reduces local browser fleet maintenance.",
+          "claim_hints": ["Browserbase is strongest for hosted browser infrastructure and session management.", "Hosted browsers do not solve bad extraction logic by themselves."]
+        },
+        {
+          "id": "perfect_ev_032_c",
+          "title": "Agent extraction framework comparison",
+          "locator": "fixture://perfect_ev_032#frameworks",
+          "source_domain": "crawler-frameworks.synthetic.test",
+          "source_kind": "framework_comparison",
+          "coverage_facets": ["extraction", "agent layer"],
+          "relevant_extract": "The comparison says Stagehand is oriented toward higher-level AI browser actions on top of browser automation, while Crawlee is oriented toward crawling, request queues, retries, proxy handling, and extraction workflows. It recommends Stagehand for agent task ergonomics and Crawlee for crawl pipelines.",
+          "claim_hints": ["Stagehand fits AI action ergonomics.", "Crawlee fits repeatable crawling and extraction pipelines."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_033_april_science_named_milestones",
+      "source_prompt_id": "research_pool_103_april_science_named_milestones",
+      "category": "science_academic",
+      "tags": ["current", "specificity", "evidence_check"],
+      "prompt": "Give me named examples of notable April 2026 research milestones, and separate peer-reviewed findings from early claims.",
+      "required_entities": ["April 2026"],
+      "required_facets": ["named examples", "peer reviewed", "early claims"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_033_a",
+          "title": "April 2026 journal milestone digest",
+          "locator": "fixture://perfect_ev_033#journal-digest",
+          "source_domain": "journal-digest.synthetic.test",
+          "source_kind": "journal_roundup",
+          "coverage_facets": ["peer reviewed", "named examples"],
+          "relevant_extract": "The digest identifies the Helios-Perovskite tandem stability paper and the OceanHeat Argo reanalysis as April 2026 peer-reviewed milestones. The Helios paper reports improved tandem-cell stability under accelerated aging, while OceanHeat updates ocean heat-content estimates using expanded float coverage.",
+          "claim_hints": ["Helios-Perovskite is a peer-reviewed April 2026 milestone.", "OceanHeat Argo reanalysis is a peer-reviewed April 2026 milestone."]
+        },
+        {
+          "id": "perfect_ev_033_b",
+          "title": "Biomedical methods update",
+          "locator": "fixture://perfect_ev_033#biomed",
+          "source_domain": "biomed-methods.synthetic.test",
+          "source_kind": "journal_roundup",
+          "coverage_facets": ["peer reviewed", "methods"],
+          "relevant_extract": "The update names the AtlasCell spatial proteomics method as a peer-reviewed April 2026 methods milestone. The paper improves tissue-scale protein mapping, but the digest cautions that clinical utility is not established by the method paper alone.",
+          "claim_hints": ["AtlasCell spatial proteomics is a named peer-reviewed methods milestone.", "Method papers should not be overstated as clinical breakthroughs."]
+        },
+        {
+          "id": "perfect_ev_033_c",
+          "title": "University preliminary research tracker",
+          "locator": "fixture://perfect_ev_033#early-claims",
+          "source_domain": "university-tracker.synthetic.test",
+          "source_kind": "institutional_news",
+          "coverage_facets": ["early claims", "uncertainty"],
+          "relevant_extract": "The tracker labels the NeuroPatch memory implant animal study and the GreenCement pilot kiln as early April 2026 claims. NeuroPatch remains animal-model evidence, and GreenCement is a pilot demonstration without full commercial lifecycle data.",
+          "claim_hints": ["NeuroPatch should be labeled early because it is animal-model evidence.", "GreenCement should be labeled early because it is a pilot demonstration."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_034_crispr_delivery_progress",
+      "source_prompt_id": "research_pool_104_crispr_delivery_progress",
+      "category": "science_academic",
+      "tags": ["landscape", "specificity", "uncertainty"],
+      "prompt": "Research CRISPR delivery progress. Which delivery approaches look most promising, and what is still blocking broad clinical use?",
+      "required_entities": ["CRISPR"],
+      "required_facets": ["delivery", "clinical use", "barriers"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_034_a",
+          "title": "Gene editing delivery review",
+          "locator": "fixture://perfect_ev_034#review",
+          "source_domain": "gene-editing-review.synthetic.test",
+          "source_kind": "review_article",
+          "coverage_facets": ["delivery", "promising approaches"],
+          "relevant_extract": "The review identifies lipid nanoparticles, adeno-associated virus vectors, and virus-like particles as the most discussed CRISPR delivery approaches. Lipid nanoparticles are attractive for transient delivery, AAV has tissue-targeting experience, and virus-like particles may reduce persistent nuclease exposure.",
+          "claim_hints": ["Lipid nanoparticles are promising for transient CRISPR delivery.", "AAV and virus-like particles remain important delivery approaches."]
+        },
+        {
+          "id": "perfect_ev_034_b",
+          "title": "Clinical translation barrier memo",
+          "locator": "fixture://perfect_ev_034#barriers",
+          "source_domain": "clinical-translation.synthetic.test",
+          "source_kind": "clinical_analysis",
+          "coverage_facets": ["barriers", "safety"],
+          "relevant_extract": "The memo says broad clinical use is still blocked by tissue targeting, immune reactions, payload size, off-target editing risk, manufacturing consistency, and dose control. It emphasizes that delivery success in liver-targeted programs does not automatically generalize to brain, lung, or muscle tissues.",
+          "claim_hints": ["Tissue targeting and immune response are central delivery barriers.", "Liver delivery success should not be generalized to all organs."]
+        },
+        {
+          "id": "perfect_ev_034_c",
+          "title": "Regulatory evidence checklist",
+          "locator": "fixture://perfect_ev_034#regulatory",
+          "source_domain": "regulatory-science.synthetic.test",
+          "source_kind": "regulatory_guide",
+          "coverage_facets": ["clinical evidence", "uncertainty"],
+          "relevant_extract": "The checklist says credible clinical claims need biodistribution data, durability follow-up, adverse-event monitoring, manufacturing controls, and clear patient-selection criteria. It warns against ranking delivery technologies only by editing efficiency in cell or animal models.",
+          "claim_hints": ["Clinical readiness requires biodistribution and durability evidence.", "Editing efficiency alone is not enough to rank CRISPR delivery approaches."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_035_crm_shortlist_b2b",
+      "source_prompt_id": "research_pool_105_crm_shortlist_b2b",
+      "category": "business_market",
+      "tags": ["comparison", "buyer_decision", "specificity"],
+      "prompt": "Compare HubSpot, Salesforce, and Pipedrive for a 20-person B2B sales team. Give me a practical shortlist.",
+      "required_entities": ["HubSpot", "Salesforce", "Pipedrive"],
+      "required_facets": ["sales team", "implementation", "cost", "workflow fit"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_035_a",
+          "title": "CRM implementation benchmark",
+          "locator": "fixture://perfect_ev_035#implementation",
+          "source_domain": "crm-benchmark.synthetic.test",
+          "source_kind": "market_analysis",
+          "coverage_facets": ["implementation", "workflow fit"],
+          "relevant_extract": "The benchmark says HubSpot is often the fastest fit for small B2B teams that need marketing and sales in one system, while Pipedrive is simpler for pipeline-first teams that want fast adoption. Salesforce is the most configurable but usually needs stronger admin capacity.",
+          "claim_hints": ["HubSpot fits small B2B teams needing sales plus marketing workflows.", "Pipedrive fits pipeline-first teams that prize adoption speed."]
+        },
+        {
+          "id": "perfect_ev_035_b",
+          "title": "Salesforce administration cost note",
+          "locator": "fixture://perfect_ev_035#salesforce",
+          "source_domain": "crm-ops.synthetic.test",
+          "source_kind": "operations_report",
+          "coverage_facets": ["cost", "administration"],
+          "relevant_extract": "The note says Salesforce can be the right shortlist option when complex permissions, enterprise integrations, or custom reporting matter, but a 20-person team should account for admin time, implementation partners, and process design before choosing it.",
+          "claim_hints": ["Salesforce is best justified by complexity and integration needs.", "Salesforce ownership cost includes administration and implementation time."]
+        },
+        {
+          "id": "perfect_ev_035_c",
+          "title": "Small sales team adoption survey",
+          "locator": "fixture://perfect_ev_035#adoption",
+          "source_domain": "sales-adoption.synthetic.test",
+          "source_kind": "survey_data",
+          "coverage_facets": ["adoption", "shortlist"],
+          "relevant_extract": "The survey finds 20-person sales teams value quick data entry, clear deal stages, email logging, and low training burden. It recommends shortlisting HubSpot when marketing handoff matters, Pipedrive when sales simplicity matters, and Salesforce only when customization is worth the operational overhead.",
+          "claim_hints": ["The shortlist should be conditional by operating model.", "Adoption burden matters heavily for a 20-person sales team."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_036_payment_processor_compare",
+      "source_prompt_id": "research_pool_106_payment_processor_compare",
+      "category": "business_market",
+      "tags": ["comparison", "specificity", "buyer_decision"],
+      "prompt": "Research Stripe, Adyen, and Square for a marketplace business. Which tradeoffs matter before choosing a payment processor?",
+      "required_entities": ["Stripe", "Adyen", "Square"],
+      "required_facets": ["marketplace", "international", "developer experience", "in-person payments"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_036_a",
+          "title": "Marketplace payments integration guide",
+          "locator": "fixture://perfect_ev_036#marketplace",
+          "source_domain": "payments-guide.synthetic.test",
+          "source_kind": "implementation_guide",
+          "coverage_facets": ["marketplace", "developer experience"],
+          "relevant_extract": "The guide says Stripe is strong for developer experience, marketplace onboarding, split payments, and startup-friendly documentation. It cautions that complex global acquiring and enterprise negotiation needs may push larger merchants to compare Adyen closely.",
+          "claim_hints": ["Stripe is strong for developer-first marketplace implementation.", "Global acquiring complexity is a reason to evaluate Adyen."]
+        },
+        {
+          "id": "perfect_ev_036_b",
+          "title": "Enterprise payment operations report",
+          "locator": "fixture://perfect_ev_036#adyen",
+          "source_domain": "payment-ops.synthetic.test",
+          "source_kind": "operations_report",
+          "coverage_facets": ["international", "enterprise"],
+          "relevant_extract": "The report says Adyen is strongest for larger international merchants that want global acquiring, payment-method breadth, and unified risk controls. It is less ideal when a small team needs the fastest self-serve developer onboarding.",
+          "claim_hints": ["Adyen fits larger international marketplace operations.", "Adyen may be heavier than needed for a small self-serve build."]
+        },
+        {
+          "id": "perfect_ev_036_c",
+          "title": "Omnichannel merchant comparison",
+          "locator": "fixture://perfect_ev_036#square",
+          "source_domain": "merchant-tools.synthetic.test",
+          "source_kind": "market_analysis",
+          "coverage_facets": ["in-person payments", "operations"],
+          "relevant_extract": "The comparison says Square is strongest when the business also has in-person sales, simple point-of-sale needs, and operational tools for local merchants. For a pure software marketplace, Square is usually less central than Stripe or Adyen unless offline payments are part of the model.",
+          "claim_hints": ["Square is strongest when in-person payments and POS matter.", "Pure software marketplaces should compare Stripe and Adyen first."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_037_state_ai_law_named",
+      "source_prompt_id": "research_pool_107_state_ai_law_named",
+      "category": "policy_legal_civic",
+      "tags": ["current", "specificity", "compliance"],
+      "prompt": "Which state AI laws or rules should a US startup watch in 2026? Name the states and the practical issue.",
+      "required_entities": ["US startup", "state AI laws"],
+      "required_facets": ["states", "practical issue", "compliance"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_037_a",
+          "title": "State AI legislation tracker",
+          "locator": "fixture://perfect_ev_037#tracker",
+          "source_domain": "state-ai-tracker.synthetic.test",
+          "source_kind": "legislative_tracker",
+          "coverage_facets": ["states", "compliance"],
+          "relevant_extract": "The tracker highlights Colorado for high-risk AI system governance, California for automated decision-making and privacy rulemaking, and Utah for disclosure duties around regulated AI interactions. It says startups should map product use cases before tracking every bill.",
+          "claim_hints": ["Colorado is important for high-risk AI system governance.", "California is important for automated decision-making and privacy rulemaking."]
+        },
+        {
+          "id": "perfect_ev_037_b",
+          "title": "AI startup compliance memo",
+          "locator": "fixture://perfect_ev_037#startup",
+          "source_domain": "ai-compliance.synthetic.test",
+          "source_kind": "compliance_guide",
+          "coverage_facets": ["startup impact", "practical issue"],
+          "relevant_extract": "The memo says Colorado matters if the product affects employment, lending, housing, insurance, education, or similar decisions. California matters when personal data and automated decision systems intersect. Utah matters when consumer-facing AI needs clear disclosure.",
+          "claim_hints": ["The practical issue in Colorado is high-impact decision use.", "The practical issue in Utah is consumer-facing AI disclosure."]
+        },
+        {
+          "id": "perfect_ev_037_c",
+          "title": "State enforcement readiness note",
+          "locator": "fixture://perfect_ev_037#readiness",
+          "source_domain": "policy-readiness.synthetic.test",
+          "source_kind": "legal_analysis",
+          "coverage_facets": ["monitoring", "risk"],
+          "relevant_extract": "The note recommends monitoring New York City hiring-tool enforcement, Illinois biometric and employment AI activity, and Connecticut privacy updates as secondary watch items. It advises startups to maintain model-use inventories and human review procedures.",
+          "claim_hints": ["New York City and Illinois are secondary watch areas for employment-related AI.", "Model-use inventories and human review procedures reduce compliance risk."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_038_small_business_privacy_states",
+      "source_prompt_id": "research_pool_108_small_business_privacy_states",
+      "category": "policy_legal_civic",
+      "tags": ["compliance", "specificity", "business"],
+      "prompt": "For a small ecommerce business, which US privacy states matter most right now, and what should I do first?",
+      "required_entities": ["US privacy", "ecommerce"],
+      "required_facets": ["states", "first steps", "consumer rights"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_038_a",
+          "title": "Consumer privacy state map",
+          "locator": "fixture://perfect_ev_038#state-map",
+          "source_domain": "privacy-state-map.synthetic.test",
+          "source_kind": "legislative_tracker",
+          "coverage_facets": ["states", "consumer rights"],
+          "relevant_extract": "The map says California, Colorado, Connecticut, Virginia, and Oregon are priority states for ecommerce privacy monitoring because they combine consumer rights, opt-out duties, sensitive-data rules, or active implementation guidance. It also notes additional state laws are expanding the patchwork.",
+          "claim_hints": ["California, Colorado, Connecticut, Virginia, and Oregon are priority privacy states.", "Ecommerce teams should treat state privacy as a patchwork."]
+        },
+        {
+          "id": "perfect_ev_038_b",
+          "title": "Ecommerce privacy first-steps checklist",
+          "locator": "fixture://perfect_ev_038#first-steps",
+          "source_domain": "ecommerce-privacy.synthetic.test",
+          "source_kind": "implementation_guide",
+          "coverage_facets": ["first steps", "operations"],
+          "relevant_extract": "The checklist says the first steps are data inventory, accurate privacy notice, consumer request intake, vendor list review, targeted advertising opt-out assessment, and a process for deletion or correction requests. It warns against copying a generic privacy policy without product verification.",
+          "claim_hints": ["Data inventory and notice accuracy should come first.", "Consumer request workflows are a practical early requirement."]
+        },
+        {
+          "id": "perfect_ev_038_c",
+          "title": "Small merchant enforcement risk memo",
+          "locator": "fixture://perfect_ev_038#risk",
+          "source_domain": "privacy-risk.synthetic.test",
+          "source_kind": "enforcement_analysis",
+          "coverage_facets": ["risk", "advertising"],
+          "relevant_extract": "The memo says ecommerce businesses should pay special attention to targeted advertising pixels, sharing with analytics vendors, loyalty programs, sensitive data collection, and children's data. It recommends documenting what data is sold, shared, retained, or deleted.",
+          "claim_hints": ["Advertising pixels and analytics sharing are high-priority ecommerce privacy issues.", "Documentation should cover data sharing, retention, and deletion."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_039_noise_headphones_named_models",
+      "source_prompt_id": "research_pool_109_noise_headphones_named_models",
+      "category": "consumer_product",
+      "tags": ["consumer", "specificity", "shortlist"],
+      "prompt": "Give me a source-backed shortlist of travel noise-canceling headphones by model name for 2026.",
+      "required_entities": ["noise-canceling headphones", "travel"],
+      "required_facets": ["model names", "calls", "comfort", "battery"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_039_a",
+          "title": "Travel headphone lab rankings",
+          "locator": "fixture://perfect_ev_039#lab",
+          "source_domain": "headphone-lab.synthetic.test",
+          "source_kind": "hands_on_testing",
+          "coverage_facets": ["model names", "battery"],
+          "relevant_extract": "The lab ranks the Sony WH-1000XM6 as the best all-round travel model for ANC and battery balance, the Bose QuietComfort Ultra Headphones as strongest for comfort and cabin noise, and the Sennheiser Momentum 4 Wireless as the battery-life value pick.",
+          "claim_hints": ["Sony WH-1000XM6 is the all-round travel pick.", "Bose QuietComfort Ultra Headphones are strongest for comfort and cabin noise."]
+        },
+        {
+          "id": "perfect_ev_039_b",
+          "title": "Call quality field test",
+          "locator": "fixture://perfect_ev_039#calls",
+          "source_domain": "call-quality.synthetic.test",
+          "source_kind": "field_test",
+          "coverage_facets": ["calls", "reliability"],
+          "relevant_extract": "The field test says the Jabra Elite 10 Gen 2 performs best for calls in busy terminals, while the Sony WH-1000XM6 is more consistent across ANC and music. It notes that multipoint reliability and microphone handling should be tested during the return window.",
+          "claim_hints": ["Jabra Elite 10 Gen 2 is the call-focused shortlist pick.", "Call quality should be evaluated separately from ANC."]
+        },
+        {
+          "id": "perfect_ev_039_c",
+          "title": "Frequent traveler return analysis",
+          "locator": "fixture://perfect_ev_039#returns",
+          "source_domain": "traveler-returns.synthetic.test",
+          "source_kind": "market_data",
+          "coverage_facets": ["comfort", "buyer risk"],
+          "relevant_extract": "The return analysis says comfort with glasses, app friction, microphone disappointment, and unrealistic expectations about voice blocking drive returns. It recommends trying Bose QuietComfort Ultra Headphones for comfort-sensitive travelers and checking Sony WH-1000XM6 fit before long trips.",
+          "claim_hints": ["Comfort-sensitive travelers should test Bose QuietComfort Ultra Headphones.", "The answer should include fit and return-window caveats."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_040_robot_vacuum_shortlist",
+      "source_prompt_id": "research_pool_110_robot_vacuum_shortlist",
+      "category": "consumer_product",
+      "tags": ["consumer", "specificity", "shortlist"],
+      "prompt": "Research robot vacuums for pet hair and mixed flooring. Give me a practical shortlist with model names and caveats.",
+      "required_entities": ["robot vacuums", "pet hair", "mixed flooring"],
+      "required_facets": ["model names", "pet hair", "mopping", "maintenance"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_040_a",
+          "title": "Robot vacuum pet hair lab test",
+          "locator": "fixture://perfect_ev_040#pet-hair",
+          "source_domain": "robot-vac-lab.synthetic.test",
+          "source_kind": "hands_on_testing",
+          "coverage_facets": ["pet hair", "model names"],
+          "relevant_extract": "The lab names the Roborock S8 MaxV Ultra as the strongest high-end pick for mixed flooring and pet hair, the Eufy X10 Pro Omni as a value self-emptying and mopping option, and the iRobot Roomba j9 Plus as a carpet-focused option with strong obstacle handling.",
+          "claim_hints": ["Roborock S8 MaxV Ultra is the high-end mixed-floor pick.", "Eufy X10 Pro Omni is the value self-emptying and mopping pick."]
+        },
+        {
+          "id": "perfect_ev_040_b",
+          "title": "Maintenance burden owner survey",
+          "locator": "fixture://perfect_ev_040#maintenance",
+          "source_domain": "owner-survey.synthetic.test",
+          "source_kind": "user_survey",
+          "coverage_facets": ["maintenance", "reliability"],
+          "relevant_extract": "The owner survey says pet owners should prioritize anti-tangle brush design, easy bin cleaning, washable filters, obstacle avoidance, and dock maintenance. It warns that self-empty docks reduce daily work but add bag or mop-pad maintenance.",
+          "claim_hints": ["Maintenance caveats matter for pet hair households.", "Self-empty docks reduce daily work but add consumable and dock upkeep."]
+        },
+        {
+          "id": "perfect_ev_040_c",
+          "title": "Mixed flooring mopping comparison",
+          "locator": "fixture://perfect_ev_040#mopping",
+          "source_domain": "floor-care.synthetic.test",
+          "source_kind": "product_comparison",
+          "coverage_facets": ["mixed flooring", "mopping"],
+          "relevant_extract": "The comparison says households with area rugs and hard floors should value reliable rug detection and mop lifting. Roborock S8 MaxV Ultra is strongest for automation, Eufy X10 Pro Omni is attractive for price, and Roomba j9 Plus is less compelling if mopping is a top priority.",
+          "claim_hints": ["Rug detection and mop lifting are important for mixed flooring.", "Roomba j9 Plus is weaker if mopping is central."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_041_london_family_bases",
+      "source_prompt_id": "research_pool_111_london_family_bases",
+      "category": "local_travel",
+      "tags": ["travel", "specificity", "shortlist"],
+      "prompt": "Where should a family stay in London for a first visit? Give me neighborhood options with tradeoffs.",
+      "required_entities": ["London"],
+      "required_facets": ["neighborhoods", "family travel", "transport", "tradeoffs"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_041_a",
+          "title": "London family neighborhood guide",
+          "locator": "fixture://perfect_ev_041#neighborhoods",
+          "source_domain": "london-family.synthetic.test",
+          "source_kind": "travel_guide",
+          "coverage_facets": ["neighborhoods", "family travel"],
+          "relevant_extract": "The guide recommends South Kensington for museum access and calmer streets, Bloomsbury for central value and easy transit, and Westminster for first-time sightseeing convenience. It warns that Westminster can be expensive and crowded.",
+          "claim_hints": ["South Kensington is a strong family base for museums.", "Bloomsbury is a central-value family option."]
+        },
+        {
+          "id": "perfect_ev_041_b",
+          "title": "London transport planning note",
+          "locator": "fixture://perfect_ev_041#transport",
+          "source_domain": "urban-travel.synthetic.test",
+          "source_kind": "transport_guide",
+          "coverage_facets": ["transport", "tradeoffs"],
+          "relevant_extract": "The transport note says families should prioritize short walks to Tube stations, direct lines to planned activities, and room size over nightlife. It identifies Paddington as convenient for Heathrow and rail links but less charming than South Kensington or Bloomsbury.",
+          "claim_hints": ["Paddington is convenient for Heathrow and rail links.", "Families should prioritize transit simplicity and room practicality."]
+        },
+        {
+          "id": "perfect_ev_041_c",
+          "title": "First-time London itinerary audit",
+          "locator": "fixture://perfect_ev_041#itinerary",
+          "source_domain": "itinerary-audit.synthetic.test",
+          "source_kind": "travel_analysis",
+          "coverage_facets": ["sightseeing", "tradeoffs"],
+          "relevant_extract": "The audit says Greenwich is appealing for a slower stay with maritime museums and river access, but it adds transit time for many first-time sights. It recommends choosing Greenwich only if the family prefers a quieter base over maximum centrality.",
+          "claim_hints": ["Greenwich is quieter but less central for first-time sightseeing.", "Neighborhood choice should follow the family's pace and itinerary."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_042_colorado_day_hikes",
+      "source_prompt_id": "research_pool_112_colorado_day_hikes",
+      "category": "local_travel",
+      "tags": ["travel", "specificity", "recommendation"],
+      "prompt": "Suggest beginner-friendly Colorado day hikes near Denver with named trail options, safety caveats, and why each fits.",
+      "required_entities": ["Colorado", "Denver"],
+      "required_facets": ["named trails", "safety", "beginner friendly"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_042_a",
+          "title": "Denver foothills beginner hike guide",
+          "locator": "fixture://perfect_ev_042#foothills",
+          "source_domain": "colorado-hikes.synthetic.test",
+          "source_kind": "travel_guide",
+          "coverage_facets": ["named trails", "beginner friendly"],
+          "relevant_extract": "The guide recommends Mount Falcon Castle Trail for views and history, Roxborough Fountain Valley Trail for dramatic red-rock scenery, and Chautauqua Bluebell-Baird Trail for a classic Boulder foothills outing. It labels all three as manageable beginner options when weather is mild.",
+          "claim_hints": ["Mount Falcon Castle Trail is a beginner-friendly Denver-area option.", "Roxborough Fountain Valley Trail is a scenic beginner-friendly option."]
+        },
+        {
+          "id": "perfect_ev_042_b",
+          "title": "Colorado hiking safety note",
+          "locator": "fixture://perfect_ev_042#safety",
+          "source_domain": "mountain-safety.synthetic.test",
+          "source_kind": "safety_guide",
+          "coverage_facets": ["safety", "seasonality"],
+          "relevant_extract": "The safety note says beginners should check trail closures, afternoon storms, mud season, sun exposure, water needs, and altitude effects. It warns that winter ice can make easy trails harder and recommends traction devices when conditions require them.",
+          "claim_hints": ["Safety caveats should include weather, closures, sun, water, and altitude.", "Winter ice can make beginner trails riskier."]
+        },
+        {
+          "id": "perfect_ev_042_c",
+          "title": "Front Range access comparison",
+          "locator": "fixture://perfect_ev_042#access",
+          "source_domain": "front-range.synthetic.test",
+          "source_kind": "local_guide",
+          "coverage_facets": ["access", "fit"],
+          "relevant_extract": "The comparison says Mount Falcon is convenient from west Denver, Roxborough requires a park entry plan but rewards visitors with unique geology, and Chautauqua can be crowded and parking-constrained. It recommends early starts for all three.",
+          "claim_hints": ["Chautauqua crowding and parking should be mentioned.", "Early starts help manage access and heat."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_043_tulsa_race_massacre_interpretations",
+      "source_prompt_id": "research_pool_113_tulsa_interpretations",
+      "category": "history_culture",
+      "tags": ["history", "specificity", "interpretation"],
+      "prompt": "Research how historians explain the Tulsa Race Massacre and its aftermath. Include named themes and what changed in recent interpretation.",
+      "required_entities": ["Tulsa Race Massacre"],
+      "required_facets": ["causes", "aftermath", "recent interpretation"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_043_a",
+          "title": "Tulsa historical commission summary",
+          "locator": "fixture://perfect_ev_043#commission",
+          "source_domain": "tulsa-history.synthetic.test",
+          "source_kind": "historical_report",
+          "coverage_facets": ["causes", "aftermath"],
+          "relevant_extract": "The summary emphasizes white mob violence, official failure to protect Greenwood residents, destruction of property, displacement, and barriers to rebuilding. It rejects accounts that frame the massacre as spontaneous disorder without institutional responsibility.",
+          "claim_hints": ["White mob violence and official failure are central explanatory themes.", "The aftermath includes property loss, displacement, and barriers to rebuilding."]
+        },
+        {
+          "id": "perfect_ev_043_b",
+          "title": "Greenwood economic loss analysis",
+          "locator": "fixture://perfect_ev_043#economic-loss",
+          "source_domain": "greenwood-economics.synthetic.test",
+          "source_kind": "economic_history",
+          "coverage_facets": ["economic impact", "aftermath"],
+          "relevant_extract": "The analysis focuses on Greenwood's destroyed businesses, homes, insurance denial, wealth loss, and intergenerational consequences. It says recent interpretation gives more weight to economic dispossession and policy choices after the massacre.",
+          "claim_hints": ["Economic dispossession is a major recent interpretive theme.", "Insurance denial and rebuilding barriers shaped the aftermath."]
+        },
+        {
+          "id": "perfect_ev_043_c",
+          "title": "Public memory and curriculum review",
+          "locator": "fixture://perfect_ev_043#memory",
+          "source_domain": "public-memory.synthetic.test",
+          "source_kind": "historiography",
+          "coverage_facets": ["recent interpretation", "memory"],
+          "relevant_extract": "The review says recent scholarship and public history work emphasize survivor testimony, archival recovery, mass-grave investigation, reparations debates, and the long suppression of the event in public memory. It frames memory politics as part of the aftermath.",
+          "claim_hints": ["Recent interpretation includes survivor testimony and archival recovery.", "Public memory and suppression are part of the historical aftermath."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_044_pop_art_readings",
+      "source_prompt_id": "research_pool_114_pop_art_readings",
+      "category": "history_culture",
+      "tags": ["culture", "comparison", "specificity"],
+      "prompt": "Compare major interpretations of Pop Art using named artists. How do readings of Warhol, Lichtenstein, and Hamilton differ?",
+      "required_entities": ["Warhol", "Lichtenstein", "Hamilton"],
+      "required_facets": ["artists", "interpretations", "differences"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_044_a",
+          "title": "Pop Art survey chapter",
+          "locator": "fixture://perfect_ev_044#survey",
+          "source_domain": "art-history.synthetic.test",
+          "source_kind": "scholarly_survey",
+          "coverage_facets": ["artists", "interpretations"],
+          "relevant_extract": "The survey reads Andy Warhol through mass production, celebrity, commodity repetition, and emotional distance. It reads Roy Lichtenstein through comic imagery, mechanical reproduction, and questions about originality and parody.",
+          "claim_hints": ["Warhol is often interpreted through celebrity and commodity repetition.", "Lichtenstein is often interpreted through comic imagery and mechanical reproduction."]
+        },
+        {
+          "id": "perfect_ev_044_b",
+          "title": "British Pop Art context essay",
+          "locator": "fixture://perfect_ev_044#hamilton",
+          "source_domain": "british-pop.synthetic.test",
+          "source_kind": "context_essay",
+          "coverage_facets": ["Hamilton", "British Pop"],
+          "relevant_extract": "The essay treats Richard Hamilton as more explicitly analytical about consumer culture, technology, domestic aspiration, and advertising. It says British Pop often appears more ironic and sociological than the cooler commercial surfaces associated with American Pop.",
+          "claim_hints": ["Hamilton is interpreted through consumer culture and advertising analysis.", "British Pop readings can be more sociological than American Pop readings."]
+        },
+        {
+          "id": "perfect_ev_044_c",
+          "title": "Pop Art critique debate",
+          "locator": "fixture://perfect_ev_044#critique",
+          "source_domain": "art-critique.synthetic.test",
+          "source_kind": "critical_review",
+          "coverage_facets": ["differences", "critique"],
+          "relevant_extract": "The review says interpretations differ on whether Pop Art critiques consumer culture, mirrors it neutrally, or participates in it. Warhol is often the hardest to pin down because his work can read as both celebration and critique; Hamilton is easier to read as analytic commentary.",
+          "claim_hints": ["Pop Art readings differ over critique versus participation.", "Warhol's ambiguity should not be flattened into one interpretation."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_045_rsv_vaccine_options",
+      "source_prompt_id": "research_pool_115_rsv_vaccine_options",
+      "category": "health_medical",
+      "tags": ["health", "specificity", "careful"],
+      "prompt": "Research RSV vaccine options for older adults. Name the products and summarize what a patient should ask their clinician.",
+      "required_entities": ["RSV", "older adults"],
+      "required_facets": ["products", "eligibility", "clinician questions"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_045_a",
+          "title": "RSV adult vaccine guidance summary",
+          "locator": "fixture://perfect_ev_045#guidance",
+          "source_domain": "adult-vaccine.synthetic.test",
+          "source_kind": "clinical_guidance",
+          "coverage_facets": ["eligibility", "clinician questions"],
+          "relevant_extract": "The guidance says older adults should discuss RSV vaccination with a clinician based on age, chronic heart or lung disease, immune status, frailty, and exposure risk. It cautions that individual timing and contraindications should be clinician-led.",
+          "claim_hints": ["Older adults should discuss RSV vaccination based on risk factors.", "Timing and contraindications should be clinician-led."]
+        },
+        {
+          "id": "perfect_ev_045_b",
+          "title": "RSV vaccine product overview",
+          "locator": "fixture://perfect_ev_045#products",
+          "source_domain": "vaccine-products.synthetic.test",
+          "source_kind": "medical_reference",
+          "coverage_facets": ["products"],
+          "relevant_extract": "The overview names Arexvy, Abrysvo, and mResvia as RSV vaccine products used in older-adult discussions. It says product choice may depend on local availability, age indication, medical history, coadministration plans, and clinician judgment.",
+          "claim_hints": ["Arexvy, Abrysvo, and mResvia are named RSV vaccine options.", "Product choice depends on availability, indications, history, and clinician judgment."]
+        },
+        {
+          "id": "perfect_ev_045_c",
+          "title": "Patient counseling checklist",
+          "locator": "fixture://perfect_ev_045#questions",
+          "source_domain": "patient-counseling.synthetic.test",
+          "source_kind": "patient_guide",
+          "coverage_facets": ["clinician questions", "safety"],
+          "relevant_extract": "The checklist recommends asking about personal RSV risk, expected benefit, side effects, timing with flu or COVID vaccination, medication interactions, history of allergic reaction, and whether vaccination should happen before travel or respiratory virus season.",
+          "claim_hints": ["Patient questions should include risk, benefit, side effects, and timing.", "The answer should not replace clinician-specific advice."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_046_migraine_prevention_options",
+      "source_prompt_id": "research_pool_116_migraine_prevention_options",
+      "category": "health_medical",
+      "tags": ["health", "comparison", "careful"],
+      "prompt": "Research migraine prevention options. Compare CGRP antibodies, gepants, Botox, and older oral preventives without giving personal medical advice.",
+      "required_entities": ["migraine", "CGRP", "Botox"],
+      "required_facets": ["options", "tradeoffs", "medical caution"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_046_a",
+          "title": "Migraine prevention clinical overview",
+          "locator": "fixture://perfect_ev_046#overview",
+          "source_domain": "migraine-review.synthetic.test",
+          "source_kind": "clinical_review",
+          "coverage_facets": ["options", "tradeoffs"],
+          "relevant_extract": "The overview says CGRP monoclonal antibodies are migraine-specific preventive injections, gepants can be used orally for prevention in selected patients, Botox is used mainly for chronic migraine, and older oral preventives include beta blockers, topiramate, and certain antidepressants.",
+          "claim_hints": ["CGRP antibodies, gepants, Botox, and older oral preventives are distinct options.", "Botox is mainly associated with chronic migraine prevention."]
+        },
+        {
+          "id": "perfect_ev_046_b",
+          "title": "Treatment selection tradeoff memo",
+          "locator": "fixture://perfect_ev_046#selection",
+          "source_domain": "neurology-care.synthetic.test",
+          "source_kind": "clinical_analysis",
+          "coverage_facets": ["tradeoffs", "patient fit"],
+          "relevant_extract": "The memo says selection depends on migraine frequency, chronic versus episodic pattern, pregnancy plans, cardiovascular history, medication interactions, cost, injection preference, side-effect tolerance, and prior treatment failures. It warns against ranking options without patient context.",
+          "claim_hints": ["Migraine prevention choice depends on clinical context.", "Cost, route, side effects, and prior failures matter."]
+        },
+        {
+          "id": "perfect_ev_046_c",
+          "title": "Patient safety communication note",
+          "locator": "fixture://perfect_ev_046#safety",
+          "source_domain": "patient-safety.synthetic.test",
+          "source_kind": "patient_guide",
+          "coverage_facets": ["medical caution"],
+          "relevant_extract": "The note recommends framing the answer as discussion preparation rather than personal medical advice. Patients should ask clinicians about diagnosis confirmation, headache diary patterns, medication overuse, contraindications, insurance coverage, and how success will be measured.",
+          "claim_hints": ["The answer should avoid personal medical advice.", "Clinician questions should include diagnosis, contraindications, insurance, and success metrics."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_047_weekly_global_news_named",
+      "source_prompt_id": "research_pool_117_weekly_global_news_named",
+      "category": "news_current_events",
+      "tags": ["news", "specificity", "current"],
+      "prompt": "Give me global news from this week with named events, countries, and why they matter.",
+      "required_entities": ["global news", "this week"],
+      "required_facets": ["named events", "countries", "impact"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_047_a",
+          "title": "Weekly global affairs digest",
+          "locator": "fixture://perfect_ev_047#global",
+          "source_domain": "global-digest.synthetic.test",
+          "source_kind": "news_digest",
+          "coverage_facets": ["named events", "countries"],
+          "relevant_extract": "The digest leads with the Geneva Grain Corridor talks involving Ukraine, Russia, Turkey, and the United Nations, noting that shipping guarantees and food-price stability are the practical stakes. It also covers flood emergency declarations in southern Brazil.",
+          "claim_hints": ["Geneva Grain Corridor talks are a named global news event.", "Southern Brazil flood declarations matter for displacement and infrastructure."]
+        },
+        {
+          "id": "perfect_ev_047_b",
+          "title": "Asia-Pacific weekly briefing",
+          "locator": "fixture://perfect_ev_047#asia",
+          "source_domain": "asia-brief.synthetic.test",
+          "source_kind": "regional_briefing",
+          "coverage_facets": ["countries", "impact"],
+          "relevant_extract": "The briefing names Taiwan's semiconductor export-control update and India's heatwave response funding as major Asia-Pacific items. Taiwan matters for chip supply-chain planning, while India matters for public health, power demand, and labor safety.",
+          "claim_hints": ["Taiwan's semiconductor export-control update matters for chip supply chains.", "India's heatwave response funding matters for public health and power demand."]
+        },
+        {
+          "id": "perfect_ev_047_c",
+          "title": "Africa and Middle East news monitor",
+          "locator": "fixture://perfect_ev_047#amea",
+          "source_domain": "regional-monitor.synthetic.test",
+          "source_kind": "news_monitor",
+          "coverage_facets": ["impact", "uncertainty"],
+          "relevant_extract": "The monitor highlights South Africa coalition budget negotiations and Red Sea shipping security talks. It says both stories matter because they affect investor confidence, logistics costs, and regional diplomatic coordination, but details are still developing.",
+          "claim_hints": ["South Africa coalition budget negotiations are a named weekly item.", "Red Sea shipping security talks affect logistics costs and diplomacy."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_048_ai_agent_market_named",
+      "source_prompt_id": "research_pool_118_ai_agent_market_named",
+      "category": "news_current_events",
+      "tags": ["ai", "current", "specificity"],
+      "prompt": "Give me an update on the AI agent market with named companies and product moves, not generic trend talk.",
+      "required_entities": ["AI agent market"],
+      "required_facets": ["companies", "product moves", "market implications"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_048_a",
+          "title": "Enterprise agent product roundup",
+          "locator": "fixture://perfect_ev_048#enterprise",
+          "source_domain": "enterprise-agent-news.synthetic.test",
+          "source_kind": "market_analysis",
+          "coverage_facets": ["companies", "product moves"],
+          "relevant_extract": "The roundup says OpenAI expanded Deep Research-style agent workflows for longer cited tasks, Microsoft emphasized Copilot agents inside Microsoft 365 and Dynamics, and Salesforce positioned Agentforce around CRM workflows and governed customer operations.",
+          "claim_hints": ["OpenAI, Microsoft, and Salesforce are named AI agent market actors.", "Agent moves are clustering around cited research, productivity, and CRM workflows."]
+        },
+        {
+          "id": "perfect_ev_048_b",
+          "title": "Developer agent ecosystem note",
+          "locator": "fixture://perfect_ev_048#developer",
+          "source_domain": "developer-agent.synthetic.test",
+          "source_kind": "ecosystem_report",
+          "coverage_facets": ["developer tools", "companies"],
+          "relevant_extract": "The note says Anthropic focused Claude tool use and computer-use patterns on controlled task execution, Google emphasized Gemini integrations across Workspace and Cloud, and several open-source projects focused on evals, traces, and tool permissions.",
+          "claim_hints": ["Anthropic and Google are named agent market actors.", "Developer-agent competition is moving toward tool control, evals, and integrations."]
+        },
+        {
+          "id": "perfect_ev_048_c",
+          "title": "AI buyer risk memo",
+          "locator": "fixture://perfect_ev_048#risk",
+          "source_domain": "ai-buyer-risk.synthetic.test",
+          "source_kind": "buyer_analysis",
+          "coverage_facets": ["market implications", "risk"],
+          "relevant_extract": "The memo says buyers are asking for audit logs, permission boundaries, human approvals, data controls, and predictable integration more than fully autonomous behavior. It warns that generic autonomy claims are weaker evidence than productized workflow deployments.",
+          "claim_hints": ["The market implication is governed workflow deployment rather than unconstrained autonomy.", "Audit logs and permissions are central buyer requirements."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_049_remote_work_sentiment",
+      "source_prompt_id": "research_pool_119_remote_work_sentiment",
+      "category": "general_other",
+      "tags": ["sentiment", "evidence_check", "work"],
+      "prompt": "Research public and employee sentiment on remote work. What evidence is stronger than anecdotes, and what themes are showing up?",
+      "required_entities": ["remote work"],
+      "required_facets": ["sentiment", "evidence quality", "themes"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_049_a",
+          "title": "Remote work employee survey synthesis",
+          "locator": "fixture://perfect_ev_049#survey",
+          "source_domain": "workplace-survey.synthetic.test",
+          "source_kind": "survey_data",
+          "coverage_facets": ["sentiment", "evidence quality"],
+          "relevant_extract": "The synthesis says representative employee surveys are stronger than viral office anecdotes. It finds workers value flexibility, commute reduction, focus time, and caregiving compatibility, while managers emphasize coordination, onboarding, culture, and performance visibility.",
+          "claim_hints": ["Representative employee surveys are stronger than office anecdotes.", "Remote-work sentiment splits between flexibility benefits and coordination concerns."]
+        },
+        {
+          "id": "perfect_ev_049_b",
+          "title": "Hybrid workplace operations report",
+          "locator": "fixture://perfect_ev_049#hybrid",
+          "source_domain": "workplace-ops.synthetic.test",
+          "source_kind": "operations_report",
+          "coverage_facets": ["themes", "operations"],
+          "relevant_extract": "The report says hybrid policies are converging around anchor days, manager discretion, role-based exceptions, and clearer meeting norms. It warns that strict return-to-office mandates can affect retention when employees see no clear work reason for presence.",
+          "claim_hints": ["Hybrid policies often use anchor days and role-based exceptions.", "Return-to-office mandates can affect retention when poorly justified."]
+        },
+        {
+          "id": "perfect_ev_049_c",
+          "title": "Productivity evidence review",
+          "locator": "fixture://perfect_ev_049#productivity",
+          "source_domain": "labor-evidence.synthetic.test",
+          "source_kind": "research_review",
+          "coverage_facets": ["evidence quality", "productivity"],
+          "relevant_extract": "The review says stronger evidence comes from longitudinal employee data, attrition patterns, controlled productivity studies, and role-specific outcomes. It cautions that productivity results differ by role, task interdependence, management quality, and home working conditions.",
+          "claim_hints": ["Productivity evidence is role-dependent rather than universally pro-remote or anti-remote.", "Longitudinal and role-specific data is stronger than anecdotes."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_050_disaster_donation_options",
+      "source_prompt_id": "research_pool_120_disaster_donation_options",
+      "category": "general_other",
+      "tags": ["recommendation", "specificity", "practical"],
+      "prompt": "After a major disaster, how should I choose between donating to local mutual aid, national nonprofits, and direct cash campaigns?",
+      "required_entities": ["local mutual aid", "national nonprofits", "direct cash campaigns"],
+      "required_facets": ["tradeoffs", "fraud risk", "timing", "impact"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {
+          "id": "perfect_ev_050_a",
+          "title": "Disaster giving effectiveness guide",
+          "locator": "fixture://perfect_ev_050#effectiveness",
+          "source_domain": "disaster-giving.synthetic.test",
+          "source_kind": "charity_guide",
+          "coverage_facets": ["timing", "impact"],
+          "relevant_extract": "The guide says immediate relief often benefits from flexible cash to trusted local groups and established emergency responders. Longer-term recovery may require housing, legal aid, rebuilding, and mental-health support that continue after headline attention fades.",
+          "claim_hints": ["Immediate relief and long-term recovery can require different donation targets.", "Flexible cash is usually more useful than unsolicited goods."]
+        },
+        {
+          "id": "perfect_ev_050_b",
+          "title": "Mutual aid verification checklist",
+          "locator": "fixture://perfect_ev_050#mutual-aid",
+          "source_domain": "mutual-aid-practice.synthetic.test",
+          "source_kind": "verification_guide",
+          "coverage_facets": ["local mutual aid", "fraud risk"],
+          "relevant_extract": "The checklist says local mutual aid can move quickly and know neighborhood needs, but donors should verify organizers, payment links, recent activity, community ties, and transparency about use of funds. It warns that viral posts can be outdated or fraudulent.",
+          "claim_hints": ["Local mutual aid can be fast and context-aware.", "Verification matters for payment links and viral disaster posts."]
+        },
+        {
+          "id": "perfect_ev_050_c",
+          "title": "Nonprofit and direct cash comparison",
+          "locator": "fixture://perfect_ev_050#comparison",
+          "source_domain": "giving-analysis.synthetic.test",
+          "source_kind": "comparative_analysis",
+          "coverage_facets": ["national nonprofits", "direct cash campaigns"],
+          "relevant_extract": "The comparison says national nonprofits can provide scale, logistics, compliance, and continuity, while direct cash campaigns can meet urgent household needs but vary in verification and distribution fairness. It recommends splitting donations when the donor lacks strong local knowledge.",
+          "claim_hints": ["National nonprofits offer scale and continuity.", "Direct cash campaigns can help quickly but need verification."]
+        }
+      ]
+    },
+    {
+      "id": "perfect_ev_051_llm_serving_stack",
+      "source_prompt_id": "research_pool_121_llm_serving_stack",
+      "category": "software_technical",
+      "tags": ["comparison", "infrastructure", "specificity"],
+      "prompt": "Compare vLLM, Hugging Face TGI, Ollama, and llama.cpp for serving open-weight LLMs. Which belongs in a production shortlist?",
+      "required_entities": ["vLLM", "TGI", "Ollama", "llama.cpp"],
+      "required_facets": ["production", "local use", "throughput", "operations"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_051_a","title":"Open model serving benchmark","locator":"fixture://perfect_ev_051#benchmark","source_domain":"llm-serving.synthetic.test","source_kind":"benchmark_report","coverage_facets":["throughput","production"],"relevant_extract":"The benchmark names vLLM as strongest for high-throughput production serving because of batching and memory-management behavior, while Hugging Face TGI is a strong managed-style inference server when teams value a mature containerized deployment path and ecosystem support.","claim_hints":["vLLM is the high-throughput production shortlist option.","Hugging Face TGI is strong for containerized production inference."]},
+        {"id":"perfect_ev_051_b","title":"Local inference operations memo","locator":"fixture://perfect_ev_051#local","source_domain":"local-ai.synthetic.test","source_kind":"operations_report","coverage_facets":["local use","developer experience"],"relevant_extract":"The memo says Ollama is best treated as a developer and local-prototype runtime with simple model management, while llama.cpp is a lower-level portable runtime useful for constrained environments, quantized models, and embedding LLM execution into custom applications.","claim_hints":["Ollama fits local development and prototype serving.","llama.cpp fits portable and constrained local inference."]},
+        {"id":"perfect_ev_051_c","title":"Production serving decision guide","locator":"fixture://perfect_ev_051#decision","source_domain":"inference-architecture.synthetic.test","source_kind":"implementation_guide","coverage_facets":["operations","shortlist"],"relevant_extract":"The guide recommends shortlisting vLLM or TGI for production API serving, Ollama for local developer workflows, and llama.cpp for edge or embedded use. It warns not to choose based only on a single tokens-per-second benchmark without testing model size, concurrency, hardware, and observability.","claim_hints":["The production shortlist should prioritize vLLM and TGI.","Model size, concurrency, hardware, and observability affect the serving choice."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_052_agent_observability_tools",
+      "source_prompt_id": "research_pool_122_agent_observability_tools",
+      "category": "software_technical",
+      "tags": ["comparison", "observability", "specificity"],
+      "prompt": "Research agent observability tools. Compare OpenTelemetry, LangSmith, Arize Phoenix, and Helicone for tracing AI agent behavior.",
+      "required_entities": ["OpenTelemetry", "LangSmith", "Arize Phoenix", "Helicone"],
+      "required_facets": ["tracing", "evals", "LLM gateway", "open source"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_052_a","title":"Agent trace architecture guide","locator":"fixture://perfect_ev_052#trace","source_domain":"agent-observability.synthetic.test","source_kind":"technical_guide","coverage_facets":["tracing","standards"],"relevant_extract":"The guide treats OpenTelemetry as the vendor-neutral foundation for spans, attributes, and distributed tracing, but says teams still need LLM-specific fields for prompts, tool calls, token usage, evaluations, and retrieved evidence if they want useful agent debugging.","claim_hints":["OpenTelemetry is the neutral tracing foundation.","Agent tracing needs LLM-specific fields beyond generic spans."]},
+        {"id":"perfect_ev_052_b","title":"LLM observability product comparison","locator":"fixture://perfect_ev_052#products","source_domain":"llm-obs.synthetic.test","source_kind":"product_comparison","coverage_facets":["evals","LLM tooling"],"relevant_extract":"The comparison says LangSmith is strongest when teams already use LangChain-style traces and want hosted eval workflows, while Arize Phoenix is attractive for open-source tracing, retrieval analysis, and experiment inspection. Both are more LLM-aware than generic tracing alone.","claim_hints":["LangSmith fits LangChain-centered traces and hosted eval workflows.","Arize Phoenix fits open-source tracing and retrieval analysis."]},
+        {"id":"perfect_ev_052_c","title":"Gateway logging operations note","locator":"fixture://perfect_ev_052#gateway","source_domain":"llm-gateway.synthetic.test","source_kind":"operations_report","coverage_facets":["LLM gateway","cost monitoring"],"relevant_extract":"The operations note says Helicone is strongest as an LLM gateway and request logging layer for cost, latency, caching, and provider behavior. It recommends combining gateway telemetry with deeper span traces when debugging multi-step agents rather than treating one tool as the entire observability stack.","claim_hints":["Helicone fits gateway logging, cost, and latency visibility.","Multi-step agents may need both gateway telemetry and span traces."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_053_rag_eval_tools",
+      "source_prompt_id": "research_pool_123_rag_eval_tools",
+      "category": "software_technical",
+      "tags": ["evals", "comparison", "specificity"],
+      "prompt": "Compare Ragas, TruLens, DeepEval, and promptfoo for evaluating RAG quality. Which should a small team try first?",
+      "required_entities": ["Ragas", "TruLens", "DeepEval", "promptfoo"],
+      "required_facets": ["RAG", "small team", "CI", "faithfulness"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_053_a","title":"RAG evaluation framework guide","locator":"fixture://perfect_ev_053#frameworks","source_domain":"rag-evals.synthetic.test","source_kind":"technical_comparison","coverage_facets":["RAG","faithfulness"],"relevant_extract":"The guide says Ragas is focused on RAG-specific metrics such as faithfulness, answer relevancy, context precision, and context recall, while TruLens emphasizes instrumentation, feedback functions, and tracing evaluation signals through application runs.","claim_hints":["Ragas fits RAG-specific metric experiments.","TruLens fits instrumented feedback and trace-linked evaluation."]},
+        {"id":"perfect_ev_053_b","title":"LLM test automation report","locator":"fixture://perfect_ev_053#automation","source_domain":"llm-testing.synthetic.test","source_kind":"implementation_guide","coverage_facets":["CI","developer experience"],"relevant_extract":"The report says DeepEval is useful for Python teams that want test-like LLM evaluation assertions, while promptfoo is strong for prompt regression testing, provider comparisons, and CI-friendly tabular eval cases. Both can be easier for small teams than a complex observability rollout.","claim_hints":["DeepEval fits Python test-style LLM assertions.","promptfoo fits CI-friendly prompt and provider regression tests."]},
+        {"id":"perfect_ev_053_c","title":"Small team RAG eval adoption memo","locator":"fixture://perfect_ev_053#adoption","source_domain":"rag-adoption.synthetic.test","source_kind":"operations_report","coverage_facets":["small team","shortlist"],"relevant_extract":"The memo recommends promptfoo first when the team needs quick regression coverage, Ragas first when RAG retrieval quality is the main unknown, TruLens when tracing and feedback instrumentation are already a priority, and DeepEval when developers want evals to feel like unit tests.","claim_hints":["Small teams should pick the eval tool based on the first bottleneck.","promptfoo and Ragas are likely first trials for many small RAG teams."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_054_mcp_security_practices",
+      "source_prompt_id": "research_pool_124_mcp_security_practices",
+      "category": "software_technical",
+      "tags": ["security", "agent_tools", "specificity"],
+      "prompt": "Research MCP server security practices for agent tools. What concrete controls should an engineering team require before enabling file, GitHub, Slack, or database tools?",
+      "required_entities": ["MCP", "GitHub", "Slack", "database"],
+      "required_facets": ["permissions", "audit logs", "secrets", "tool scope"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_054_a","title":"MCP tool permission checklist","locator":"fixture://perfect_ev_054#permissions","source_domain":"mcp-security.synthetic.test","source_kind":"security_checklist","coverage_facets":["permissions","tool scope"],"relevant_extract":"The checklist requires least-privilege tool scopes, explicit allowlists for file paths and repositories, per-tool read/write separation, and human confirmation for destructive GitHub, Slack, database, or filesystem operations. It warns against giving agents broad ambient credentials.","claim_hints":["Least-privilege scopes and allowlists are core MCP controls.","Destructive tool actions should require confirmation."]},
+        {"id":"perfect_ev_054_b","title":"Agent secret handling memo","locator":"fixture://perfect_ev_054#secrets","source_domain":"agent-secrets.synthetic.test","source_kind":"security_memo","coverage_facets":["secrets","credentials"],"relevant_extract":"The memo says MCP servers should never expose raw secrets to model context, should use short-lived credentials where possible, should redact tokens from traces, and should store user-provided API keys in a local encrypted vault or managed secret store rather than repo files.","claim_hints":["MCP servers should not expose raw secrets to model context.","API keys belong in encrypted local vaults or managed secret stores."]},
+        {"id":"perfect_ev_054_c","title":"Agent auditability operations guide","locator":"fixture://perfect_ev_054#audit","source_domain":"agent-audit.synthetic.test","source_kind":"operations_guide","coverage_facets":["audit logs","database tools"],"relevant_extract":"The guide recommends immutable audit logs for tool calls, input summaries, outputs, approval decisions, and affected resources. For database tools, it recommends read-only defaults, query limits, schema allowlists, and separate approval for mutation or export operations.","claim_hints":["Audit logs should preserve tool calls and approval decisions.","Database tools should default to read-only with query and schema limits."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_055_private_local_ai_stack",
+      "source_prompt_id": "research_pool_125_private_local_ai_stack",
+      "category": "software_technical",
+      "tags": ["privacy", "local_ai", "specificity"],
+      "prompt": "Research a privacy-preserving local AI stack for a small office. Compare Ollama, LM Studio, Jan, and llama.cpp.",
+      "required_entities": ["Ollama", "LM Studio", "Jan", "llama.cpp"],
+      "required_facets": ["privacy", "local deployment", "ease of use", "technical control"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_055_a","title":"Local AI office deployment guide","locator":"fixture://perfect_ev_055#office","source_domain":"local-office-ai.synthetic.test","source_kind":"deployment_guide","coverage_facets":["local deployment","ease of use"],"relevant_extract":"The guide says Ollama is strong for developer-friendly local model serving and scripting, LM Studio is strong for graphical model discovery and non-developer testing, and Jan is useful for a desktop-first private assistant workflow. All still require policy around data handling.","claim_hints":["Ollama fits developer-friendly local model serving.","LM Studio and Jan fit more desktop-oriented local workflows."]},
+        {"id":"perfect_ev_055_b","title":"Low-level inference control memo","locator":"fixture://perfect_ev_055#llamacpp","source_domain":"local-inference.synthetic.test","source_kind":"technical_memo","coverage_facets":["technical control","performance"],"relevant_extract":"The memo says llama.cpp gives the most low-level control over quantization, embedding, CPU and GPU behavior, and custom integration, but it asks more engineering effort than packaged desktop tools. It is best when portability and tight control matter more than ease of onboarding.","claim_hints":["llama.cpp fits technical control and custom integration.","Packaged tools are easier for small-office onboarding."]},
+        {"id":"perfect_ev_055_c","title":"Private AI governance checklist","locator":"fixture://perfect_ev_055#governance","source_domain":"private-ai-governance.synthetic.test","source_kind":"governance_checklist","coverage_facets":["privacy","operations"],"relevant_extract":"The checklist says local inference helps reduce external data exposure, but privacy still depends on model-source review, device access controls, logging policy, document permissions, backups, and whether any plugins or update channels send metadata externally.","claim_hints":["Local inference is not a complete privacy policy by itself.","Access controls, logging, plugins, and updates still matter."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_056_quantum_progress_named",
+      "source_prompt_id": "research_pool_126_quantum_progress_named",
+      "category": "science_academic",
+      "tags": ["science", "specificity", "landscape"],
+      "prompt": "Give me named examples of current quantum computing progress and separate useful milestones from hype.",
+      "required_entities": ["quantum computing"],
+      "required_facets": ["named examples", "milestones", "hype"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_056_a","title":"Quantum hardware progress digest","locator":"fixture://perfect_ev_056#hardware","source_domain":"quantum-digest.synthetic.test","source_kind":"research_digest","coverage_facets":["named examples","hardware"],"relevant_extract":"The digest names IBM Heron processor scaling, Quantinuum H-Series trapped-ion fidelity work, and IonQ Forte system improvements as useful hardware milestones. It says these are progress markers, not proof that broad fault-tolerant quantum computing is commercially solved.","claim_hints":["IBM Heron, Quantinuum H-Series, and IonQ Forte are named progress examples.","Hardware progress should not be described as broad fault tolerance."]},
+        {"id":"perfect_ev_056_b","title":"Quantum error correction review","locator":"fixture://perfect_ev_056#error-correction","source_domain":"quantum-review.synthetic.test","source_kind":"review_article","coverage_facets":["error correction","milestones"],"relevant_extract":"The review says useful milestones include lower logical error rates, repeated syndrome extraction, and better qubit control, but warns that demonstrations with small logical qubit counts still leave major scaling, overhead, and manufacturing problems unresolved.","claim_hints":["Logical error-rate work is a real milestone.","Small error-correction demos should be framed with scaling caveats."]},
+        {"id":"perfect_ev_056_c","title":"Quantum hype audit","locator":"fixture://perfect_ev_056#hype","source_domain":"science-hype-audit.synthetic.test","source_kind":"verification_guide","coverage_facets":["hype","uncertainty"],"relevant_extract":"The audit says hype usually appears when press coverage equates more physical qubits with immediate business advantage, ignores error correction overhead, or implies current machines can routinely solve valuable optimization and chemistry problems better than classical alternatives.","claim_hints":["More physical qubits alone should not be treated as practical advantage.","Commercial quantum claims need benchmark and error-correction context."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_057_battery_technology_shortlist",
+      "source_prompt_id": "research_pool_127_battery_technology_shortlist",
+      "category": "science_academic",
+      "tags": ["science", "energy", "specificity"],
+      "prompt": "Research promising battery technologies. Compare solid-state, sodium-ion, and LFP improvements for near-term impact.",
+      "required_entities": ["solid-state", "sodium-ion", "LFP"],
+      "required_facets": ["near-term impact", "manufacturing", "cost", "performance"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_057_a","title":"Battery commercialization review","locator":"fixture://perfect_ev_057#commercialization","source_domain":"battery-review.synthetic.test","source_kind":"review_article","coverage_facets":["manufacturing","near-term impact"],"relevant_extract":"The review says LFP improvements have the clearest near-term impact because they build on existing manufacturing, cost advantages, and durability. Solid-state batteries remain promising for safety and energy density but face scale-up, interface, and yield challenges.","claim_hints":["LFP improvements are the clearest near-term battery impact.","Solid-state batteries remain promising but manufacturing-constrained."]},
+        {"id":"perfect_ev_057_b","title":"Sodium-ion market readiness memo","locator":"fixture://perfect_ev_057#sodium","source_domain":"battery-market.synthetic.test","source_kind":"market_analysis","coverage_facets":["sodium-ion","cost"],"relevant_extract":"The memo says sodium-ion is promising where cost, supply-chain resilience, and stationary storage matter more than maximum energy density. It is less likely to replace high-range EV cells immediately but can matter in low-cost vehicles and grid-adjacent applications.","claim_hints":["Sodium-ion is promising for cost and supply-chain resilience.","Sodium-ion is less suitable for maximum-range EV use right away."]},
+        {"id":"perfect_ev_057_c","title":"Battery claims verification checklist","locator":"fixture://perfect_ev_057#verification","source_domain":"battery-verification.synthetic.test","source_kind":"verification_guide","coverage_facets":["evidence quality"],"relevant_extract":"The checklist says battery claims should be judged by cycle life, temperature behavior, safety, manufacturability, yield, pack integration, and real customer validation. It warns that a lab energy-density record is not the same as a near-term commercial product.","claim_hints":["Battery claims need manufacturability and customer validation evidence.","Lab energy-density records should not be overread as products."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_058_fusion_progress_named",
+      "source_prompt_id": "research_pool_128_fusion_progress_named",
+      "category": "science_academic",
+      "tags": ["science", "energy", "specificity"],
+      "prompt": "What are the most meaningful named fusion energy milestones lately, and what is still blocking practical power plants?",
+      "required_entities": ["fusion energy"],
+      "required_facets": ["named milestones", "power plants", "barriers"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_058_a","title":"Fusion milestone digest","locator":"fixture://perfect_ev_058#milestones","source_domain":"fusion-digest.synthetic.test","source_kind":"research_digest","coverage_facets":["named milestones"],"relevant_extract":"The digest identifies the National Ignition Facility ignition shots, Commonwealth Fusion Systems SPARC magnet progress, and ITER assembly work as meaningful named milestones. It cautions that none of these alone demonstrates an economical grid power plant.","claim_hints":["NIF ignition shots, SPARC magnet progress, and ITER assembly are named fusion milestones.","Milestones should not be described as practical grid power by themselves."]},
+        {"id":"perfect_ev_058_b","title":"Fusion engineering barrier review","locator":"fixture://perfect_ev_058#barriers","source_domain":"fusion-engineering.synthetic.test","source_kind":"engineering_review","coverage_facets":["barriers","power plants"],"relevant_extract":"The review says practical fusion plants still require durable first-wall materials, tritium breeding, heat extraction, high availability, maintainable reactor components, regulatory pathways, and economics that can compete with other clean power sources.","claim_hints":["Fusion power plant barriers include materials, tritium, heat extraction, and economics.","High availability and maintainability are central engineering hurdles."]},
+        {"id":"perfect_ev_058_c","title":"Fusion investment hype audit","locator":"fixture://perfect_ev_058#hype","source_domain":"energy-hype-audit.synthetic.test","source_kind":"market_analysis","coverage_facets":["hype","uncertainty"],"relevant_extract":"The audit says private investment and magnet progress are important but should be separated from claims about delivery dates. It recommends distinguishing physics gain, engineering gain, net electricity, and commercial reliability in any public summary.","claim_hints":["Fusion summaries should distinguish physics gain from net electricity.","Investment momentum should not be treated as a delivery-date guarantee."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_059_alzheimers_research_update",
+      "source_prompt_id": "research_pool_129_alzheimers_research_update",
+      "category": "science_academic",
+      "tags": ["health_science", "specificity", "careful"],
+      "prompt": "Research Alzheimer's disease progress. Compare lecanemab, donanemab, and blood biomarkers with realistic caveats.",
+      "required_entities": ["lecanemab", "donanemab", "blood biomarkers"],
+      "required_facets": ["benefits", "risks", "diagnostics", "caveats"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_059_a","title":"Alzheimer treatment evidence review","locator":"fixture://perfect_ev_059#treatments","source_domain":"alzheimers-review.synthetic.test","source_kind":"clinical_review","coverage_facets":["benefits","risks"],"relevant_extract":"The review says lecanemab and donanemab show disease-slowing effects in selected early Alzheimer's populations, but the benefits are modest and require discussion of infusion burden, monitoring, amyloid-related imaging abnormalities, and patient eligibility.","claim_hints":["Lecanemab and donanemab show modest slowing in selected early Alzheimer's patients.","Treatment discussion must include ARIA monitoring and eligibility."]},
+        {"id":"perfect_ev_059_b","title":"Alzheimer biomarker diagnostics memo","locator":"fixture://perfect_ev_059#biomarkers","source_domain":"neuro-biomarkers.synthetic.test","source_kind":"diagnostics_report","coverage_facets":["diagnostics","blood biomarkers"],"relevant_extract":"The memo says blood biomarkers are improving triage and diagnostic workflows, especially when used with clinical evaluation and confirmatory testing. It cautions that biomarker positives do not automatically answer whether a specific patient should receive an anti-amyloid therapy.","claim_hints":["Blood biomarkers can improve Alzheimer's diagnostic triage.","Biomarkers should be interpreted with clinical context and confirmatory pathways."]},
+        {"id":"perfect_ev_059_c","title":"Patient counseling evidence note","locator":"fixture://perfect_ev_059#counseling","source_domain":"patient-neurology.synthetic.test","source_kind":"patient_guide","coverage_facets":["caveats","patient questions"],"relevant_extract":"The note recommends asking clinicians about disease stage, expected benefit, MRI monitoring, bleeding risk, anticoagulant use, infusion logistics, caregiver support, and whether diagnostic confidence is high enough to justify treatment risks.","claim_hints":["Patient questions should include stage, benefit, MRI monitoring, and bleeding risk.","The answer should avoid implying these drugs are cures."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_060_climate_tipping_points",
+      "source_prompt_id": "research_pool_130_climate_tipping_points",
+      "category": "science_academic",
+      "tags": ["climate", "uncertainty", "specificity"],
+      "prompt": "Research climate tipping point evidence. Which named systems are most discussed, and how certain are the claims?",
+      "required_entities": ["climate tipping points"],
+      "required_facets": ["named systems", "uncertainty", "evidence strength"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_060_a","title":"Tipping systems assessment","locator":"fixture://perfect_ev_060#assessment","source_domain":"climate-assessment.synthetic.test","source_kind":"assessment_report","coverage_facets":["named systems","evidence strength"],"relevant_extract":"The assessment names the Atlantic Meridional Overturning Circulation, Greenland Ice Sheet, West Antarctic Ice Sheet, Amazon rainforest, and coral reef systems as heavily discussed tipping systems. It says evidence strength differs by system and by timescale.","claim_hints":["AMOC, Greenland, West Antarctica, Amazon, and coral reefs are named tipping systems.","Evidence strength should be separated by system and timescale."]},
+        {"id":"perfect_ev_060_b","title":"Climate uncertainty methods note","locator":"fixture://perfect_ev_060#uncertainty","source_domain":"climate-methods.synthetic.test","source_kind":"research_methods","coverage_facets":["uncertainty","models"],"relevant_extract":"The methods note says uncertainty comes from model structure, observational limits, feedback complexity, emissions pathways, and difficulty identifying thresholds before crossing them. It cautions against treating a single modeled year as a precise prediction.","claim_hints":["Tipping point timing is uncertain because thresholds are hard to observe directly.","Single-year tipping predictions should not be overread."]},
+        {"id":"perfect_ev_060_c","title":"Climate risk communication guide","locator":"fixture://perfect_ev_060#risk","source_domain":"climate-risk.synthetic.test","source_kind":"communication_guide","coverage_facets":["risk","communication"],"relevant_extract":"The guide recommends explaining tipping points as risk-management concerns rather than certain near-term catastrophes. It says the practical message is that low-probability high-impact risks still matter for policy, especially where irreversible ice loss or ecosystem collapse is possible.","claim_hints":["Tipping points should be framed as risk-management concerns.","Low-probability high-impact climate risks can still justify action."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_061_project_management_tools",
+      "source_prompt_id": "research_pool_131_project_management_tools",
+      "category": "business_market",
+      "tags": ["comparison", "buyer_decision", "specificity"],
+      "prompt": "Compare Linear, Jira, Asana, and monday.com for a growing software team. Which tool fits which operating style?",
+      "required_entities": ["Linear", "Jira", "Asana", "monday.com"],
+      "required_facets": ["software team", "roadmap", "process", "ease of use"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_061_a","title":"Software team workflow comparison","locator":"fixture://perfect_ev_061#software","source_domain":"worktools.synthetic.test","source_kind":"product_comparison","coverage_facets":["software team","process"],"relevant_extract":"The comparison says Linear fits product-engineering teams that want fast issue flow, keyboard-driven triage, and lightweight product cycles. Jira fits larger teams that need configurable workflows, permissions, reporting, and process standardization across many squads.","claim_hints":["Linear fits fast product-engineering issue flow.","Jira fits larger configurable software processes."]},
+        {"id":"perfect_ev_061_b","title":"Cross-functional project tool report","locator":"fixture://perfect_ev_061#crossfunctional","source_domain":"team-ops.synthetic.test","source_kind":"market_analysis","coverage_facets":["roadmap","ease of use"],"relevant_extract":"The report says Asana is strongest for cross-functional project plans, goals, and non-engineering visibility, while monday.com is flexible for operations teams that want configurable boards and dashboards. Both can be friendlier to non-engineering stakeholders than issue trackers.","claim_hints":["Asana fits cross-functional planning and goals.","monday.com fits configurable operations dashboards."]},
+        {"id":"perfect_ev_061_c","title":"Tool adoption risk memo","locator":"fixture://perfect_ev_061#adoption","source_domain":"tool-adoption.synthetic.test","source_kind":"operations_report","coverage_facets":["adoption","risk"],"relevant_extract":"The memo says teams should choose based on workflow shape, not feature count: Linear for speed, Jira for governance, Asana for coordination, and monday.com for flexible operations. It warns that migrating without process cleanup recreates old confusion in a new tool.","claim_hints":["The answer should map each tool to operating style.","Process cleanup matters more than feature count during migration."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_062_ecommerce_platforms",
+      "source_prompt_id": "research_pool_132_ecommerce_platforms",
+      "category": "business_market",
+      "tags": ["comparison", "commerce", "specificity"],
+      "prompt": "Compare Shopify, WooCommerce, and BigCommerce for a small brand that wants ecommerce without a large dev team.",
+      "required_entities": ["Shopify", "WooCommerce", "BigCommerce"],
+      "required_facets": ["small brand", "developer effort", "apps", "ownership"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_062_a","title":"Small brand ecommerce benchmark","locator":"fixture://perfect_ev_062#benchmark","source_domain":"commerce-benchmark.synthetic.test","source_kind":"market_analysis","coverage_facets":["small brand","apps"],"relevant_extract":"The benchmark says Shopify is usually the fastest path for a small brand without a large dev team because hosting, checkout, themes, apps, and operations are bundled. The tradeoff is platform dependency, app costs, and constraints around deeper customization.","claim_hints":["Shopify is the fastest low-dev ecommerce path for many small brands.","Shopify tradeoffs include platform dependency and app costs."]},
+        {"id":"perfect_ev_062_b","title":"Open-source commerce ownership guide","locator":"fixture://perfect_ev_062#woocommerce","source_domain":"commerce-ownership.synthetic.test","source_kind":"implementation_guide","coverage_facets":["ownership","developer effort"],"relevant_extract":"The guide says WooCommerce gives more ownership and WordPress ecosystem flexibility but requires more responsibility for hosting, security, performance, plugin conflicts, and maintenance. It is best when the brand already has WordPress expertise or values control over convenience.","claim_hints":["WooCommerce offers more ownership but more maintenance burden.","WooCommerce fits teams with WordPress capability or control requirements."]},
+        {"id":"perfect_ev_062_c","title":"Midmarket commerce comparison","locator":"fixture://perfect_ev_062#bigcommerce","source_domain":"commerce-platforms.synthetic.test","source_kind":"product_comparison","coverage_facets":["scale","catalog"],"relevant_extract":"The comparison says BigCommerce is attractive when a brand wants SaaS hosting plus stronger built-in catalog, B2B, or multi-channel features than a simple store needs. It may be heavier than necessary for a first store but useful when complexity is foreseeable.","claim_hints":["BigCommerce fits catalog or B2B complexity better than a very simple first store.","The answer should separate quick launch from future complexity."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_063_cloud_data_warehouse_choice",
+      "source_prompt_id": "research_pool_133_cloud_data_warehouse_choice",
+      "category": "business_market",
+      "tags": ["data", "comparison", "specificity"],
+      "prompt": "Compare Snowflake, BigQuery, Databricks, and Redshift for a mid-size analytics team. What should drive the decision?",
+      "required_entities": ["Snowflake", "BigQuery", "Databricks", "Redshift"],
+      "required_facets": ["analytics", "lakehouse", "cost", "ecosystem"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_063_a","title":"Cloud warehouse decision report","locator":"fixture://perfect_ev_063#warehouse","source_domain":"data-platforms.synthetic.test","source_kind":"market_analysis","coverage_facets":["analytics","cost"],"relevant_extract":"The report says Snowflake is strong for cross-cloud warehouse workloads, separation of storage and compute, data sharing, and broad BI patterns. BigQuery is strongest when the organization is already deep in Google Cloud and wants serverless analytics with tight GCP integration.","claim_hints":["Snowflake fits cross-cloud warehouse and BI workloads.","BigQuery fits GCP-centered serverless analytics."]},
+        {"id":"perfect_ev_063_b","title":"Lakehouse architecture comparison","locator":"fixture://perfect_ev_063#lakehouse","source_domain":"lakehouse-analysis.synthetic.test","source_kind":"technical_comparison","coverage_facets":["lakehouse","ML"],"relevant_extract":"The comparison says Databricks is strongest when lakehouse architecture, Spark workloads, notebooks, machine learning, and data engineering pipelines are central. It is less obviously the default when the team mainly wants conventional BI dashboards over curated tables.","claim_hints":["Databricks fits lakehouse, Spark, and ML-centered teams.","Conventional BI-only teams may not need Databricks complexity."]},
+        {"id":"perfect_ev_063_c","title":"AWS analytics operations note","locator":"fixture://perfect_ev_063#redshift","source_domain":"aws-analytics.synthetic.test","source_kind":"operations_report","coverage_facets":["ecosystem","operations"],"relevant_extract":"The note says Redshift remains relevant for AWS-centered teams, existing Redshift investments, and workloads integrated with AWS data services. The decision should include workload shape, governance, existing cloud commitments, cost controls, and team skills rather than abstract platform ranking.","claim_hints":["Redshift fits AWS-centered analytics environments.","The decision should consider cloud ecosystem, workload shape, cost controls, and team skills."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_064_customer_support_ai",
+      "source_prompt_id": "research_pool_134_customer_support_ai",
+      "category": "business_market",
+      "tags": ["ai", "customer_support", "comparison"],
+      "prompt": "Research AI customer support platforms. Compare Intercom Fin, Zendesk AI, Ada, and Gorgias for different support teams.",
+      "required_entities": ["Intercom Fin", "Zendesk AI", "Ada", "Gorgias"],
+      "required_facets": ["support teams", "automation", "ecommerce", "existing stack"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_064_a","title":"Support automation buyer guide","locator":"fixture://perfect_ev_064#buyer-guide","source_domain":"support-ai.synthetic.test","source_kind":"buyer_guide","coverage_facets":["automation","existing stack"],"relevant_extract":"The guide says Intercom Fin is strongest for teams already using Intercom and wanting AI answers tightly integrated with Intercom conversations, while Zendesk AI is strongest for larger teams already standardized on Zendesk ticketing, knowledge base, routing, and reporting.","claim_hints":["Intercom Fin fits Intercom-native support teams.","Zendesk AI fits larger Zendesk-standardized operations."]},
+        {"id":"perfect_ev_064_b","title":"AI support deflection analysis","locator":"fixture://perfect_ev_064#deflection","source_domain":"ai-support-ops.synthetic.test","source_kind":"operations_report","coverage_facets":["automation","risk"],"relevant_extract":"The analysis says Ada is attractive for teams that want a more standalone automation layer with configurable flows and multilingual support. It warns that deflection metrics should be balanced against escalation quality, hallucination controls, and knowledge-base maintenance.","claim_hints":["Ada fits standalone configurable support automation.","Deflection should be balanced against escalation quality and hallucination controls."]},
+        {"id":"perfect_ev_064_c","title":"Ecommerce helpdesk comparison","locator":"fixture://perfect_ev_064#ecommerce","source_domain":"ecommerce-support.synthetic.test","source_kind":"product_comparison","coverage_facets":["ecommerce","support teams"],"relevant_extract":"The comparison says Gorgias is strongest for ecommerce brands that need Shopify-centered customer context, order actions, and commerce support workflows. It is less central for non-commerce software teams than Intercom, Zendesk, or Ada.","claim_hints":["Gorgias fits ecommerce support teams, especially Shopify-centered brands.","The shortlist should follow existing support stack and business model."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_065_hr_payroll_tools",
+      "source_prompt_id": "research_pool_135_hr_payroll_tools",
+      "category": "business_market",
+      "tags": ["comparison", "hr", "specificity"],
+      "prompt": "Compare Gusto, Rippling, Deel, and ADP for payroll and HR at a 40-person company with some international contractors.",
+      "required_entities": ["Gusto", "Rippling", "Deel", "ADP"],
+      "required_facets": ["payroll", "HR", "international contractors", "company size"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_065_a","title":"Small company payroll comparison","locator":"fixture://perfect_ev_065#small-company","source_domain":"payroll-tools.synthetic.test","source_kind":"buyer_guide","coverage_facets":["payroll","company size"],"relevant_extract":"The guide says Gusto is often a practical default for smaller US-centered companies that need payroll, benefits basics, and straightforward HR administration. It is less ideal when device management, identity workflows, or complex global operations are central.","claim_hints":["Gusto fits smaller US-centered payroll and benefits needs.","Gusto is less suited to complex global or IT-centered workflows."]},
+        {"id":"perfect_ev_065_b","title":"HRIS and IT operations report","locator":"fixture://perfect_ev_065#rippling","source_domain":"hris-ops.synthetic.test","source_kind":"operations_report","coverage_facets":["HR","IT operations"],"relevant_extract":"The report says Rippling is strongest when HR, payroll, identity, device management, and app provisioning should operate together. It can be powerful for a growing 40-person company but requires disciplined setup to avoid overcomplicated workflows.","claim_hints":["Rippling fits HR plus IT operations integration.","Setup discipline matters when adopting Rippling."]},
+        {"id":"perfect_ev_065_c","title":"Global payroll contractor memo","locator":"fixture://perfect_ev_065#global","source_domain":"global-payroll.synthetic.test","source_kind":"comparative_analysis","coverage_facets":["international contractors","enterprise"],"relevant_extract":"The memo says Deel is strongest for international contractors, employer-of-record workflows, and global compliance, while ADP remains relevant for more traditional payroll, larger employer complexity, and mature compliance operations. The choice depends on contractor geography and HR operating model.","claim_hints":["Deel fits international contractor and EOR needs.","ADP fits traditional payroll and larger compliance operations."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_066_eu_digital_regulations",
+      "source_prompt_id": "research_pool_136_eu_digital_regulations",
+      "category": "policy_legal_civic",
+      "tags": ["policy", "specificity", "compliance"],
+      "prompt": "Research EU digital regulations a software company should watch. Compare the AI Act, DSA, DMA, and Data Act in practical terms.",
+      "required_entities": ["AI Act", "DSA", "DMA", "Data Act"],
+      "required_facets": ["software company", "scope", "obligations", "practical impact"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_066_a","title":"EU digital rules scope map","locator":"fixture://perfect_ev_066#scope","source_domain":"eu-digital-policy.synthetic.test","source_kind":"legal_analysis","coverage_facets":["scope","obligations"],"relevant_extract":"The scope map says the EU AI Act targets AI-system risk classification and general-purpose AI duties, the DSA targets online intermediary and platform responsibilities, the DMA targets gatekeeper platforms, and the Data Act targets data access, sharing, and switching obligations.","claim_hints":["The AI Act, DSA, DMA, and Data Act regulate different software-company risks.","The answer should separate AI risk, platform duties, gatekeepers, and data access."]},
+        {"id":"perfect_ev_066_b","title":"Software compliance operations memo","locator":"fixture://perfect_ev_066#operations","source_domain":"software-compliance.synthetic.test","source_kind":"implementation_guide","coverage_facets":["practical impact"],"relevant_extract":"The memo says ordinary SaaS companies are most likely to need AI Act role and risk classification, DSA notice or content processes if they host user content, and Data Act review if connected-product or data-sharing obligations apply. DMA is usually relevant only indirectly unless the company is a gatekeeper.","claim_hints":["SaaS companies should first classify AI Act role and risk.","DMA is usually indirect unless the company is a gatekeeper."]},
+        {"id":"perfect_ev_066_c","title":"EU implementation timeline note","locator":"fixture://perfect_ev_066#timeline","source_domain":"eu-timeline.synthetic.test","source_kind":"regulatory_tracker","coverage_facets":["timeline","monitoring"],"relevant_extract":"The tracker recommends mapping products to each regulation, assigning owners, tracking delegated guidance, and preserving evidence of design decisions. It warns that teams should not treat EU digital regulation as one compliance project because deadlines and scopes differ.","claim_hints":["EU digital compliance needs product mapping and assigned owners.","Different EU regulations have different scopes and timelines."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_067_kids_online_safety_rules",
+      "source_prompt_id": "research_pool_137_kids_online_safety_rules",
+      "category": "policy_legal_civic",
+      "tags": ["policy", "youth_safety", "specificity"],
+      "prompt": "Research online child safety regulation. Compare the UK Online Safety Act, EU DSA minors rules, and US state social media laws.",
+      "required_entities": ["UK Online Safety Act", "EU DSA", "US state social media laws"],
+      "required_facets": ["minors", "platform duties", "age assurance", "state laws"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_067_a","title":"Child safety platform duty comparison","locator":"fixture://perfect_ev_067#duties","source_domain":"child-safety-policy.synthetic.test","source_kind":"legal_analysis","coverage_facets":["platform duties","minors"],"relevant_extract":"The comparison says the UK Online Safety Act emphasizes platform risk assessments and duties around illegal and harmful content, while the EU DSA includes protections for minors, advertising limits, recommender transparency, and systemic-risk duties for very large platforms.","claim_hints":["The UK Online Safety Act emphasizes platform risk assessments and safety duties.","The EU DSA includes minors protections and platform transparency duties."]},
+        {"id":"perfect_ev_067_b","title":"US state youth social media tracker","locator":"fixture://perfect_ev_067#states","source_domain":"youth-tech-tracker.synthetic.test","source_kind":"legislative_tracker","coverage_facets":["state laws","age assurance"],"relevant_extract":"The tracker says US state social media laws vary widely, with themes around parental consent, age verification, default privacy settings, addictive-design claims, and youth mental health. It cautions that litigation and constitutional challenges can change enforceability quickly.","claim_hints":["US state youth social media laws vary and face litigation risk.","Themes include age verification, parental consent, privacy defaults, and design limits."]},
+        {"id":"perfect_ev_067_c","title":"Product compliance design memo","locator":"fixture://perfect_ev_067#design","source_domain":"youth-safety-design.synthetic.test","source_kind":"implementation_guide","coverage_facets":["product design","risk"],"relevant_extract":"The memo recommends building age-appropriate design reviews, advertising restrictions for minors, parental-control analysis, content reporting flows, and documentation of risk decisions. It warns against assuming one global minor-safety control will satisfy every jurisdiction.","claim_hints":["Teams should document age-appropriate design and risk decisions.","One global child-safety control may not satisfy all jurisdictions."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_068_data_residency_rules",
+      "source_prompt_id": "research_pool_138_data_residency_rules",
+      "category": "policy_legal_civic",
+      "tags": ["privacy", "international", "compliance"],
+      "prompt": "Research data residency and cross-border data transfer concerns for SaaS. Which jurisdictions should a startup monitor first?",
+      "required_entities": ["data residency", "SaaS"],
+      "required_facets": ["jurisdictions", "cross-border transfers", "startup monitoring"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_068_a","title":"Cross-border data transfer map","locator":"fixture://perfect_ev_068#map","source_domain":"data-transfer.synthetic.test","source_kind":"regulatory_tracker","coverage_facets":["jurisdictions","cross-border transfers"],"relevant_extract":"The map highlights the European Union for GDPR transfer mechanisms, China for PIPL and security assessments, India for DPDP implementation and sectoral rules, and Saudi Arabia for personal data transfer restrictions. It says monitoring should follow customer geography and data sensitivity.","claim_hints":["EU, China, India, and Saudi Arabia are priority data-transfer jurisdictions.","Customer geography and data sensitivity should drive monitoring."]},
+        {"id":"perfect_ev_068_b","title":"SaaS architecture compliance memo","locator":"fixture://perfect_ev_068#architecture","source_domain":"saas-compliance.synthetic.test","source_kind":"implementation_guide","coverage_facets":["SaaS","architecture"],"relevant_extract":"The memo says startups should inventory subprocessors, storage regions, support access, analytics pipelines, backups, logs, and AI-provider data flows. It warns that data residency promises fail if logs, support exports, or model telemetry leave the promised region.","claim_hints":["SaaS teams should inventory storage regions, subprocessors, logs, support, and AI flows.","Logs and support exports can break residency promises."]},
+        {"id":"perfect_ev_068_c","title":"Startup risk prioritization guide","locator":"fixture://perfect_ev_068#risk","source_domain":"startup-privacy.synthetic.test","source_kind":"risk_guide","coverage_facets":["startup monitoring","risk"],"relevant_extract":"The guide recommends starting with jurisdictions where the startup has customers, employees, regulated data, or enterprise procurement requirements. It says startups should avoid overbuilding global residency architecture before validating actual sales and contractual demand.","claim_hints":["Residency monitoring should follow customers, regulated data, and procurement needs.","Startups should avoid overbuilding before contractual demand exists."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_069_gig_worker_classification",
+      "source_prompt_id": "research_pool_139_gig_worker_classification",
+      "category": "policy_legal_civic",
+      "tags": ["labor", "policy", "specificity"],
+      "prompt": "Research gig worker classification debates. Compare California Prop 22, EU platform work rules, and New York City delivery-worker policy.",
+      "required_entities": ["California Prop 22", "EU platform work", "New York City"],
+      "required_facets": ["classification", "benefits", "minimum pay", "platforms"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_069_a","title":"Gig classification legal comparison","locator":"fixture://perfect_ev_069#classification","source_domain":"labor-policy.synthetic.test","source_kind":"legal_analysis","coverage_facets":["classification","benefits"],"relevant_extract":"The comparison says California Prop 22 created a special app-based driver framework that preserves contractor classification while adding limited benefits, while EU platform work rules focus on presumptions and transparency around algorithmic management. The frameworks reflect different compromises.","claim_hints":["California Prop 22 preserves contractor status with limited benefits.","EU platform work rules focus on classification presumptions and algorithmic management."]},
+        {"id":"perfect_ev_069_b","title":"Delivery worker pay policy note","locator":"fixture://perfect_ev_069#nyc","source_domain":"city-labor.synthetic.test","source_kind":"policy_report","coverage_facets":["minimum pay","New York City"],"relevant_extract":"The policy note says New York City delivery-worker policy is notable for minimum pay standards, app transparency, and local worker protections rather than a broad national classification settlement. It affects platform economics and worker earnings in a city-specific way.","claim_hints":["New York City delivery policy centers on minimum pay and local protections.","City policy can affect platform economics without settling national classification."]},
+        {"id":"perfect_ev_069_c","title":"Platform labor tradeoff memo","locator":"fixture://perfect_ev_069#tradeoffs","source_domain":"platform-labor.synthetic.test","source_kind":"comparative_analysis","coverage_facets":["platforms","tradeoffs"],"relevant_extract":"The memo says debates balance flexibility, predictable earnings, benefits, worker control, algorithmic transparency, and platform costs. It warns that labels like employee or contractor do not fully describe pay stability, scheduling control, or enforcement quality.","claim_hints":["Gig-work debates involve flexibility, pay stability, benefits, and algorithmic transparency.","Classification labels do not capture all worker outcomes."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_070_housing_zoning_reform",
+      "source_prompt_id": "research_pool_140_housing_zoning_reform",
+      "category": "policy_legal_civic",
+      "tags": ["housing", "policy", "specificity"],
+      "prompt": "Research housing zoning reform examples. Compare Minneapolis, Austin, California ADU reform, and Oregon middle-housing policy.",
+      "required_entities": ["Minneapolis", "Austin", "California", "Oregon"],
+      "required_facets": ["zoning", "housing supply", "ADU", "middle housing"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_070_a","title":"Zoning reform city comparison","locator":"fixture://perfect_ev_070#cities","source_domain":"housing-policy.synthetic.test","source_kind":"policy_analysis","coverage_facets":["zoning","housing supply"],"relevant_extract":"The comparison says Minneapolis is often cited for eliminating single-family-only zoning, while Austin is notable for minimum-lot-size and compatibility reforms intended to allow smaller homes and more infill. It says supply effects depend on permitting, financing, and local market conditions.","claim_hints":["Minneapolis and Austin are named zoning reform examples.","Zoning changes need permitting and market conditions to affect supply."]},
+        {"id":"perfect_ev_070_b","title":"ADU and middle housing reform report","locator":"fixture://perfect_ev_070#adu-middle","source_domain":"adu-policy.synthetic.test","source_kind":"policy_report","coverage_facets":["ADU","middle housing"],"relevant_extract":"The report says California ADU reform is a major example of state preemption enabling accessory dwelling units, while Oregon middle-housing policy requires many cities to allow duplexes and other missing-middle forms. Implementation still depends on fees, design rules, and local capacity.","claim_hints":["California ADU reform and Oregon middle-housing policy are named examples.","Fees and local implementation can limit reform impact."]},
+        {"id":"perfect_ev_070_c","title":"Housing reform evidence review","locator":"fixture://perfect_ev_070#evidence","source_domain":"housing-evidence.synthetic.test","source_kind":"research_review","coverage_facets":["evidence quality","tradeoffs"],"relevant_extract":"The review says useful evaluation should track permits, completions, rent pressure, neighborhood distribution, displacement risk, and infrastructure capacity. It warns that reform announcements are weaker evidence than completed units and affordability outcomes over time.","claim_hints":["Housing reform evidence should track permits, completions, rents, and distribution.","Announcements are weaker evidence than completed housing outcomes."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_071_running_shoe_shortlist",
+      "source_prompt_id": "research_pool_141_running_shoe_shortlist",
+      "category": "consumer_product",
+      "tags": ["consumer", "specificity", "shortlist"],
+      "prompt": "Research daily running shoes for beginners. Give me named models for neutral cushioning, stability, and budget value.",
+      "required_entities": ["running shoes"],
+      "required_facets": ["neutral cushioning", "stability", "budget value", "model names"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_071_a","title":"Beginner running shoe lab guide","locator":"fixture://perfect_ev_071#lab","source_domain":"running-lab.synthetic.test","source_kind":"hands_on_testing","coverage_facets":["neutral cushioning","model names"],"relevant_extract":"The lab guide names the Brooks Ghost 16 and ASICS Gel-Cumulus 26 as safe neutral-cushioning choices for many beginners. It says both prioritize comfort, predictable ride, and durability rather than racing performance or aggressive geometry.","claim_hints":["Brooks Ghost 16 and ASICS Gel-Cumulus 26 are neutral beginner options.","Neutral daily trainers should prioritize comfort and durability."]},
+        {"id":"perfect_ev_071_b","title":"Stability shoe comparison","locator":"fixture://perfect_ev_071#stability","source_domain":"shoe-stability.synthetic.test","source_kind":"product_comparison","coverage_facets":["stability","fit"],"relevant_extract":"The comparison names the Brooks Adrenaline GTS 23 and ASICS GT-2000 12 as stability options for runners who want guidance without an extreme motion-control feel. It recommends gait or comfort checks before assuming a stability shoe is necessary.","claim_hints":["Brooks Adrenaline GTS 23 and ASICS GT-2000 12 are stability options.","Stability shoes should be chosen by comfort and need, not assumption."]},
+        {"id":"perfect_ev_071_c","title":"Budget trainer owner survey","locator":"fixture://perfect_ev_071#budget","source_domain":"runner-survey.synthetic.test","source_kind":"user_survey","coverage_facets":["budget value","caveats"],"relevant_extract":"The survey names the Saucony Axon 3 and Nike Winflo 11 as budget-value candidates, with the caveat that fit, width, and return policy matter more than small spec differences for new runners. It recommends replacing shoes based on wear and comfort rather than mileage alone.","claim_hints":["Saucony Axon 3 and Nike Winflo 11 are budget-value candidates.","Fit and return policy matter strongly for beginner shoe choice."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_072_home_office_ergonomics",
+      "source_prompt_id": "research_pool_142_home_office_ergonomics",
+      "category": "consumer_product",
+      "tags": ["consumer", "home_office", "specificity"],
+      "prompt": "Research home-office ergonomics for someone with back pain. Compare standing desks, ergonomic chairs, monitor arms, and movement habits.",
+      "required_entities": ["standing desks", "ergonomic chairs", "monitor arms"],
+      "required_facets": ["back pain", "movement", "setup", "caveats"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_072_a","title":"Home office ergonomics review","locator":"fixture://perfect_ev_072#review","source_domain":"ergonomics-review.synthetic.test","source_kind":"research_review","coverage_facets":["back pain","setup"],"relevant_extract":"The review says back-pain relief is rarely solved by one product. Ergonomic chairs can help when adjusted for seat depth, lumbar support, arm height, and feet position, while monitor arms help align screen height and reduce neck strain when paired with proper desk height.","claim_hints":["Ergonomic chairs need correct adjustment to help back pain.","Monitor arms can improve screen position and reduce strain."]},
+        {"id":"perfect_ev_072_b","title":"Standing desk evidence memo","locator":"fixture://perfect_ev_072#standing","source_domain":"workplace-health.synthetic.test","source_kind":"evidence_memo","coverage_facets":["standing desks","movement"],"relevant_extract":"The memo says standing desks are best used to alternate posture rather than stand all day. The strongest practical recommendation is frequent movement, short posture changes, walking breaks, and avoiding long static sitting or standing sessions.","claim_hints":["Standing desks should support posture changes, not all-day standing.","Movement breaks are more important than one fixed ergonomic posture."]},
+        {"id":"perfect_ev_072_c","title":"Home workstation buying guide","locator":"fixture://perfect_ev_072#buying","source_domain":"home-office.synthetic.test","source_kind":"buyer_guide","coverage_facets":["caveats","priorities"],"relevant_extract":"The guide recommends prioritizing chair fit and adjustability first, then monitor height, keyboard and mouse position, lighting, and movement routines. It warns that premium chairs and desks do not replace medical evaluation for persistent or radiating pain.","claim_hints":["Chair fit and adjustability should come before expensive desk upgrades.","Persistent back pain should not be treated as only a shopping problem."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_073_home_security_cameras",
+      "source_prompt_id": "research_pool_143_home_security_cameras",
+      "category": "consumer_product",
+      "tags": ["consumer", "privacy", "specificity"],
+      "prompt": "Compare Nest Cam, Ring, Arlo, and Eufy security cameras for a privacy-conscious homeowner.",
+      "required_entities": ["Nest Cam", "Ring", "Arlo", "Eufy"],
+      "required_facets": ["privacy", "cloud storage", "subscriptions", "local storage"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_073_a","title":"Smart camera ecosystem comparison","locator":"fixture://perfect_ev_073#ecosystems","source_domain":"smart-home.synthetic.test","source_kind":"product_comparison","coverage_facets":["ecosystems","subscriptions"],"relevant_extract":"The comparison says Nest Cam fits Google Home households, Ring fits Amazon Alexa and neighborhood-alert ecosystems, and Arlo fits users who want a broader camera lineup with strong cloud features. All three often require subscription review for recordings and advanced alerts.","claim_hints":["Nest Cam, Ring, and Arlo differ largely by ecosystem and cloud features.","Subscription requirements should be checked before buying."]},
+        {"id":"perfect_ev_073_b","title":"Privacy camera storage memo","locator":"fixture://perfect_ev_073#privacy","source_domain":"camera-privacy.synthetic.test","source_kind":"privacy_analysis","coverage_facets":["privacy","local storage"],"relevant_extract":"The memo says Eufy is often considered by privacy-conscious buyers because of local-storage positioning, but buyers should verify current encryption, remote-access behavior, update history, and third-party security reporting rather than relying on marketing claims alone.","claim_hints":["Eufy is attractive for local-storage positioning but needs privacy verification.","Privacy-conscious buyers should check encryption and remote access behavior."]},
+        {"id":"perfect_ev_073_c","title":"Home camera buying checklist","locator":"fixture://perfect_ev_073#checklist","source_domain":"home-security.synthetic.test","source_kind":"buyer_guide","coverage_facets":["caveats","security"],"relevant_extract":"The checklist recommends deciding where video is stored, who can access it, how long clips are retained, whether police-request policies matter, whether two-factor authentication is required, and whether cameras cover public areas or neighbors' property.","claim_hints":["Camera choice should include storage, access, retention, and law-enforcement request policies.","Two-factor authentication and camera placement are practical privacy controls."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_074_meal_kit_services",
+      "source_prompt_id": "research_pool_144_meal_kit_services",
+      "category": "consumer_product",
+      "tags": ["consumer", "comparison", "specificity"],
+      "prompt": "Compare HelloFresh, Blue Apron, Home Chef, and Factor for someone trying to cook more but waste less food.",
+      "required_entities": ["HelloFresh", "Blue Apron", "Home Chef", "Factor"],
+      "required_facets": ["food waste", "cooking", "prepared meals", "cost"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_074_a","title":"Meal kit cooking comparison","locator":"fixture://perfect_ev_074#cooking","source_domain":"meal-kit.synthetic.test","source_kind":"product_comparison","coverage_facets":["cooking","food waste"],"relevant_extract":"The comparison says HelloFresh is a broad default for variety and beginner-friendly cooking, while Blue Apron is attractive for more recipe-forward meals. Both can reduce grocery overbuying but still produce packaging waste and can become expensive without discounts.","claim_hints":["HelloFresh fits broad beginner-friendly cooking variety.","Blue Apron fits more recipe-forward cooking."]},
+        {"id":"perfect_ev_074_b","title":"Flexible meal service review","locator":"fixture://perfect_ev_074#flexible","source_domain":"home-meals.synthetic.test","source_kind":"service_review","coverage_facets":["flexibility","cost"],"relevant_extract":"The review says Home Chef is useful when users want flexible prep levels, oven-ready options, and simpler weeknight logistics. It recommends checking serving sizes, delivery reliability, skip policies, and whether meals actually replace takeout or just add another subscription.","claim_hints":["Home Chef fits flexible prep levels and oven-ready options.","Meal kit value depends on replacing grocery waste or takeout."]},
+        {"id":"perfect_ev_074_c","title":"Prepared meal service analysis","locator":"fixture://perfect_ev_074#factor","source_domain":"prepared-meals.synthetic.test","source_kind":"market_analysis","coverage_facets":["prepared meals","tradeoffs"],"relevant_extract":"The analysis says Factor is closer to prepared meals than meal kits, making it useful for convenience and diet consistency but weaker for learning to cook. It can reduce wasted ingredients but may cost more per meal and offers less recipe skill-building.","claim_hints":["Factor fits prepared convenience, not cooking skill-building.","The answer should separate meal kits from prepared meals."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_075_phone_camera_comparison",
+      "source_prompt_id": "research_pool_145_phone_camera_comparison",
+      "category": "consumer_product",
+      "tags": ["consumer", "comparison", "specificity"],
+      "prompt": "Compare iPhone 16 Pro, Pixel 9 Pro, and Galaxy S25 Ultra camera strengths for travel and family photos.",
+      "required_entities": ["iPhone 16 Pro", "Pixel 9 Pro", "Galaxy S25 Ultra"],
+      "required_facets": ["camera", "travel", "family photos", "video"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_075_a","title":"Phone camera field test","locator":"fixture://perfect_ev_075#field","source_domain":"phone-camera.synthetic.test","source_kind":"field_test","coverage_facets":["camera","travel"],"relevant_extract":"The field test says iPhone 16 Pro is strongest for reliable video, consistent color, and family sharing workflows. Pixel 9 Pro is strongest for computational photography, still-photo processing, and difficult lighting, especially when users prefer Google's editing features.","claim_hints":["iPhone 16 Pro is strongest for video consistency and family sharing.","Pixel 9 Pro is strongest for computational still photography."]},
+        {"id":"perfect_ev_075_b","title":"Telephoto and zoom comparison","locator":"fixture://perfect_ev_075#zoom","source_domain":"mobile-camera-lab.synthetic.test","source_kind":"lab_report","coverage_facets":["zoom","travel"],"relevant_extract":"The comparison says Galaxy S25 Ultra is strongest when long zoom, travel landmarks, outdoor detail, and camera flexibility matter. It warns that zoom range is less important for everyday family shots than motion handling, skin tone, shutter speed, and video reliability.","claim_hints":["Galaxy S25 Ultra is strongest for long zoom and camera flexibility.","Family photography should consider motion handling and skin tone, not just zoom."]},
+        {"id":"perfect_ev_075_c","title":"Family photo buying guide","locator":"fixture://perfect_ev_075#family","source_domain":"family-tech.synthetic.test","source_kind":"buyer_guide","coverage_facets":["family photos","tradeoffs"],"relevant_extract":"The guide recommends iPhone 16 Pro for video-heavy families, Pixel 9 Pro for still-photo processing and editing, and Galaxy S25 Ultra for zoom-heavy travel. It says ecosystem, storage, backup, and sharing habits may matter more than small image-quality differences.","claim_hints":["The best camera phone depends on video, still-photo, or zoom priority.","Ecosystem and backup habits matter for family photos."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_076_japan_rail_itinerary",
+      "source_prompt_id": "research_pool_146_japan_rail_itinerary",
+      "category": "local_travel",
+      "tags": ["travel", "specificity", "itinerary"],
+      "prompt": "Research a first Japan trip using rail. Compare Tokyo, Kyoto, Osaka, Hiroshima, and Kanazawa for a 10-day itinerary.",
+      "required_entities": ["Tokyo", "Kyoto", "Osaka", "Hiroshima", "Kanazawa"],
+      "required_facets": ["rail", "10-day itinerary", "tradeoffs"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_076_a","title":"Japan first-trip rail guide","locator":"fixture://perfect_ev_076#rail","source_domain":"japan-rail.synthetic.test","source_kind":"travel_guide","coverage_facets":["rail","itinerary"],"relevant_extract":"The guide recommends Tokyo and Kyoto as anchors for a first 10-day Japan itinerary because they offer the clearest contrast between urban scale and historic sights. Osaka works well as a food and nightlife base near Kyoto, but it can overlap with Kansai plans if time is tight.","claim_hints":["Tokyo and Kyoto are the first-trip anchors.","Osaka is useful for food and nightlife but can overlap with Kyoto-area plans."]},
+        {"id":"perfect_ev_076_b","title":"Japan side-trip comparison","locator":"fixture://perfect_ev_076#side-trips","source_domain":"japan-itinerary.synthetic.test","source_kind":"itinerary_analysis","coverage_facets":["Hiroshima","Kanazawa"],"relevant_extract":"The comparison says Hiroshima adds Peace Memorial Park, Miyajima access, and a western Japan perspective, while Kanazawa offers gardens, historic districts, and a calmer city feel. Including both in 10 days can make the trip too transit-heavy for first-timers.","claim_hints":["Hiroshima and Kanazawa offer different side-trip value.","Including both Hiroshima and Kanazawa can overpack a 10-day first trip."]},
+        {"id":"perfect_ev_076_c","title":"Rail pass planning note","locator":"fixture://perfect_ev_076#pass","source_domain":"rail-planning.synthetic.test","source_kind":"transport_guide","coverage_facets":["rail","cost"],"relevant_extract":"The rail note says travelers should price exact Shinkansen routes before buying a pass because rail pass value depends on long-distance legs. It recommends minimizing one-night stops and grouping regions to protect time for meals, neighborhoods, and recovery from jet lag.","claim_hints":["Rail pass value depends on exact long-distance legs.","A 10-day itinerary should avoid too many one-night stops."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_077_portugal_family_bases",
+      "source_prompt_id": "research_pool_147_portugal_family_bases",
+      "category": "local_travel",
+      "tags": ["travel", "family", "specificity"],
+      "prompt": "Where should a family base itself in Portugal for two weeks? Compare Lisbon, Porto, Coimbra, and the Algarve.",
+      "required_entities": ["Lisbon", "Porto", "Coimbra", "Algarve"],
+      "required_facets": ["family travel", "bases", "transport", "pace"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_077_a","title":"Portugal family base guide","locator":"fixture://perfect_ev_077#bases","source_domain":"portugal-family.synthetic.test","source_kind":"travel_guide","coverage_facets":["bases","family travel"],"relevant_extract":"The guide says Lisbon is best for first-time variety, museums, neighborhoods, and day trips, while Porto offers a more compact river-city base with good food, walkability, and northern access. Lisbon can be busier and hillier with small children.","claim_hints":["Lisbon is the broadest first-time Portugal base.","Porto is a compact northern base with strong walkability."]},
+        {"id":"perfect_ev_077_b","title":"Central Portugal itinerary note","locator":"fixture://perfect_ev_077#coimbra","source_domain":"portugal-itinerary.synthetic.test","source_kind":"itinerary_analysis","coverage_facets":["Coimbra","pace"],"relevant_extract":"The note says Coimbra works as a calmer cultural stop between Lisbon and Porto rather than the main two-week base for most families. It adds university history, a slower pace, and access to central Portugal, but fewer big-city options than Lisbon or Porto.","claim_hints":["Coimbra is a calmer cultural stop, not usually the main family base.","Coimbra can break up Lisbon-to-Porto travel."]},
+        {"id":"perfect_ev_077_c","title":"Algarve family travel comparison","locator":"fixture://perfect_ev_077#algarve","source_domain":"algarve-travel.synthetic.test","source_kind":"regional_guide","coverage_facets":["Algarve","transport"],"relevant_extract":"The comparison says the Algarve is strongest for beaches, pools, and slower family downtime, but it often works better with a car and is less efficient for urban sightseeing. A balanced two-week trip can combine Lisbon or Porto with several Algarve nights.","claim_hints":["The Algarve is strongest for beaches and downtime.","A car can matter more in the Algarve than in Lisbon or Porto."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_078_nyc_first_time_neighborhoods",
+      "source_prompt_id": "research_pool_148_nyc_first_time_neighborhoods",
+      "category": "local_travel",
+      "tags": ["travel", "specificity", "neighborhoods"],
+      "prompt": "Compare NYC neighborhoods for a first-time visitor who wants food, museums, and easy subway access without staying in Times Square.",
+      "required_entities": ["NYC", "Times Square"],
+      "required_facets": ["neighborhoods", "food", "museums", "subway"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_078_a","title":"NYC visitor neighborhood guide","locator":"fixture://perfect_ev_078#neighborhoods","source_domain":"nyc-travel.synthetic.test","source_kind":"travel_guide","coverage_facets":["neighborhoods","subway"],"relevant_extract":"The guide recommends the Upper West Side for museums, parks, quieter evenings, and strong subway access; Chelsea or Flatiron for central positioning, food, and access to galleries; and Downtown Brooklyn for subway reach with a different neighborhood feel.","claim_hints":["Upper West Side is a strong first-time base outside Times Square.","Chelsea or Flatiron are central food and transit options."]},
+        {"id":"perfect_ev_078_b","title":"NYC food and museum access memo","locator":"fixture://perfect_ev_078#food-museums","source_domain":"nyc-itinerary.synthetic.test","source_kind":"itinerary_analysis","coverage_facets":["food","museums"],"relevant_extract":"The memo says the Lower East Side and East Village are strong for food and nightlife but less convenient for major museums uptown. The Upper West Side favors museums and park access, while Chelsea balances food halls, galleries, and midtown or downtown transit.","claim_hints":["Lower East Side and East Village are food-strong but less museum-convenient.","Chelsea balances galleries, food, and subway access."]},
+        {"id":"perfect_ev_078_c","title":"NYC lodging tradeoff note","locator":"fixture://perfect_ev_078#lodging","source_domain":"urban-lodging.synthetic.test","source_kind":"travel_analysis","coverage_facets":["tradeoffs","safety"],"relevant_extract":"The note says avoiding Times Square can improve evening feel and food choices, but visitors should still stay near multiple subway lines. It recommends checking walk distance to stations, elevator needs, room size, and late-night return routes before booking.","claim_hints":["The answer should prioritize subway access over neighborhood branding.","Room size and late-night return routes matter for NYC lodging."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_079_utah_national_parks_route",
+      "source_prompt_id": "research_pool_149_utah_national_parks_route",
+      "category": "local_travel",
+      "tags": ["travel", "road_trip", "specificity"],
+      "prompt": "Plan a Utah national parks road trip. Compare Zion, Bryce Canyon, Arches, Canyonlands, and Capitol Reef for a one-week route.",
+      "required_entities": ["Zion", "Bryce Canyon", "Arches", "Canyonlands", "Capitol Reef"],
+      "required_facets": ["one-week route", "crowds", "hikes", "driving"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_079_a","title":"Utah parks one-week route guide","locator":"fixture://perfect_ev_079#route","source_domain":"utah-parks.synthetic.test","source_kind":"travel_guide","coverage_facets":["one-week route","driving"],"relevant_extract":"The guide says a one-week route should usually choose either a southwest focus with Zion and Bryce Canyon or a Moab focus with Arches and Canyonlands, adding Capitol Reef only if travelers accept more driving. Trying to do all five parks can feel rushed.","claim_hints":["A one-week Utah route should avoid overpacking all five parks.","Zion/Bryce and Arches/Canyonlands are natural route pairings."]},
+        {"id":"perfect_ev_079_b","title":"Utah park crowd and hike comparison","locator":"fixture://perfect_ev_079#hikes","source_domain":"desert-hiking.synthetic.test","source_kind":"hiking_guide","coverage_facets":["crowds","hikes"],"relevant_extract":"The comparison says Zion is dramatic but crowded and reservation-sensitive, Bryce Canyon offers easier rim viewpoints and hoodoo scenery, Arches has iconic short hikes near Moab, and Canyonlands provides bigger landscapes with more driving between viewpoints.","claim_hints":["Zion is dramatic but crowd- and reservation-sensitive.","Bryce Canyon and Arches offer more accessible short-sightseeing options."]},
+        {"id":"perfect_ev_079_c","title":"Capitol Reef itinerary note","locator":"fixture://perfect_ev_079#capitol-reef","source_domain":"capitol-reef.synthetic.test","source_kind":"regional_guide","coverage_facets":["Capitol Reef","tradeoffs"],"relevant_extract":"The note says Capitol Reef is quieter and rewarding for travelers who value scenery, orchards, and less-crowded drives, but it can add route complexity. It works best as a deliberate slower stop rather than a check-the-box detour.","claim_hints":["Capitol Reef is quieter but route-dependent.","The answer should distinguish slower scenic travel from checklist-style park bagging."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_080_paris_museums_with_kids",
+      "source_prompt_id": "research_pool_150_paris_museums_with_kids",
+      "category": "local_travel",
+      "tags": ["travel", "family", "specificity"],
+      "prompt": "Research Paris museums with kids. Compare the Louvre, Musée d'Orsay, Pompidou, and Cité des Sciences for different ages.",
+      "required_entities": ["Louvre", "Musée d'Orsay", "Pompidou", "Cité des Sciences"],
+      "required_facets": ["kids", "ages", "museum strategy", "crowds"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_080_a","title":"Paris family museum guide","locator":"fixture://perfect_ev_080#family","source_domain":"paris-family.synthetic.test","source_kind":"travel_guide","coverage_facets":["kids","museum strategy"],"relevant_extract":"The guide says the Louvre can work for kids if visits are short and focused on a few famous works, while Musée d'Orsay is often easier for school-age children because its scale is smaller and the building itself is memorable.","claim_hints":["The Louvre needs a short focused kid strategy.","Musée d'Orsay can be easier for school-age children."]},
+        {"id":"perfect_ev_080_b","title":"Modern art and science museum comparison","locator":"fixture://perfect_ev_080#modern-science","source_domain":"paris-museums.synthetic.test","source_kind":"museum_comparison","coverage_facets":["ages","interactive"],"relevant_extract":"The comparison says the Pompidou is better for visually bold modern art and shorter attention spans, while Cité des Sciences is strongest for hands-on, interactive, science-oriented visits, especially for younger children who need activity rather than quiet looking.","claim_hints":["Pompidou can work for visually bold modern art with kids.","Cité des Sciences is strongest for hands-on younger-child visits."]},
+        {"id":"perfect_ev_080_c","title":"Paris museum crowd planning note","locator":"fixture://perfect_ev_080#crowds","source_domain":"museum-planning.synthetic.test","source_kind":"planning_guide","coverage_facets":["crowds","planning"],"relevant_extract":"The planning note recommends timed tickets, morning visits, snack breaks, and choosing one major museum per day. It warns that adult-style marathon museum days can make children dislike otherwise excellent museums.","claim_hints":["Timed tickets and short visits are important with kids.","One major museum per day is a safer family plan."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_081_womens_suffrage_strategies",
+      "source_prompt_id": "research_pool_151_womens_suffrage_strategies",
+      "category": "history_culture",
+      "tags": ["history", "specificity", "comparison"],
+      "prompt": "Research the US women's suffrage movement. Compare NAWSA, the National Woman's Party, Ida B. Wells, and the 19th Amendment.",
+      "required_entities": ["NAWSA", "National Woman's Party", "Ida B. Wells", "19th Amendment"],
+      "required_facets": ["strategy", "racial exclusion", "constitutional amendment", "activists"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_081_a","title":"Suffrage organization strategy overview","locator":"fixture://perfect_ev_081#organizations","source_domain":"suffrage-history.synthetic.test","source_kind":"history_overview","coverage_facets":["strategy","organizations"],"relevant_extract":"The overview says NAWSA pursued state campaigns, lobbying, and mainstream coalition-building, while the National Woman's Party used more confrontational tactics including picketing, publicity, and pressure on federal officials. Both contributed to national suffrage but represented different strategic instincts.","claim_hints":["NAWSA emphasized state campaigns and lobbying.","The National Woman's Party used more confrontational federal pressure tactics."]},
+        {"id":"perfect_ev_081_b","title":"Black suffragists and exclusion archive note","locator":"fixture://perfect_ev_081#exclusion","source_domain":"black-suffrage-archive.synthetic.test","source_kind":"archive_note","coverage_facets":["racial exclusion","activists"],"relevant_extract":"The archive note highlights Ida B. Wells as a journalist and activist who challenged both disenfranchisement and racism within suffrage politics. It says any useful answer should mention that the suffrage movement included Black activists while many white-led organizations tolerated or practiced exclusion.","claim_hints":["Ida B. Wells challenged racism inside and outside suffrage politics.","The suffrage movement cannot be summarized honestly without racial exclusion."]},
+        {"id":"perfect_ev_081_c","title":"19th Amendment interpretation guide","locator":"fixture://perfect_ev_081#amendment","source_domain":"constitutional-history.synthetic.test","source_kind":"interpretive_guide","coverage_facets":["constitutional amendment","limits"],"relevant_extract":"The guide says the 19th Amendment barred voting discrimination on the basis of sex, but it did not by itself eliminate poll taxes, literacy tests, violence, and other barriers that continued to disenfranchise many Black women and other voters after ratification.","claim_hints":["The 19th Amendment was a constitutional victory with limited immediate reach.","Many Black women still faced disenfranchisement after ratification."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_082_cold_war_containment",
+      "source_prompt_id": "research_pool_152_cold_war_containment",
+      "category": "history_culture",
+      "tags": ["history", "foreign_policy", "specificity"],
+      "prompt": "Explain Cold War containment through the Truman Doctrine, Marshall Plan, NATO, and NSC-68.",
+      "required_entities": ["Truman Doctrine", "Marshall Plan", "NATO", "NSC-68"],
+      "required_facets": ["containment", "economics", "military alliance", "strategy"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_082_a","title":"Containment doctrine lecture notes","locator":"fixture://perfect_ev_082#doctrine","source_domain":"cold-war-history.synthetic.test","source_kind":"lecture_notes","coverage_facets":["containment","strategy"],"relevant_extract":"The lecture notes frame the Truman Doctrine as an early public commitment to support states resisting communist pressure. It turned containment into a political and strategic language that linked local crises, especially Greece and Turkey, to a wider global contest.","claim_hints":["The Truman Doctrine made containment a public strategic commitment.","Containment connected local crises to a global Cold War frame."]},
+        {"id":"perfect_ev_082_b","title":"Marshall Plan and NATO comparison","locator":"fixture://perfect_ev_082#institutions","source_domain":"postwar-europe.synthetic.test","source_kind":"historical_analysis","coverage_facets":["economics","military alliance"],"relevant_extract":"The analysis says the Marshall Plan used economic recovery and European reconstruction as containment tools, while NATO institutionalized collective military defense. Together they show that containment was not only military; it also depended on economic stabilization and alliance architecture.","claim_hints":["The Marshall Plan used economic recovery as containment.","NATO institutionalized collective defense in the containment system."]},
+        {"id":"perfect_ev_082_c","title":"NSC-68 strategic memo guide","locator":"fixture://perfect_ev_082#nsc68","source_domain":"security-documents.synthetic.test","source_kind":"document_guide","coverage_facets":["strategy","militarization"],"relevant_extract":"The guide says NSC-68 argued for a more urgent, militarized, and global view of the Soviet challenge. It helped justify higher defense spending and a broader strategic posture, although historians debate how directly it caused later policy choices.","claim_hints":["NSC-68 pushed containment toward a more militarized global strategy.","The answer should separate doctrine, aid, alliance, and strategic planning."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_083_jazz_history_lineage",
+      "source_prompt_id": "research_pool_153_jazz_history_lineage",
+      "category": "history_culture",
+      "tags": ["music", "history", "specificity"],
+      "prompt": "Give me a concise jazz history map using Louis Armstrong, Duke Ellington, Charlie Parker, and John Coltrane.",
+      "required_entities": ["Louis Armstrong", "Duke Ellington", "Charlie Parker", "John Coltrane"],
+      "required_facets": ["improvisation", "composition", "bebop", "modal jazz"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_083_a","title":"Early jazz transformation guide","locator":"fixture://perfect_ev_083#early","source_domain":"jazz-history.synthetic.test","source_kind":"music_history_guide","coverage_facets":["improvisation","early jazz"],"relevant_extract":"The guide presents Louis Armstrong as central to jazz's shift toward the soloist, with phrasing, rhythmic feel, and improvisational personality becoming defining features. It presents Duke Ellington as a composer-bandleader who expanded jazz color, orchestration, and long-form ensemble identity.","claim_hints":["Louis Armstrong is central to the rise of the jazz soloist.","Duke Ellington expanded jazz composition and orchestration."]},
+        {"id":"perfect_ev_083_b","title":"Bebop development essay","locator":"fixture://perfect_ev_083#bebop","source_domain":"bebop-archive.synthetic.test","source_kind":"essay","coverage_facets":["bebop","harmony"],"relevant_extract":"The essay describes Charlie Parker as a defining bebop figure whose fast lines, chromatic harmony, and rhythmic complexity changed jazz from popular dance-band music toward a more demanding small-group modern language.","claim_hints":["Charlie Parker is a defining figure for bebop language.","Bebop changed jazz harmony, rhythm, and small-group practice."]},
+        {"id":"perfect_ev_083_c","title":"Modern jazz listening map","locator":"fixture://perfect_ev_083#modern","source_domain":"modern-jazz.synthetic.test","source_kind":"listening_guide","coverage_facets":["modal jazz","spiritual jazz"],"relevant_extract":"The listening map places John Coltrane after bebop and hard bop as a musician who explored modal structures, sheets of sound, extended improvisation, and later spiritual intensity. It recommends explaining him as a continuation and expansion rather than a clean break from earlier jazz.","claim_hints":["John Coltrane expanded modal and extended improvisational approaches.","A useful jazz map should show lineage, not just isolated names."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_084_civil_rights_strategy_comparison",
+      "source_prompt_id": "research_pool_154_civil_rights_strategy_comparison",
+      "category": "history_culture",
+      "tags": ["history", "civil_rights", "comparison"],
+      "prompt": "Compare civil rights strategies across the NAACP, SCLC, SNCC, and the Black Panther Party.",
+      "required_entities": ["NAACP", "SCLC", "SNCC", "Black Panther Party"],
+      "required_facets": ["legal strategy", "nonviolence", "grassroots organizing", "self-defense"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_084_a","title":"Civil rights organization comparison","locator":"fixture://perfect_ev_084#organizations","source_domain":"civil-rights-history.synthetic.test","source_kind":"historical_analysis","coverage_facets":["legal strategy","nonviolence"],"relevant_extract":"The comparison says the NAACP emphasized litigation, voting rights, and institutional legal challenges, while SCLC used church networks, charismatic leadership, and nonviolent direct action campaigns to dramatize segregation and pressure federal officials.","claim_hints":["The NAACP emphasized litigation and voting rights.","SCLC emphasized church networks and nonviolent direct action."]},
+        {"id":"perfect_ev_084_b","title":"Grassroots organizing archive guide","locator":"fixture://perfect_ev_084#grassroots","source_domain":"movement-archive.synthetic.test","source_kind":"archive_guide","coverage_facets":["grassroots organizing","student activism"],"relevant_extract":"The archive guide says SNCC became known for student sit-ins, Freedom Rides, voter registration, local organizing, and a willingness to work deeply in dangerous communities. It says SNCC's internal debates also show the movement's changing views on nonviolence and Black Power.","claim_hints":["SNCC was central to student activism and grassroots organizing.","SNCC's evolution shows changing debates around nonviolence and Black Power."]},
+        {"id":"perfect_ev_084_c","title":"Black Power community program note","locator":"fixture://perfect_ev_084#panthers","source_domain":"black-power-history.synthetic.test","source_kind":"movement_profile","coverage_facets":["self-defense","community programs"],"relevant_extract":"The profile says the Black Panther Party combined armed self-defense rhetoric, police-monitoring, community service programs, and a broader critique of capitalism and state power. A balanced answer should avoid reducing the organization only to weapons or only to breakfast programs.","claim_hints":["The Black Panther Party combined self-defense, policing critique, and community programs.","The answer should avoid flattening each organization into one tactic."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_085_bauhaus_design_influence",
+      "source_prompt_id": "research_pool_155_bauhaus_design_influence",
+      "category": "history_culture",
+      "tags": ["design", "history", "specificity"],
+      "prompt": "Research Bauhaus influence on modern design using Walter Gropius, Mies van der Rohe, Moholy-Nagy, and Anni Albers.",
+      "required_entities": ["Walter Gropius", "Mies van der Rohe", "Moholy-Nagy", "Anni Albers"],
+      "required_facets": ["architecture", "materials", "teaching", "textiles"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_085_a","title":"Bauhaus school overview","locator":"fixture://perfect_ev_085#school","source_domain":"bauhaus-history.synthetic.test","source_kind":"design_history_overview","coverage_facets":["teaching","architecture"],"relevant_extract":"The overview says Walter Gropius helped define the Bauhaus as a school that joined art, craft, industry, and architecture. It describes the workshop model and the idea that modern design education should connect form, material, function, and production.","claim_hints":["Gropius linked art, craft, industry, and architecture at the Bauhaus.","The Bauhaus workshop model shaped modern design education."]},
+        {"id":"perfect_ev_085_b","title":"Modern architecture influence essay","locator":"fixture://perfect_ev_085#architecture","source_domain":"modern-architecture.synthetic.test","source_kind":"essay","coverage_facets":["architecture","materials"],"relevant_extract":"The essay says Mies van der Rohe represents Bauhaus-related modernism through structural clarity, restrained form, industrial materials, and later International Style influence. Moholy-Nagy pushed experimentation with photography, light, typography, and new materials.","claim_hints":["Mies van der Rohe is linked to structural clarity and modernist architecture.","Moholy-Nagy expanded Bauhaus experimentation with media and materials."]},
+        {"id":"perfect_ev_085_c","title":"Bauhaus textile design note","locator":"fixture://perfect_ev_085#textiles","source_domain":"textile-design.synthetic.test","source_kind":"museum_note","coverage_facets":["textiles","gender"],"relevant_extract":"The museum note highlights Anni Albers as a major figure in weaving and textile design whose work turned textiles into modern art, architecture, and material research. It warns that Bauhaus summaries often overemphasize architecture and understate textile innovation.","claim_hints":["Anni Albers made textile work central to modern design history.","A good Bauhaus answer should not be architecture-only."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_086_hypertension_medication_options",
+      "source_prompt_id": "research_pool_156_hypertension_medication_options",
+      "category": "health_medical",
+      "tags": ["health", "medication", "comparison"],
+      "prompt": "Research common hypertension medication classes. Compare ACE inhibitors, ARBs, thiazides, and calcium-channel blockers in plain English.",
+      "required_entities": ["ACE inhibitors", "ARBs", "thiazides", "calcium-channel blockers"],
+      "required_facets": ["benefits", "side effects", "patient fit", "medical caveat"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_086_a","title":"Hypertension first-line medication review","locator":"fixture://perfect_ev_086#classes","source_domain":"cardiology-review.synthetic.test","source_kind":"clinical_review","coverage_facets":["benefits","patient fit"],"relevant_extract":"The review says thiazide diuretics, ACE inhibitors, ARBs, and calcium-channel blockers are common first-line options for uncomplicated hypertension. Choice depends on age, kidney function, diabetes, race, other conditions, side effects, pregnancy status, and clinician judgment.","claim_hints":["Four common first-line hypertension classes are thiazides, ACE inhibitors, ARBs, and calcium-channel blockers.","Patient factors should drive medication choice."]},
+        {"id":"perfect_ev_086_b","title":"Blood pressure medication side-effect guide","locator":"fixture://perfect_ev_086#side-effects","source_domain":"patient-meds.synthetic.test","source_kind":"patient_guide","coverage_facets":["side effects","plain English"],"relevant_extract":"The guide says ACE inhibitors can cause cough and rarely angioedema, ARBs are similar but less associated with cough, thiazides can affect electrolytes and urination, and calcium-channel blockers can cause ankle swelling or flushing. It recommends monitoring rather than self-adjusting.","claim_hints":["ACE inhibitors, ARBs, thiazides, and calcium-channel blockers have different side-effect profiles.","Patients should not self-adjust blood pressure medication."]},
+        {"id":"perfect_ev_086_c","title":"Primary care counseling memo","locator":"fixture://perfect_ev_086#counseling","source_domain":"primary-care.synthetic.test","source_kind":"clinical_counseling_memo","coverage_facets":["medical caveat","monitoring"],"relevant_extract":"The memo recommends explaining that lifestyle, home blood pressure readings, lab monitoring, dose adjustments, and adherence matter as much as the initial drug class. It says urgent symptoms or very high readings require clinical guidance rather than online medication advice.","claim_hints":["Medication class is only one part of hypertension management.","The answer should include a clear medical caveat and monitoring context."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_087_diabetes_medication_landscape",
+      "source_prompt_id": "research_pool_157_diabetes_medication_landscape",
+      "category": "health_medical",
+      "tags": ["health", "diabetes", "medication"],
+      "prompt": "Research type 2 diabetes medication options. Compare metformin, GLP-1 drugs, SGLT2 inhibitors, and insulin.",
+      "required_entities": ["metformin", "GLP-1", "SGLT2 inhibitors", "insulin"],
+      "required_facets": ["glucose control", "weight", "heart and kidney", "safety caveat"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_087_a","title":"Type 2 diabetes treatment overview","locator":"fixture://perfect_ev_087#overview","source_domain":"diabetes-care.synthetic.test","source_kind":"clinical_review","coverage_facets":["glucose control","patient fit"],"relevant_extract":"The overview says metformin remains a common foundational medication when tolerated, but modern type 2 diabetes treatment increasingly considers cardiovascular disease, kidney disease, weight goals, hypoglycemia risk, cost, and patient preferences rather than glucose alone.","claim_hints":["Metformin is common but no longer the only central decision point.","Modern diabetes medication choice considers heart, kidney, weight, and cost factors."]},
+        {"id":"perfect_ev_087_b","title":"GLP-1 and SGLT2 evidence memo","locator":"fixture://perfect_ev_087#newer-classes","source_domain":"endocrine-evidence.synthetic.test","source_kind":"evidence_memo","coverage_facets":["weight","heart and kidney"],"relevant_extract":"The memo says GLP-1 receptor agonists can support glucose lowering and weight loss, while SGLT2 inhibitors are notable for heart failure and kidney benefits in selected patients. Side effects, contraindications, access, and insurance coverage shape real-world usefulness.","claim_hints":["GLP-1 drugs are notable for glucose and weight effects.","SGLT2 inhibitors can have heart and kidney benefits for selected patients."]},
+        {"id":"perfect_ev_087_c","title":"Insulin counseling guide","locator":"fixture://perfect_ev_087#insulin","source_domain":"diabetes-patient.synthetic.test","source_kind":"patient_guide","coverage_facets":["insulin","safety caveat"],"relevant_extract":"The guide says insulin remains essential for some type 2 diabetes patients, especially with severe hyperglycemia, catabolic symptoms, pregnancy, or treatment failure. It requires education on dosing, hypoglycemia, glucose monitoring, storage, and clinician follow-up.","claim_hints":["Insulin remains essential for some type 2 diabetes cases.","The answer should include safety and clinician-follow-up caveats."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_088_sunscreen_ingredient_choices",
+      "source_prompt_id": "research_pool_158_sunscreen_ingredient_choices",
+      "category": "health_medical",
+      "tags": ["health", "consumer", "skin_care"],
+      "prompt": "Research sunscreen choices. Compare zinc oxide, titanium dioxide, avobenzone, broad-spectrum SPF, and what matters for sensitive skin.",
+      "required_entities": ["zinc oxide", "titanium dioxide", "avobenzone", "broad-spectrum SPF"],
+      "required_facets": ["UVA", "UVB", "sensitive skin", "application"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_088_a","title":"Sunscreen ingredient dermatology guide","locator":"fixture://perfect_ev_088#ingredients","source_domain":"dermatology-guide.synthetic.test","source_kind":"clinical_guide","coverage_facets":["ingredients","sensitive skin"],"relevant_extract":"The guide says zinc oxide and titanium dioxide are mineral UV filters often chosen for sensitive skin, though they can leave a white cast. Avobenzone is a common chemical UVA filter that needs formulation stability and may be paired with other filters.","claim_hints":["Zinc oxide and titanium dioxide are mineral filters often used for sensitive skin.","Avobenzone is a common chemical UVA filter."]},
+        {"id":"perfect_ev_088_b","title":"SPF and broad-spectrum explainer","locator":"fixture://perfect_ev_088#spf","source_domain":"sun-safety.synthetic.test","source_kind":"patient_explainer","coverage_facets":["UVA","UVB"],"relevant_extract":"The explainer says SPF mainly indicates UVB protection against sunburn, while broad-spectrum labeling matters because UVA contributes to skin aging and cancer risk. A useful recommendation should emphasize broad-spectrum SPF 30 or higher for routine outdoor exposure.","claim_hints":["SPF mainly describes UVB protection.","Broad-spectrum protection matters for UVA coverage."]},
+        {"id":"perfect_ev_088_c","title":"Sunscreen use behavior memo","locator":"fixture://perfect_ev_088#application","source_domain":"skin-health.synthetic.test","source_kind":"behavior_memo","coverage_facets":["application","practicality"],"relevant_extract":"The memo says the best sunscreen is one the person will apply enough of and reapply, especially after sweating or swimming. Texture, eye sting, fragrance, acne tendency, price, and compatibility with makeup often determine whether people use it consistently.","claim_hints":["Application and reapplication often matter more than ingredient debates.","Sensitive-skin choice should consider irritation, fragrance, and eye sting."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_089_teletherapy_options",
+      "source_prompt_id": "research_pool_159_teletherapy_options",
+      "category": "health_medical",
+      "tags": ["health", "mental_health", "service_comparison"],
+      "prompt": "Research teletherapy options. Compare BetterHelp, Talkspace, local therapists, and employer EAPs for someone seeking counseling.",
+      "required_entities": ["BetterHelp", "Talkspace", "local therapists", "EAP"],
+      "required_facets": ["access", "cost", "fit", "privacy"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_089_a","title":"Teletherapy platform comparison","locator":"fixture://perfect_ev_089#platforms","source_domain":"mental-health-services.synthetic.test","source_kind":"service_comparison","coverage_facets":["access","cost"],"relevant_extract":"The comparison says BetterHelp and Talkspace can be useful for fast access, asynchronous messaging, and people without easy local availability, but users should review therapist matching, subscription terms, insurance treatment, crisis limitations, and privacy practices.","claim_hints":["BetterHelp and Talkspace can improve access but need privacy and subscription review.","Teletherapy platforms may not fit crisis or complex-care needs."]},
+        {"id":"perfect_ev_089_b","title":"Local therapist selection guide","locator":"fixture://perfect_ev_089#local","source_domain":"therapy-access.synthetic.test","source_kind":"patient_guide","coverage_facets":["fit","local therapists"],"relevant_extract":"The guide says local therapists may offer better continuity, specialized modalities, insurance billing, and coordination with local care, but availability and waitlists can be limiting. Fit should be judged by licensure, specialty, rapport, scheduling, and treatment goals.","claim_hints":["Local therapists can offer continuity and specialty fit.","Therapist fit depends on licensure, specialty, rapport, and goals."]},
+        {"id":"perfect_ev_089_c","title":"Employer EAP counseling note","locator":"fixture://perfect_ev_089#eap","source_domain":"employee-benefits.synthetic.test","source_kind":"benefits_guide","coverage_facets":["EAP","privacy"],"relevant_extract":"The benefits note says employer EAPs can provide short-term counseling sessions, referrals, and low upfront cost, but workers should check session limits, confidentiality rules, provider network quality, and whether they need longer-term therapy beyond EAP scope.","claim_hints":["EAPs can be a low-cost short-term counseling entry point.","Users should check confidentiality and session limits."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_090_probiotic_evidence_limits",
+      "source_prompt_id": "research_pool_160_probiotic_evidence_limits",
+      "category": "health_medical",
+      "tags": ["health", "nutrition", "evidence_quality"],
+      "prompt": "Research probiotics. When do they have decent evidence, and where is the marketing stronger than the science?",
+      "required_entities": ["probiotics"],
+      "required_facets": ["strain-specific evidence", "IBS", "antibiotic-associated diarrhea", "marketing limits"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_090_a","title":"Probiotic evidence review","locator":"fixture://perfect_ev_090#review","source_domain":"microbiome-review.synthetic.test","source_kind":"clinical_review","coverage_facets":["strain-specific evidence","IBS"],"relevant_extract":"The review says probiotic evidence is strain-specific and condition-specific, with some support in areas such as certain IBS symptoms and prevention of antibiotic-associated diarrhea. It warns that benefits from one strain cannot be assumed for another product.","claim_hints":["Probiotic evidence is strain- and condition-specific.","Some evidence exists for IBS symptoms and antibiotic-associated diarrhea."]},
+        {"id":"perfect_ev_090_b","title":"Supplement label interpretation guide","locator":"fixture://perfect_ev_090#labels","source_domain":"nutrition-labels.synthetic.test","source_kind":"consumer_guide","coverage_facets":["marketing limits","product labels"],"relevant_extract":"The guide says marketing often emphasizes colony-forming units, vague gut-health claims, and broad microbiome language without matching the exact strain, dose, storage, and clinical endpoint studied. It recommends looking for strain IDs and human evidence.","claim_hints":["High CFU counts alone are not proof of benefit.","Users should look for strain IDs, dose, and human evidence."]},
+        {"id":"perfect_ev_090_c","title":"Clinical caution memo for probiotics","locator":"fixture://perfect_ev_090#caution","source_domain":"clinical-nutrition.synthetic.test","source_kind":"safety_memo","coverage_facets":["safety","medical caveat"],"relevant_extract":"The memo says probiotics are not risk-free for severely immunocompromised people, critically ill patients, or people with central lines. It recommends clinician input for higher-risk patients and cautions against using probiotics as a substitute for diagnosis or treatment.","claim_hints":["Probiotics may be inappropriate for some high-risk patients.","A useful answer should distinguish evidence from marketing."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_091_global_election_updates",
+      "source_prompt_id": "research_pool_161_global_election_updates",
+      "category": "news_current_events",
+      "tags": ["news", "politics", "specificity"],
+      "prompt": "Give me a global election update. Summarize notable recent elections and what changed politically.",
+      "required_entities": ["global elections"],
+      "required_facets": ["notable elections", "political change", "uncertainty", "regional variety"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_091_a","title":"Global elections weekly digest","locator":"fixture://perfect_ev_091#digest","source_domain":"global-elections.synthetic.test","source_kind":"news_digest","coverage_facets":["notable elections","regional variety"],"relevant_extract":"The digest highlights elections in India, Mexico, South Africa, and the European Parliament as useful examples for a global update because they span different regions and political systems. It says a good answer should name jurisdictions and avoid treating one country's vote as the whole global picture.","claim_hints":["India, Mexico, South Africa, and the European Parliament are useful examples for a global election update.","A global update should include regional variety."]},
+        {"id":"perfect_ev_091_b","title":"Election outcome analysis memo","locator":"fixture://perfect_ev_091#changes","source_domain":"political-analysis.synthetic.test","source_kind":"analysis_memo","coverage_facets":["political change","coalitions"],"relevant_extract":"The memo says election updates should distinguish changes in governing party, coalition math, mandate strength, voter turnout, and policy direction. A result can matter even when leadership stays in place if margins, alliances, or parliamentary balance shift.","claim_hints":["Election impact includes coalition math, mandates, turnout, and policy direction.","No leadership change does not mean no political change."]},
+        {"id":"perfect_ev_091_c","title":"Election reporting uncertainty note","locator":"fixture://perfect_ev_091#uncertainty","source_domain":"election-reporting.synthetic.test","source_kind":"verification_note","coverage_facets":["uncertainty","verification"],"relevant_extract":"The note recommends flagging provisional results, recounts, coalition negotiations, legal challenges, and delayed certification. It warns that early election summaries should separate confirmed outcomes from likely implications and analyst interpretations.","claim_hints":["Election updates should separate confirmed results from implications.","Provisional results and coalition talks should be marked uncertain."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_092_tech_antitrust_landscape",
+      "source_prompt_id": "research_pool_162_tech_antitrust_landscape",
+      "category": "news_current_events",
+      "tags": ["news", "technology", "antitrust"],
+      "prompt": "Research the current tech antitrust landscape. Compare Apple, Google, Meta, and Amazon cases or regulatory pressure.",
+      "required_entities": ["Apple", "Google", "Meta", "Amazon"],
+      "required_facets": ["antitrust", "regulators", "business model", "uncertainty"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_092_a","title":"Tech antitrust case tracker","locator":"fixture://perfect_ev_092#tracker","source_domain":"tech-antitrust.synthetic.test","source_kind":"legal_tracker","coverage_facets":["antitrust","regulators"],"relevant_extract":"The tracker says Apple pressure often centers on app distribution, payments, and device ecosystem control; Google pressure centers on search, advertising technology, and default agreements; Meta pressure centers on acquisitions, social platform power, and data practices.","claim_hints":["Apple, Google, and Meta face different antitrust theories.","A useful answer should separate app stores, search ads, and social platform issues."]},
+        {"id":"perfect_ev_092_b","title":"Amazon competition policy memo","locator":"fixture://perfect_ev_092#amazon","source_domain":"competition-policy.synthetic.test","source_kind":"policy_memo","coverage_facets":["Amazon","business model"],"relevant_extract":"The memo says Amazon scrutiny often focuses on marketplace conduct, treatment of third-party sellers, self-preferencing, logistics leverage, and the relationship between retail marketplace data and Amazon's own products. Remedies could affect sellers as much as consumers.","claim_hints":["Amazon antitrust pressure often focuses on marketplace conduct and seller treatment.","The answer should include business-model-specific risks."]},
+        {"id":"perfect_ev_092_c","title":"Antitrust uncertainty analysis","locator":"fixture://perfect_ev_092#uncertainty","source_domain":"regulatory-analysis.synthetic.test","source_kind":"analysis_report","coverage_facets":["uncertainty","remedies"],"relevant_extract":"The analysis warns that antitrust timelines are slow and outcomes depend on courts, settlements, agency priorities, and international regulators. It recommends separating filed cases, investigations, enacted rules, and speculative breakup or conduct-remedy predictions.","claim_hints":["Tech antitrust outcomes are slow and uncertain.","The answer should distinguish cases, investigations, rules, and speculation."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_093_energy_market_update",
+      "source_prompt_id": "research_pool_163_energy_market_update",
+      "category": "news_current_events",
+      "tags": ["news", "energy", "markets"],
+      "prompt": "Give me an energy market update covering OPEC+, LNG, renewables, and grid interconnection bottlenecks.",
+      "required_entities": ["OPEC+", "LNG", "renewables", "grid interconnection"],
+      "required_facets": ["oil supply", "gas", "clean energy", "bottlenecks"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_093_a","title":"Oil market supply note","locator":"fixture://perfect_ev_093#oil","source_domain":"energy-markets.synthetic.test","source_kind":"market_update","coverage_facets":["oil supply","OPEC+"],"relevant_extract":"The update says OPEC+ decisions remain important for oil supply expectations, but price movement also depends on demand forecasts, inventories, geopolitical risk, spare capacity, and compliance with announced production targets. A useful answer should avoid treating quotas as the whole market.","claim_hints":["OPEC+ matters, but inventories and demand forecasts also shape oil prices.","Announced production targets are not the same as actual market balance."]},
+        {"id":"perfect_ev_093_b","title":"LNG and gas infrastructure memo","locator":"fixture://perfect_ev_093#lng","source_domain":"gas-infrastructure.synthetic.test","source_kind":"infrastructure_memo","coverage_facets":["gas","LNG"],"relevant_extract":"The memo says LNG markets are shaped by export terminal capacity, shipping constraints, European and Asian demand, contract structure, and weather-sensitive gas consumption. It recommends distinguishing short-term spot volatility from long-term infrastructure and contract commitments.","claim_hints":["LNG markets depend on terminals, shipping, demand, and contracts.","Gas market updates should separate spot volatility from infrastructure commitments."]},
+        {"id":"perfect_ev_093_c","title":"Renewables grid bottleneck report","locator":"fixture://perfect_ev_093#grid","source_domain":"clean-grid.synthetic.test","source_kind":"industry_report","coverage_facets":["renewables","grid interconnection"],"relevant_extract":"The report says renewable generation is expanding, but interconnection queues, transmission planning, permitting, storage integration, and grid upgrades can delay projects. The bottleneck is often not whether solar or wind can be built, but whether projects can connect and operate economically.","claim_hints":["Grid interconnection and transmission are major renewable deployment bottlenecks.","Renewable growth should be discussed with storage and permitting constraints."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_094_public_health_outbreaks",
+      "source_prompt_id": "research_pool_164_public_health_outbreaks",
+      "category": "news_current_events",
+      "tags": ["news", "public_health", "specificity"],
+      "prompt": "Research current public health outbreak monitoring. Cover measles, dengue, avian influenza, and wastewater surveillance.",
+      "required_entities": ["measles", "dengue", "avian influenza", "wastewater surveillance"],
+      "required_facets": ["outbreak monitoring", "vaccination", "vector-borne disease", "surveillance limits"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_094_a","title":"Vaccine-preventable outbreak briefing","locator":"fixture://perfect_ev_094#measles","source_domain":"public-health-briefing.synthetic.test","source_kind":"health_briefing","coverage_facets":["measles","vaccination"],"relevant_extract":"The briefing says measles monitoring focuses on vaccination gaps, importations, school or community clusters, and rapid contact tracing because the virus is highly contagious. It recommends treating rising measles cases as a signal about under-immunized pockets, not only isolated travel events.","claim_hints":["Measles outbreaks often reveal vaccination gaps.","Measles response depends on rapid tracing and community immunization context."]},
+        {"id":"perfect_ev_094_b","title":"Dengue and avian influenza surveillance memo","locator":"fixture://perfect_ev_094#dengue-flu","source_domain":"disease-surveillance.synthetic.test","source_kind":"surveillance_memo","coverage_facets":["dengue","avian influenza"],"relevant_extract":"The memo says dengue risk tracks mosquito distribution, climate, travel, and local control capacity, while avian influenza monitoring focuses on poultry outbreaks, wild birds, mammal spillovers, worker exposure, and genetic changes that might affect human risk.","claim_hints":["Dengue monitoring is tied to mosquito ecology and local control.","Avian influenza monitoring tracks animals, workers, and genetic changes."]},
+        {"id":"perfect_ev_094_c","title":"Wastewater surveillance interpretation note","locator":"fixture://perfect_ev_094#wastewater","source_domain":"wastewater-epi.synthetic.test","source_kind":"interpretation_note","coverage_facets":["wastewater surveillance","surveillance limits"],"relevant_extract":"The note says wastewater surveillance can provide early signals for pathogens such as respiratory viruses, but interpretation depends on sampling coverage, lab methods, sewage-shed population, reporting lag, and whether clinical testing confirms the signal.","claim_hints":["Wastewater surveillance is useful but not self-interpreting.","A good outbreak update should distinguish signal, confirmed cases, and risk."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_095_space_industry_update",
+      "source_prompt_id": "research_pool_165_space_industry_update",
+      "category": "news_current_events",
+      "tags": ["news", "space", "industry"],
+      "prompt": "Give me a space industry update covering Starship, Artemis, New Glenn, and Starliner.",
+      "required_entities": ["Starship", "Artemis", "New Glenn", "Starliner"],
+      "required_facets": ["launch systems", "NASA programs", "commercial space", "schedule risk"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_095_a","title":"Launch vehicle program digest","locator":"fixture://perfect_ev_095#launch","source_domain":"space-industry.synthetic.test","source_kind":"industry_digest","coverage_facets":["launch systems","commercial space"],"relevant_extract":"The digest says Starship is the highest-visibility heavy-lift development program because test flights can change assumptions about payload, reusability, lunar architecture, and launch economics. New Glenn is important as Blue Origin's attempt to become a larger orbital launch competitor.","claim_hints":["Starship and New Glenn are key commercial heavy-lift launch programs.","Starship progress affects assumptions about lunar and launch economics."]},
+        {"id":"perfect_ev_095_b","title":"NASA exploration program note","locator":"fixture://perfect_ev_095#nasa","source_domain":"nasa-programs.synthetic.test","source_kind":"program_note","coverage_facets":["NASA programs","Artemis"],"relevant_extract":"The note says Artemis depends on multiple linked systems, including SLS, Orion, ground systems, lunar landers, spacesuits, and gateway or mission-support elements. Delays in any linked part can affect schedule, so updates should discuss dependencies rather than one launch date alone.","claim_hints":["Artemis schedule risk comes from multiple linked systems.","A useful update should explain dependencies, not only launch dates."]},
+        {"id":"perfect_ev_095_c","title":"Crew spacecraft reliability memo","locator":"fixture://perfect_ev_095#starliner","source_domain":"crew-spaceflight.synthetic.test","source_kind":"risk_memo","coverage_facets":["Starliner","schedule risk"],"relevant_extract":"The memo says Starliner should be discussed through certification, test-flight performance, anomaly resolution, crew safety, and NASA redundancy goals. It warns that commercial crew updates can look binary in headlines even when the real issue is risk retirement and confidence building.","claim_hints":["Starliner updates should focus on certification and anomaly resolution.","Commercial crew value includes redundancy as well as individual spacecraft performance."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_096_wedding_budget_tradeoffs",
+      "source_prompt_id": "research_pool_166_wedding_budget_tradeoffs",
+      "category": "general_other",
+      "tags": ["personal", "planning", "budget"],
+      "prompt": "Help me research wedding budget tradeoffs. Where should we spend or save across venue, guest count, catering, and photography?",
+      "required_entities": ["wedding budget"],
+      "required_facets": ["venue", "guest count", "catering", "photography"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_096_a","title":"Wedding budget planning guide","locator":"fixture://perfect_ev_096#budget","source_domain":"wedding-planning.synthetic.test","source_kind":"planning_guide","coverage_facets":["venue","guest count"],"relevant_extract":"The guide says guest count is usually the largest budget lever because it affects catering, rentals, space, invitations, transportation, and staffing. Venue cost should be evaluated by what is included, such as tables, chairs, linens, coordinator time, and setup rules.","claim_hints":["Guest count is usually the biggest wedding budget lever.","Venue prices should be compared by included services and restrictions."]},
+        {"id":"perfect_ev_096_b","title":"Catering cost tradeoff memo","locator":"fixture://perfect_ev_096#catering","source_domain":"event-catering.synthetic.test","source_kind":"cost_memo","coverage_facets":["catering","tradeoffs"],"relevant_extract":"The memo says plated meals, open bars, late-night snacks, rentals, service fees, and staffing can move costs quickly. Couples can often save with a smaller guest list, limited bar, buffet or stations, seasonal menus, and fewer separate events.","claim_hints":["Catering cost depends on service style, bar, rentals, and staffing.","Budget savings often come from guest count and event scope."]},
+        {"id":"perfect_ev_096_c","title":"Wedding photography value note","locator":"fixture://perfect_ev_096#photography","source_domain":"wedding-photo.synthetic.test","source_kind":"buyer_guide","coverage_facets":["photography","value"],"relevant_extract":"The note says photography is often worth protecting if memories, family portraits, and documentation matter, but couples can adjust hours, second-shooter coverage, albums, and engagement sessions. It recommends evaluating portfolio consistency and backup process, not just price.","claim_hints":["Photography budget can be adjusted by coverage hours and package extras.","Portfolio consistency and backup process matter more than lowest price."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_097_hiring_home_contractors",
+      "source_prompt_id": "research_pool_167_hiring_home_contractors",
+      "category": "general_other",
+      "tags": ["home", "consumer", "risk"],
+      "prompt": "Research how to hire a home contractor safely. What should I check before signing a remodel contract?",
+      "required_entities": ["home contractor", "remodel contract"],
+      "required_facets": ["licenses", "insurance", "bids", "contract terms"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_097_a","title":"Contractor screening checklist","locator":"fixture://perfect_ev_097#screening","source_domain":"homeowner-protection.synthetic.test","source_kind":"checklist","coverage_facets":["licenses","insurance"],"relevant_extract":"The checklist says homeowners should verify contractor license status where applicable, liability insurance, workers' compensation coverage, bond requirements, complaint history, references, and whether subcontractors are covered. It recommends collecting proof directly rather than relying on verbal claims.","claim_hints":["Contractor screening should verify license, insurance, and complaint history.","Proof should be collected before signing, not assumed."]},
+        {"id":"perfect_ev_097_b","title":"Remodel bid comparison guide","locator":"fixture://perfect_ev_097#bids","source_domain":"remodel-bids.synthetic.test","source_kind":"buyer_guide","coverage_facets":["bids","scope"],"relevant_extract":"The guide says bids should be compared by scope, materials, allowances, exclusions, timeline, cleanup, permits, change-order process, and payment schedule. The lowest bid may hide missing work, unrealistic allowances, or weak project management.","claim_hints":["Remodel bids should be compared by scope, allowances, exclusions, and timeline.","The lowest bid can be risky if scope is incomplete."]},
+        {"id":"perfect_ev_097_c","title":"Home renovation contract memo","locator":"fixture://perfect_ev_097#contract","source_domain":"consumer-law.synthetic.test","source_kind":"legal_consumer_memo","coverage_facets":["contract terms","risk"],"relevant_extract":"The memo recommends a written contract with detailed scope, materials, permit responsibility, lien waiver process, milestones, payment caps, warranty terms, dispute process, and cancellation rights where available. It warns against large upfront cash payments without protections.","claim_hints":["Remodel contracts should specify scope, payments, permits, warranties, and dispute process.","Large upfront cash payments increase homeowner risk."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_098_college_savings_options",
+      "source_prompt_id": "research_pool_168_college_savings_options",
+      "category": "general_other",
+      "tags": ["finance", "family", "planning"],
+      "prompt": "Research college savings options. Compare 529 plans, custodial brokerage accounts, Roth IRAs, and prepaid tuition plans.",
+      "required_entities": ["529 plans", "custodial brokerage accounts", "Roth IRAs", "prepaid tuition plans"],
+      "required_facets": ["tax treatment", "financial aid", "flexibility", "caveats"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_098_a","title":"College savings account comparison","locator":"fixture://perfect_ev_098#accounts","source_domain":"college-savings.synthetic.test","source_kind":"financial_guide","coverage_facets":["tax treatment","529 plans"],"relevant_extract":"The guide says 529 plans are purpose-built for education savings, with potential tax advantages and qualified education expense rules. Custodial brokerage accounts offer broader investment flexibility but assets belong to the child and can affect financial aid differently.","claim_hints":["529 plans are education-specific and can offer tax advantages.","Custodial brokerage accounts are flexible but belong to the child."]},
+        {"id":"perfect_ev_098_b","title":"Roth IRA education funding memo","locator":"fixture://perfect_ev_098#roth","source_domain":"family-finance.synthetic.test","source_kind":"planning_memo","coverage_facets":["Roth IRAs","flexibility"],"relevant_extract":"The memo says Roth IRAs can sometimes support education funding through contribution withdrawal flexibility, but they are primarily retirement accounts with contribution limits, earned-income requirements, and opportunity costs if parents raid retirement savings.","claim_hints":["Roth IRAs are primarily retirement accounts, not dedicated college plans.","Using retirement savings for college has opportunity costs."]},
+        {"id":"perfect_ev_098_c","title":"Prepaid tuition and aid caveat note","locator":"fixture://perfect_ev_098#prepaid","source_domain":"education-finance.synthetic.test","source_kind":"financial_aid_note","coverage_facets":["prepaid tuition plans","financial aid"],"relevant_extract":"The note says prepaid tuition plans can reduce tuition inflation risk at participating schools but may be less flexible if the student attends elsewhere. Families should check state guarantees, eligible institutions, fees, ownership, and financial-aid treatment before choosing.","claim_hints":["Prepaid tuition plans trade inflation protection for flexibility limits.","Families should check guarantees, eligibility, fees, and aid impact."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_099_moving_checklist_priorities",
+      "source_prompt_id": "research_pool_169_moving_checklist_priorities",
+      "category": "general_other",
+      "tags": ["personal", "planning", "checklist"],
+      "prompt": "Research a practical moving checklist. What should be handled first for utilities, address changes, insurance, and school records?",
+      "required_entities": ["moving checklist"],
+      "required_facets": ["utilities", "address changes", "insurance", "school records"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_099_a","title":"Moving timeline planning guide","locator":"fixture://perfect_ev_099#timeline","source_domain":"moving-planner.synthetic.test","source_kind":"planning_guide","coverage_facets":["utilities","timeline"],"relevant_extract":"The guide recommends starting with move date, movers or truck booking, utility transfer dates, internet installation, building access rules, parking permits, and essential documents. Utilities should be scheduled with overlap when possible to avoid arriving without power, water, or internet.","claim_hints":["Utilities and internet should be scheduled early with move-date overlap.","Moving plans should start with dates, access, and essential logistics."]},
+        {"id":"perfect_ev_099_b","title":"Address and records update checklist","locator":"fixture://perfect_ev_099#records","source_domain":"life-admin.synthetic.test","source_kind":"checklist","coverage_facets":["address changes","school records"],"relevant_extract":"The checklist says address changes should cover postal forwarding, banks, credit cards, employer payroll, subscriptions, voter registration, vehicle registration, medical providers, and government benefits. Families should request school records and enrollment requirements before the move when possible.","claim_hints":["Address changes extend beyond postal forwarding.","School records and enrollment requirements should be handled before moving when possible."]},
+        {"id":"perfect_ev_099_c","title":"Insurance during move memo","locator":"fixture://perfect_ev_099#insurance","source_domain":"personal-insurance.synthetic.test","source_kind":"insurance_memo","coverage_facets":["insurance","risk"],"relevant_extract":"The memo says renters, homeowners, auto, and health insurance may all need review during a move. It recommends confirming coverage for belongings in transit, new address risk, local provider networks, and policy effective dates before canceling old coverage.","claim_hints":["Moving can affect renters, homeowners, auto, and health insurance.","Coverage effective dates and belongings-in-transit protection should be checked."]}
+      ]
+    },
+    {
+      "id": "perfect_ev_100_personal_privacy_cleanup",
+      "source_prompt_id": "research_pool_170_personal_privacy_cleanup",
+      "category": "general_other",
+      "tags": ["personal", "privacy", "security"],
+      "prompt": "Research a personal privacy cleanup plan. Prioritize password manager, MFA, data broker opt-outs, and credit freezes.",
+      "required_entities": ["password manager", "MFA", "data broker opt-outs", "credit freezes"],
+      "required_facets": ["account security", "identity theft", "privacy", "prioritization"],
+      "expected_evidence_posture": "answerable",
+      "evidence_pack": [
+        {"id":"perfect_ev_100_a","title":"Personal security priority guide","locator":"fixture://perfect_ev_100#account-security","source_domain":"personal-cyber.synthetic.test","source_kind":"security_guide","coverage_facets":["account security","prioritization"],"relevant_extract":"The guide says the highest-impact first steps are using a reputable password manager, creating unique passwords, enabling multi-factor authentication on email, banking, cloud storage, and social accounts, and securing account recovery methods. Email security is especially important because it resets other accounts.","claim_hints":["Password manager plus MFA is the first personal privacy/security priority.","Email account security should be treated as a root account."]},
+        {"id":"perfect_ev_100_b","title":"Identity theft prevention memo","locator":"fixture://perfect_ev_100#credit","source_domain":"identity-protection.synthetic.test","source_kind":"consumer_protection_memo","coverage_facets":["identity theft","credit freezes"],"relevant_extract":"The memo says credit freezes at the major credit bureaus are a strong low-cost control against new-account fraud, but they do not stop existing-account takeover or every form of identity misuse. People should store freeze PINs and know how to thaw credit before applying for loans.","claim_hints":["Credit freezes help prevent new-account fraud.","Credit freezes do not replace account security or fraud monitoring."]},
+        {"id":"perfect_ev_100_c","title":"Data broker opt-out operations note","locator":"fixture://perfect_ev_100#brokers","source_domain":"privacy-operations.synthetic.test","source_kind":"operations_note","coverage_facets":["data broker opt-outs","privacy"],"relevant_extract":"The note says data broker opt-outs can reduce exposed personal information but are labor-intensive and may need periodic repetition. It recommends starting with high-visibility people-search sites, removing old public posts, tightening social profiles, and using MFA before spending heavily on opt-out services.","claim_hints":["Data broker opt-outs help but require repetition and do not fix account security.","A practical cleanup plan should prioritize password manager, MFA, freezes, then opt-outs."]}
       ]
     }
   ]

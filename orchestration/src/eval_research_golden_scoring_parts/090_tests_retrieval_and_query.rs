@@ -631,6 +631,52 @@ fn query_satisfaction_accepts_explanatory_prompt_overlap() {
 }
 
 #[test]
+fn query_satisfaction_accepts_plain_contrast_for_comparison_prompts() {
+    let response = normalize_for_compare(
+        "NAWSA concentrated on state campaigns and lobbying, while the National \
+             Woman's Party used picketing and public pressure. Ida B. Wells \
+             exposes the movement's racial exclusions, and the 19th Amendment \
+             was a constitutional milestone but did not end voter suppression.",
+    );
+    let satisfaction = query_satisfaction(
+        &normalize_for_compare(
+            "Research the US women's suffrage movement. Compare NAWSA, the National Woman's Party, Ida B. Wells, and the 19th Amendment.",
+        ),
+        &response,
+        &[
+            "NAWSA".to_string(),
+            "National Woman's Party".to_string(),
+            "Ida B. Wells".to_string(),
+            "19th Amendment".to_string(),
+        ],
+        entity_coverage(
+            &response,
+            &[
+                "NAWSA".to_string(),
+                "National Woman's Party".to_string(),
+                "Ida B. Wells".to_string(),
+                "19th Amendment".to_string(),
+            ],
+        ),
+        true,
+        true,
+        true,
+        false,
+    );
+    assert_eq!(
+        satisfaction.get("intent_answered").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert!(
+        satisfaction
+            .get("score")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            >= 9
+    );
+}
+
+#[test]
 fn broad_scope_descriptors_do_not_get_derived_initialism_aliases() {
     assert_eq!(
         entity_coverage_aliases("AI agentic landscape"),

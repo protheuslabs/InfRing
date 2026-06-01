@@ -724,6 +724,16 @@
     }
 
     #[test]
+    fn answer_alignment_does_not_treat_common_country_scope_words_as_claim_terms() {
+        let terms = answer_unit_specific_terms(
+            "The women’s suffrage movement in the United States contained distinct strategic camps.",
+        );
+
+        assert!(!terms.contains(&"united".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"states".to_string()), "{terms:?}");
+    }
+
+    #[test]
     fn answer_alignment_ignores_generic_action_verbs_as_claim_terms() {
         let payload = json!({
             "response": "What looks supported: Individualized screening and management tailors care around symptom flares. Pacing specifically supports patients whose symptoms worsen after exertion. Where people are overgeneralizing: Prescribing uniform exercise, pushing fixed escalation, applying aggressive graded exercise, or treating patient reports as trial data all overstate the evidence.",

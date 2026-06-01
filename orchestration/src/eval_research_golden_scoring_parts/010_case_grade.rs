@@ -117,6 +117,7 @@ pub(super) fn grade_case(
         &normalized_prompt,
         &response_text,
         &normalized,
+        payload,
         &answer_unit_usefulness,
     );
     let direct_useful_units = answer_unit_usefulness
