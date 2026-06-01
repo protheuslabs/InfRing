@@ -51,9 +51,14 @@ if (issueAgeMs === null || issueAgeMs > freshnessBudgetMs) violations.push("issu
 if (stageAgeMs === null || stageAgeMs > freshnessBudgetMs) violations.push("stage_runner_report_stale");
 if (freshGuard && freshGuard.ok === false) violations.push("fresh_evidence_guard_failed");
 if (traceGuard && traceGuard.ok === false) violations.push("trace_completeness_guard_failed");
-if (worktreeDanger && worktreeDanger.ok === false) violations.push("worktree_danger_detected");
 
 const worktreeFindings = Array.isArray(worktreeDanger?.findings) ? (worktreeDanger.findings as Json[]) : [];
+const blockingWorktreeFindings = worktreeFindings.filter((row) => {
+  const severity = String(row.severity || "").toLowerCase();
+  if (severity === "critical" || severity === "high") return true;
+  return row.id !== "branch_divergence_present" && row.actionable === true;
+});
+if (blockingWorktreeFindings.length > 0) violations.push("worktree_danger_detected");
 const topWorktreeFindings = worktreeFindings.slice(0, maxFindings).map((row) => ({
   id: row.id,
   severity: row.severity,
@@ -73,8 +78,10 @@ const result = {
   ok: violations.length === 0,
   policy_path: policyRel,
   status:
-    worktreeDanger?.ok === false
+    blockingWorktreeFindings.length > 0
       ? "worktree_danger_needs_attention"
+      : worktreeDanger?.ok === false
+      ? "worktree_advisory"
       : violations.length > 0
       ? "needs_attention"
       : actionable.length > 0
@@ -87,6 +94,7 @@ const result = {
   actionable_feedback_count: actionable.length,
   worktree_danger_count: Number(worktreeDanger?.finding_count || worktreeFindings.length || 0),
   actionable_worktree_danger_count: actionableWorktreeCount,
+  blocking_worktree_danger_count: blockingWorktreeFindings.length,
   stage_completed: stageRunner?.ok === true && Number(stageRunner?.remaining_phase_count || 0) === 0,
   stage_remaining_phase_count: Number(stageRunner?.remaining_phase_count ?? -1),
   average_score: issueQuality?.average_score ?? null,

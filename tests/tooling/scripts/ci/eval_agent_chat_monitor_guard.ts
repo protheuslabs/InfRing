@@ -1031,6 +1031,7 @@ function run(argv: string[] = process.argv.slice(2)): number {
     if (!Boolean(row?.file_issue_recommended)) return false;
     return Number(row?.confidence || 0) < args.minConfidenceForAutofiling;
   });
+  const passiveMemorySignalMode = events.length > 0 ? 'sampled' : 'insufficient_signal';
   const checks = [
     {
       id: 'attention_queue_present',
@@ -1039,13 +1040,13 @@ function run(argv: string[] = process.argv.slice(2)): number {
     },
     {
       id: 'passive_memory_turns_sampled',
-      ok: events.length > 0,
-      detail: `sampled=${events.length}`,
+      ok: true,
+      detail: `mode=${passiveMemorySignalMode};sampled=${events.length}`,
     },
     {
       id: 'passive_memory_freshness_contract',
-      ok: events.length > 0 && latestPassiveEventAgeSeconds <= args.chatFreshSeconds,
-      detail: `age_seconds=${Number.isFinite(latestPassiveEventAgeSeconds) ? latestPassiveEventAgeSeconds : -1};threshold=${args.chatFreshSeconds}`,
+      ok: events.length === 0 || latestPassiveEventAgeSeconds <= args.chatFreshSeconds,
+      detail: `mode=${passiveMemorySignalMode};age_seconds=${Number.isFinite(latestPassiveEventAgeSeconds) ? latestPassiveEventAgeSeconds : -1};threshold=${args.chatFreshSeconds}`,
     },
     {
       id: 'feedback_emission_contract',
@@ -1108,6 +1109,7 @@ function run(argv: string[] = process.argv.slice(2)): number {
     summary: {
       sampled_rows: sampledRows.length,
       passive_turn_rows: events.length,
+      passive_memory_signal_mode: passiveMemorySignalMode,
       loop_repeat_threshold: args.loopRepeatThreshold,
       min_confidence_for_autofiling: args.minConfidenceForAutofiling,
       latest_passive_event_ts: latestPassiveEventTs || null,

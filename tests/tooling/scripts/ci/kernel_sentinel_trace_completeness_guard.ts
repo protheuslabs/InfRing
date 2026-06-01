@@ -55,6 +55,27 @@ for (const rel of Array.isArray(policy.required_json_paths) ? policy.required_js
   }
 }
 
+for (const rel of Array.isArray(policy.optional_json_paths) ? policy.optional_json_paths.map(String) : []) {
+  const payload = readJson(rel);
+  const exists = fs.existsSync(path.join(root, rel));
+  const ok = !exists || hasTrace(payload);
+  checked.push({
+    path: rel,
+    kind: "json",
+    required: false,
+    exists,
+    has_trace_id: hasTrace(payload),
+    type: payload?.type || null,
+  });
+  if (!ok) {
+    violations.push({
+      kind: "sentinel_optional_json_missing_trace_id",
+      path: rel,
+      type: payload?.type || null,
+    });
+  }
+}
+
 for (const rel of Array.isArray(policy.required_jsonl_paths) ? policy.required_jsonl_paths.map(String) : []) {
   const exists = fs.existsSync(path.join(root, rel));
   const rows = readJsonl(rel);

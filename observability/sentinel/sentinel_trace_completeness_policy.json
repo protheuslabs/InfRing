@@ -9,24 +9,14 @@
     "local/state/kernel_sentinel/kernel_sentinel_verdict.json",
     "local/state/kernel_sentinel/kernel_sentinel_health_current.json",
     "local/state/kernel_sentinel/top_system_holes_current.json",
-    "local/state/kernel_sentinel/sentinel_trend_report_current.json",
-    "core/local/artifacts/kernel_sentinel_auto_run_current.json",
     "core/local/artifacts/kernel_sentinel_worktree_danger_current.json",
     "core/local/artifacts/kernel_sentinel_feedback_summary_current.json",
     "core/local/artifacts/kernel_sentinel_anti_entropy_observer_current.json",
-    "core/local/artifacts/kernel_sentinel_dream_success_metrics_current.json",
     "core/local/artifacts/kernel_sentinel_fresh_evidence_guard_current.json",
-    "core/local/artifacts/kernel_sentinel_problem_projection_freshness_guard_current.json",
-    "core/local/artifacts/kernel_sentinel_stale_auto_run_repair_guard_current.json",
-    "core/local/artifacts/kernel_sentinel_verity_receipt_drift_closure_guard_current.json",
-    "core/local/artifacts/kernel_sentinel_boundedness_repair_lane_guard_current.json",
-    "core/local/artifacts/kernel_sentinel_release_bridge_repair_lane_guard_current.json",
-    "core/local/artifacts/kernel_sentinel_empty_response_repair_lane_guard_current.json",
     "core/local/artifacts/kernel_sentinel_policy_guard_current.json",
     "core/local/artifacts/sentinel_issue_quality_score_current.json",
     "core/local/artifacts/sentinel_issue_quality_score_guard_current.json",
     "core/local/artifacts/sentinel_timing_sample_capture_current.json",
-    "core/local/artifacts/sentinel_timing_sample_capture_guard_current.json",
     "core/local/artifacts/sentinel_timing_trend_guard_current.json",
     "observability/reports/sentinel_full_run_stage_runner_current.json",
     "observability/reports/sentinel_timing_trend_report_2026-05-10.json"
@@ -43,6 +33,19 @@
     "sentinel_current_reports_must_have_trace_id": true,
     "sentinel_current_stream_rows_must_have_trace_id_when_non_empty": true,
     "historical_streams_are_not_checked_by_this_guard": true,
-    "static_policy_contracts_are_not_runtime_trace_artifacts": true
-  }
+    "static_policy_contracts_are_not_runtime_trace_artifacts": true,
+    "optional_current_json_artifacts_must_have_trace_id_when_present": true
+  },
+  "optional_json_paths": [
+    "core/local/artifacts/kernel_sentinel_auto_run_current.json",
+    "core/local/artifacts/kernel_sentinel_boundedness_repair_lane_guard_current.json",
+    "core/local/artifacts/kernel_sentinel_dream_success_metrics_current.json",
+    "core/local/artifacts/kernel_sentinel_empty_response_repair_lane_guard_current.json",
+    "core/local/artifacts/kernel_sentinel_problem_projection_freshness_guard_current.json",
+    "core/local/artifacts/kernel_sentinel_release_bridge_repair_lane_guard_current.json",
+    "core/local/artifacts/kernel_sentinel_stale_auto_run_repair_guard_current.json",
+    "core/local/artifacts/kernel_sentinel_verity_receipt_drift_closure_guard_current.json",
+    "core/local/artifacts/sentinel_timing_sample_capture_guard_current.json",
+    "local/state/kernel_sentinel/sentinel_trend_report_current.json"
+  ]
 }

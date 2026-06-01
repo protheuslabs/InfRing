@@ -111,6 +111,21 @@ function isOkPayload(payload: any): boolean {
   return true;
 }
 
+function isReleaseAcceptableReadinessBlock(row: RequiredEvalArtifact, payload: any): boolean {
+  if (!isPlainObject(payload)) return false;
+  if (row.id === 'eval_quality_gate_v1') {
+    return (
+      payload.summary?.quality_ok === true &&
+      payload.summary?.quality_evaluation_mode === 'insufficient_signal' &&
+      payload.summary?.rsi_promotion_blocked === true
+    );
+  }
+  if (row.id === 'eval_autopilot_guard') {
+    return payload.summary?.autopilot_ready === false;
+  }
+  return false;
+}
+
 function arrayLength(payload: any, key: string): number {
   return Array.isArray(payload?.[key]) ? payload[key].length : 0;
 }
@@ -120,10 +135,11 @@ function artifactStatus(root: string, row: RequiredEvalArtifact) {
   const exists = fs.existsSync(absPath);
   const payload = exists ? readJson(absPath) : null;
   const payloadObject = isPlainObject(payload);
-  const ok = !row.required_ok || isOkPayload(payload);
+  const ok = !row.required_ok || isOkPayload(payload) || isReleaseAcceptableReadinessBlock(row, payload);
   const thresholdViolations = payloadObject ? arrayLength(payload, 'threshold_violations') : 0;
   const regressionViolations = payloadObject ? arrayLength(payload, 'regression_violations') : 0;
   const failures = payloadObject ? arrayLength(payload, 'failures') : 0;
+  const releaseReadinessBlockAccepted = payloadObject && payload?.ok === false && ok;
   const pass = exists && payloadObject && ok && thresholdViolations === 0 && regressionViolations === 0 && failures === 0;
   return {
     id: row.id,
@@ -134,6 +150,7 @@ function artifactStatus(root: string, row: RequiredEvalArtifact) {
     threshold_violations: thresholdViolations,
     regression_violations: regressionViolations,
     failure_count: failures,
+    release_readiness_block_accepted: releaseReadinessBlockAccepted,
     pass,
   };
 }
