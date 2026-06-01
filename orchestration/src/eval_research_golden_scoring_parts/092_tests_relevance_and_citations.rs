@@ -734,6 +734,96 @@
     }
 
     #[test]
+    fn answer_alignment_ignores_checklist_and_interface_scaffold_terms() {
+        let terms = answer_unit_specific_terms(
+            "Lock in the move date, begin address changes, initiate postal forwarding, evaluate bids, insist on contract terms, and use API-driven internal tools. Want the easiest option?",
+        );
+
+        assert!(!terms.contains(&"lock".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"begin".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"initiat".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"initiate".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"evaluat".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"evaluate".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"insist".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"api".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"want".to_string()), "{terms:?}");
+    }
+
+    #[test]
+    fn answer_alignment_ignores_generic_words_inside_expanded_law_names() {
+        let terms = answer_unit_specific_terms(
+            "The EU Digital Services Act includes dedicated protections for minors.",
+        );
+
+        assert!(!terms.contains(&"digital".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"services".to_string()), "{terms:?}");
+    }
+
+    #[test]
+    fn answer_alignment_ignores_heading_and_scope_words() {
+        let terms = answer_unit_specific_terms(
+            "LNG Market Dynamics: Global LNG markets are influenced by export terminal capacity.",
+        );
+
+        assert!(!terms.contains(&"dynamics".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"global".to_string()), "{terms:?}");
+    }
+
+    #[test]
+    fn answer_alignment_ignores_generic_actor_and_scope_adjectives() {
+        let terms = answer_unit_specific_terms(
+            "Researchers and scholars reported that Western institutions were highly influential in the policy context.",
+        );
+
+        assert!(!terms.contains(&"researcher".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"researchers".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"scholar".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"scholars".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"western".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"highly".to_string()), "{terms:?}");
+    }
+
+    #[test]
+    fn answer_alignment_expands_common_scope_initialisms() {
+        let payload = json!({
+            "response": "For a first-time visitor to New York City, the Upper West Side is a useful base.",
+            "pending_tool_request": {
+                "input": {
+                    "query": "Compare NYC neighborhoods for a first-time visitor."
+                }
+            },
+            "tools": [{
+                "name": "batch_query",
+                "status": "ok",
+                "candidate_count": 3,
+                "content_rich_candidate_count": 3,
+                "claim_hint_count": 3,
+                "evidence_refs": [{
+                    "title": "NYC first-time visitor neighborhoods",
+                    "locator": "https://example.test/nyc",
+                    "snippet": "Upper West Side works well for museums and subway access while avoiding Times Square.",
+                    "claim_hints": ["Upper West Side is a useful first-time visitor base."]
+                }]
+            }]
+        });
+        let retrieval_quality = retrieval_provider_quality(&payload, "nyc neighborhoods");
+        let alignment = answer_unit_evidence_alignment(
+            &payload,
+            "For a first-time visitor to New York City, the Upper West Side is a useful base.",
+            &retrieval_quality,
+        );
+
+        assert_eq!(alignment.get("pass").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            alignment
+                .get("top_blocker")
+                .and_then(Value::as_str),
+            Some("none")
+        );
+    }
+
+    #[test]
     fn answer_alignment_ignores_generic_action_verbs_as_claim_terms() {
         let payload = json!({
             "response": "What looks supported: Individualized screening and management tailors care around symptom flares. Pacing specifically supports patients whose symptoms worsen after exertion. Where people are overgeneralizing: Prescribing uniform exercise, pushing fixed escalation, applying aggressive graded exercise, or treating patient reports as trial data all overstate the evidence.",

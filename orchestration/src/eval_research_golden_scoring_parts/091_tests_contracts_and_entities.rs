@@ -341,6 +341,28 @@ fn us_federal_agency_signal_counts_for_entity_coverage_without_literal_us() {
 }
 
 #[test]
+fn common_initialism_entity_can_match_expanded_location_name() {
+    let response = normalize_for_compare(
+        "For a first-time visitor to New York City, the Upper West Side and Chelsea offer useful tradeoffs.",
+    );
+    assert!(
+        entity_coverage(&response, &["NYC".to_string()]) >= 1.0,
+        "{response}"
+    );
+}
+
+#[test]
+fn prop_and_proposition_variants_count_for_entity_coverage() {
+    let response = normalize_for_compare(
+        "California Proposition 22 preserves app-based driver contractor classification while adding limited benefits.",
+    );
+    assert!(
+        entity_coverage(&response, &["California Prop 22".to_string()]) >= 1.0,
+        "{response}"
+    );
+}
+
+#[test]
 fn real_conversation_source_summary_is_not_a_passing_research_answer() {
     let case = json!({
         "prompt": "what are some scientific breakthroughs 2026?",

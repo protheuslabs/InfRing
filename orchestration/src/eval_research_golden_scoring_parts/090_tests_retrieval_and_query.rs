@@ -524,6 +524,16 @@ fn outside_evidence_detector_ignores_unsettled_evidence_language() {
 }
 
 #[test]
+fn outside_evidence_detector_allows_grounded_known_for_phrasing() {
+    let response = normalize_for_compare(
+        "Arches is known for iconic short hikes near Moab. \
+        A practical recommendation is to pick the Moab route if that matches your constraints.",
+    );
+
+    assert!(!outside_evidence_used_for_decision_signal(&response));
+}
+
+#[test]
 fn entity_coverage_accepts_phrase_variants_without_case_specific_aliases() {
     let response = normalize_for_compare(
         "The evidence discusses agent evaluation frameworks and framework results, \
@@ -628,6 +638,41 @@ fn query_satisfaction_accepts_explanatory_prompt_overlap() {
         satisfaction.get("intent_answered").and_then(Value::as_bool),
         Some(true)
     );
+}
+
+#[test]
+fn decision_value_accepts_informational_selection_prompts() {
+    let response = normalize_for_compare(
+        "The Works Progress Administration shaped American public art primarily \
+             through the Federal Art Project and related initiatives. The main \
+             historical interpretation is that these programs democratized civic art.",
+    );
+    let satisfaction = query_satisfaction(
+        &normalize_for_compare(
+            "Research how the Works Progress Administration influenced American public art. Which programs mattered most?",
+        ),
+        &response,
+        &["Works Progress Administration".to_string()],
+        1.0,
+        true,
+        true,
+        true,
+        false,
+    );
+    assert_eq!(
+        satisfaction.get("decision_value").and_then(Value::as_bool),
+        Some(true)
+    );
+}
+
+#[test]
+fn recommendation_signal_accepts_shortlist_selection_language() {
+    let response = normalize_for_compare(
+        "Travel headphone shortlist: Sony is the strongest all-round option, \
+             Bose is the top performer for comfort, and Sennheiser is the value pick.",
+    );
+
+    assert!(has_recommendation_signal(&response));
 }
 
 #[test]

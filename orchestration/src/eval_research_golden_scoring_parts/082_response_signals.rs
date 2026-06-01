@@ -107,6 +107,10 @@ fn has_recommendation_signal(normalized: &str) -> bool {
         "next step",
         "takeaway",
         "bottom line",
+        "shortlist",
+        "strongest",
+        "top performer",
+        "value pick",
         "balanced view",
         "practical view",
         "watch for",
@@ -353,6 +357,8 @@ fn common_entity_aliases(entity: &str) -> Vec<String> {
     match normalized.as_str() {
         "europe" => vec!["EU".to_string(), "European Union".to_string(), "European".to_string()],
         "european union" => vec!["EU".to_string(), "Europe".to_string(), "European".to_string()],
+        "nyc" => vec!["New York City".to_string()],
+        "new york city" => vec!["NYC".to_string()],
         "united states" | "u s" | "us" | "usa" => {
             vec![
                 "US".to_string(),
@@ -400,6 +406,8 @@ fn generic_entity_aliases(entity: &str) -> Vec<String> {
             "regulatory",
             &["legislative", "legal", "governance"][..],
         ),
+        ("prop", &["proposition"][..]),
+        ("proposition", &["prop"][..]),
     ] {
         for seed in &seeds {
             if normalize_for_compare(seed).contains(from) {
@@ -644,7 +652,6 @@ fn outside_evidence_used_for_decision_signal(normalized_response: &str) -> bool 
             "prior knowledge",
             "training knowledge",
             "historically lies",
-            "known for",
         ],
     );
     if !outside_evidence_marker {

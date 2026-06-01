@@ -359,6 +359,17 @@ fn collect_answer_alignment_scope_texts(value: &Value, texts: &mut Vec<String>) 
             if normalized.split_whitespace().count() >= 1 {
                 texts.push(normalized);
             }
+            for token in raw
+                .split(|ch: char| !ch.is_ascii_alphanumeric())
+                .filter(|token| !token.is_empty())
+            {
+                for alias in common_entity_aliases(token) {
+                    let normalized_alias = normalize_for_compare(&alias);
+                    if normalized_alias.split_whitespace().count() >= 1 {
+                        texts.push(normalized_alias);
+                    }
+                }
+            }
         }
         Value::Array(rows) => {
             for row in rows {
@@ -586,11 +597,13 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "across"
             | "also"
             | "answer"
+            | "api"
             | "area"
             | "areas"
             | "activity"
             | "apis"
             | "based"
+            | "begin"
             | "bestsupported"
             | "because"
             | "avoid"
@@ -608,6 +621,7 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "case"
             | "caveat"
             | "caveats"
+            | "city"
             | "comparative"
             | "continue"
             | "coverage"
@@ -624,7 +638,9 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "designed"
             | "detail"
             | "details"
+            | "digital"
             | "does"
+            | "dynamics"
             | "ease"
             | "enforc"
             | "enforced"
@@ -632,6 +648,8 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "ensur"
             | "even"
             | "evidence"
+            | "evaluat"
+            | "evaluate"
             | "example"
             | "factor"
             | "filter"
@@ -647,9 +665,11 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "gaps"
             | "general"
             | "given"
+            | "global"
             | "good"
             | "guidance"
             | "here"
+            | "highly"
             | "however"
             | "how"
             | "important"
@@ -657,14 +677,18 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "included"
             | "includes"
             | "including"
+            | "initiat"
+            | "initiate"
             | "implement"
             | "implementing"
             | "integrated"
             | "individual"
+            | "insist"
             | "instead"
             | "key"
             | "keep"
             | "known"
+            | "lock"
             | "look"
             | "main"
             | "make"
@@ -702,6 +726,7 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "prioritize"
             | "prioritise"
             | "prioritiz"
+            | "proposition"
             | "put"
             | "putt"
             | "push"
@@ -711,12 +736,18 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "recommended"
             | "recent"
             | "regardless"
+            | "researcher"
+            | "researchers"
             | "retrieved"
             | "safest"
+            | "scholar"
+            | "scholars"
             | "secure"
             | "secur"
             | "securing"
             | "second"
+            | "service"
+            | "services"
             | "source"
             | "sources"
             | "specific"
@@ -756,10 +787,12 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "united"
             | "use"
             | "using"
+            | "want"
             | "watch"
             | "what"
             | "whether"
             | "while"
+            | "western"
             | "wherever"
             | "establish"
             | "establishing"

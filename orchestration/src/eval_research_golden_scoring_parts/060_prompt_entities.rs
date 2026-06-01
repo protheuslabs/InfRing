@@ -72,7 +72,68 @@ fn response_matches_decision_prompt(normalized_prompt: &str, normalized_response
             "should",
         ],
     );
-    !wants_decision || has_recommendation_signal(normalized_response)
+    !wants_decision
+        || has_recommendation_signal(normalized_response)
+        || (prompt_asks_informational_selection(normalized_prompt)
+            && response_has_informational_selection_signal(normalized_response))
+}
+
+fn prompt_asks_informational_selection(normalized_prompt: &str) -> bool {
+    normalized_prompt.contains("which")
+        && contains_any(
+            normalized_prompt,
+            &[
+                "which program",
+                "which product",
+                "which model",
+                "which company",
+                "which companies",
+                "which tool",
+                "which source",
+                "which law",
+                "which state",
+                "which development",
+                "which example",
+                "which option",
+                "mattered most",
+                "matter most",
+                "matters most",
+                "most important",
+                "most relevant",
+                "most useful",
+                "main",
+                "major",
+                "key",
+                "notable",
+            ],
+        )
+}
+
+fn response_has_informational_selection_signal(normalized_response: &str) -> bool {
+    contains_any(
+        normalized_response,
+        &[
+            "primary",
+            "primarily",
+            "main",
+            "major",
+            "key",
+            "central",
+            "especially",
+            "notable",
+            "most important",
+            "most relevant",
+            "strongest",
+            "best supported",
+            "best-supported",
+            "shortlist",
+            "top",
+            "leading",
+            "core",
+            "mattered most",
+            "matter most",
+        ],
+    )
 }
 
 fn response_has_right_granularity(normalized_response: &str) -> bool {
