@@ -1561,7 +1561,7 @@ or a compact retry/reflection primitive, not simply a shorter provider timeout.
 
 ## EXP-CODING-052: Compact first-mutation retry/reflection
 
-Status: `patched_pending_measurement`
+Status: `reverted`
 
 Patch packet:
 
@@ -1620,7 +1620,7 @@ evidence into bounded repair mutations.
 
 ## EXP-CODING-053: Import-surface evidence expansion for seeded repair
 
-Status: `patched_pending_measurement`
+Status: `reverted`
 
 Patch packet:
 
@@ -1681,7 +1681,7 @@ bounded repair execution.
 
 ## EXP-CODING-054: First-mutation timeout demotion
 
-Status: `patched_pending_measurement`
+Status: `promoted_for_next_canary_batch`
 
 Patch packet:
 
@@ -2040,6 +2040,242 @@ failed validation/import evidence
 
 Measurement:
 
+Initial measurement:
+
+- Build passed with isolated xtask target.
+- Level 3/4 smoke passed after parser adapter:
+  - Level 3: 1/1 pass, ~11.2s wall, ~11.1s to first mutation.
+  - Level 4: 1/1 pass, ~15.5s wall, ~15.4s to first mutation.
+- Level 2 canary did not improve sufficiently:
+  - 0/3 strict pass, average ~114.7s.
+  - Failure classes: `model_lock_violation`, `import_surface_missing`, `no_successful_mutation`.
+  - Interpretation: protocol support is safe, but the compact mutation lane still is not explicitly selecting the reference `actions` controller shape.
+
+Decision:
+
+Keep the protocol adapter as a safe primitive. Add a separate, measured controller-surface experiment rather than broadening parser behavior.
+
+### EXP-CODING-082: Compact mutation action-surface prompt
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: compact_mutation_action_surface
+Profile touched: mutation-only recovery system contract
+Activation evidence: EXP-CODING-081 added safe parsing for mini-SWE-style shell actions, but Level 2 still stayed slow and unreliable, indicating the compact lane was not being asked to use the newly supported action surface.
+Reference pattern: mini-SWE-agent exposes a tiny `actions` schema for shell edit batches, with runtime-owned validation and stop rules.
+Invariant: expose `actions` only as a generic shell-edit batch surface for mutation-only recovery. Existing `tool_calls`, file_write/file_patch, command_run receipts, shell-edit guards, and validation remain unchanged.
+Rollback condition: Level 3/4 regress, action commands bypass mutation receipts, or Level 2 latency worsens without improving mutation/semantic completion.
+```
+
+Patch:
+
+- Updated the mutation-only recovery system contract to allow `{"actions":[{"command":"..."}]}` for controlled shell edit batches.
+- Kept `tool_calls` as the fallback schema and retained all existing no-read/no-validation/final-answer constraints for that turn.
+
+Measurement:
+
+Initial measurement:
+
+- Build passed with isolated xtask target.
+- Level 3/4 smoke:
+  - Level 3: 1/1 pass, ~6.3s wall, ~6.2s to first mutation.
+  - Level 4: 1/1 pass, ~20.9s wall, ~20.8s to first mutation.
+- Level 2 canary:
+  - 1/3 strict pass, average ~128.4s.
+  - Attempt 1 passed fully in ~19.5s.
+  - Attempts 2 and 3 mutated source/tests and passed expected-symbol, validation, and semantic-probe checks, but failed final runtime status/latency.
+
+Interpretation:
+
+The action surface improved actual coding capability: the remaining Level 2 failures shifted from missing mutation/import-surface/semantic behavior to evidence-satisfied closure and latency/status handling. Do not add more task-specific coding hints here; next fixes should target generic closeout/evidence and controller budgets.
+
+### EXP-CODING-083: Public-interface generic token suppression
+
+Status: `reverted`
+
+Patch packet:
+
+```text
+Primitive: public_interface_generic_token_suppression
+Profile touched: public API evidence extraction and completion gates
+Activation evidence: after successful mutation, validation, and semantic probe, runtime blockers still included generic prompt words such as `and`, `prompt`, `run`, `symbol`, and `these` as missing public-interface evidence.
+Reference pattern: successful frameworks close on concrete code/test/probe evidence; natural-language scaffolding words from the task contract are not treated as API symbols.
+Invariant: suppress only generic instruction/control words from prompt-derived public-interface candidates. Explicit imports, call patterns, class/function names, and underscored API names remain evidence targets.
+Rollback condition: genuine public API names stop being required, or semantic-probe failures close as success.
+```
+
+Patch:
+
+- Expanded prompt-derived public-interface stopwords for generic instruction words, source/test/file wording, and local task-contract scaffolding.
+- Applied suppression to both broad request-surface extraction and action-phrase extraction.
+
+Measurement:
+
+- Build passed with isolated xtask target.
+- Level 2 canary regressed:
+  - 0/3 strict pass, average ~150.8s.
+  - Failure classes: `import_surface_missing`, `latency_budget_exceeded`, `assertion_mismatch`.
+  - The previous action-surface run had 1/3 strict pass and all attempts had better evidence shape.
+
+Decision:
+
+Revert the stopword expansion. The underlying finding remains valid, but broadening the generic-token filter is not the right patch shape. Future evidence-closeout fixes should use receipt-backed semantic/validation state directly instead of trying to tune prompt-token heuristics.
+
+### EXP-CODING-084: Semantic probe authorizes public-interface closeout
+
+Status: `reverted`
+
+Patch packet:
+
+```text
+Primitive: semantic_probe_public_interface_authority
+Profile touched: completion evidence and public-interface verification gates
+Activation evidence: Level 2 action-surface attempt 2 mutated source/tests and passed validation, expected-symbol, and semantic-probe checks, but the runtime still returned `partial_blocked` because heuristic public-interface verification treated generic prompt words as missing API symbols.
+Reference pattern: mini-SWE-agent stops after tests plus semantic probe pass. The project-local semantic probe is the executable public-interface contract; heuristic prompt-token verification should not override it after mutation.
+Invariant: only a successful semantic probe command observed after a successful mutation suppresses heuristic public-interface gaps. Missing mutation, missing probe, or failed probe still blocks normally.
+Rollback condition: semantic-probe failures close as success, missing imported public APIs are ignored without a successful post-mutation probe, or Level 3/4 regress.
+```
+
+Patch:
+
+- Added an order-aware `semantic_probe_after_mutation` evidence helper.
+- Suppressed heuristic public-interface verification gaps when a successful post-mutation semantic probe exists.
+- Suppressed prompt-derived public-interface evidence gaps in product-slice checks under the same receipt-backed condition.
+
+Measurement:
+
+- Build passed with isolated xtask target.
+- Level 3/4 smoke stayed healthy and fast:
+  - Level 3: 1/1 pass, ~6.2s.
+  - Level 4: 1/1 pass, ~6.7s.
+- Level 2 canary did not improve:
+  - 0/3 strict pass, average ~184.2s.
+  - Failure classes: `syntax_error`, `import_surface_missing`, `unknown_validation_failure`.
+  - None of the failures reached the successful post-mutation semantic-probe condition, so the patch did not address the active failure.
+
+Decision:
+
+Revert. The principle may still be valid, but this was not the next effective primitive. The clearer trace-backed failure is prompt-surface leakage: the model copied literal `<full file>` placeholder content from our command example, while mini-SWE avoids placeholder examples and uses a tiny action schema.
+
+### EXP-CODING-085: Remove placeholder-bearing edit examples
+
+Status: `reverted`
+
+Patch packet:
+
+```text
+Primitive: placeholder_free_edit_surface
+Profile touched: compact mutation-entry packet
+Activation evidence: Level 2 semantic-closeout canary wrote literal placeholder text into a test file, producing `SyntaxError: <full file>`. The placeholder came from Infring's own shell-edit example, not from the user task.
+Reference pattern: mini-SWE-agent uses a tiny action schema and says to use heredocs for multi-line writes, but does not provide fake file contents for the model to copy.
+Invariant: mutation-entry prompts may describe the JSON/action schema and the requirement to write complete real file contents, but must not include placeholder source/test bodies. This is prompt hygiene, not an eval-specific rejection rule.
+Rollback condition: Level 3/4 regress, Level 2 mutation rate drops because the model no longer understands shell-edit batches, or placeholder leakage persists.
+```
+
+Patch:
+
+- Removed the concrete shell-edit example containing fake file body placeholders.
+- Updated the mutation-entry packet to allow the compact `actions` schema for shell edit batches and `tool_calls` for file_write/file_patch.
+- Added a generic instruction to write complete real file contents only.
+
+Measurement:
+
+- Build passed with isolated xtask target.
+- Level 3/4 smoke:
+  - Level 3: 1/1 pass, but slowed to ~39.1s and closed through terminal receipt synthesis.
+  - Level 4: 1/1 pass, ~5.3s.
+- Level 2 canary regressed:
+  - 0/3 strict pass, average ~155.8s.
+  - Failure classes: `no_successful_mutation` x2, `latency_budget_exceeded` x1.
+
+Decision:
+
+Revert. Removing placeholder examples is directionally right for prompt hygiene, but doing it as prompt surgery weakened mutation reliability. The next fix should be controller-level: preserve a small explicit edit affordance while preventing placeholder content from becoming trusted mutation, likely through a bounded mini-SWE-style action controller or tool-level placeholder-content rejection with targeted repair feedback.
+
+### EXP-CODING-086: Compact action controller primitive
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: compact_action_controller
+Profile touched: compact bootstrap mutation and mutation-only recovery
+Activation evidence: mini-SWE-agent solves Level 2 with the same weak model by using a tiny `actions` shell command controller, while prompt-only changes in Infring oscillated between no mutation, placeholder leakage, and long partial-blocked runs.
+Reference pattern: bounded action controller with local context already loaded, one shell edit batch, runtime-owned validation/probe/closeout.
+Invariant: this is a controller surface, not a fixture branch. It activates from metadata, only after local context is loaded and a mutation is required, routes through normal `command_run` dispatch and shell-edit guards, and leaves the existing mutation packet path as fallback when disabled.
+Rollback condition: Level 3/4 regress, Level 2 mutation rate drops, shell actions bypass receipt synthesis, or latency worsens without semantic improvement.
+```
+
+Patch:
+
+- Added `compact_action_controller_enabled` to the official coding workflow CD.
+- Added a compact action-controller system prompt and prompt builder that accepts only `actions` shell commands.
+- Restricted that controller's visible tool surface to command execution aliases.
+- Reused the existing compact mutation packet but strips placeholder-bearing shell-edit examples before handing it to the action controller.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-088: Make compact action controller dormant after activation regression
+
+Status: `patched_pending_measurement`
+
+Finding: Activating the compact action controller in the Level 3/4 mutation spine changed the failure mode from timeout to pass after EXP-CODING-087, but it was still a net regression. Level 3 passed in about 27.8s instead of the prior small-smoke result near 4.3s, and the trace showed the model did not actually follow the `actions` surface: it emitted file-write tool calls through a one-tool controller turn.
+
+Decision: Keep the protocol/parser/controller code as a dormant primitive for future controlled experiments, but disable `compact_action_controller_enabled` in runtime workflow CDs. This avoids letting a partially-assimilated mini-SWE pattern degrade the stable path.
+
+Next model-guided target: consult the reference traces for why mini-SWE/aider/Codex get compact edits without needing a special action-controller surface, likely focusing on concise prompt packets plus runtime-owned closeout rather than a new controller lane.
+
+### EXP-CODING-087: Action controller disables tool-call-marker streaming
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: action_controller_stream_protocol_alignment
+Profile touched: compact action controller provider request
+Activation evidence: after EXP-CODING-086 activated the compact action controller in the active mutation spine, Level 3 produced real code and passed validation/probe externally, but the agent run timed out. Trace showed `compact_action_controller_turn: true` with `stream_until_tool_calls: true`; the controller asks for `actions`, not `tool_calls`.
+Reference pattern: mini-SWE-style action controllers consume a complete compact JSON action object, then runtime dispatches and closes. They do not use a tool-call-marker streaming shortcut.
+Invariant: this only changes the compact action controller protocol mode. Existing `tool_calls` lanes keep their streaming gate.
+Rollback condition: provider latency increases materially or action parsing fails to dispatch real command receipts.
+```
+
+Patch:
+
+- Force `stream_until_tool_calls = false` for compact action controller turns.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-086: Compact action controller primitive activation
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: compact_action_controller
+Profile touched: compact coding controller and active mutation spine workflow CD
+Activation evidence: mini-SWE-agent's weak-model Level 2 traces use a tiny JSON `actions` shell-command surface. Infring had protocol support for this shape and a compact controller branch, but the Level 3/4 harness launches `local_coding_phase1_mutation_spine`, which did not enable the new controller flag.
+Reference pattern: compact action controller receives already-loaded context, emits only `{"actions":[{"command":"..."}]}`, uses one controlled shell edit batch, and leaves validation/repair/finalization to runtime.
+Invariant: no level, fixture, path, or expected-symbol hardcoding. Activation is workflow-CD controlled and still requires the generic controlled shell-edit primitive.
+Rollback condition: lower levels regress, compact controller loops without mutation, or traces show eval-specific commands instead of real local coding edits.
+```
+
+Patch:
+
+- Enabled `compact_action_controller_enabled` in the active `local_coding_phase1_mutation_spine` native success criteria.
+- Kept the already-added official `coding_project_operator` flag so Level 2 and top-level coding lanes share the same primitive switch.
+
+Measurement:
+
 Pending.
 
 ### EXP-CODING-059 follow-up measurement
@@ -2115,3 +2351,1259 @@ Follow-up patch:
   and into workflow CD policy.
 - Set the bounded first-mutation lane timeout to `15s` so no-mutation demotion
   can reach compact recovery before the run spends most of its wall budget.
+
+### EXP-CODING-062: Validation-guided compact repair turn
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: validation_guided_compact_repair_turn
+Profile touched: 2-3
+Activation evidence: failed validation receipt exists before required mutation, and the first-mutation lane produced no successful mutation.
+Reference pattern: failed validation output + observed source/test context -> narrow product/source patch -> runtime validation.
+Invariant: tests/probes are contract evidence by default; mutation targets product/source owner files unless the user explicitly requested test edits.
+Rollback condition: Level 3/5 regress, Level 4 remains no-successful-mutation without lower wall time, or validation-guided repair mutates tests instead of source.
+```
+
+Patch:
+
+- Added a CD-gated validation-guided compact repair turn.
+- Builds a compact packet from failed validation lines, observed product/source
+  files, and test/probe contract lines.
+- Uses file-only tools and a CD-owned provider timeout.
+- Activates from the generic first-mutation no-mutation recovery path when
+  failed validation evidence exists.
+
+Follow-up patch:
+
+- Matched the validation-guided compact repair turn to the faster first-mutation
+  artifact lane contract: first visible byte must be `{`, JSON tool calls only,
+  and thinking flags are omitted for this compact repair turn.
+
+### EXP-CODING-063: Validation-aware first mutation artifact lane
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: first_mutation_artifact_validation_context
+Profile touched: 2-3
+Activation evidence: failed validation receipts are present before the first mutation artifact lane.
+Reference pattern: failed validation output should be first-class context for the first edit attempt, not only for later recovery.
+Invariant: validation output is compact evidence; tests/probes remain contract evidence, not default mutation targets.
+Rollback condition: Level 3/5 regress, Level 4 remains no-successful-mutation with no wall-time or activation improvement, or first-lane prompt size becomes large enough to hurt fast paths.
+```
+
+Patch:
+
+- Added compact failed-validation evidence to the first mutation artifact lane
+  context packet.
+- Updated the lane mutation rule so failed validation is treated as the primary
+  repair contract when present.
+- Kept allowed tools limited to `file_patch` and `file_write`.
+
+Decision:
+
+Kept active pending a cleaner replacement. A single Level 4 pass was not
+promotion-grade evidence, and the broader Level 3-5 batch was not enough to
+prove the lane as a speed optimization. However, rebuilding after removing this
+packet caused Level 3 and Level 4 to lose mutation entirely in the current
+bounded canary. The reusable lesson is that compact failed-validation evidence
+is part of the current mutation entry contract, not a disposable special case.
+Future work should gate or reshape it with reference traces, not remove it
+blindly.
+
+### EXP-CODING-064: Method lock and external-framework loop
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: experiment_method_guard
+Profile touched: all coding profiles
+Activation evidence: repeated patch entropy while chasing higher levels.
+Reference pattern: successful coding systems are used as runtime behavior probes before primitive assimilation.
+Invariant: external frameworks remain in the loop, lower-level canaries remain monotonic, and single lucky passes cannot promote runtime behavior.
+Rollback condition: none for the documentation; runtime changes still require measured promotion.
+```
+
+Patch:
+
+- Added `docs/workspace/coding_workflow_experiment_method.md`.
+- Made `validation_guided_compact_repair_turn` dormant in the official and lab
+  coding workflow CDs.
+- Attempted to remove unproven failed-validation evidence injection from the
+  active first-mutation artifact lane, then restored it after rebuilt-binary
+  canaries proved it was part of the current mutation-entry contract.
+- Added bounded, incremental reporting to the Level 3/4/5/6/7 reference
+  harness so external frameworks can stay in the loop without blocking each
+  patch round indefinitely.
+
+Measurement:
+
+Bounded Infring/Codex comparison:
+
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/framework_loop_infring_codex_level3_level4_bounded_20260531.json`
+- Infring Level 3: pass, about `30.5s` wall time, about `30.3s` time to first mutation.
+- Codex Level 3: pass, about `20.6s` wall time, about `10.9s` time to first mutation.
+- Infring Level 4: pass, about `39.1s` wall time, about `39.0s` time to first mutation.
+- Codex Level 4: pass, about `33.8s` wall time, about `25.2s` time to first mutation.
+
+Trace interpretation:
+
+Infring correctness recovered, but both Infring runs spent a serial `15s`
+timeout in `first_mutation_artifact_lane_v1` before the parent compact mutation
+path produced the real edit. Codex did not pay a comparable speculative
+provider-lane timeout before mutation. The next primitive patch should remove
+that serial failed-turn tax from the default hot path.
+
+Rebuilt-binary follow-up:
+
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/infring_level3_level4_rebuilt_method_lock_20260531.json`
+- Removing the first-lane failed-validation/context packet from source caused
+  Infring Level 3 and Level 4 to fail with `no_successful_mutation`.
+- Decision: restore that packet as active primitive evidence until a cleaner
+  reference-backed mutation-entry contract replaces it.
+
+### EXP-CODING-067: Reactivate validation-guided compact repair with real timeout
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: failed_validation_routes_to_compact_repair
+Profile touched: 4
+Activation evidence: rebuilt Level 4 traces show failed validation exists, but the run falls into generic mutation-only recovery and times out without mutation.
+Reference pattern: Codex repairs the owner source file after observing validation failure rather than broad rediscovery or generic mutation recovery.
+Invariant: failed validation is compact repair evidence, not a prompt-size expansion excuse or test-case special case.
+Rollback condition: Level 4 still fails with no mutation, Level 3 regresses, or the lane mutates tests/probes instead of product/source owner files.
+```
+
+Patch:
+
+- Reactivated `validation_guided_compact_repair_turn` in the official and lab
+  coding workflow CDs.
+- Increased `validation_guided_compact_repair_provider_timeout_seconds` from
+  `20` to `45` so the lane is measured as a real repair attempt rather than an
+  under-timeout artifact.
+
+Measurement:
+
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/infring_level3_level4_validation_guided_45s_20260531.json`
+- Infring Level 3: pass, about `30.6s` wall time, about `30.5s` time to first mutation.
+- Infring Level 4: pass, about `42.2s` wall time, about `42.1s` time to first mutation.
+- Level 4 trace confirmed `validation_guided_compact_repair_turn: true`,
+  prompt about `2630` chars, system about `290` chars, tool count `2`,
+  and a `file_patch` mutation to the product/source owner file.
+
+Decision:
+
+Promoted for the next canary batch, not yet declared broadly stable. The patch
+restores rebuilt-binary Level 4 correctness using a cleaner failed-validation
+repair lane and does not break Level 3 in the same bounded run. Remaining
+latency is still high because the runtime spends about `15s` in the speculative
+artifact lane before validation-guided repair; optimize that only after repeated
+Level 3/4/5 canaries stay green.
+
+### EXP-CODING-065: Dormant speculative first-mutation artifact lane
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: speculative_lane_promotion_gate
+Profile touched: 2-4
+Activation evidence: first_mutation_artifact_lane_v1 timed out before mutation on repeated current Level 3/4 traces.
+Reference pattern: Codex reaches mutation through its primary tool loop rather than paying a failed speculative provider turn first.
+Invariant: speculative provider lanes must be dormant by default unless repeated trace data proves they beat the parent mutation path without lower-level regression.
+Rollback condition: disabling the lane regresses correctness or increases time to first mutation across lower/mid canaries.
+```
+
+Patch:
+
+- Set `first_mutation_artifact_lane_v1_enabled` to `false` in the official
+  coding workflow CD.
+- Set `first_mutation_artifact_lane_v1_enabled` to `false` in the local lab
+  mutation-spine CD.
+- Kept the Rust primitive available for future gated reactivation rather than
+  deleting it.
+
+Measurement:
+
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/infring_level3_level4_no_speculative_first_lane_20260531.json`
+- Infring Level 3: failed, `no_successful_mutation`, about `60.1s`, no mutation.
+- Infring Level 4: failed, `no_successful_mutation`, about `75.1s`, no mutation.
+
+Decision:
+
+Rejected and reverted. The hypothesis was directionally useful but incomplete:
+the first-mutation artifact lane is currently not only a speculative fast path;
+its timeout demotion arms the compact mutation-only recovery path. Disabling it
+sent the runtime through the broader parent prompt, which timed out twice before
+mutation. The next primitive fix should preserve the compact recovery entry
+shape while removing or shortening the failed serial artifact attempt.
+
+### EXP-CODING-066: Short speculative artifact timeout before compact recovery
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: bounded_speculative_lane_demote_fast
+Profile touched: 2-4
+Activation evidence: artifact lane timeout demotion is useful, but the serial 15s wait is a repeated latency tax.
+Reference pattern: reference agents reach edit-capable tool use without a long failed speculative pre-turn.
+Invariant: keep compact-recovery arming semantics, but speculative provider lanes must fail fast when they are not producing tool calls.
+Rollback condition: lower/mid canaries lose mutation or wall time does not improve versus the 15s baseline.
+```
+
+Patch:
+
+- Reduced `first_mutation_artifact_lane_v1_provider_timeout_seconds` from `15`
+  to the CD/player minimum of `5` in the official coding workflow.
+- Reduced the same timeout in the local lab mutation-spine workflow.
+
+Measurement:
+
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/infring_level3_level4_first_lane_5s_20260531.json`
+- Infring Level 3: pass, about `24.6s` wall time, about `24.5s` time to first mutation.
+- Infring Level 4: failed, `no_successful_mutation`, about `35.1s`, no mutation.
+
+Decision:
+
+Rejected and reverted. The shorter timeout produced a useful Level 3 speed
+improvement, but it lost Level 4 mutation. That violates the monotonic canary
+rule. The next patch should not merely tune timeout constants; it should change
+the compact recovery prompt/contract for validation-guided tasks so Level 4 can
+mutate reliably before optimizing the speculative wait.
+
+### EXP-CODING-068: Level 3/4/5 validation-guided canary
+
+Status: `failure_target_identified`
+
+Measurement:
+
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/infring_level3_4_5_validation_guided_canary_20260531.json`
+- Infring Level 3: pass, about `37.4s` wall time, about `37.1s` time to first mutation.
+- Infring Level 4: pass, about `55.7s` wall time, about `55.6s` time to first mutation.
+- Infring Level 5: failed, `seeded_repair_timeout`, about `39.9s` wall time, about `0.08s` time to first mutation.
+
+Trace interpretation:
+
+Level 5 is no longer a simple no-mutation failure. The runtime immediately seeds
+an import surface by writing `calcpack/arithmetic.py` and `calcpack/__init__.py`,
+but the seeded repair turn times out before replacing the placeholder
+`NotImplementedError` implementation with real behavior. The failing turn used a
+seeded import-surface repair prompt of about `4799` chars, observation context of
+about `6222` chars, system prompt of about `241` chars, and tool count `2`, then
+timed out at `30s`.
+
+Next patch target:
+
+Consult the reference framework traces for Level 5 and patch the seeded
+import-surface repair primitive, not the lower-level validation-guided compact
+repair lane. The likely primitive gap is that import-surface seeding creates a
+placeholder capability but does not hand the model a compact enough direct
+implementation contract to replace the placeholder before timeout.
+
+### EXP-CODING-069: Level 5 reference-framework comparison
+
+Status: `reference_trace_collected_no_patch`
+
+Measurement:
+
+- Report:
+  `references/coding-agent-systems/runtime_trace_harness/reports/framework_loop_level5_seeded_repair_20260531.json`
+- Infring Level 5: pass, about `17.5s` wall time, about `17.3s` time to first mutation.
+- Codex Level 5: pass, about `31.0s` wall time, about `16.5s` time to first mutation.
+- Claude Code Level 5: pass, about `24.9s` wall time, about `18.7s` time to first mutation.
+- Aider Level 5: not comparable; blocked by missing temp venv at `/tmp/infring-baselines-aider`.
+- ForgeCode Level 5: not comparable; blocked by missing comparison binary and cargo-run fallback is forbidden by policy.
+
+Trace interpretation:
+
+The prior Level 5 `seeded_repair_timeout` is stochastic rather than a consistent
+structural failure. In the successful Infring run, import-surface seeding happened
+immediately, then the seeded repair turn completed in one provider turn and wrote
+both `calcpack/arithmetic.py` and `calcpack/__init__.py` with passing validation
+and semantic probe. This means the seeded import-surface primitive can work and
+should not be patched blindly from one timeout failure.
+
+Decision:
+
+No runtime patch from this run. The next evidence step should be repeated Infring
+Level 5 reliability sampling and restoration of unavailable reference runners
+(Aider venv, ForgeCode binary) if we want them to remain useful in the loop.
+
+
+### EXP-CODING-070: Level 5 reliability and Level 2-6 sweep
+
+Status: `failure_target_identified`
+
+Level 5 reliability sample:
+
+- Report directory: `references/coding-agent-systems/runtime_trace_harness/reports/level5_reliability_20260531/`
+- Infring Level 5: `5/5` pass.
+- Wall time range: about `11.4s` to `22.4s`; average about `16.1s`.
+- Time to first mutation range: about `11.3s` to `22.3s`; average about `16.0s`.
+
+Level 2-6 sweep:
+
+- Level 2 report: `references/coding-agent-systems/runtime_trace_harness/reports/infring_level2_sweep_20260531.json`
+- Level 3-6 report: `references/coding-agent-systems/runtime_trace_harness/reports/infring_level3_6_sweep_20260531.json`
+- Level 2: fail, `no_successful_mutation`, about `100.1s`.
+- Level 3: fail, `no_successful_mutation:1`, about `45.0s` average wall time.
+- Level 4: fail, `no_successful_mutation:1`, about `60.2s` average wall time.
+- Level 5: pass, `pass:1`, about `9.3s` average wall time.
+- Level 6: fail, `seeded_repair_timeout:1`, about `52.9s` average wall time.
+
+Interpretation:
+
+Focused Level 5 is currently healthy: the seeded public-interface repair lane passed 5/5 and also passed in the broad sweep. The broad Level 2-6 sweep exposes a separate weakness: Level 2/3/4 are timing out without successful mutation, while Level 6 reaches immediate seeded import-surface mutation but times out before implementing the larger persistence behavior. Do not patch Level 5 from this data. The next primitive target should be the lower existing-project mutation-entry path for Levels 2-4, with Level 6 tracked separately as a larger seeded-repair capacity issue.
+
+### EXP-CODING-068: Direct existing-project mutation entry
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: direct_existing_project_mutation_entry
+Profile touched: 2-4
+Activation evidence: existing-project patch lane has bounded local read context, no successful mutation yet, compact mutation entry is available.
+Reference pattern: Codex and Claude traces enter edit-capable tool use directly after context, instead of depending on a failed speculative first-mutation lane to unlock compact recovery.
+Invariant: simple existing-project edit lanes own their mutation entry; speculative artifact lanes must not be a hidden prerequisite for compact recovery.
+Rollback condition: Level 1-4 regress, Level 5 seeded repair path regresses, or direct entry mutates without required local context receipts.
+```
+
+Patch:
+
+- Added CD-gated `direct_existing_project_mutation_entry_enabled` to the official coding workflow and local mutation-spine workflow.
+- When enabled, bounded existing-project patch tasks with loaded context arm `mutation_only_recovery` directly, or `validation_guided_compact_repair` when failed validation evidence exists.
+- The speculative `first_mutation_artifact_lane_v1` remains implemented, but this direct lane skips it for the selected simple existing-project mutation entry path.
+
+Expected impact:
+
+```text
+bounded context loaded
+-> direct compact mutation entry armed
+-> file_write/file_patch first mutation
+-> existing validation/spine closure
+```
+
+Measurement:
+
+Pending. Next canary should run lower-level monotonic checks before returning to higher-level optimization.
+
+### EXP-CODING-069: Direct mutation-entry timeout and owner-path contract
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: direct_mutation_entry_provider_budget_and_owner_path_contract
+Profile touched: 2-4
+Activation evidence: Level 2 compact mutation entry reached provider work but timed out before mutation; Level 4 direct validation repair emitted a path rejected by the owner-source guard.
+Reference pattern: Codex/Claude traces use one edit-capable turn with exact workspace paths from observed context, and do not spend hidden time in thinking/planning before tool-call JSON.
+Invariant: compact mutation-entry lanes receive a CD-owned provider budget and exact observed owner paths; they do not rely on level-specific fixtures or absolute-path guessing.
+Rollback condition: Level 3 regresses, Level 4 still requires a second broad turn for owner-path repair, or Level 2 still fails without mutation after the larger compact budget.
+```
+
+Patch:
+
+- Added CD-owned `mutation_only_recovery_provider_timeout_seconds` for compact mutation-only turns.
+- Set compact mutation-only turns to omit Ollama thinking flags just like validation-guided compact repair turns.
+- Changed the validation-guided repair packet to require the exact observed owner path listed in the packet instead of an invented absolute path.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-070: Evidence-satisfied tool-loop closure
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: evidence_satisfied_tool_loop_closure
+Profile touched: 2+
+Activation evidence: Level 2 attempts produced mutation receipts, passed validation, passed semantic probes, and exposed expected symbols, but runtime continued into partial_blocked.
+Reference pattern: mini-SWE-agent stops after validation/probe success; Infring should let the coding execution spine close immediately once receipt-backed evidence is sufficient.
+Invariant: after any native tool batch, if the coding execution spine returns close_success and mutation evidence exists, the runtime returns a receipt-backed success instead of spending more provider turns.
+Rollback condition: any lower-level run closes success without mutation receipts, validation-required tasks close before validation, or Level 3/4 regress.
+```
+
+Patch:
+
+- Added a general post-tool-batch closure check using `coding_execution_spine_decision_from_native_receipts`.
+- The check is not level-specific and only closes when successful mutation receipts exist and the spine declares required evidence satisfied.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-071: Receipt-producing compact mutation entry
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: receipt_producing_compact_mutation_entry
+Profile touched: 2-4 compact/direct mutation entry
+Activation evidence: Level 2 compact mutation turns used command_run heredoc edits that changed files but were rejected by the shell preserved-API guard, leaving zero successful mutation receipts.
+Reference pattern: mini-SWE/aider-style fast paths mutate quickly, but their shell edits only count when the runtime can trust and receipt them. Infring's current trusted primitive is file_write/file_patch, not shell-edit receipt synthesis.
+Invariant: compact mutation-entry lanes must use receipt-producing file mutation tools before validation/finalization. command_run remains available for validation and later lanes, but not as the first compact product mutation primitive.
+Rollback condition: Level 3/4 regress, multi-file compact edits fail because the model cannot emit multiple file_write/file_patch calls, or a future shell-edit receipt synthesizer safely replaces this constraint.
+```
+
+Patch:
+
+- Removed `command_run` from the compact mutation recovery tool menu.
+- Updated compact mutation-entry prompts to request only `file_write`/`file_patch` mutation calls, including multi-file batches.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-072: Receipt-backed completion evidence precedence
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: receipt_backed_completion_evidence_precedence
+Profile touched: bounded/direct existing-project completion gates
+Activation evidence: Level 2 attempt 3 produced source/test mutations, passed validation, passed the external semantic probe, and exposed expected symbols, but runtime stayed partial_blocked because generic prompt words were interpreted as public API evidence gaps and stale partial/blocked model text overrode receipts.
+Reference pattern: Codex/Claude/mini-SWE style loops stop once concrete mutation plus validation evidence satisfies the task slice; stale model self-status does not outweigh executable evidence.
+Invariant: completion gates derive public API requirements from explicit imports/calls/action names, not generic requirement nouns, and receipt-backed completion suppresses stale reported-uncovered wording.
+Rollback condition: real missing public API/export cases close success, Level 4 owner-source repair regresses, or Level 7/8 closes without required durable evidence.
+```
+
+Patch:
+
+- Added generic public-API stopwords for requirement nouns that are not API symbols.
+- Changed artifact repair reasons so receipt-backed complete runs are not blocked solely by stale `partial_or_blocked`/uncovered wording.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-073: Revert file-only compact mutation entry
+
+Status: `reverted`
+
+Finding: EXP-CODING-071 removed `command_run` from compact mutation entry to force receipt-producing file tools. A Level 3/4 smoke stayed healthy, but the next Level 2 canary regressed to provider timeouts/no-mutation before the first edit. This suggests the weak-model compact path still benefits from shell-style batch edit affordances, matching mini-SWE/aider trace patterns.
+
+Decision: Revert the file-only compact mutation-entry constraint. Keep the broader receipt-backed completion evidence patch from EXP-CODING-072. Future shell optimization should improve controlled shell-edit receipt synthesis or recovery, not remove the shell batch affordance from the weak-model fast path.
+
+### EXP-CODING-074: Small-step compact mutation loop
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: small_step_compact_mutation_loop
+Profile touched: compact mutation entry and context-to-mutation retry prompts
+Activation evidence: mini-SWE-agent solved all three Level 2 tasks with the same weak model in roughly 14-20s by using a tiny JSON action schema, reading context/probe files, then issuing one or two useful shell commands per turn. Infring already reads the same context/probe files, but its compact prompt asks for a single giant multi-file edit batch and shows slower, less reliable semantic completion.
+Reference pattern: small sequential mutation turns, each with bounded command count, instead of monolithic multi-file generation.
+Invariant: the runtime remains primitive-first: no level names, fixture paths, or task-specific branches. The compact lane now expresses an execution-shape primitive: smallest coherent mutation step, then let runtime continue/validate.
+Rollback condition: Level 3/4 regress, Level 2 latency worsens without semantic improvement, or higher-level staged lanes lose necessary atomicity.
+```
+
+Patch:
+
+- Replaced “one command_run shell edit batch” compact mutation wording with “one or two useful mutation commands for the next coherent step.”
+- Told multi-file compact work to split source/export/test edits across sequential runtime turns rather than one giant batch.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-075: Revert prompt-only small-step compact loop
+
+Status: `reverted`
+
+Finding: EXP-CODING-074 copied the reference small-step behavior into prompt wording only. It improved one simple Level 2 attempt but did not produce a broad positive delta: attempts 2 and 3 still missed semantic behavior and wall time increased to roughly 155-173s.
+
+Decision: Revert the prompt-only small-step change. Keep the trace insight: mini-SWE's winning behavior appears to come from an actual controller shape with a tiny shell-action schema, one/two commands per turn, observations after each step, validation/probe closeout, and a simple stop rule. That should be implemented as a primitive controller, not as more text inside the current compact mutation prompt.
+
+### EXP-CODING-076: Restore compact shell mutation tool menu
+
+Status: `patched_pending_measurement`
+
+Finding: The intended revert of the file-only compact mutation-entry trial restored shell-oriented prompt text but did not restore `command_run` to the compact mutation recovery tool menu. This left the runtime in an inconsistent state: the model was told command-run shell edits were allowed, while the tool menu exposed only file write/patch tools.
+
+Decision: Restore `command_run` and shell aliases to the compact mutation recovery tool filter before building the next controller primitive. This is a primitive surface repair, not a task-specific workaround.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-077: Semantic probe as native auto-validation
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: local_semantic_probe_auto_validation
+Profile touched: post-mutation validation/repair loop
+Activation evidence: mini-SWE-agent Level 2 traces solved all attempts by validating both unit tests and `.infring/semantic_probe.py` before stopping. Infring already bootstraps the semantic probe as context, but can finalize or continue from unit validation without treating the probe as native repair evidence.
+Reference pattern: after mutation, run validation plus the local semantic probe; semantic probe failure is actionable command output, not an external harness-only signal.
+Invariant: this is a generic local-project primitive. Any workspace-owned `.infring/semantic_probe.py` becomes part of auto-validation after mutation. No level names, fixture paths, or expected symbols are hardcoded.
+Rollback condition: lower levels without semantic probes regress, validation command behavior changes unexpectedly, or semantic probes run before mutation.
+```
+
+Patch:
+
+- When native auto-validation runs after mutation and `.infring/semantic_probe.py` exists, append the semantic probe to the validation command under `PYTHONPATH=src:.`.
+- The combined command succeeds only when both validation and semantic probe pass, creating repair evidence from probe failures.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-078: Shell-edit guard feedback enters repair loop
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: guarded_shell_edit_repair_feedback
+Profile touched: compact shell-edit mutation recovery
+Activation evidence: Level 2 attempts used valid fast shell heredoc edits, but the preserved-API guard rejected the batch and the runtime ended with zero trusted mutation receipts. The guard's required next tool was `file_patch_or_file_write...`, while the recovery detector only recognized `file_write_or_file_patch...`.
+Reference pattern: fast shell edit attempts are acceptable, but guard feedback must become a targeted follow-up repair turn instead of terminal no-mutation failure.
+Invariant: keep the preserved-API guard. Do not globally weaken it. Normalize guard feedback into the existing mutation-recovery loop.
+Rollback condition: guard-blocked invalid edits start closing as success, or Level 3/4 regress.
+```
+
+Patch:
+
+- Treat preserved shell-edit guard reasons as mutation blocker reasons.
+- Accept both `file_write_or_file_patch...` and `file_patch_or_file_write...` required-next-tool forms.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-079: Placeholder tool calls are non-executable
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: placeholder_tool_call_rejection
+Profile touched: native tool-call parsing
+Activation evidence: after shell-edit guard feedback, the model emitted a placeholder command `...`; the runtime executed it as shell instead of treating it as an invalid/non-action tool call.
+Reference pattern: successful coding frameworks never execute placeholder tool payloads as real actions; invalid tool intent stays in the agent loop as a retry/repair condition.
+Invariant: placeholder tool calls are not executable tools. This is parser-level and applies across workflows, not to a specific eval case.
+Rollback condition: legitimate tool calls are filtered out, or no-tool retry loops increase without producing concrete repair prompts.
+```
+
+Patch:
+
+- Added `...`/ellipsis to placeholder argument detection.
+- Removed placeholder fallback from native tool-call parsing so all-placeholder payloads produce no executable tool call.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-080: Revert parser-level placeholder rejection
+
+Status: `reverted`
+
+Finding: EXP-CODING-079 made all-placeholder tool payloads parse as no executable calls. The Level 2 canary regressed: attempt 2 fell into `native_tool_terminal_tool_calls_after_finalization`, attempt 3 lost semantic success, and average runtime worsened. Parser-level empty-call conversion is too blunt for this controller path.
+
+Decision: Revert the parser-level placeholder rejection. Keep the finding that placeholder payloads need handling, but implement it in a controller/tool-repair lane that can preserve observations and produce a targeted retry, not by changing global parse semantics.
+
+### EXP-CODING-081: Native shell action schema adapter
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: native_shell_action_schema_adapter
+Profile touched: native tool-call protocol, compact coding control surface
+Activation evidence: mini-SWE-agent solved the Level 2 weak-model tasks with a tiny `actions: [{command: "..."}]` shell-action schema, while Infring only accepted `tool_calls`/single-tool JSON and therefore could not directly reuse that compact controller shape.
+Reference pattern: compact shell-action JSON maps to normal shell execution, then the runtime owns observations, receipts, validation, repair, and final synthesis.
+Invariant: this is a protocol adapter, not an eval branch. It preserves existing `tool_calls` parsing, translates non-empty action commands into `command_run` receipts, and skips literal placeholder action commands without changing global placeholder fallback behavior.
+Rollback condition: Level 3/4 regress, action parsing creates ambiguous tool execution, or Level 2 latency worsens without improving mutation/semantic completion.
+```
+
+Patch:
+
+- Added `actions` array parsing to the native tool protocol.
+- Translated each non-empty `command`/`cmd` action into a `command_run` call with `["sh", "-lc", command]`.
+- Left existing `tool_calls` behavior and placeholder fallback intact to avoid repeating the EXP-CODING-079 regression.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-089: Dormant action-controller recovery measurement
+
+Status: `measured_no_code_change`
+
+Finding: The compact action controller experiment should remain dormant. With the controller active and protocol-aligned, Level 3 and Level 4 closed successfully but slower than the stable path, and the model did not reliably use the requested `actions` surface. With the controller disabled again, Level 3 passed in about 15.0s and an immediate Level 4 retry passed in about 15.7s. A same-batch Level 4 failure was provider-timeout noise, not an action-controller regression, because the controller was off and the retry passed.
+
+Decision: Do not reactivate the compact action controller until the unified model has a cleaner reason to use it. The next primitive target should be selected from reference traces around concise edit prompts, tool-call streaming latency, and runtime-owned closeout.
+
+### EXP-CODING-090: Iterative public import-surface seed
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: iterative_public_import_surface_seed
+Profile touched: public import-surface bootstrap before seeded repair
+Activation evidence: Current Level 6 failed after the deterministic import-surface seed created `DeliveryAttemptLedger` but did not expose the next missing public import, `summarize_attempts`. Python import validation stops at the first missing symbol, so one seed pass can leave later public API gaps hidden until the slower model repair turn.
+Reference pattern: Claude/Codex/Forge Level 6 traces complete the public API surface before final validation; Infring should hand the model a behavior-repair slice, not an avoidable import-export discovery loop.
+Invariant: generic and bounded. The runtime repeats validation -> import-surface seed only while generic Python cannot-import evidence produces new public symbols. No fixture names, expected symbols, or test-level branches are encoded.
+Rollback condition: lower levels regress, import seed loops without new receipts, or deterministic placeholder exports hide real behavior failures as success.
+```
+
+Patch:
+
+- Added a bounded `python_import_surface_seed_round_limit` with default/clamped range `1..=5`.
+- After each successful import-surface seed, rerun the same pre-mutation validation to surface the next missing public import before model repair.
+- Enabled a round limit of `3` in `local_coding_phase1_mutation_spine`.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-091: Scoped seeded-repair provider budget
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: seeded_import_surface_repair_provider_budget
+Profile touched: seeded public import-surface behavior repair turn
+Activation evidence: EXP-CODING-090 moved Level 6 from missing public imports to behavior-level failures, but the seeded repair turn still timed out at the generic 30s budget with a larger post-seed contract packet. Reference Level 6 traces from Claude/Codex/Forge often reach first mutation around 22-32s, so the generic 30s cap is too tight for this heavier slice.
+Reference pattern: keep direct edit loops bounded, but budget heavier public API/persistence repair differently from tiny Level 3 edits.
+Invariant: scoped timeout only. This does not raise the global provider timeout and does not add level or fixture branches.
+Rollback condition: lower levels slow down, seeded repair loops consume the full budget without higher mutation/pass rate, or provider timeouts shift later without useful edits.
+```
+
+Patch:
+
+- Added `seeded_import_surface_repair_provider_timeout_seconds` with default/clamped range `8..=60`.
+- Set the active mutation spine value to `45` seconds.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-092: Seeded repair file-write overwrite slice
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: seeded_repair_overwrite_slice
+Profile touched: seeded public import-surface behavior repair turn
+Activation evidence: EXP-CODING-091's scoped 45s timeout did not create useful mutation; it only delayed the same timeout. The model also attempted context/tooling instead of a direct source edit, suggesting the seeded repair prompt/tool shape was still too ambiguous and patch-oriented for a weak model.
+Reference pattern: successful frameworks make a direct owner-file edit once the relevant context and validation failure are known. For a runtime-created public API scaffold, the safe primitive is complete owner-file overwrite with receipt-backed validation, not another discovery/planning pass.
+Invariant: generic seeded-owner overwrite. No eval symbols or fixture paths. Runtime supplies seeded owner paths and immutable contract evidence; the model may only `file_write` complete source/export content.
+Rollback condition: lower levels regress, seeded repair overwrites unrelated files, or Level 6 still times out without model mutation.
+```
+
+Patch:
+
+- Reverted the active scoped 45s timeout behavior from EXP-CODING-091 after it failed to produce useful mutation.
+- Changed the seeded import-surface repair system/rule to `file_write` only with `overwrite=true`.
+- Removed the generic mutation-entry packet from seeded repair prompt to avoid duplicated/patch-oriented instructions.
+- Expanded seeded source skeleton snippets to include source bodies so complete overwrite is feasible.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-093: Receipt-backed seeded repair task brief
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: receipt_backed_seeded_repair_brief
+Profile touched: seeded public import-surface behavior repair turn
+Activation evidence: After EXP-CODING-092, the prompt shrank but the model still tried `file_list` and timed out. The seeded repair prompt still included the raw user prompt, which can contain now-stale operational instructions like inspect files, run validation, or do not commit, conflicting with the runtime-owned repair lane.
+Reference pattern: once runtime has loaded source, tests/probes, validation failures, and owner paths, strong coding loops operate from the current receipt/evidence state rather than replaying the original operational prompt.
+Invariant: no task-specific content. The model receives a generic task brief plus receipt-backed contract/source evidence only.
+Rollback condition: seeded repair loses user intent on tasks where validation/probe evidence is incomplete, or lower seeded-public-API slices regress.
+```
+
+Patch:
+
+- Removed raw original prompt text from seeded import-surface repair prompt.
+- Replaced it with a generic task brief instructing completion of the seeded public API required by immutable validation/probe evidence.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-094: Dormant specialized seeded repair lane
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: seeded_state_routes_to_generic_mutation_recovery
+Profile touched: post import-surface seed controller selection
+Activation evidence: The specialized seeded repair lane kept timing out after multiple prompt simplifications. The useful part was deterministic iterative public import-surface seeding; the brittle part was the special repair controller.
+Reference pattern: successful frameworks use a single coherent edit/recovery loop once context and validation evidence are available, rather than switching into a special one-off controller that conflicts with model instincts.
+Invariant: no loss of deterministic seeding. Only the specialized seeded repair turn is disabled; normal mutation recovery still sees seeded source/export files, validation failures, and receipt context.
+Rollback condition: Level 5 public API repair regresses or Level 6 fails earlier than behavior-repair state.
+```
+
+Patch:
+
+- Set `seeded_import_surface_compact_repair_turn` to `false` in the active mutation spine workflow CD.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-095: Import-surface seed is not product mutation for recovery routing
+
+Status: `patched_pending_measurement`
+
+Patch packet:
+
+```text
+Primitive: seed_mutation_excluded_from_product_recovery_state
+Profile touched: timeout and recovery routing after deterministic import-surface scaffolds
+Activation evidence: Level 6 now reaches behavior-level validation failures, but provider timeout routing treats deterministic seed file writes as successful product mutation. That suppresses first-turn timeout recovery and can keep the runtime in partial timeout instead of retrying from the newly loaded context.
+Reference pattern: deterministic scaffolding is setup evidence, not completion evidence. Strong coding loops continue from setup/context into the real product mutation.
+Invariant: only `runtime_python_import_surface_seed*` writes are excluded. Any non-seed file_write/file_patch still counts as product mutation.
+Rollback condition: seeded scaffolds stop being visible as mutation receipts, or real post-seed product edits are no longer recognized.
+```
+
+Patch:
+
+- Excluded import-surface seed writes from product-mutation timeout routing.
+- Let mutation-only recovery run after seed-only state.
+- Prevent the specialized seeded repair turn from overriding an explicit mutation-recovery retry.
+
+Measurement:
+
+Pending.
+
+### EXP-CODING-096 - Disable pre-model import-surface seeding in phase1 mutation spine
+
+- Date: 2026-06-01
+- Change: Set `python_import_surface_seed_round_limit` to `0` in the phase1 mutation spine CD, leaving the seed primitive available but dormant for this lane.
+- Rationale: Current Level 6 traces show scaffold-only seed writes are fast but create a partial API shell, then the model times out trying to repair behavior. Reference framework traces and prior passing Infring Level 6 runs use a single implementation pass after context plus validation evidence instead of a deterministic partial scaffold before the model acts.
+- Success signal: Level 6 should return to a one-provider-turn implementation path with real source mutation before timeout, without losing lower-level direct edit stability.
+
+### EXP-CODING-097 - Make import-surface seeding genuinely opt-in
+
+- Date: 2026-06-01
+- Change: Allow `python_import_surface_seed_round_limit` to be `0` and default the helper to `0`; set the official coding workflow to `0` explicitly.
+- Rationale: EXP-CODING-096 exposed that the helper clamped the seed limit to at least one, so workflow CD could not make the primitive dormant. That violated the primitive/config boundary and kept forcing partial scaffold writes before the model implementation turn.
+- Success signal: Level 6 should no longer emit `bootstrap_python_import_surface_seed_end`; it should enter the normal bounded direct edit implementation path and either pass or produce a non-seed failure that can be targeted separately.
+
+### EXP-CODING-098 - Restore full bounded-edit surface for first implementation pass
+
+- Date: 2026-06-01
+- Change: Disabled `compact_mutation_entry_packet_enabled` in the official coding workflow while keeping import-surface seeding dormant.
+- Rationale: Current no-seed Level 6 trace timed out before mutation with a compact first turn (`system_chars` ~362, `tool_count` 3). Prior passing Infring Level 6 traces and successful reference-framework behavior use a richer one-pass implementation surface instead of a tiny recovery-like packet for this complexity tier.
+- Success signal: Level 6 should produce a real model mutation in one bounded-edit implementation pass and move from `no_successful_mutation` toward pass or validation-repair failure.
+
+### EXP-CODING-099 - Apply full first-pass surface experiment to active phase1 CD
+
+- Date: 2026-06-01
+- Change: Restored the official workflow's compact mutation setting and disabled `compact_mutation_entry_packet_enabled` in the active `local_coding_phase1_mutation_spine` CD.
+- Rationale: EXP-CODING-098 had no observable effect because Level 6 was governed by the phase1 mutation spine. The trace still showed the compact 3-tool first turn, matching the active lab CD setting.
+- Success signal: First provider turn should stop using the compact bootstrap mutation surface and should expose the full bounded-edit tool surface, matching prior passing traces more closely.
+
+### EXP-CODING-100 - Calibrate phase1 full first-pass timeout to reference traces
+
+- Date: 2026-06-01
+- Change: Raised active phase1 `provider_timeout_seconds` from `30` to `60` while keeping compact bootstrap mutation disabled and import-surface seeding dormant.
+- Rationale: EXP-CODING-099 restored the prior 8-tool/full-context first-pass shape but it was cut off at 30s. Prior passing Infring traces and Claude/Codex/Forge Level 6 traces show first useful mutations commonly land between ~22s and ~50s on the controlled model.
+- Success signal: Level 6 should complete from the first full implementation pass instead of falling into timeout recovery; if it fails, the failure should be validation/semantic, not no-mutation timeout.
+
+### EXP-CODING-101 - Decouple fast-lane timeout fallback from compact packet
+
+- Date: 2026-06-01
+- Change: If `first_mutation_artifact_lane_v1` times out or produces no mutation, the runtime now arms the parent native tool loop even when compact mutation packets are disabled.
+- Rationale: The Level 3 smoke showed the fast lane logged `demoted_to_parent_runtime_loop` but returned `partial_blocked` because fallback recovery was gated on `compact_mutation_entry_packet_enabled`. That made one Level 6-oriented config change break simpler tasks.
+- Success signal: Level 3 should continue into the parent native tool loop and produce a source/test mutation instead of ending after the fast-lane timeout with only read receipts.
+
+### EXP-CODING-102 - Route compact bootstrap by task shape, not globally
+
+- Date: 2026-06-01
+- Change: Re-enabled compact mutation packets in the active phase1 CD, but prevented compact bootstrap mutation turns for prompts that require pre-mutation validation.
+- Rationale: Level 3 needs the compact packet after a fast-lane timeout, while Level 6 regressed when validation-guided work was forced through the compact first pass. This matches the unified model: simple existing-project edits use compact mutation entry; validation-guided/public-surface tasks use full bounded implementation context.
+- Success signal: Level 3 should regain compact mutation behavior, while Level 6 should keep the full 8-tool/60s first implementation pass.
+
+### EXP-CODING-103 - Align validation-guided full-pass timeout with operator budget
+
+- Date: 2026-06-01
+- Change: Raised active phase1 `provider_timeout_seconds` from `60` to `75` after routing compact bootstrap away from validation-guided prompts.
+- Rationale: EXP-CODING-102 fixed Level 3 via compact routing, but Level 6 remained stochastic: one run passed with first tool calls at ~46s, another timed out at 60s. The official project-operator first-mutation budget is 75s, and reference framework traces show first useful mutations often land in the 22-60s range on the controlled model.
+- Success signal: Level 6 should produce first-pass mutations more reliably without affecting Level 3, which uses the compact mutation-only timeout path instead of this full-pass timeout.
+
+### EXP-CODING-104 - Align first-receipt watchdog with full-pass budget
+
+- Date: 2026-06-01
+- Change: Added `first_receipt_deadline_seconds: 75` to the active phase1 CD.
+- Rationale: EXP-CODING-103 set `provider_timeout_seconds` to `75`, but Level 6 traces still showed `ollama_run_timeout:timeout_seconds=60` because the first-receipt watchdog clamped the first implementation turn. Compact Level 3 remains governed by its mutation-only timeout, so this targets validation-guided full-pass work only.
+- Success signal: Level 6 first turn should show `timeout_seconds=75` on timeout, or complete if the model emits tool calls between 60s and 75s.
+
+### EXP-CODING-105 - Require first visible JSON byte for compact mutation turns
+
+- Date: 2026-06-01
+- Change: Tightened `native_tool_mutation_only_recovery_system` so mutation-only compact turns require `{` as the first visible byte and exactly one JSON object.
+- Rationale: Current Level 3 traces showed the compact path could pass but with high variance: one run timed out at 45s, then a second compact turn succeeded after another ~44s. Stream diagnostics showed early visible output but delayed JSON opening brace, implying the model was spending visible/hidden output before the actual tool call. Successful reference-style agent behavior is tool-call-first for simple edits.
+- Success signal: Level 3 compact turns should produce JSON tool calls earlier, reducing first-turn timeout frequency without changing the validation-guided full-pass Level 6 route.
+
+### EXP-CODING-106 - Block non-edit commands before mutation in mutation-only lane
+
+- Date: 2026-06-01
+- Change: Added a runtime guard that blocks non-edit `command_run` calls during mutation-only recovery before any successful mutation. Controlled shell edit commands that write project files remain allowed.
+- Rationale: EXP-CODING-105 improved JSON-first compact behavior, but a Level 3 sample still spent an extra turn because the first compact response emitted a non-mutating command before the actual edit. The mutation-only lane contract already forbids validation/read/list/prose before mutation; this makes the runtime enforce that primitive instead of trusting prompt text alone.
+- Success signal: Level 3 should avoid wasted non-edit command turns and either mutate in the first compact response or receive a structured blocked receipt that keeps the next retry focused on file_write/file_patch/controlled shell edit.
+
+### EXP-CODING-107 - Give validation-guided compact repair the controlled edit surface
+
+- Date: 2026-06-01
+- Change: Validation-guided compact repair now uses the mutation recovery tool surface, allowing file_write/file_patch or a controlled shell edit command that writes project files. Non-edit command_run is blocked before mutation in this lane.
+- Rationale: The Level 4 smoke passed but spent 45s timing out in a two-tool validation-guided edit-only turn, then succeeded in the mutation-only fallback that had access to the controlled shell edit surface. This patch keeps the validation-guided lane edit-only, but gives it the same atomic writer option that already works in the compact lane.
+- Success signal: Level 4 should mutate in the first validation-guided compact repair turn more often and avoid the 45s timeout + fallback pattern.
+
+### EXP-CODING-108 - Re-enter compact repair after required-mutation blockers
+
+- Date: 2026-06-01
+- Change: Generalized the no-mutation blocker loop so owner-target blocks and preflight-context blocks re-enter a compact mutation/repair lane instead of falling back to the full parent loop.
+- Rationale: A Level 4 trace failed with `product_mutation_must_target_observed_owner_file`, then expanded into discovery/validation/read attempts even though runtime had already loaded context and validation evidence. Reference-framework traces stay narrow after a bad edit target: they retry the smallest edit against the observed owner file.
+- Success signal: Level 4 should recover from wrong-owner or extra-context attempts by retrying file_write/file_patch against observed product/source owner files, not by reopening discovery.
+
+### EXP-CODING-109 - Keep validation-guided timeout retries validation-guided
+
+- Date: 2026-06-01
+- Change: When the first validation-guided compact repair provider turn times out before mutation, the retry now stays in the validation-guided compact repair lane instead of expanding to mutation-only recovery.
+- Rationale: A 5-run Level 3/4 smoke after EXP-CODING-108 showed Level 3 at 5/5 and Level 4 at 4/5; the lone Level 4 failure was two provider timeouts, with the second retry using the broader mutation-only prompt. Codex/reference Level 4 traces keep the retry focused rather than broadening the surface.
+- Success signal: Level 4 should convert first-turn provider timeouts into focused validation-guided retries; the immediate 5-run Level 4 batch passed 5/5, including one recovery from a first-turn 45s timeout.
+
+### EXP-CODING-110 - Route import-surface validation by evidence, not level
+
+- Date: 2026-06-01
+- Change: Treat failed validation class `import_surface_missing` as an import-surface task shape: skip compact direct-entry repair, allow the import-surface seed primitive even when the workflow CD keeps its default round limit dormant, and keep this gated by receipt evidence rather than eval level.
+- Rationale: Current Level 7 failed with two compact 45s validation-guided timeouts before any mutation. Stored passing Level 7 traces used a fuller implementation path, while the immediate validation evidence showed missing Python public imports.
+- Result: The seed primitive fired and produced immediate source/export mutations, changing Level 7 from no-mutation failure into seeded repair / behavior-repair failure. This is progress but not yet pass.
+
+### EXP-CODING-111 - Validate after every import-surface seed round
+
+- Date: 2026-06-01
+- Change: Moved import-surface seed validation before the loop-limit break so a seed round is always measured immediately, even when only one round is allowed.
+- Rationale: The runtime previously seeded source/export files and then asked the model to repair without first checking whether the deterministic seed changed the validation state. Reference-style repair loops validate after mutation before asking for more edits.
+- Result: Post-seed validation exposed the next concrete missing import or behavior failure instead of leaving the runtime blind.
+
+### EXP-CODING-112 - Allow iterative import-surface seed rounds from validation evidence
+
+- Date: 2026-06-01
+- Change: When validation class is `import_surface_missing`, allow the existing import-surface seed primitive to iterate up to its existing cap instead of stopping after one symbol.
+- Rationale: Python unittest import failures expose one missing imported symbol at a time. One seed round added `InventoryCatalog`; validation then exposed `summarize_inventory`, then `write_reorder_report`.
+- Result: The runtime progressed past import marker coverage; `expected_markers_present` became true, and remaining failures moved into behavior/validation repair.
+
+### EXP-CODING-113 - Align seeded repair writes with seed-owned paths
+
+- Date: 2026-06-01
+- Change: Let seeded import-surface repair overwrite files touched by the seed primitive while preserving existing API write guards everywhere else.
+- Rationale: The seeded-repair prompt explicitly asked for overwriting seeded source/export files, but the preserved-API guard blocked those writes. The two primitives contradicted each other.
+- Result: Model implementation writes began dispatching after seed. Remaining failures were normal behavior validation failures, not guard mismatches.
+
+### EXP-CODING-114 - Block placeholder mutation paths
+
+- Date: 2026-06-01
+- Change: Added a generic placeholder-path guard for mutation calls and replaced the seeded-repair example path with a token that explicitly must be replaced by an owner target.
+- Rationale: A repair turn copied `exact seeded owner path` literally and the runtime accepted it as a new file path. Coding runtimes should reject placeholder paths generically instead of silently creating bogus files.
+- Result: Placeholder writes are now blocked with a structured receipt. Level 7 still does not pass; after exiting the seed lane it drifted into a long generic loop and hit the harness timeout.
+
+### EXP-CODING-115 - Exit seeded repair after first real implementation mutation
+
+- Date: 2026-06-01
+- Change: Seeded import-surface repair now only applies before the first non-seed implementation mutation. After real source/export mutation, follow-up validation failures leave the seed lane.
+- Rationale: Once the model has made real implementation changes, remaining failures are normal behavior repair, not import-surface seeding.
+- Result: The runtime exited the seed lane as intended, but Level 7 hit the outer harness timeout in a generic repair loop. Keep the evidence, but do not stack more blind patches; next step should be a focused repair-lane design based on reference traces.
+
+### EXP-CODING-116 - Classify control gates from latest validation failure
+
+- Date: 2026-06-01
+- Change: Added a latest-failed-validation evidence primitive and switched runtime control classifications to use it instead of aggregate failed-validation history. Aggregate validation details remain available for context and receipts.
+- Rationale: The Level 7 import-seed run reached first mutation in 243ms but still entered `seeded_import_surface_repair_turn` and timed out. The reference traces indicate successful systems leave import repair once imports resolve and move to normal implementation/behavior repair. The likely primitive bug was stale aggregate evidence: an old `cannot import name` validation could keep the import-surface lane alive after newer validation had advanced to behavior failures.
+- Success signal: Seeded import-surface repair should run only while the latest validation failure is still `import_surface_missing`; once validation progresses to `attribute_missing`, `assertion_mismatch`, or another behavior class, the runtime should route to the normal implementation/repair surface.
+
+### EXP-CODING-117 - Route deterministic seed failures directly to compact repair
+
+- Date: 2026-06-01
+- Change: When a runtime deterministic seed has mutated files and the latest validation still fails, arm the validation-guided compact repair lane before the first model implementation turn.
+- Rationale: EXP-CODING-116 moved Level 7 from seed-lane timeout to `attribute_missing`, but the trace still spent 75s on a 19k-character full implementation prompt before trying compact repair. Reference traces from faster systems move from known validation evidence to a narrow repair action instead of doing a full rediscovery/implementation prompt.
+- Success signal: Level 7 should skip the slow full first-pass prompt after deterministic import seeding and start with the compact validation-guided repair prompt; if it fails, the failure should reflect repair quality rather than full-prompt timeout overhead.
+- Result: Failed and reverted. The route skipped the slow first full prompt but fell into a longer generic loop and hit the outer 240s harness timeout. Keep the lesson: compact-first after seed needs a better bounded repair controller, not a simple pending-flag redirect.
+
+### EXP-CODING-118 - Compact seeded validation observations
+
+- Date: 2026-06-01
+- Change: After deterministic import-surface seeding, the bootstrap prompt now injects a compact observation containing changed paths, seed paths, failed validation refs, latest validation class, and latest failed validation details instead of raw aggregate receipt history.
+- Rationale: Passing Level 7 framework traces and older passing Infring traces use roughly 9-10k prompt contexts for the implementation turn. The seeded path inflated the first implementation prompt to about 19k by serializing all receipt history, causing a 75s provider timeout before repair could begin. Raw receipts remain in receipts/logs; the LLM prompt should receive bounded current evidence.
+- Success signal: Level 7 first implementation prompt should shrink toward the passing trace range and avoid the 75s first-turn timeout without changing the workflow into an eval-specific route.
+- Result: Mixed/insufficient. The first implementation prompt shrank to about 5.4k, but two consecutive runs still timed out at 75s. This likely over-compressed the packet by dropping useful read context that older passing traces preserved.
+
+### EXP-CODING-119 - Preserve read context in compact seeded observations
+
+- Date: 2026-06-01
+- Change: Expanded the seeded compact observation to include bounded context receipts (`file_list`, `file_stat`, `file_read`, `file_read_many`, `command_resolve`), seed mutation receipts, and only the latest failed validation command instead of all validation history.
+- Rationale: Passing Infring Level 7 traces used a one-turn implementation context around 9-10k chars, not a tiny context-free repair packet. The right primitive is not "drop receipts"; it is "keep current context and latest failure, drop stale validation history."
+- Success signal: First implementation prompt should stay bounded but include enough local context for a one-turn implementation attempt, avoiding both 19k receipt bloat and 5k context starvation.
+- Result: Failed. Prompt size rose back to about 16.8k and still hit the 75s first-turn timeout. Raw context receipts are still too bulky.
+
+### EXP-CODING-120 - Reuse mutation-entry packet for seeded context
+
+- Date: 2026-06-01
+- Change: Replaced raw context receipt injection in seeded compact observations with the existing `native_tool_mutation_entry_packet` primitive plus latest failed validation evidence.
+- Rationale: The mutation-entry packet already provides bounded candidate paths and compact file-content slices. This is closer to older passing Infring traces and avoids inventing a parallel context-packet format.
+- Success signal: First implementation prompt should land between the 5k context-starved packet and the 16-19k receipt-bloated packets, while preserving enough file/test surface for the model to emit a mutation.
+- Result: Partial. Prompt size landed at about 7.9k, close to old passing traces, but the broad full implementation surface still timed out at 75s.
+
+### EXP-CODING-121 - Treat deterministic seed as scaffolding for staged edit
+
+- Date: 2026-06-01
+- Change: The staged edit controller now checks for first non-import-surface implementation mutation instead of any mutation, so deterministic import-surface seed writes do not disqualify the run from the staged edit lane.
+- Rationale: Older passing Infring Level 7 traces used a staged controller with a small system prompt and two-tool surface. Seed writes are scaffolding, not completed implementation. Counting them as the first mutation forced the runtime into the broad full implementation surface.
+- Success signal: Seed-prepared Level 7 should enter the staged edit controller on the first model turn, reducing tool/system surface while keeping the bounded mutation-entry packet.
+- Result: Did not activate. The active workflow metadata has `staged_edit_controller` disabled, so the condition change alone could not route the seed-prepared task.
+
+### EXP-CODING-122 - Enable staged edit for seed-prepared tasks only
+
+- Date: 2026-06-01
+- Change: Allow the staged edit controller to activate when runtime has deterministic import-surface seed receipts and no non-seed implementation mutation, even if the general staged controller flag is off.
+- Rationale: This keeps lower-level bounded edit behavior untouched while testing the reference-backed path that older Infring used successfully for Level 7: a small staged implementation surface after context is known.
+- Success signal: Level 7 trace should show `staged_edit_turn: true` on turn 0 with a reduced tool/system surface. If it improves, the staged controller can later become a declared CD option rather than a broad default.
+- Result: Passed. Level 7 completed in 47.6s with `staged_edit_turn: true`, a 2-tool surface, and one successful provider turn. This is competitive with the successful reference framework traces and avoids the previous seed repair / full prompt timeout loops.
+- Broad smoke result: Reverted. A 3-7 smoke after this branch passed Levels 3/4 but failed Levels 5/6 and did not reproduce Level 7. The branch is promising but not a monotonic primitive yet; reintroduce only behind a cleaner declared seed-prepared staged controller with lower-level gates.
+
+### EXP-CODING-123 - CD-declared seed-prepared staged controller threshold
+
+- Date: 2026-06-01
+- Change: Added CD-controlled `seed_prepared_staged_controller_enabled` and `seed_prepared_staged_controller_min_source_seed_receipts`, plus a staged edit rule that explicitly treats runtime import-surface scaffolds as placeholders to replace. The Rust player now activates staged edit for seed-prepared tasks only when the number of source seed receipts reaches the declared threshold.
+- Rationale: EXP-CODING-122 showed the staged path can pass Level 7 quickly, but it contaminated smaller Level 5/6 public-interface repairs. The portable separator is import-surface fanout: one or two missing public symbols should stay on simpler repair paths; larger fanout can justify a staged implementation controller.
+- Success signal: Levels 3/4 should remain green, Levels 5/6 should avoid the staged controller, and Level 7 should use staged edit only when the runtime has observed at least the declared seed fanout threshold.
+- Initial result: 3-7 smoke passed 5/5, but Level 7 did not activate staged edit because the harness uses `local_coding_phase1_mutation_spine`, not the official wrapper CD. This proved no regression but not the new controller path.
+- Follow-up change: Moved the declared knobs onto `local_coding_phase1_mutation_spine` and updated `xtask` to pass `native_runtime_prompt_policy` from workflow CD into runtime metadata, so CD-owned staged prompt text is actually available to the native runtime player.
+- Wired result: Mixed. The phase1 CD path activated staged edit for Level 7 and kept Levels 5/6 out of staged edit, but Level 7 emitted read tools despite a two-tool staged menu. This exposed a lower primitive bug: request tool menus were advisory instead of enforced.
+
+### EXP-CODING-124 - Enforce declared per-turn tool surface
+
+- Date: 2026-06-01
+- Change: Added a generic declared-tool-surface guard. If a provider response asks for a tool not exposed in the current request tool menu, runtime returns a blocked receipt instead of dispatching the tool.
+- Rationale: Staged edit exposed only mutation tools, but the model emitted `file_read_many` and runtime executed it. Successful coding frameworks keep the active tool surface authoritative; otherwise narrow staged controllers leak back into broad loops.
+- Success signal: Staged/compact lanes should not execute undeclared read/command tools. Failures should become structured blocked receipts that can feed the retry/repair gate instead of silently expanding scope.
+- Follow-up change: Updated pre-mutation blockers and recovery gates to require a non-seed implementation mutation. Runtime import-surface seed receipts are scaffolding and must not disable context/command blockers or required-mutation recovery.
+- Follow-up result: The tool leak closed, but staged Level 7 could still return no executable tool calls and then time out the harness.
+
+### EXP-CODING-125 - Bounded no-tool retry after staged edit
+
+- Date: 2026-06-01
+- Change: Added CD-controlled `seed_prepared_staged_empty_retry_limit`. When staged edit emits no executable tool calls before a non-seed implementation mutation, runtime enters mutation-only recovery with the compact mutation-entry packet instead of falling through to timeout/finalization.
+- Rationale: Reference systems recover from malformed/no-op edit attempts by issuing a smaller edit-only retry. The controller should not let a staged no-tool response terminate or expand scope while implementation mutation is still missing.
+- Success signal: A staged no-tool Level 7 attempt should produce a second mutation-only provider turn rather than a 240s runtime timeout with no native tool names.
+- Initial result: The second mutation-only retry fired as intended, but hit the existing 45s mutation-only timeout. Added CD-controlled `seed_prepared_staged_retry_provider_timeout_seconds` so only this staged-empty retry can use a reference-matched 60s budget without globally slowing simpler mutation-only lanes.
+- Final result: Not promoted. The 60s scoped retry still timed out before a real implementation mutation. `seed_prepared_staged_controller_enabled` is set back to `false` in both the phase1 mutation spine and official wrapper CDs. Keep the declared knobs dormant, plus the CD-player prompt-policy pass-through and declared-tool-surface guard as primitive infrastructure.
+
+### EXP-CODING-126 - Trace provider tool-call parse shape
+
+- Date: 2026-06-01
+- Change: Added a lightweight `provider_response_tool_parse` runtime timeline event with parsed tool count, parsed tool names, output length, lane flags, and a short output preview only when no tool calls parse.
+- Rationale: Several failures report provider status `ok` but no usable mutation. We need to distinguish no-tool prose, malformed JSON, wrong schema, forbidden tools, and parser misses before adding more behavior patches.
+- Success signal: Future Level 7 traces should show whether the provider produced no tool calls, wrong tool calls, or parseable mutation calls that were blocked by runtime policy.
+- Initial result: Current Level 7 failure did not reach parse; both provider turns timed out. This points to budget/context shape rather than parser shape.
+
+### EXP-CODING-127 - Fanout-scaled seeded implementation budget
+
+- Date: 2026-06-01
+- Change: Added CD-controlled `seed_prepared_high_fanout_provider_timeout_seconds`, applied only when runtime has import-surface seed source receipts at or above the declared fanout threshold, no non-seed implementation mutation exists, and the turn is the broad implementation turn.
+- Rationale: Current Level 7 high-fanout seeded implementation uses a 19k prompt and times out at 75s. Successful reference traces for comparable larger slices sit around 40-65s, while older passing Infring traces sometimes approach the 75s edge. This patch gives only high-fanout seeded implementation turns a 90s budget without slowing simpler Levels 3-6.
+- Success signal: Level 7 should either complete the broad implementation turn or fail with a later validation/repair class instead of first-turn `ollama_run_timeout:timeout_seconds=75`.
+- Result: Positive. Focused Level 7 passed in 81.3s with four parsed tool calls after the larger budget. A follow-up 3-7 smoke passed 5/5: Level 3 5.9s, Level 4 29.0s, Level 5 74.1s, Level 6 66.3s, Level 7 68.1s. This is promoted as the active scoped fix unless a larger reliability batch shows regression.
+
+### EXP-CODING-128 - Owner-target repair receipt made actionable
+
+- Date: 2026-06-01
+- Goal: Repair the Level 7 failure where the agent reached validation-guided repair but patched a non-owner/import-surface target and could not recover.
+- Change: Enriched the generic `product_mutation_must_target_observed_owner_file` receipt with attempted path, observed owner paths, seed paths, suggested owner path, and the required next action.
+- Primitive intent: Keep the owner-target guard reusable while making its failure evidence actionable for any coding task that separates seed/import-surface scaffolding from product owner implementation files.
+- Expected effect: Validation repair turns should recover from wrong-target mutations instead of timing out or repeatedly patching seed files.
+
+### EXP-CODING-129 - Compact oversized bootstrap observation packets
+
+- Date: 2026-06-01
+- Goal: Address the Level 7 first-turn timeout caused by 19k-character full receipt observations after import-surface seeding.
+- Evidence: Current failing Level 7 had `prompt_chars=19117` and timed out before tool parsing; prior passing/framework traces stayed closer to compact first-turn packets around 9k-10k chars.
+- Change: Added a reusable bootstrap observation compaction primitive with a CD threshold. Oversized bootstrap prompts now preserve authoritative paths, compact source previews, validation tails, and guard reasons instead of serializing every full receipt.
+- Primitive intent: Keep receipt authority while bounding prompt size for seeded multi-file coding tasks; no level-specific fixture behavior.
+- Expected effect: Reduce first-turn timeout risk without weakening mutation receipts or owner-path guards.
+
+### EXP-CODING-130 - Tighten compact bootstrap packet toward framework trace band
+
+- Date: 2026-06-01
+- Goal: Continue reducing Level 7 first-turn timeout after EXP-CODING-129 lowered prompt size from 19.1k to 14.5k but still timed out before parsed tool calls.
+- Evidence: Prior passing framework/Infring traces were closer to 9k-10k first-turn prompts; 14.5k remained too slow for the control model.
+- Change: Reduced compact observation receipt count, file count, source previews, and validation tails while preserving exact paths, success/error state, owner-target evidence, and validation output tails.
+- Primitive intent: Bound context size for any oversized seeded bootstrap packet without changing task-specific routing or eval fixtures.
+- Expected effect: Move first provider turn into the previously successful prompt-size band and recover parsed mutation calls instead of first-turn timeout.
+
+### EXP-CODING-131 - Add CD-controlled recovery wall budget
+
+- Date: 2026-06-01
+- Goal: Fix the Level 6 case where a compact repair turn produced a `file_patch` after the first provider timeout, but the normal 90s loop wall budget expired before the run could complete recovery.
+- Evidence: Level 6 smoke showed prompt sizes `[9889, 4694]`, provider statuses `[timeout, ok]`, parsed repair calls `[file_patch]`, and terminal `native_tool_loop_wall_timeout:timeout_seconds=90`.
+- Change: Added `recovery_wall_timeout_seconds` as a native success-criteria knob and used it only while mutation-only or validation-guided recovery is pending.
+- Primitive intent: Preserve fast normal failure bounds while allowing an already-entered recovery lane to finish dispatch/validation. This is a reusable scheduling primitive, not a level-specific timeout bump.
+- Expected effect: Level 6 repair actions should execute after a slow first turn instead of being discarded by the normal wall timeout.
+
+### EXP-CODING-132 - Raise compact repair provider cap to lane maximum
+
+- Date: 2026-06-01
+- Goal: Fix Level 6 recovery runs where the first provider turn times out and the compact validation-guided repair lane needs slightly more than 45s to emit tool calls with the control model.
+- Evidence: After adding recovery wall budget, Level 6 reached the repair lane with `prompt_chars=4694` but timed out at `validation_guided_compact_repair_provider_timeout_seconds=45` before parsing calls.
+- Change: Raised the validation-guided compact repair provider cap from 45s to 60s in workflow CD only.
+- Primitive intent: Tune the reusable recovery lane budget without changing task semantics, adding case-specific code, or increasing the normal first-turn budget.
+- Expected effect: Slow compact repair turns can emit their mutation calls while ordinary lanes keep their existing budgets.
+
+### EXP-CODING-133 - Feed blocked mutation guard receipts into compact repair
+
+- Date: 2026-06-01
+- Goal: Fix Level 6 repair loops where a validation-guided repair turn emitted a wrong-owner/placeholder patch, the guard correctly blocked it, and the next repair turn lacked enough actionable blocker evidence to recover.
+- Evidence: Combined 5-7 smoke showed Level 6 provider sequence `[timeout, ok, timeout]`; the successful repair turn parsed `file_patch` but produced `product_mutation_must_target_observed_owner_file`, then the next compact repair prompt timed out without resolving the exact target issue.
+- Change: Validation-guided compact repair packets now include previous blocked mutation evidence: reason, attempted path, suggested path, observed owner paths, and next action from guard receipts.
+- Primitive intent: Make guard receipts first-class repair evidence for any coding task, without special-casing Level 6 or its fixture names.
+- Expected effect: Second repair attempts should target concrete owner files instead of repeating placeholder or wrong-target patches.
+
+### EXP-CODING-134 - Let active recovery lane timeout dominate stale next-turn override
+
+- Date: 2026-06-01
+- Goal: Ensure the CD-configured compact repair timeout is actually used after first-turn timeout recovery.
+- Evidence: Workflow CD set `validation_guided_compact_repair_provider_timeout_seconds=60`, but Level 6 repair still timed out at 45s because `next_provider_timeout_seconds` from bounded-patch timeout recovery overrode the active repair lane budget.
+- Change: When validation-guided or mutation-only recovery is active, the provider timeout override now uses the maximum of inherited next-turn timeout and the active lane timeout.
+- Primitive intent: Preserve lane-local budget authority and avoid stale controller state overriding the current recovery lane.
+- Expected effect: Compact repair turns should receive their declared 60s budget after first-turn timeout recovery.
+
+### EXP-CODING-135 - Narrow seeded implementation first-turn surface
+
+- Date: 2026-06-01
+- Goal: Reduce Level 6/7 first-turn timeout risk by matching the faster-framework pattern of a narrow edit/validate surface once local context and seed owner files are already prepared.
+- Evidence: Latest failing 5-7 smoke showed Level 7 first turn at `prompt_chars=12016`, `system_chars=3625`, `tool_count=8`, with no parsed calls before timeout. Earlier faster/passing traces reached mutation through narrower edit/validate behavior rather than broad exploration.
+- Change: The generic seeded high-fanout implementation turn now uses the compact mutation-only system prompt and mutation recovery tool menu. The timeline records `seed_prepared_high_fanout_implementation_turn` for trace comparison.
+- Primitive intent: Convert seeded implementation from broad exploration into a bounded edit/validate action lane whenever receipts already provide the owner files and validation evidence.
+- Expected effect: Lower system/tool surface on seeded implementation turns while preserving receipt gates, owner guards, and validation repair.
+
+### EXP-CODING-135 verdict - Reverted
+
+- Date: 2026-06-01
+- Result: Reverted.
+- Evidence: Focused Level 7 passed with reduced system/tool surface, but the broader 5-7 smoke regressed: Level 5, Level 6, and Level 7 all failed with seeded repair timeout/partial timeout patterns.
+- Lesson: Narrowing the seeded implementation tool/system surface globally is too coarse. The winning behavior needs a better action packet or controller distinction, not a blanket tool-menu reduction.
+- Follow-up: Consult framework traces for how they preserve enough implementation authority while avoiding broad first-turn latency.
+
+### EXP-CODING-136 - Stop import-surface seeding once failure changes class
+
+- Date: 2026-06-01
+- Goal: Reduce duplicate seed scaffolding and prompt inflation by matching the reference-framework pattern: validate/read, then let the model write complete product files once importability is established.
+- Evidence: Fresh Level 6 Claude/Codex traces show successful systems run validation, inspect tests/source, and full-write implementation/export files. Infring repeated import-surface seed rounds even after seed files existed, creating duplicate receipts and encouraging weak patch-repair loops.
+- Change: The import-surface seed loop now stops after validation failure class changes away from `import_surface_missing`, even if validation still fails. That hands implementation/API failures to the model instead of continuing seed scaffolding.
+- Primitive intent: Keep seed as an idempotent importability primitive, not a partial implementation loop.
+- Expected effect: Smaller first-turn context, fewer duplicate seed receipts, and more direct complete product mutation behavior.
+
+### EXP-CODING-137 - Seed sibling public import symbols from observed import statements
+
+- Date: 2026-06-01
+- Goal: Eliminate repeated one-symbol-at-a-time import-surface seeding.
+- Evidence: Fresh Claude/Codex Level 6 traces show winning systems read the test import line and satisfy the whole public API surface together. Infring seeded only the first `cannot import name` symbol, reran validation, then discovered the next missing symbol, producing duplicate seed rounds and repair bloat.
+- Change: When validation reports a missing Python import from a module, the seed primitive now scans observed local file/test/probe contents for `from module import ...` lines and adds sibling public imported symbols from that module to the same seed pass.
+- Primitive intent: Make import-surface seeding module-wide and evidence-driven, not fixture-specific or one-error-at-a-time.
+- Expected effect: Fewer seed rounds, smaller first-turn context, and better direct full implementation behavior.
+
+### EXP-CODING-138 - Keep validation-guided repair active after incomplete mutation
+
+- Date: 2026-06-01
+- Goal: Fix Level 5 repair loops where a successful product patch occurred but validation still failed, after which the runtime stopped routing to compact repair and allowed read/command churn.
+- Evidence: Level 5 smoke patched `calcpack/__init__.py`, auto-validation still failed with `NotImplementedError` in `calcpack/arithmetic.py`, then the next turn emitted reads/commands instead of another product repair.
+- Change: Validation-guided compact repair remains active until there is successful validation after the latest mutation. During validation-guided repair, command calls are blocked until the current turn has made a new successful product mutation.
+- Primitive intent: Treat failed validation after mutation as a repair lane, independent of whether some earlier product mutation already exists.
+- Expected effect: Multi-step repairs should continue mutating the failing owner file instead of drifting into context/validation-only turns.
+
+### EXP-CODING-139 - Replace repair path placeholder with concrete suggested owner path
+
+- Date: 2026-06-01
+- Goal: Prevent compact repair turns from copying placeholder path text instead of mutating an observed owner file.
+- Evidence: Level 5 smoke failed after multiple `mutation_path_must_be_concrete_observed_path` receipts where the model copied `exact observed owner path from the list below` from the required response shape.
+- Change: Validation-guided compact repair packets now compute a concrete suggested repair path from observed source owner paths, preferring the path named in validation traceback/stderr, and put that path directly in the required JSON shape.
+- Primitive intent: Make repair packets executable-by-default while still allowing any observed owner path; no fixture-specific path names.
+- Expected effect: Weak models should target the failing source file sooner instead of burning turns on placeholder-path guard failures.
+
+### EXP-CODING-140 - Prefer full owner file writes in compact validation repair
+
+- Date: 2026-06-01
+- Goal: Reduce fragile patch loops in compact validation-guided repair.
+- Evidence: Fresh Claude/Codex Level 6 traces use shell/full-file writes for small owner files. Infring Level 5/7 failures repeatedly emitted fragile `file_patch` calls, placeholder paths, or partial export-only patches after validation identified a seeded stub or incomplete owner file.
+- Change: The compact validation repair packet now gives an executable-by-default `file_write` response shape for the concrete suggested owner path, while still allowing `file_patch` only when exact old text is unambiguous.
+- Primitive intent: Make compact repair operate at the same granularity as the winning coding systems for small local owner files, without hardcoding task cases.
+- Expected effect: Recovery turns should produce complete owner-file replacements instead of brittle one-line patches.
+
+### EXP-CODING-141 - Block placeholder file-write content before mutation
+
+- Date: 2026-06-01
+- Goal: Prevent compact repair prompts from corrupting files when weak models copy schema/example content literally.
+- Evidence: Reliability run `infring_levels5_7_reliability_full_write_repair_20260601_run1` wrote `complete replacement file content preserving observed public API` into `calcpack/__init__.py`, causing a SyntaxError and repair timeout.
+- Change: Added a generic `placeholder_content_guard` for `file_write` calls. Empty/prose/schema placeholder content is rejected before mutation with an actionable receipt and owner path hints.
+- Primitive intent: Enforce concrete source content at the tool boundary, mirroring the existing concrete-path guard and avoiding prompt-copy corruption across all coding tasks.
+- Expected effect: Repair turns may still fail, but they should fail safely and retry from guard evidence instead of damaging source files with prompt text.
+
+### EXP-CODING-142 - Separate high-fanout seeded budget threshold from staged-controller threshold
+
+- Date: 2026-06-01
+- Goal: Improve reliability after module-wide import seeding reduced duplicate seed rounds to one source-owner seed receipt.
+- Evidence: Reliability run `infring_levels5_7_reliability_full_write_repair_20260601_run1` showed Level 6 timing out at the normal 75s provider budget on a seeded implementation first turn. The prior high-fanout 90s budget required three source seed receipts, which is stale after EXP-CODING-137 made seeding module-wide and idempotent.
+- Change: Added a separate `seed_prepared_high_fanout_min_source_seed_receipts` CD knob and set it to `1`, while leaving the dormant staged-controller threshold unchanged at `3`.
+- Primitive intent: Budget seeded implementation turns based on the presence of any prepared source owner seed, without re-enabling or weakening the staged controller.
+- Expected effect: Seeded implementation first turns get the intended 90s budget after one module-wide seed, reducing stochastic Level 6/7 first-turn timeout failures.
+
+### EXP-CODING-143 - Route context-before-mutation blockers to mutation recovery
+
+- Date: 2026-06-01
+- Goal: Fix Level 7 failures where the model asked for more reads after bootstrap context was already loaded, then the runtime routed recovery into validation-guided repair and timed out.
+- Evidence: Smoke `infring_levels5_7_seeded_budget_threshold_smoke_20260601` showed Level 7 first turn parsed only `file_read` calls, both blocked with `preflight_context_already_loaded_first_mutation_required`; the next validation-guided repair prompt timed out at 60s.
+- Change: Context-before-mutation blocker reasons now route to mutation-only recovery even when failed validation evidence exists. Validation-guided repair remains for failed mutations/validation repair, not for read-before-mutate control mistakes.
+- Primitive intent: Separate action-control recovery from validation repair recovery.
+- Expected effect: After blocked context-only calls, the next prompt should use the compact mutation packet and request concrete writes instead of entering a validation repair timeout path.
+
+### EXP-CODING-144 - Keep import-surface seed primitive dormant by default
+
+- Date: 2026-06-01
+- Goal: Match the reference-framework Level 7 behavior more closely by avoiding partial seed-only mutations before the model has produced a complete implementation.
+- Evidence: Fresh Claude Code and Codex Level 7 traces both passed by validating, inspecting tests/source/probe context, writing complete product files, and validating again. Infring reliability run `infring_levels5_7_reliability_checkpoint_20260601_run1` mutated quickly through import-surface seed receipts, but then timed out in the real implementation/repair turn.
+- Change: Set `python_import_surface_seed_mutation_enabled` to `false` in the coding workflow CDs while keeping the seed primitive available behind the CD flag.
+- Primitive intent: Treat import-surface seeding as an optional importability primitive, not the default implementation path. Complete implementation should be driven by observed validation, contract, and source context.
+- Expected effect: Level 7 should spend its first model turn on complete implementation rather than recovering from partial seed stubs; lower levels should remain governed by the same mutation/validation receipts.
+
+### EXP-CODING-144 verdict - Reverted
+
+- Date: 2026-06-01
+- Result: Reverted.
+- Evidence: Smoke `infring_levels5_7_import_seed_dormant_smoke_20260601` passed Level 5 in 12.7s, but Level 6 failed with `no_successful_mutation` after 182.2s and Level 7 failed with `no_successful_mutation` after 75.2s.
+- Lesson: The import-surface seed primitive is currently necessary scaffolding for Level 6/7 with the control model. The fix is not to remove seeding; it is to improve the post-seed complete implementation lane so it behaves more like Claude/Codex full-file implementation after context is known.
+
+### EXP-CODING-145 - Add post-seed complete implementation packet
+
+- Date: 2026-06-01
+- Goal: Preserve useful import-surface seed scaffolding while preventing the next turn from drifting into broad exploration or timeout-prone repair prompts.
+- Evidence: Fresh Claude Code and Codex Level 7 traces pass by using observed validation/test/source context to write complete owner files, while Infring failures after seeding often time out before producing the real implementation mutation.
+- Change: Added a CD-gated `seed_prepared_complete_implementation_packet_enabled` primitive. When import-surface seed receipts exist and no non-seed product mutation has occurred, the next provider turn receives a compact implementation packet built from observed validation, tests/probe contract, and owner source files. The packet asks for complete product/source owner writes first and lets runtime validate after mutation.
+- Primitive intent: Turn seed receipts into a bridge toward complete implementation, not a partial implementation endpoint. This is general to post-seed coding tasks and does not name any eval level or fixture.
+- Expected effect: Level 6/7 should retain fast seed scaffolding but emit complete owner-file mutations more reliably, closer to Claude/Codex behavior.
+
+### EXP-CODING-145 verdict - Reverted
+
+- Date: 2026-06-01
+- Result: Reverted.
+- Evidence: Smoke `infring_levels5_7_post_seed_complete_impl_packet_smoke_20260601` passed Level 5 in 15.1s, but Level 6 failed with `seeded_repair_timeout` after 143.4s and Level 7 failed with `seeded_repair_timeout` after 157.4s.
+- Lesson: A compact post-seed packet alone is not enough. It reduced the post-seed prompt size, but the turn still used the broad 3.6k-char system and 8-tool surface, then timed out before tool calls. The actionable next target is a modular post-seed action lane that changes prompt, system/tool surface, and completion criteria together without applying that narrowing globally.
+
+### EXP-CODING-146 - Modular post-seed action lane
+
+- Date: 2026-06-01
+- Goal: Fix the Level 6/7 post-seed timeout mode without disabling useful import-surface seed scaffolding or narrowing unrelated lanes.
+- Evidence: EXP-CODING-145 showed prompt compaction alone was insufficient because the post-seed turn still used the broad system/tool surface. Fresh Claude Code and Codex traces show successful systems move from context to complete owner-file writes with a constrained action shape.
+- Change: Added a CD-gated `post_seed_action_lane_enabled` primitive. When seed receipts exist and no non-seed mutation has occurred, the turn now uses a compact post-seed prompt, a tiny action-only system contract, mutation-recovery tools only, no stream-until-tool-calls mode, omitted thinking flags, and runtime validation after mutation.
+- Primitive intent: Make post-seed implementation a scoped action lane rather than a broad prompt tweak. The lane is driven by generic receipt state and observed owner/contract evidence, not eval level names or fixture paths.
+- Expected effect: Level 6/7 should emit complete owner-file mutations from the post-seed state instead of timing out in the broad implementation/repair path, while Level 5 remains a lower-level regression canary.
+
+### EXP-CODING-146 verdict - Reverted
+
+- Date: 2026-06-01
+- Result: Reverted.
+- Evidence: Smoke `infring_levels5_7_post_seed_action_lane_smoke_20260601` failed Level 5 with `seeded_repair_assertion_mismatch` after 221.8s, failed Level 6 with `attribute_missing` after 107.5s, and failed Level 7 with `seeded_repair_timeout` after 192.1s.
+- Lesson: The lane successfully narrowed the first post-seed provider request (`system_chars=397`, `tool_count=3`, `prompt_chars=3557-4687`), but the model still produced incomplete semantic repairs and the activation was too broad because it caught Level 5. The next viable direction is not another post-seed prompt lane; it is to improve the seed primitive itself so it can generate minimal complete behavior for simple public API import/NotImplemented cases, or to route simple seed-derived tasks back through the previously reliable validation-guided repair path.
+
+### EXP-CODING-147 - Prefer seeded source owner in validation repair packets
+
+- Date: 2026-06-01
+- Goal: Fix post-seed repair turns that keep mutating package/export shims even though the incomplete behavior lives in the seeded source owner file.
+- Evidence: Recent Level 7 seeded-repair failures show validation-guided repair writing `warehouse/__init__.py` while `warehouse/items.py` contains the runtime seed stubs and missing behavior. The repair packet previously selected any path mentioned by validation text, which often favors package export files because import tracebacks mention them.
+- Change: Validation-guided compact repair packets now collect source paths from `runtime_python_import_surface_seed_source_*` receipts. When failed validation text indicates incomplete behavior, missing attributes, assertions, or `NotImplementedError`, the suggested repair path prefers a seeded source owner that is also in the observed owner-file list.
+- Primitive intent: Improve owner selection using receipt provenance and validation failure class signals, without adding a new lane, changing tool permissions, or naming eval fixtures.
+- Expected effect: Post-seed compact repairs should target the source file that owns behavior instead of repeatedly rewriting package/export shims.
+
+### EXP-CODING-147 reliability check - Not committed
+
+- Date: 2026-06-01
+- Result: Not reliable enough to commit.
+- Evidence: Smoke `infring_levels5_7_seed_source_owner_repair_smoke_20260601` passed Levels 5, 6, and 7 once. The follow-up reliability batch `infring_levels5_7_seed_source_owner_repair_reliability_20260601_run1` failed on Level 6 with `seeded_repair_timeout` after 135.6s.
+- Failure detail: Level 6 mutated both `orderflow/__init__.py` and `orderflow/attempts.py`, but final validation still failed because `summarize_attempts` returned `{"total": 2}` without the required `by_status` summary.
+- Lesson: Source-owner selection is directionally useful but not sufficient. The next primitive target is semantic completion from test/probe contract lines, not path ownership alone.
+
+### EXP-CODING-148 - Preserve semantic assertion blocks in repair contracts
+
+- Date: 2026-06-01
+- Goal: Improve semantic completion when tests/probes express required behavior across multi-line assertions or expected output literals.
+- Evidence: EXP-CODING-147 reliability failed Level 6 after mutating the right source owner file, because the generated `summarize_attempts` preserved `total` but missed the multi-line expected `by_status` value from the test contract.
+- Change: Validation-guided contract extraction now adds compact semantic assertion blocks from test/probe files. It captures assertion/expectation lines with nearby continuation lines and balanced bracket context, capped to bounded blocks.
+- Primitive intent: Preserve behavioral expected-output evidence from local contracts without naming a fixture, test level, function, language feature, or output field.
+- Expected effect: Repair prompts should carry enough expected-output structure for the model to implement complete behavior instead of satisfying only the first visible assertion fragment.
+
+### EXP-CODING-149 - Keep recovery wall budget after incomplete repair mutation
+
+- Date: 2026-06-01
+- Goal: Prevent the native loop from timing out immediately after an incomplete repair mutation when validation still fails and another compact repair turn is warranted.
+- Evidence: EXP-CODING-148 reliability passed the first three Levels 5-7 runs, then run 4 failed Level 7 after the first broad turn timed out and a compact repair turn emitted incomplete source changes. The loop exited on the normal 90s wall timeout even though it had post-mutation failed validation evidence and configured recovery wall budget.
+- Change: The active wall-timeout selector now uses `recovery_wall_timeout_seconds` when there is a successful non-seed mutation, a failed validation command, and no successful validation after the latest mutation.
+- Primitive intent: Treat failed validation after a real mutation as active recovery work, independent of whether the recovery flag is already pending at the top of the loop.
+- Expected effect: Incomplete semantic repairs get one more bounded repair opportunity instead of being truncated by the normal wall timeout.
+
+### EXP-CODING-150 - Align mutation-only recovery timeout with compact repair
+
+- Date: 2026-06-01
+- Goal: Reduce failures where context-before-mutation blockers correctly route to mutation-only recovery, but the recovery turn times out before emitting a mutation.
+- Evidence: `infring_levels5_7_semantic_blocks_recovery_wall_reliability_20260601_run4` failed Level 6 after the first post-seed provider turn emitted blocked read calls. The next mutation-only recovery turn had a compact prompt and 3 tools, but timed out at 45s before producing source mutations.
+- Change: Raised `mutation_only_recovery_provider_timeout_seconds` from 45s to 60s in the coding workflow CDs, matching the existing validation-guided compact repair timeout.
+- Primitive intent: Give both compact recovery lanes comparable bounded provider budgets without changing routing, prompts, tool permissions, or task-specific logic.
+- Expected effect: Context-blocker recovery should have enough time to emit concrete owner-file mutations instead of failing as a short recovery timeout.
+
+### EXP-CODING-148/149/150 reliability verdict - Passed 15/15
+
+- Date: 2026-06-01
+- Result: Passed 5x Levels 5-7 reliability gate.
+- Evidence: `infring_levels5_7_semantic_blocks_recovery_timeout60_reliability_20260601_run1` through `run5` passed all 15 attempts.
+- Timings: Level 5 average wall time was about 49.8s, Level 6 about 64.7s, and Level 7 about 76.8s. One Level 5 outlier reached 101.1s.
+- Interpretation: The current patch stack is reliability-positive for Levels 5-7, including the previous run-4 breakpoint. Speed remains uneven and should be treated as the next optimization lane rather than blocking this correctness improvement.
