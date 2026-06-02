@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T19:52:24.798Z
+Updated: 2026-06-02T19:53:28.880Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-02T19:52:24.798Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 20
+- active_items: 19
 - red: 3
-- yellow: 9
+- yellow: 8
 - white: 8
 
 ## Red Section (Do Immediately)
@@ -57,13 +57,6 @@ Updated: 2026-06-02T19:52:24.798Z
   work_gate: `reliability`
   real_work_score: `4`
   summary: Make chat-local report issue send bounded refs/context through Gateway to Orchestration eval without Shell-owned policy, GitHub submission, or raw context upload.
-- `SHELL-EXTRACT-HEALTH` — Make health and connectivity purely Gateway projected
-  owner: `unassigned`
-  deadline: `2026-05-14`
-  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
-  work_gate: `reliability`
-  real_work_score: `4`
-  summary: Make runtime health, connectivity, release status, and degraded-state labels come from bounded Gateway status projections so Shell does not infer readiness or failure truth.
 - `SHELL-EXTRACT-LIFECYCLE` — Move agent and session lifecycle to receipts
   owner: `unassigned`
   deadline: `2026-05-14`

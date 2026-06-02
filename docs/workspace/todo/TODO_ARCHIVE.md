@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T19:52:24.798Z
+Updated: 2026-06-02T19:53:28.880Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T19:52:24.798Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `SHELL-EXTRACT-HEALTH` — Make health and connectivity purely Gateway projected
+  completed_at: `2026-06-02T19:53:28.880Z`
+  previous_section: `yellow`
+  owner: `unassigned`
+  deadline: `2026-05-14`
+  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
+  summary: Make runtime health, connectivity, release status, and degraded-state labels come from bounded Gateway status projections so Shell does not infer readiness or failure truth.
+  completion_note: Added explicit Gateway shell-socket runtime-status projection with trace/projection metadata and bounded Gateway fallback; Shell consumers can render health/connectivity from Gateway status instead of local inference.
 - `SHELL-EXTRACT-COMMANDS` — Move interactive command authority out of Shell
   completed_at: `2026-06-02T19:52:24.797Z`
   previous_section: `red`

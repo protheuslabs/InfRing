@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T19:52:24.798Z",
+  "updated_at": "2026-06-02T19:53:28.880Z",
   "historical_snapshot": {
     "preserved_archive_path": "docs/workspace/todo/TODO_ARCHIVE_LEGACY.md",
     "total_rows": 4145,
@@ -992,6 +992,19 @@
       "real_work_score": 5,
       "completed_at": "2026-06-02T19:52:24.797Z",
       "completion_note": "Added explicit Gateway shell-socket command ingress bridge for submit input/message, model selection, and terminal command routes; requests are bounded and trace-tagged before forwarding to Rust shell-socket authority, with legacy Shell behavior left untouched."
+    },
+    {
+      "id": "SHELL-EXTRACT-HEALTH",
+      "title": "Make health and connectivity purely Gateway projected",
+      "section": "yellow",
+      "owner": "unassigned",
+      "deadline": "2026-05-14",
+      "source_family": "Shell Authority Extraction Without Legacy Shell Mutation",
+      "summary": "Make runtime health, connectivity, release status, and degraded-state labels come from bounded Gateway status projections so Shell does not infer readiness or failure truth.",
+      "work_gate": "reliability",
+      "real_work_score": 4,
+      "completed_at": "2026-06-02T19:53:28.880Z",
+      "completion_note": "Added explicit Gateway shell-socket runtime-status projection with trace/projection metadata and bounded Gateway fallback; Shell consumers can render health/connectivity from Gateway status instead of local inference."
     }
   ]
 }
