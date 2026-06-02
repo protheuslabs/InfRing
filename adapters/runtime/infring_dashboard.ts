@@ -17,6 +17,10 @@ const { createAgentWsBridge } = require('./agent_ws_bridge.ts');
 const { loadAgentRuntimeEngineRegistry } = require('./agent_engines/agent_runtime_router.ts');
 const { createCodexCliEngineAdapter } = require('./agent_engines/codex_cli.ts');
 const {
+  isShellSocketChatProjectionPath,
+  shellSocketChatProjection,
+} = require('./shell_socket_chat_projection.ts');
+const {
   backendFreshnessSnapshot: backendFreshnessSnapshotFromProcess,
   backendSpawnEnv: backendSpawnEnvForRoot,
   shouldRestartStaleBackend,
@@ -945,6 +949,10 @@ async function runServe(flags) {
           engines: [],
         }));
         return void sendJson(res, payload.ok === false ? 503 : 200, payload);
+      }
+      if (req.method === 'GET' && isShellSocketChatProjectionPath(pathname)) {
+        const result = await shellSocketChatProjection({ flags, requestUrl, traceId, fetchBackendJson });
+        return void sendJson(res, result.status, result.payload);
       }
       if (req.method === 'GET') {
         const agentSessionsMatch = pathname.match(/^\/api\/agents\/([^/]+)\/sessions$/);

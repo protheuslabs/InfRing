@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T18:52:02.834Z
+Updated: 2026-06-02T19:26:54.010Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T18:52:02.834Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `SHELL-EXTRACT-CHAT` — Move chat and session projections behind Gateway
+  completed_at: `2026-06-02T19:26:54.007Z`
+  previous_section: `red`
+  owner: `unassigned`
+  deadline: `2026-05-07`
+  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
+  summary: Make chat/session list and message-window loading available as bounded Gateway projections backed by Orchestration/headless proof, so the system can run without the legacy Shell while leaving existing Shell behavior untouched.
+  completion_note: Added explicit Node Gateway shell-socket chat/session projection bridge for agent roster, session list, and bounded message windows; Rust shell-socket remains the projection owner, Gateway caps query shape and adds trace/projection metadata, and legacy Shell files were not modified.
 - `ARTENG-DASHBOARD-TOGGLE` — Add dashboard runtime-engine toggle through Gateway only
   completed_at: `2026-06-02T18:52:02.834Z`
   previous_section: `white`

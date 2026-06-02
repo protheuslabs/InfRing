@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T18:52:02.834Z
+Updated: 2026-06-02T19:26:54.010Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,8 +14,8 @@ Updated: 2026-06-02T18:52:02.834Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 23
-- red: 6
+- active_items: 22
+- red: 5
 - yellow: 9
 - white: 8
 
@@ -27,13 +27,6 @@ Updated: 2026-06-02T18:52:02.834Z
   work_gate: `reliability`
   real_work_score: `5`
   summary: Extract remaining authority and source-of-truth responsibilities into Orchestration/Gateway-owned paths while preserving the fragile legacy Shell files until headless replacement paths are proven; do not delete or refactor legacy Shell behavior in this lane.
-- `SHELL-EXTRACT-CHAT` — Move chat and session projections behind Gateway
-  owner: `unassigned`
-  deadline: `2026-05-07`
-  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
-  work_gate: `reliability`
-  real_work_score: `5`
-  summary: Make chat/session list and message-window loading available as bounded Gateway projections backed by Orchestration/headless proof, so the system can run without the legacy Shell while leaving existing Shell behavior untouched.
 - `SHELL-EXTRACT-COMMANDS` — Move interactive command authority out of Shell
   owner: `unassigned`
   deadline: `2026-05-07`
