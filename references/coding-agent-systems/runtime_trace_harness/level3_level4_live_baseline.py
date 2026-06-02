@@ -28,6 +28,7 @@ THIS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = THIS_DIR.parents[2]
 DEFAULT_MODEL = "qwen2.5-coder:7b"
 RUN_TIMEOUT_OVERRIDE_SECONDS: int | None = None
+INFRING_SUCCESS_CRITERIA_OVERRIDE = ""
 
 _LEVEL2_SPEC = importlib.util.spec_from_file_location(
     "level2_baseline", THIS_DIR / "level2_weak_model_live_baseline.py"
@@ -481,11 +482,18 @@ def run_semantic_probe(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def content_markers_present(job: dict[str, Any]) -> bool:
-    text = ""
+    text_parts: list[str] = []
+    seen: set[Path] = set()
     for path in job["case"]["expected_paths"]:
         target = job["project_root"] / path
         if target.exists():
-            text += target.read_text(encoding="utf-8", errors="replace") + "\n"
+            seen.add(target)
+            text_parts.append(target.read_text(encoding="utf-8", errors="replace"))
+    for target in sorted(job["project_root"].rglob("*.py")):
+        if ".infring" in target.parts or target in seen:
+            continue
+        text_parts.append(target.read_text(encoding="utf-8", errors="replace"))
+    text = "\n".join(text_parts)
     return all(marker in text for marker in job["case"]["expected_markers"])
 
 
@@ -699,6 +707,8 @@ def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
             "--tool=file_list,file_stat,file_read,file_read_many,file_write,file_patch,command_resolve,command_run",
         ]
     )
+    if INFRING_SUCCESS_CRITERIA_OVERRIDE:
+        command.append(f"--success-criteria={INFRING_SUCCESS_CRITERIA_OVERRIDE}")
     result = run_cmd(
         command,
         cwd=REPO_ROOT,
@@ -1677,7 +1687,7 @@ def write_report(path: Path, report: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    global RUN_TIMEOUT_OVERRIDE_SECONDS
+    global INFRING_SUCCESS_CRITERIA_OVERRIDE, RUN_TIMEOUT_OVERRIDE_SECONDS
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--systems", default="infring,mini-swe-agent,aider,swe-agent,forgecode")
@@ -1689,9 +1699,15 @@ def main() -> int:
         default=0,
         help="Override per-system attempt timeout so reference loops can stay bounded.",
     )
+    parser.add_argument(
+        "--infring-success-criteria",
+        default="",
+        help="Optional Infring-only success criteria JSON or @file override for eval branch probes.",
+    )
     args = parser.parse_args()
     if args.attempt_timeout_seconds > 0:
         RUN_TIMEOUT_OVERRIDE_SECONDS = args.attempt_timeout_seconds
+    INFRING_SUCCESS_CRITERIA_OVERRIDE = args.infring_success_criteria.strip()
 
     requested_systems = [item.strip() for item in args.systems.split(",") if item.strip()]
     requested_levels = {int(item.strip()) for item in args.levels.split(",") if item.strip()}

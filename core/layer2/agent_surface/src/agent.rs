@@ -1263,7 +1263,9 @@ impl AgentContract {
             let seeded_multi_requirement_edit_only_first_batch =
                 native_tool_seeded_multi_requirement_edit_only_first_batch_enabled(&self.metadata)
                     && seeded_multi_requirement_edit_only_seed_max_symbol_count
-                        >= seeded_multi_requirement_edit_only_min_seed_symbols;
+                        >= seeded_multi_requirement_edit_only_min_seed_symbols
+                    && provider_call_count <= 1
+                    && !has_non_import_surface_mutation;
             let compact_bootstrap_mutation_turn =
                 native_tool_compact_mutation_entry_packet_enabled(&self.metadata)
                     && native_tool_requires_successful_mutation(&self.metadata)
@@ -1313,8 +1315,15 @@ impl AgentContract {
                 provider_turn_timeout_seconds =
                     native_tool_mutation_only_recovery_provider_timeout_seconds(&self.metadata);
             }
+            if seeded_multi_requirement_edit_only_first_batch {
+                provider_turn_timeout_seconds =
+                    native_tool_seeded_multi_requirement_edit_only_provider_timeout_seconds(
+                        &self.metadata,
+                    );
+            }
             let seed_prepared_high_fanout_implementation_turn =
-                native_tool_python_import_surface_seed_source_receipt_count(&all_receipts)
+                !seeded_multi_requirement_edit_only_first_batch
+                    && native_tool_python_import_surface_seed_source_receipt_count(&all_receipts)
                     >= native_tool_seed_prepared_high_fanout_min_source_seed_receipts(
                         &self.metadata,
                     )
@@ -1336,9 +1345,10 @@ impl AgentContract {
                 );
             }
             if let Value::Object(object) = &mut request_metadata {
-                object
-                    .entry("provider_timeout_seconds".to_string())
-                    .or_insert_with(|| json!(provider_turn_timeout_seconds));
+                object.insert(
+                    "provider_timeout_seconds".to_string(),
+                    json!(provider_turn_timeout_seconds),
+                );
                 if validation_guided_compact_repair_turn
                     || mutation_only_recovery_turn
                     || compact_action_controller_turn
@@ -1349,13 +1359,6 @@ impl AgentContract {
             }
             if let Some(timeout_seconds) = next_provider_timeout_seconds.take() {
                 if let Value::Object(object) = &mut request_metadata {
-                    let timeout_seconds = if validation_guided_compact_repair_turn
-                        || mutation_only_recovery_turn
-                    {
-                        timeout_seconds.max(provider_turn_timeout_seconds)
-                    } else {
-                        timeout_seconds
-                    };
                     object.insert(
                         "provider_timeout_seconds".to_string(),
                         json!(timeout_seconds),
@@ -1364,7 +1367,7 @@ impl AgentContract {
             }
             let mut stream_until_tool_calls =
                 native_tool_stream_until_tool_calls_enabled(&request_metadata, bounded_direct_edit_task);
-            if compact_action_controller_turn {
+            if compact_action_controller_turn || seeded_multi_requirement_edit_only_first_batch {
                 stream_until_tool_calls = false;
             }
             if stream_until_tool_calls {
@@ -1500,6 +1503,7 @@ impl AgentContract {
                     "prompt_chars": request.prompt.chars().count(),
                     "system_chars": request.system.as_ref().map(|value| value.chars().count()).unwrap_or(0),
                     "tool_count": request.tools.len(),
+                    "provider_timeout_seconds": provider_turn_timeout_seconds,
                     "stream_until_tool_calls": stream_until_tool_calls,
                     "staged_edit_turn": staged_edit_turn,
                     "seeded_import_surface_repair_turn": seeded_import_surface_repair_turn,
@@ -1653,7 +1657,7 @@ impl AgentContract {
                             && native_tool_has_any_validation_command(&all_receipts)
                         {
                             next_provider_timeout_seconds =
-                                Some(native_tool_bounded_patch_artifact_provider_timeout_seconds(
+                                Some(native_tool_bounded_patch_artifact_retry_provider_timeout_seconds(
                                     &self.metadata,
                                 ));
                         }
@@ -2187,6 +2191,10 @@ impl AgentContract {
                     {
                         validation_guided_compact_repair_pending = true;
                         validation_guided_compact_repair_reason = Some(reason);
+                        next_provider_timeout_seconds =
+                            Some(native_tool_bounded_patch_artifact_retry_provider_timeout_seconds(
+                                &self.metadata,
+                            ));
                     } else {
                         let mutation_packet = native_tool_mutation_entry_packet(
                             &self.metadata,
@@ -2246,6 +2254,10 @@ impl AgentContract {
                     validation_guided_compact_repair_pending = true;
                     validation_guided_compact_repair_reason =
                         Some("failed_validation_after_implementation_mutation".to_string());
+                    next_provider_timeout_seconds =
+                        Some(native_tool_bounded_patch_artifact_retry_provider_timeout_seconds(
+                            &self.metadata,
+                        ));
                     last_response = Some(response);
                     continue;
                 }
@@ -4038,6 +4050,16 @@ fn native_tool_seeded_multi_requirement_edit_only_first_batch_enabled(metadata: 
         .and_then(|value| value.get("seeded_multi_requirement_edit_only_first_batch_enabled"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
+}
+
+fn native_tool_seeded_multi_requirement_edit_only_provider_timeout_seconds(metadata: &Value) -> u64 {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("seeded_multi_requirement_edit_only_provider_timeout_seconds"))
+        .and_then(Value::as_u64)
+        .unwrap_or(30)
+        .clamp(8, 45)
 }
 
 fn native_tool_seeded_multi_requirement_edit_only_min_seed_symbols(metadata: &Value) -> usize {
