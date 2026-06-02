@@ -314,7 +314,8 @@
       this.scheduleConversationPersist();
       this._sendPayload(nextText, nextFiles, nextImages, {
         from_queue: true,
-        queue_id: next && next.queue_id ? String(next.queue_id) : ''
+        queue_id: next && next.queue_id ? String(next.queue_id) : '',
+        agent_runtime_engine_id: String((next && next.agent_runtime_engine_id) || this.selectedAgentRuntimeEngineId || 'infring_native')
       });
     },
 

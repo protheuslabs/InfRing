@@ -138,7 +138,8 @@
           queued_at: Date.now(),
           text: finalText,
           files: uploadedFiles,
-          images: msgImages
+          images: msgImages,
+          agent_runtime_engine_id: String(this.selectedAgentRuntimeEngineId || 'infring_native')
         });
         this.scheduleConversationPersist();
         return;
@@ -157,7 +158,10 @@
         this.clearComposerSendMorph(morphSnapshot);
       }
       this.scheduleConversationPersist();
-      this._sendPayload(finalText, uploadedFiles, msgImages, { agent_id: activeAgent.id });
+      this._sendPayload(finalText, uploadedFiles, msgImages, {
+        agent_id: activeAgent.id,
+        agent_runtime_engine_id: String(this.selectedAgentRuntimeEngineId || 'infring_native')
+      });
     },
 
     async _sendTerminalPayload(command, agentIdOverride) {
@@ -238,6 +242,7 @@
       this.setAgentLiveActivity(targetAgentId, 'typing');
       var safeFiles = Array.isArray(uploadedFiles) ? uploadedFiles.slice() : [];
       var safeImages = Array.isArray(msgImages) ? msgImages.slice() : [];
+      var runtimeEngineId = String(opts.agent_runtime_engine_id || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
       if (
         !opts.retry_from_failover ||
         !this._inflightPayload ||
@@ -248,6 +253,7 @@
           final_text: String(finalText || ''),
           uploaded_files: safeFiles,
           msg_images: safeImages,
+          agent_runtime_engine_id: runtimeEngineId,
           failover_attempted: !!opts.retry_from_failover,
           created_at: Date.now()
         };
@@ -255,6 +261,7 @@
         this._inflightPayload.final_text = String(finalText || '');
         this._inflightPayload.uploaded_files = safeFiles;
         this._inflightPayload.msg_images = safeImages;
+        this._inflightPayload.agent_runtime_engine_id = runtimeEngineId;
         this._inflightPayload.retry_started_at = Date.now();
       }
       this._pendingAutoModelSwitchBaseline = '';
@@ -267,7 +274,7 @@
           await new Promise(function(resolve) { setTimeout(resolve, 75); });
         }
       }
-      var wsPayload = { type: 'message', content: finalText };
+      var wsPayload = { type: 'message', content: finalText, agent_runtime_engine_id: runtimeEngineId };
       if (uploadedFiles && uploadedFiles.length) wsPayload.attachments = uploadedFiles;
       if (InfringAPI.wsSend(wsPayload)) {
         this._setPendingWsRequest(targetAgentId, finalText);
@@ -305,7 +312,7 @@
       var handedOffToRecovery = false;
 
       try {
-        var httpBody = { message: finalText };
+        var httpBody = { message: finalText, agent_runtime_engine_id: runtimeEngineId };
         if (uploadedFiles && uploadedFiles.length) httpBody.attachments = uploadedFiles;
         var httpAutoSwitchPrevious = String(this._pendingAutoModelSwitchBaseline || '').trim();
         if (!httpAutoSwitchPrevious) httpAutoSwitchPrevious = this.captureAutoModelSwitchBaseline();

@@ -32,8 +32,10 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     menuOpen: false,
     showGitTreeMenu: false,
     showModelSwitcher: false,
+    showRuntimeSwitcher: false,
     branchLabel: '',
     menuModelLabel: '',
+    runtimeEngineLabel: 'InfRing Native',
     modelDisplayName: '',
     contextLabel: '',
     contextTooltip: '',
@@ -53,6 +55,9 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     gitTreeSwitching: false,
     modelRows: [],
     modelSwitching: false,
+    runtimeEngineRows: [],
+    runtimeEngineLoading: false,
+    runtimeEngineError: '',
     modelSwitcherFilter: '',
     modelSwitcherProviderFilter: '',
     switcherProviders: [],
@@ -108,8 +113,10 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
       menuOpen: !!p.showAttachMenu,
       showGitTreeMenu: !!p.showGitTreeMenu,
       showModelSwitcher: !!p.showModelSwitcher,
+      showRuntimeSwitcher: !!p.showRuntimeSwitcher,
       branchLabel: String(p.activeGitBranchMenuLabel || ''),
       menuModelLabel: String(p.menuModelLabel || ''),
+      runtimeEngineLabel: typeof p.runtimeEngineMenuLabel === 'function' ? String(p.runtimeEngineMenuLabel() || 'InfRing Native') : 'InfRing Native',
       modelDisplayName: String(p.modelDisplayName || ''),
       contextLabel: String(p.contextRingCompactLabel || ''),
       contextTooltip: String(p.contextRingTooltip || ''),
@@ -129,6 +136,9 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
       gitTreeSwitching: !!p.gitTreeSwitching,
       modelRows,
       modelSwitching: !!p.modelSwitching,
+      runtimeEngineRows: list('runtimeEngineRows'),
+      runtimeEngineLoading: !!p.runtimeEngineLoading,
+      runtimeEngineError: String(p.runtimeEngineError || ''),
       modelSwitcherFilter: String(p.modelSwitcherFilter || ''),
       modelSwitcherProviderFilter: String(p.modelSwitcherProviderFilter || ''),
       switcherProviders: list('switcherProviders'),
@@ -162,6 +172,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     p.showAttachMenu = !!open;
     if (!open) {
       p.showModelSwitcher = false;
+      p.showRuntimeSwitcher = false;
       if (typeof p.closeGitTreeMenu === 'function') p.closeGitTreeMenu();
       else p.showGitTreeMenu = false;
     }
@@ -216,9 +227,11 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
   function toggleVoice() { state.recording ? call('stopRecording') : call('startRecording'); refresh(); }
   function toggleGit() { call('toggleGitTreeMenu'); refresh(); }
   function toggleModel() { call('toggleModelSwitcher'); refresh(); }
+  function toggleRuntime() { call('toggleRuntimeSwitcher'); refresh(); }
   function selectGit(branch) { call('switchAgentGitTree', branch); refresh(); }
   function createGitBranch() { call('createAndCheckoutGitBranch'); refresh(); }
   function switchModel(row) { call('switchModel', row); refresh(); }
+  function selectRuntime(row) { call('selectRuntimeEngine', row); refresh(); }
   function clean(value) { return String(value == null ? '' : value).trim(); }
   function firstNonEmpty() {
     for (let i = 0; i < arguments.length; i += 1) {
@@ -254,6 +267,10 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     return [modelProvider(row), modelDeployment(row), modelContext(row), modelParams(row)].filter(function(value) { return !!clean(value); });
   }
   function modelMeta(row) { return modelMetaParts(row).join(' · '); }
+  function runtimeName(row) { return String(row && (row.display_name || row.engine_id) || 'runtime'); }
+  function runtimeMeta(row) { return String(call('runtimeEngineMeta', row) || row.status || ''); }
+  function runtimeActive(row) { return !!call('isRuntimeEngineActive', row); }
+  function runtimeActionIcon(row) { return String(call('runtimeEngineActionIcon', row) || ''); }
   function applySuggestion(value) { call('applyPromptSuggestion', value); afterAction(); }
   function queuePreview(row) { return String(call('queuePromptPreview', row) || row.text || 'Queued prompt'); }
   function setQueueText(row) { syncInput(row && row.text); afterAction(); }
@@ -358,7 +375,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
               <div class="composer-menu-pill composer-shared-input-pill">
                 <div class="composer-plus-wrap composer-icon-left">
                   <button id="composer-plus-menu-anchor" class="composer-icon-btn composer-hamburger-btn" on:click={toggleMenu} title="Add files and more (Ctrl+F)" aria-label="Add files and more" aria-expanded={state.menuOpen ? 'true' : 'false'}><svg class="composer-hamburger-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg></button>
-                  {#if state.menuOpen || state.showModelSwitcher || state.showGitTreeMenu}
+                  {#if state.menuOpen || state.showModelSwitcher || state.showGitTreeMenu || state.showRuntimeSwitcher}
                   <infring-taskbar-menu-shell class="composer-plus-menu dashboard-dropdown-surface" shellprimitive="taskbar-dock" wrapperrole="taskbar-menu" parentownedmechanics="true" anchorid="composer-plus-menu-anchor" fallbackside="top" layoutkey="composer-plus-menu">
                     {#if state.menuOpen && !state.terminalMode}<div class="composer-plus-menu-item composer-plus-menu-context-row"><span class="context-ring-inline-label">{state.contextLabel}</span><div class="context-ring context-ring-toggle dashboard-preview-trigger dashboard-preview-wrap" data-tooltip={state.contextTooltip} tabindex="0"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="context-ring-track" cx="18" cy="18" r="14" pathLength="100"></circle><circle class="context-ring-progress" cx="18" cy="18" r="14" pathLength="100" style={state.contextStyle}></circle></svg></div></div>{/if}
                     {#if state.menuOpen && !state.terminalMode}<button class="composer-plus-menu-item composer-plus-menu-item-toggle composer-plus-menu-item-suggestions composer-plus-menu-entry" on:click={toggleSuggestions} title="Toggle chat suggestions"><span class="composer-plus-toggle-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.75c.63.45 1 1.16 1 1.94V18h6v-1.31c0-.78.37-1.49 1-1.94A7 7 0 0 0 12 2z"/></svg><span>Chat suggestions</span></span><span class:active={state.promptSuggestionsEnabled} class="composer-plus-vtoggle" aria-hidden="true"><span class="composer-plus-vtoggle-knob"></span></span></button>{/if}
@@ -400,6 +417,26 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
                                   {/each}
                                 </div>
                               {/if}
+                            </infring-taskbar-menu-shell>
+                          {/if}
+                        </div>
+                        <div class="input-box-selector-row">
+                          <button id="composer-runtime-menu-anchor" type="button" class="input-box-selector-activator composer-plus-menu-entry" aria-expanded={state.showRuntimeSwitcher ? 'true' : 'false'} on:click={toggleRuntime} title={'Agent runtime: ' + state.runtimeEngineLabel}><span class:active={state.showRuntimeSwitcher} class="composer-icon-btn composer-model-btn input-box-selector-trigger" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M7 7v10a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V7"/><path d="M9 11h6"/><path d="M9 15h6"/></svg></span><span class="model-inline-label input-box-selector-label">Agent runtime</span><span class="composer-plus-state-pill composer-plus-state-pill-model">{state.runtimeEngineLabel}</span></button>
+                          {#if state.showRuntimeSwitcher}
+                            <infring-taskbar-menu-shell class="model-switcher-dropdown model-switcher-dropdown-inline dashboard-dropdown-surface" shellprimitive="taskbar-dock" wrapperrole="taskbar-menu" parentownedmechanics="true" anchorid="composer-runtime-menu-anchor" fallbackside="top" layoutkey="composer-runtime-switcher">
+                              <div class="chat-branch-menu-head">Agent Runtime</div>
+                              {#if state.runtimeEngineLoading}
+                                <div style="display:flex;align-items:center;justify-content:center;padding:12px;gap:8px"><div class="tool-card-spinner"></div><span class="text-xs text-dim">Sensing runtimes...</span></div>
+                              {/if}
+                              {#if state.runtimeEngineError}
+                                <div class="chat-branch-menu-status chat-branch-menu-error">{state.runtimeEngineError}</div>
+                              {/if}
+                              <div class="model-switcher-list">
+                                {#if !state.runtimeEngineRows.length}<div class="chat-branch-menu-status">No runtime sockets are registered.</div>{/if}
+                                {#each state.runtimeEngineRows as r (r.engine_id)}
+                                  <button type="button" class:active={runtimeActive(r)} class="model-switcher-item" on:click={() => selectRuntime(r)} title={runtimeMeta(r)}><span class="model-switcher-main"><span class="model-switcher-title-row"><span class="model-switcher-item-name">{runtimeName(r)}</span></span><span class="model-switcher-item-meta">{runtimeMeta(r)}</span></span>{#if runtimeActionIcon(r)}<span class="model-switcher-item-tools"><span class="model-meta-stat">{runtimeActionIcon(r)}</span></span>{/if}</button>
+                                {/each}
+                              </div>
                             </infring-taskbar-menu-shell>
                           {/if}
                         </div>

@@ -180,6 +180,144 @@
       });
     },
 
+    fallbackRuntimeEngineRows: function() {
+      return [
+        { engine_id: 'infring_native', display_name: 'InfRing Native', status: 'available', selectable: true, engine_kind: 'native_orchestration' },
+        { engine_id: 'codex_cli', display_name: 'Codex CLI', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' },
+        { engine_id: 'claude_code', display_name: 'Claude Code', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' },
+        { engine_id: 'openhands', display_name: 'OpenHands', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' }
+      ];
+    },
+
+    normalizeRuntimeEngineRows: function(payload) {
+      var rows = payload && Array.isArray(payload.engines) ? payload.engines : [];
+      var out = [];
+      for (var i = 0; i < rows.length; i += 1) {
+        var row = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        var id = String(row.engine_id || '').trim();
+        if (!id) continue;
+        out.push({
+          engine_id: id,
+          display_name: String(row.display_name || id).trim() || id,
+          engine_kind: String(row.engine_kind || '').trim(),
+          transport_kind: String(row.transport_kind || '').trim(),
+          status: String(row.status || 'unknown').trim(),
+          selectable: row.selectable !== false && String(row.status || '').trim() !== 'not_downloaded',
+          capabilities: Array.isArray(row.capabilities) ? row.capabilities : [],
+          download_available: row.download_available === true,
+          download_action_ref: String(row.download_action_ref || '').trim(),
+          preferred_install_method: String(row.preferred_install_method || '').trim(),
+          command_line_hint: String(row.command_line_hint || '').trim(),
+          browser_fallback_url: String(row.browser_fallback_url || '').trim(),
+          display_when_missing: String(row.display_when_missing || '').trim(),
+          version_preview: String(row.version_preview || '').trim()
+        });
+      }
+      return out.length ? out : this.fallbackRuntimeEngineRows();
+    },
+
+    loadRuntimeEnginesSafely: function(options) {
+      var opts = options && typeof options === 'object' ? options : {};
+      var self = this;
+      if (!opts.force && Array.isArray(this.runtimeEngineRows) && this.runtimeEngineRows.length && (Date.now() - Number(this.runtimeEngineCacheTime || 0)) < 120000) {
+        return Promise.resolve(this.runtimeEngineRows);
+      }
+      this.runtimeEngineLoading = true;
+      this.runtimeEngineError = '';
+      return InfringAPI.get('/api/shell-socket/agent-runtime/engines').then(function(payload) {
+        var rows = self.normalizeRuntimeEngineRows(payload);
+        self.runtimeEngineRows = rows;
+        self.runtimeEngineCacheTime = Date.now();
+        return rows;
+      }).catch(function(e) {
+        self.runtimeEngineError = e && e.message ? String(e.message) : 'runtime_engines_unavailable';
+        self.runtimeEngineRows = self.runtimeEngineRows && self.runtimeEngineRows.length ? self.runtimeEngineRows : self.fallbackRuntimeEngineRows();
+        return self.runtimeEngineRows;
+      }).finally(function() {
+        self.runtimeEngineLoading = false;
+      });
+    },
+
+    toggleRuntimeSwitcher: function() {
+      if (this.showRuntimeSwitcher) { this.showRuntimeSwitcher = false; return; }
+      if (typeof this.closeComposerMenus === 'function') this.closeComposerMenus({ runtime: true });
+      else {
+        this.showAttachMenu = false;
+        this.showModelSwitcher = false;
+        this.closeGitTreeMenu();
+      }
+      this.showRuntimeSwitcher = true;
+      this.loadRuntimeEnginesSafely({ force: true }).catch(function() { return []; });
+    },
+
+    activeRuntimeEngineRow: function() {
+      var id = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim();
+      var rows = Array.isArray(this.runtimeEngineRows) && this.runtimeEngineRows.length ? this.runtimeEngineRows : this.fallbackRuntimeEngineRows();
+      for (var i = 0; i < rows.length; i += 1) {
+        if (String(rows[i] && rows[i].engine_id || '') === id) return rows[i];
+      }
+      return rows[0] || null;
+    },
+
+    runtimeEngineMenuLabel: function() {
+      var row = this.activeRuntimeEngineRow();
+      return String((row && row.display_name) || 'InfRing Native').trim();
+    },
+
+    isRuntimeEngineActive: function(row) {
+      return String(row && row.engine_id || '') === String(this.selectedAgentRuntimeEngineId || 'infring_native');
+    },
+
+    runtimeEngineStatusLabel: function(row) {
+      var status = String(row && row.status || '').trim();
+      if (status === 'available') return 'Available';
+      if (status === 'adapter_ready') return 'Adapter ready';
+      if (status === 'not_downloaded') return 'Not installed';
+      if (status === 'not_connected') return 'Not connected';
+      if (status === 'planned_adapter') return 'Planned';
+      return status || 'Unknown';
+    },
+
+    runtimeEngineMeta: function(row) {
+      var parts = [];
+      var kind = String(row && row.engine_kind || '').replace(/_/g, ' ').trim();
+      var status = this.runtimeEngineStatusLabel(row);
+      if (kind) parts.push(kind);
+      if (status) parts.push(status);
+      return parts.join(' · ');
+    },
+
+    runtimeEngineActionIcon: function(row) {
+      if (this.isRuntimeEngineActive(row)) return '✓';
+      if (row && row.download_available) return '⇩';
+      if (row && String(row.status || '') === 'not_connected') return '!';
+      return '';
+    },
+
+    selectRuntimeEngine: function(row) {
+      var engineId = String(row && row.engine_id || '').trim();
+      if (!engineId) return;
+      if (row && row.selectable === false) {
+        this.openRuntimeEngineInstall(row);
+        return;
+      }
+      this.selectedAgentRuntimeEngineId = engineId;
+      try { window.localStorage.setItem(this.agentRuntimeEngineStorageKey, engineId); } catch (_e) {}
+      this.showRuntimeSwitcher = false;
+      InfringToast.success('Agent runtime: ' + String((row && row.display_name) || engineId));
+    },
+
+    openRuntimeEngineInstall: function(row) {
+      var hint = String(row && row.command_line_hint || '').trim();
+      var url = String(row && row.browser_fallback_url || '').trim();
+      if (hint) InfringToast.info(hint);
+      if (url) {
+        try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (_e) {}
+      } else if (!hint) {
+        InfringToast.info('Runtime install path is not configured yet.');
+      }
+    },
+
     discoverModelsFromApiKey: function() {
       var self = this;
       var entry = String(this.modelApiKeyInput || '').trim();

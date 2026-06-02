@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T18:43:33.560Z",
+  "updated_at": "2026-06-02T18:52:02.834Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -265,17 +265,6 @@
       "summary": "Live split-debt artifacts are classified, but decomposition is blocked until the outside-lane dashboard compat compile blocker is fixed so owner-scoped renames can be validated.",
       "work_gate": "simplification",
       "real_work_score": 3
-    },
-    {
-      "id": "ARTENG-DASHBOARD-TOGGLE",
-      "title": "Add dashboard runtime-engine toggle through Gateway only",
-      "section": "white",
-      "owner": "codex",
-      "deadline": "after_agent_runtime_router",
-      "source_family": "Agent Runtime Engine Socket Architecture",
-      "summary": "Add a row in the input-row hamburger menu alongside the LLM menu. It opens a similar menu for agent runtimes backed by /ws/agent-runtime: InfRing Native, Codex CLI, Claude Code, OpenHands, OpenClaw, OpenFang, and custom socket engines. The Shell sends only engine_id. Missing runtimes show a download/configure icon using registry install metadata; later the icon should prefer command-line install/recover actions and fall back to opening the provider download page if no command path is available.",
-      "work_gate": "real_work",
-      "real_work_score": 4
     }
   ]
 }

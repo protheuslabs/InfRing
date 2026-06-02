@@ -248,6 +248,7 @@
       var keep = options && typeof options === 'object' ? options : {};
       if (!keep.attach) this.showAttachMenu = false;
       if (!keep.model) this.showModelSwitcher = false;
+      if (!keep.runtime) this.showRuntimeSwitcher = false;
       if (!keep.git) this.closeGitTreeMenu();
     },
 

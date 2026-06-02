@@ -14,6 +14,8 @@ const {
 } = require('./run_infring_ops.ts');
 const { buildPrimaryDashboardHtml, hasPrimaryDashboardUi, readBuildVersionInfo, readPrimaryDashboardAsset } = require('./dashboard_asset_router.ts');
 const { createAgentWsBridge } = require('./agent_ws_bridge.ts');
+const { loadAgentRuntimeEngineRegistry } = require('./agent_engines/agent_runtime_router.ts');
+const { createCodexCliEngineAdapter } = require('./agent_engines/codex_cli.ts');
 const {
   backendFreshnessSnapshot: backendFreshnessSnapshotFromProcess,
   backendSpawnEnv: backendSpawnEnvForRoot,
@@ -64,6 +66,7 @@ const HOP_BY_HOP = new Set(['connection', 'host', 'keep-alive', 'proxy-authentic
 
 function nowIso() { return new Date().toISOString(); }
 function cleanText(value, maxLen = 200) { return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen); }
+function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function isTransientSocketError(error) {
   const code = cleanText(error && error.code ? error.code : '', 40);
   return code === 'ECONNRESET' || code === 'EPIPE' || code === 'ERR_STREAM_PREMATURE_CLOSE';
@@ -78,6 +81,69 @@ function parsePositiveInt(value, fallback, min = 1, max = 65535) {
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(num)));
+}
+
+function projectAgentRuntimeEngineRow(engine, health) {
+  const row = engine && typeof engine === 'object' ? engine : {};
+  const install = row.install && typeof row.install === 'object' ? row.install : {};
+  const engineId = cleanEngineId(row.engine_id);
+  const healthStatus = cleanText(health && health.status ? health.status : '', 80);
+  const registryStatus = cleanText(row.status || '', 80);
+  const nativeReady = engineId === 'infring_native' && registryStatus === 'adapter_seam_ready';
+  const status = healthStatus || (nativeReady ? 'available' : (registryStatus || 'unknown'));
+  const selectable = status === 'available' || status === 'adapter_ready' || nativeReady;
+  const downloadAvailable = install.download_available === true || (health && health.download_available === true);
+  return {
+    engine_id: engineId,
+    display_name: cleanText(row.display_name || engineId, 120),
+    engine_kind: cleanText(row.engine_kind || '', 120),
+    transport_kind: cleanText(row.transport_kind || '', 120),
+    status,
+    selectable,
+    capabilities: Array.isArray(row.capabilities) ? row.capabilities.map((item) => cleanText(item, 120)).filter(Boolean).slice(0, 12) : [],
+    download_available: !!downloadAvailable,
+    download_action_ref: cleanText(install.download_action_ref || (health && health.download_action_ref) || '', 240),
+    preferred_install_method: cleanText(install.preferred_install_method || '', 80),
+    command_line_hint: cleanText(install.command_line_hint || '', 500),
+    browser_fallback_url: cleanText(install.browser_fallback_url || '', 500),
+    display_when_missing: cleanText(install.display_when_missing || (downloadAvailable ? 'download_icon' : ''), 80),
+    version_preview: cleanText(health && health.version_preview ? health.version_preview : '', 240),
+  };
+}
+
+async function agentRuntimeEnginesProjection(traceId) {
+  const info = loadAgentRuntimeEngineRegistry(ROOT);
+  const engines = Array.isArray(info.engines) ? info.engines : [];
+  const codexAdapter = createCodexCliEngineAdapter({ liveDispatch: false });
+  const rows = [];
+  for (const engine of engines) {
+    const engineId = cleanEngineId(engine && engine.engine_id);
+    let health = null;
+    if (engineId === 'codex_cli') {
+      health = await codexAdapter.health_check({
+        message: {
+          trace_id: traceId,
+          request_id: `agent-runtime-menu:${Date.now()}`,
+          engine_id: 'codex_cli',
+          session_id: 'dashboard-menu',
+        },
+        engine,
+      }).catch((error) => ({
+        status: 'not_downloaded',
+        download_available: true,
+        reason: cleanText(error && error.message ? error.message : error, 200),
+      }));
+    }
+    rows.push(projectAgentRuntimeEngineRow(engine, health));
+  }
+  return {
+    ok: true,
+    type: 'agent_runtime_engines_projection',
+    trace_id: traceId,
+    socket_route: '/ws/agent-runtime',
+    selected_default_engine_id: 'infring_native',
+    engines: rows,
+  };
 }
 function normalizeShutdownExitDelayMs(value) {
   const num = Number(value);
@@ -869,6 +935,16 @@ async function runServe(flags) {
           update_available: false,
         }));
         return void sendJson(res, 200, payload);
+      }
+      if (req.method === 'GET' && (pathname === '/api/shell-socket/agent-runtime/engines' || pathname === '/api/agent-runtime/engines')) {
+        const payload = await agentRuntimeEnginesProjection(traceId).catch((error) => ({
+          ok: false,
+          type: 'agent_runtime_engines_projection_error',
+          trace_id: traceId,
+          error: cleanText(error && error.message ? error.message : error, 240),
+          engines: [],
+        }));
+        return void sendJson(res, payload.ok === false ? 503 : 200, payload);
       }
       if (req.method === 'GET') {
         const agentSessionsMatch = pathname.match(/^\/api\/agents\/([^/]+)\/sessions$/);

@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T18:43:33.560Z
+Updated: 2026-06-02T18:52:02.834Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,10 +14,10 @@ Updated: 2026-06-02T18:43:33.560Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 24
+- active_items: 23
 - red: 6
 - yellow: 9
-- white: 9
+- white: 8
 
 ## Red Section (Do Immediately)
 - `SHELL-CLEANUP` — Finish the Shell source-of-truth cleanup
@@ -136,13 +136,6 @@ Updated: 2026-06-02T18:43:33.560Z
   work_gate: `reliability`
   real_work_score: `4`
   summary: Implement end-to-end unified trace_id propagation from initial request through Orchestration, workflows, tools, Kernel receipts, Sentinel, and final response.
-- `ARTENG-DASHBOARD-TOGGLE` — Add dashboard runtime-engine toggle through Gateway only
-  owner: `codex`
-  deadline: `after_agent_runtime_router`
-  source_family: `Agent Runtime Engine Socket Architecture`
-  work_gate: `real_work`
-  real_work_score: `4`
-  summary: Add a row in the input-row hamburger menu alongside the LLM menu. It opens a similar menu for agent runtimes backed by /ws/agent-runtime: InfRing Native, Codex CLI, Claude Code, OpenHands, OpenClaw, OpenFang, and custom socket engines. The Shell sends only engine_id. Missing runtimes show a download/configure icon using registry install metadata; later the icon should prefer command-line install/recover actions and fall back to opening the provider download page if no command path is available.
 - `SHELL-NEXT` — Build Shell-next only after authority extraction proofs
   owner: `unassigned`
   deadline: `after_red_section`

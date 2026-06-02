@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T18:43:32.962Z",
+  "updated_at": "2026-06-02T18:52:02.834Z",
   "historical_snapshot": {
     "preserved_archive_path": "docs/workspace/todo/TODO_ARCHIVE_LEGACY.md",
     "total_rows": 4145,
@@ -940,6 +940,19 @@
       "real_work_score": 5,
       "completed_at": "2026-06-02T18:43:32.961Z",
       "completion_note": "Added agent runtime engine conformance guard and package script covering registry shape, socket route, trace requirements, Kernel authority invariants, forbidden default payload fields, install metadata, and adapter exports."
+    },
+    {
+      "id": "ARTENG-DASHBOARD-TOGGLE",
+      "title": "Add dashboard runtime-engine toggle through Gateway only",
+      "section": "white",
+      "owner": "codex",
+      "deadline": "after_agent_runtime_router",
+      "source_family": "Agent Runtime Engine Socket Architecture",
+      "summary": "Add a row in the input-row hamburger menu alongside the LLM menu. It opens a similar menu for agent runtimes backed by /ws/agent-runtime: InfRing Native, Codex CLI, Claude Code, OpenHands, OpenClaw, OpenFang, and custom socket engines. The Shell sends only engine_id. Missing runtimes show a download/configure icon using registry install metadata; later the icon should prefer command-line install/recover actions and fall back to opening the provider download page if no command path is available.",
+      "work_gate": "real_work",
+      "real_work_score": 4,
+      "completed_at": "2026-06-02T18:52:02.834Z",
+      "completion_note": "Added Gateway-projected agent runtime availability and a legacy-styled input hamburger runtime selector that carries selected engine_id through direct and queued sends."
     }
   ]
 }

@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T18:43:32.962Z
+Updated: 2026-06-02T18:52:02.834Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T18:43:32.962Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `ARTENG-DASHBOARD-TOGGLE` — Add dashboard runtime-engine toggle through Gateway only
+  completed_at: `2026-06-02T18:52:02.834Z`
+  previous_section: `white`
+  owner: `codex`
+  deadline: `after_agent_runtime_router`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  summary: Add a row in the input-row hamburger menu alongside the LLM menu. It opens a similar menu for agent runtimes backed by /ws/agent-runtime: InfRing Native, Codex CLI, Claude Code, OpenHands, OpenClaw, OpenFang, and custom socket engines. The Shell sends only engine_id. Missing runtimes show a download/configure icon using registry install metadata; later the icon should prefer command-line install/recover actions and fall back to opening the provider download page if no command path is available.
+  completion_note: Added Gateway-projected agent runtime availability and a legacy-styled input hamburger runtime selector that carries selected engine_id through direct and queued sends.
 - `ARTENG-CONFORMANCE` — Add agent runtime engine conformance checks
   completed_at: `2026-06-02T18:43:32.961Z`
   previous_section: `yellow`
