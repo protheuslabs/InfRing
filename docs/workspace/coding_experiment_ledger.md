@@ -3656,3 +3656,12 @@ Pending.
 - Result: 3-run Levels 5-7 mini-gate passed 9/9. Route split was stable in every run: Level 5 reported edit-only `false` with max/min `2/3`, Level 6 reported `true` with `3/3`, and Level 7 reported `true` with `4/3`.
 - Timing: Mini-gate averages were about Level 5 `33.0s`, Level 6 `29.3s`, and Level 7 `29.6s`; first-mutation timing remained provider-variable but correctness and route isolation stayed stable.
 - Verdict: keep. This is a primitive-positive speed/routing improvement because it improves higher implementation slices without applying the lean path to the simpler repair lane.
+
+### EXP-CODING-154 post-commit broad regression sweep
+
+- Date: 2026-06-02
+- Scope: requested Levels 1-7 after commit `89cc44ed8`; the current harness included Levels 3-7.
+- Result: Levels 3-7 passed 5/5.
+- Route evidence: Level 3 edit-only `false` with max/min `0/3`; Level 4 `false` with `0/3`; Level 5 `false` with `2/3`; Level 6 `true` with `3/3`; Level 7 `true` with `4/3`.
+- Timing: Level 3 `3.9s`, Level 4 `5.6s`, Level 5 `19.3s`, Level 6 `21.7s`, Level 7 `14.8s`.
+- Interpretation: The seed-surface classifier appears isolated: lower/non-seeded lanes stayed off, simple import-surface repair stayed off, and larger seeded implementation slices stayed on.
