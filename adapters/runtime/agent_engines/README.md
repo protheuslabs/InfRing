@@ -24,6 +24,8 @@ Current router seam:
 
 - `agent_runtime_router.ts`
 - `infring_native.ts`
+- `codex_cli.ts`
+- `agent_runtime_trace_writer.ts`
 
 The router loads the canonical registry, selects by `engine_id`, requires
 `trace_id`, dispatches only to registered adapters, and rejects forbidden default
@@ -33,6 +35,14 @@ The native adapter exposes `orchestration/**` as `engine_id: infring_native`
 through the same adapter methods as external engines. It does not move
 orchestration code and does not fabricate live dispatch; Gateway wiring must
 inject an orchestration client before `start_session` or `submit_turn` can run.
+
+`codex_cli.ts` is the first external adapter seam. It can probe local command
+availability, exposes install/download metadata through the registry, and keeps
+live dispatch opt-in through `INFRING_AGENT_RUNTIME_CODEX_LIVE=1`.
+
+`agent_runtime_trace_writer.ts` records compact normalized engine events under
+Observability-owned local state. It stores refs and status metadata, not raw
+framework transcripts.
 
 ## Native engine
 

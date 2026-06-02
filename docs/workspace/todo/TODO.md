@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T18:33:52.770Z
+Updated: 2026-06-02T18:43:33.560Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-02T18:33:52.770Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 27
+- active_items: 24
 - red: 6
-- yellow: 12
+- yellow: 9
 - white: 9
 
 ## Red Section (Do Immediately)
@@ -127,27 +127,6 @@ Updated: 2026-06-02T18:33:52.770Z
   work_gate: `real_work`
   real_work_score: `5`
   summary: Build the workflow utility spine so the system is useful for real work after Shell de-authority.
-- `ARTENG-EXTERNAL-ADAPTER-FIRST` — Implement first external agent runtime adapter
-  owner: `codex`
-  deadline: `2026-06-27`
-  source_family: `Agent Runtime Engine Socket Architecture`
-  work_gate: `real_work`
-  real_work_score: `5`
-  summary: Implement one bounded external adapter, preferably codex_cli or claude_code, behind the Gateway runtime router; normalize its stream into assistant deltas, tool projections, artifact refs, receipts, errors, and final result events.
-- `ARTENG-TRACE-OBSERVABILITY` — Record normalized agent runtime traces
-  owner: `codex`
-  deadline: `2026-06-27`
-  source_family: `Agent Runtime Engine Socket Architecture`
-  work_gate: `reliability`
-  real_work_score: `5`
-  summary: Add Observability evidence for engine turns: engine_id, trace_id, session_id, health, latency, failure class, tool proposal refs, artifact refs, receipt refs, and final status, without leaking raw external framework payloads.
-- `ARTENG-CONFORMANCE` — Add agent runtime engine conformance checks
-  owner: `codex`
-  deadline: `2026-06-30`
-  source_family: `Agent Runtime Engine Socket Architecture`
-  work_gate: `reliability`
-  real_work_score: `5`
-  summary: Add Validation checks for registry shape, socket event schema, trace propagation, cancellation, bounded payloads, receipt emission, capability-denial behavior, and artifact/detail-ref handling across infring_native and external adapters.
 
 ## White Section (Do At Leisure)
 - `TRACE-IMPL` — Implement end-to-end unified trace_id propagation
@@ -163,7 +142,7 @@ Updated: 2026-06-02T18:33:52.770Z
   source_family: `Agent Runtime Engine Socket Architecture`
   work_gate: `real_work`
   real_work_score: `4`
-  summary: Add the UI selector only after the Gateway socket/router and at least one engine adapter are proven; Shell sends engine_id and displays normalized projections only, with no engine-specific execution logic.
+  summary: Add a row in the input-row hamburger menu alongside the LLM menu. It opens a similar menu for agent runtimes backed by /ws/agent-runtime: InfRing Native, Codex CLI, Claude Code, OpenHands, OpenClaw, OpenFang, and custom socket engines. The Shell sends only engine_id. Missing runtimes show a download/configure icon using registry install metadata; later the icon should prefer command-line install/recover actions and fall back to opening the provider download page if no command path is available.
 - `SHELL-NEXT` — Build Shell-next only after authority extraction proofs
   owner: `unassigned`
   deadline: `after_red_section`

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T18:33:52.770Z",
+  "updated_at": "2026-06-02T18:43:32.962Z",
   "historical_snapshot": {
     "preserved_archive_path": "docs/workspace/todo/TODO_ARCHIVE_LEGACY.md",
     "total_rows": 4145,
@@ -901,6 +901,45 @@
       "real_work_score": 5,
       "completed_at": "2026-06-02T18:33:52.769Z",
       "completion_note": "Wrapped orchestration/** as engine_id infring_native through a Gateway adapter seam that implements the normalized runtime-engine interface and reports not_connected until a live orchestration client is attached; added router streamEvents support."
+    },
+    {
+      "id": "ARTENG-EXTERNAL-ADAPTER-FIRST",
+      "title": "Implement first external agent runtime adapter",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-27",
+      "source_family": "Agent Runtime Engine Socket Architecture",
+      "summary": "Implement one bounded external adapter, preferably codex_cli or claude_code, behind the Gateway runtime router; normalize its stream into assistant deltas, tool projections, artifact refs, receipts, errors, and final result events.",
+      "work_gate": "real_work",
+      "real_work_score": 5,
+      "completed_at": "2026-06-02T18:43:31.555Z",
+      "completion_note": "Added codex_cli as the first bounded external agent runtime adapter seam with local command health probing, normalized adapter methods, opt-in live dispatch, refs/previews for outputs, and install/download metadata in the engine registry."
+    },
+    {
+      "id": "ARTENG-TRACE-OBSERVABILITY",
+      "title": "Record normalized agent runtime traces",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-27",
+      "source_family": "Agent Runtime Engine Socket Architecture",
+      "summary": "Add Observability evidence for engine turns: engine_id, trace_id, session_id, health, latency, failure class, tool proposal refs, artifact refs, receipt refs, and final status, without leaking raw external framework payloads.",
+      "work_gate": "reliability",
+      "real_work_score": 5,
+      "completed_at": "2026-06-02T18:43:32.337Z",
+      "completion_note": "Added compact agent runtime trace writer and wired the router to emit Observability-owned engine events keyed by trace_id, engine_id, session_id, turn_id, refs, status, and error metadata."
+    },
+    {
+      "id": "ARTENG-CONFORMANCE",
+      "title": "Add agent runtime engine conformance checks",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-30",
+      "source_family": "Agent Runtime Engine Socket Architecture",
+      "summary": "Add Validation checks for registry shape, socket event schema, trace propagation, cancellation, bounded payloads, receipt emission, capability-denial behavior, and artifact/detail-ref handling across infring_native and external adapters.",
+      "work_gate": "reliability",
+      "real_work_score": 5,
+      "completed_at": "2026-06-02T18:43:32.961Z",
+      "completion_note": "Added agent runtime engine conformance guard and package script covering registry shape, socket route, trace requirements, Kernel authority invariants, forbidden default payload fields, install metadata, and adapter exports."
     }
   ]
 }

@@ -10,6 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createAgentRuntimeTraceWriter } = require('./agent_runtime_trace_writer.ts');
 
 const DEFAULT_REGISTRY_PATH = path.join(
   'validation',
@@ -147,6 +148,7 @@ function createAgentRuntimeRouter(options = {}) {
   const root = options.root || process.cwd();
   const registryInfo = options.registryInfo || loadAgentRuntimeEngineRegistry(root, options.registryPath);
   const adapters = new Map();
+  const traceWriter = options.traceWriter || (options.disableTraceWriter ? null : createAgentRuntimeTraceWriter({ root, tracePath: options.tracePath }));
   const initialAdapters = options.adapters || {};
   for (const [engineId, adapter] of Object.entries(initialAdapters)) {
     adapters.set(engineId, adapter);
@@ -197,9 +199,13 @@ function createAgentRuntimeRouter(options = {}) {
         engine: dispatch.engine,
         registry: registryInfo.registry,
       });
-      return normalizeGatewayEvent(result, dispatch.msg, fallbackType);
+      const normalized = normalizeGatewayEvent(result, dispatch.msg, fallbackType);
+      if (traceWriter && typeof traceWriter.write === 'function') traceWriter.write(normalized);
+      return normalized;
     } catch (err) {
-      return makeErrorEvent(dispatch.msg, 'agent_runtime_adapter_error', err && err.message ? err.message : String(err || 'adapter_error'));
+      const error = makeErrorEvent(dispatch.msg, 'agent_runtime_adapter_error', err && err.message ? err.message : String(err || 'adapter_error'));
+      if (traceWriter && typeof traceWriter.write === 'function') traceWriter.write(error);
+      return error;
     }
   }
 

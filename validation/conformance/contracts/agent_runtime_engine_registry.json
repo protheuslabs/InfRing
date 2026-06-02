@@ -51,7 +51,13 @@
         "gateway_policy_required",
         "trace_id_required",
         "receipt_ref_required_for_durable_effects"
-      ]
+      ],
+      "install": {
+        "install_state_source": "internal_native_engine",
+        "download_available": false,
+        "download_action_ref": null,
+        "display_badge": "native"
+      }
     },
     {
       "engine_id": "codex_cli",
@@ -59,7 +65,7 @@
       "engine_kind": "external_cli_adapter",
       "implementation_path": "adapters/runtime/agent_engines/codex_cli/**",
       "transport_kind": "local_process_or_socket",
-      "status": "planned_adapter",
+      "status": "adapter_seam_ready",
       "capabilities": [
         "coding_agent_loop",
         "workspace_read",
@@ -74,7 +80,16 @@
         "no_direct_shell_socket",
         "workspace_scope_required",
         "mutation_approval_required"
-      ]
+      ],
+      "install": {
+        "install_state_source": "adapter_health_check",
+        "download_available": true,
+        "download_action_ref": "agent_runtime_download/codex_cli",
+        "preferred_install_method": "command_line",
+        "command_line_hint": "Install the Codex CLI using the current official OpenAI/Codex installer for this machine.",
+        "browser_fallback_url": "https://developers.openai.com/codex",
+        "display_when_missing": "download_icon"
+      }
     },
     {
       "engine_id": "claude_code",
@@ -97,7 +112,16 @@
         "no_direct_shell_socket",
         "workspace_scope_required",
         "mutation_approval_required"
-      ]
+      ],
+      "install": {
+        "install_state_source": "adapter_health_check",
+        "download_available": true,
+        "download_action_ref": "agent_runtime_download/claude_code",
+        "preferred_install_method": "command_line",
+        "command_line_hint": "Install Claude Code with Anthropic's current command-line installer.",
+        "browser_fallback_url": "https://docs.anthropic.com/en/docs/claude-code",
+        "display_when_missing": "download_icon"
+      }
     },
     {
       "engine_id": "openhands",
@@ -119,7 +143,16 @@
         "no_direct_kernel_write",
         "no_direct_shell_socket",
         "capability_budget_required"
-      ]
+      ],
+      "install": {
+        "install_state_source": "adapter_health_check",
+        "download_available": true,
+        "download_action_ref": "agent_runtime_download/openhands",
+        "preferred_install_method": "command_line",
+        "command_line_hint": "Install or start OpenHands through its current official local runtime path.",
+        "browser_fallback_url": "https://github.com/All-Hands-AI/OpenHands",
+        "display_when_missing": "download_icon"
+      }
     },
     {
       "engine_id": "openclaw",
@@ -141,7 +174,16 @@
         "no_direct_kernel_write",
         "no_direct_shell_socket",
         "capability_budget_required"
-      ]
+      ],
+      "install": {
+        "install_state_source": "adapter_health_check",
+        "download_available": true,
+        "download_action_ref": "agent_runtime_download/openclaw",
+        "preferred_install_method": "command_line",
+        "command_line_hint": "Install or start OpenClaw through the configured local runtime path.",
+        "browser_fallback_url": "https://github.com",
+        "display_when_missing": "download_icon"
+      }
     },
     {
       "engine_id": "openfang",
@@ -163,7 +205,16 @@
         "no_direct_kernel_write",
         "no_direct_shell_socket",
         "capability_budget_required"
-      ]
+      ],
+      "install": {
+        "install_state_source": "adapter_health_check",
+        "download_available": true,
+        "download_action_ref": "agent_runtime_download/openfang",
+        "preferred_install_method": "command_line",
+        "command_line_hint": "Install or start OpenFang through the configured local runtime path.",
+        "browser_fallback_url": "https://github.com",
+        "display_when_missing": "download_icon"
+      }
     },
     {
       "engine_id": "custom_socket_engine",
@@ -184,7 +235,16 @@
         "no_direct_kernel_write",
         "no_direct_shell_socket",
         "capability_budget_required"
-      ]
+      ],
+      "install": {
+        "install_state_source": "adapter_health_check",
+        "download_available": false,
+        "download_action_ref": "agent_runtime_download/custom_socket_engine",
+        "preferred_install_method": "manual_configuration",
+        "command_line_hint": "Configure a bounded local socket endpoint that implements the agent runtime engine protocol.",
+        "browser_fallback_url": null,
+        "display_when_missing": "configure_icon"
+      }
     }
   ],
   "first_adapter_recommendation": {

@@ -59,7 +59,8 @@
       "current_sources": [
         "validation/conformance/contracts/agent_runtime_socket_contract.json",
         "validation/conformance/contracts/agent_runtime_engine_registry.json",
-        "adapters/runtime/agent_engines/**"
+        "adapters/runtime/agent_engines/**",
+        "local/state/observability/agent_runtime/agent_runtime_events.jsonl"
       ],
       "projection_status": "queued",
       "required_projection": "Preserve engine_id, engine_kind, trace_id, session_id, turn_id, event type, health state, latency, failure class, capability scope, artifact refs, tool_call refs, receipt refs, and final status while keeping raw framework payloads behind detail refs."

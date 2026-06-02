@@ -1226,7 +1226,8 @@
     "ops:ksent:source-artifacts:refresh": "npm run -s ops:eval:artifact-refresh; npm run -s ops:ksent:issue-quality:refresh; npm run -s ops:ksent:feedback-summary; node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/command_operator_surface_guard.ts; npm run -s ops:real-work:workflow-proof:guard; node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/windows_installer_contract_guard.ts --strict=1; node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/sentinel_timing_trend_report.ts; node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/sentinel_timing_trend_guard.ts; npm run -s ops:ksent:command-entropy:report; npm run -s ops:ksent:artifact-freshness:guard; npm run -s ops:ci:surface-sprawl:report",
     "ops:ksent:daily-state": "npm run -s ops:ksent:anti-entropy:observer; npm run -s ops:ksent:daily-state:report",
     "ops:ksent:worktree-scope:report": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/kernel_sentinel_worktree_scope_report.ts",
-    "ops:ci:surface-sprawl:report": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/ci_surface_sprawl_report.ts"
+    "ops:ci:surface-sprawl:report": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/ci_surface_sprawl_report.ts",
+    "ops:agent-runtime-engine:conformance:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_engine_conformance_guard.ts"
   },
   "version": "0.4.0"
 }

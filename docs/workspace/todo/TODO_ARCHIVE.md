@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T18:33:52.770Z
+Updated: 2026-06-02T18:43:32.962Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,30 @@ Updated: 2026-06-02T18:33:52.770Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `ARTENG-CONFORMANCE` — Add agent runtime engine conformance checks
+  completed_at: `2026-06-02T18:43:32.961Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-30`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  summary: Add Validation checks for registry shape, socket event schema, trace propagation, cancellation, bounded payloads, receipt emission, capability-denial behavior, and artifact/detail-ref handling across infring_native and external adapters.
+  completion_note: Added agent runtime engine conformance guard and package script covering registry shape, socket route, trace requirements, Kernel authority invariants, forbidden default payload fields, install metadata, and adapter exports.
+- `ARTENG-TRACE-OBSERVABILITY` — Record normalized agent runtime traces
+  completed_at: `2026-06-02T18:43:32.337Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-27`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  summary: Add Observability evidence for engine turns: engine_id, trace_id, session_id, health, latency, failure class, tool proposal refs, artifact refs, receipt refs, and final status, without leaking raw external framework payloads.
+  completion_note: Added compact agent runtime trace writer and wired the router to emit Observability-owned engine events keyed by trace_id, engine_id, session_id, turn_id, refs, status, and error metadata.
+- `ARTENG-EXTERNAL-ADAPTER-FIRST` — Implement first external agent runtime adapter
+  completed_at: `2026-06-02T18:43:31.555Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-27`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  summary: Implement one bounded external adapter, preferably codex_cli or claude_code, behind the Gateway runtime router; normalize its stream into assistant deltas, tool projections, artifact refs, receipts, errors, and final result events.
+  completion_note: Added codex_cli as the first bounded external agent runtime adapter seam with local command health probing, normalized adapter methods, opt-in live dispatch, refs/previews for outputs, and install/download metadata in the engine registry.
 - `ARTENG-INFRING-NATIVE` — Wrap Orchestration as infring_native runtime engine
   completed_at: `2026-06-02T18:33:52.769Z`
   previous_section: `yellow`
