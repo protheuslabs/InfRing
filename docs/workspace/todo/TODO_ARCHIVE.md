@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T19:58:10.061Z
+Updated: 2026-06-02T19:59:37.066Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T19:58:10.061Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `SHELL-EXTRACT-LIFECYCLE` — Move agent and session lifecycle to receipts
+  completed_at: `2026-06-02T19:59:37.064Z`
+  previous_section: `yellow`
+  owner: `unassigned`
+  deadline: `2026-05-14`
+  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
+  summary: Ensure create, select, archive, reset, retry, and new-agent initialization flows work through Gateway/Core/Orchestration receipts with headless proof.
+  completion_note: Added Gateway shell-socket lifecycle ingress bridge for agent/session create, archive, revive, clone, stop, history clear, session switch, and delete routes. The bridge bounds request bodies, adds trace/receipt metadata, forwards to Rust shell-socket authority, and does not modify legacy Shell files.
 - `SHELL-EXTRACT-EVAL` — Move report/eval issue flow behind Gateway ingress
   completed_at: `2026-06-02T19:58:10.059Z`
   previous_section: `yellow`

@@ -33,6 +33,10 @@ const {
   shellSocketEvalIssueIngress,
 } = require('./shell_socket_eval_issue_ingress.ts');
 const {
+  isShellSocketLifecycleIngressPath,
+  shellSocketLifecycleIngress,
+} = require('./shell_socket_lifecycle_ingress.ts');
+const {
   backendFreshnessSnapshot: backendFreshnessSnapshotFromProcess,
   backendSpawnEnv: backendSpawnEnvForRoot,
   shouldRestartStaleBackend,
@@ -978,6 +982,11 @@ async function runServe(flags) {
       if (req.method === 'POST' && isShellSocketEvalIssueIngressPath(pathname)) {
         const body = await readJsonBody(req, 65536);
         const result = await shellSocketEvalIssueIngress({ flags, traceId, body, fetchBackend });
+        return void sendJson(res, result.status, result.payload);
+      }
+      if (req.method === 'POST' && isShellSocketLifecycleIngressPath(pathname)) {
+        const body = await readJsonBody(req, 65536);
+        const result = await shellSocketLifecycleIngress({ flags, requestUrl, traceId, body, fetchBackend });
         return void sendJson(res, result.status, result.payload);
       }
       if (req.method === 'GET') {

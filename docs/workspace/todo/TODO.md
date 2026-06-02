@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T19:58:10.061Z
+Updated: 2026-06-02T19:59:37.066Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-02T19:58:10.061Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 18
+- active_items: 17
 - red: 3
-- yellow: 7
+- yellow: 6
 - white: 8
 
 ## Red Section (Do Immediately)
@@ -50,13 +50,6 @@ Updated: 2026-06-02T19:58:10.061Z
   work_gate: `reliability`
   real_work_score: `4`
   summary: Move conversation cache/search to bounded preview/index routes so the browser keeps only cursors, previews, counts, and refs rather than cloned full messages or raw tool payloads.
-- `SHELL-EXTRACT-LIFECYCLE` — Move agent and session lifecycle to receipts
-  owner: `unassigned`
-  deadline: `2026-05-14`
-  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
-  work_gate: `reliability`
-  real_work_score: `4`
-  summary: Ensure create, select, archive, reset, retry, and new-agent initialization flows work through Gateway/Core/Orchestration receipts with headless proof.
 - `SHELL-EXTRACT-WORKFLOW` — Project workflow stage and thought status from Orchestration
   owner: `unassigned`
   deadline: `2026-05-14`
