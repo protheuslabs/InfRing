@@ -492,7 +492,7 @@ def run_infring(repo_root: Path, batch_root: Path, model: str, *, strict_model_l
         command = list(resolution["command"])
         command.extend(
             [
-                "--workflow=coding_project_operator",
+                "--workflow=local_coding_phase1_mutation_spine",
                 f"--name=weak-baseline-{job['attempt_id']}",
                 f"--prompt=@{job['prompt_path']}",
                 "--provider=ollama",
