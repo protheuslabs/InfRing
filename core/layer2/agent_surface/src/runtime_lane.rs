@@ -450,6 +450,30 @@ pub fn run_runtime_lane_with_registry(
     let deterministic_local_loop_probe_ms =
         deterministic_local_loop_probe_started.elapsed().as_millis() as u64;
 
+    let first_edit_tool_calls_probe_started = Instant::now();
+    if let Some(response) = runtime_lane_try_first_edit_tool_calls_lane(
+        &name,
+        &initial_prompt,
+        provider.as_deref(),
+        model.as_ref(),
+        &metadata,
+        &tools,
+        &capability_packs,
+        &required_pack_permissions,
+        &permissions,
+        wasm_sandbox.as_ref(),
+        voice_session.as_ref(),
+        receipt_merkle.as_ref(),
+        previous_receipt_root.as_ref(),
+        &state_path,
+        &mut durable_state,
+        providers,
+    ) {
+        return Ok(response);
+    }
+    let first_edit_tool_calls_probe_ms =
+        first_edit_tool_calls_probe_started.elapsed().as_millis() as u64;
+
     let public_api_extension_probe_started = Instant::now();
     if let Some(response) = runtime_lane_try_public_api_extension_lane(
         &name,
@@ -896,6 +920,7 @@ pub fn run_runtime_lane_with_registry(
                 "wasm_policy_ms": wasm_policy_ms,
                 "direct_mutation_probe_ms": direct_mutation_probe_ms,
                 "deterministic_local_loop_probe_ms": deterministic_local_loop_probe_ms,
+                "first_edit_tool_calls_probe_ms": first_edit_tool_calls_probe_ms,
                 "public_api_extension_probe_ms": public_api_extension_probe_ms,
                 "bounded_existing_project_probe_ms": bounded_existing_project_probe_ms,
                 "model_manifest_probe_skipped": model_manifest_probe_skipped,
@@ -1377,6 +1402,417 @@ fn runtime_lane_response_has_successful_mutation(response: &RuntimeLaneResponse)
             })
         })
         .unwrap_or(false)
+}
+
+fn runtime_lane_try_first_edit_tool_calls_lane(
+    name: &str,
+    prompt: &str,
+    provider: Option<&str>,
+    model: Option<&String>,
+    metadata: &Value,
+    tools: &[String],
+    capability_packs: &[String],
+    required_pack_permissions: &[String],
+    permissions: &crate::rbac_memory::PermissionManifest,
+    wasm_sandbox: Option<&Value>,
+    voice_session: Option<&Value>,
+    receipt_merkle: Option<&Value>,
+    previous_receipt_root: Option<&String>,
+    state_path: &Path,
+    durable_state: &mut RuntimeLaneDurableState,
+    providers: &ProviderClientRegistry,
+) -> Option<RuntimeLaneResponse> {
+    let enabled = runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/first_edit_tool_calls_lane_enabled",
+            "/workflow/native_success_criteria/first_edit_tool_calls_lane_enabled",
+        ],
+    )
+    .unwrap_or(false);
+    if !enabled {
+        return None;
+    }
+    let strict_diagnostics = runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/first_edit_tool_calls_strict_diagnostics",
+            "/workflow/native_success_criteria/first_edit_tool_calls_strict_diagnostics",
+        ],
+    )
+    .unwrap_or(true);
+    let workspace_root = runtime_lane_extract_workspace_root(prompt)?;
+    if !runtime_lane_bounded_existing_project_edit_loop_eligible(
+        prompt,
+        &workspace_root,
+        tools,
+        capability_packs,
+        permissions,
+    ) {
+        return None;
+    }
+    let context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
+    if context_pack.trim().is_empty() {
+        return None;
+    }
+    let provider_id = provider.unwrap_or_else(|| providers.default_provider_id());
+    let provider_client = match providers.from_provider_id(provider_id) {
+        Ok(provider) => provider,
+        Err(error) => {
+            if !strict_diagnostics {
+                return None;
+            }
+            return Some(runtime_lane_fail_closed_with_state(
+                "runtime_lane_first_edit_tool_calls_provider_unavailable",
+                json!({
+                    "lane": "first_edit_tool_calls",
+                    "failure_code": error.code.as_str(),
+                    "failure_message": error.message,
+                }),
+                permissions,
+                wasm_sandbox,
+                voice_session,
+                state_path,
+                durable_state,
+            ));
+        }
+    };
+    let model_lock = std::env::var("INFRING_RUNTIME_LANE_MODEL_LOCK")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let lane_model = model_lock.or_else(|| model.cloned());
+    let timeout_seconds = runtime_lane_metadata_u64_value(
+        metadata,
+        &[
+            "/native_success_criteria/first_edit_tool_calls_provider_timeout_seconds",
+            "/workflow/native_success_criteria/first_edit_tool_calls_provider_timeout_seconds",
+            "/native_success_criteria/first_mutation_artifact_lane_v1_provider_timeout_seconds",
+            "/workflow/native_success_criteria/first_mutation_artifact_lane_v1_provider_timeout_seconds",
+        ],
+    )
+    .unwrap_or(15)
+    .clamp(5, 60);
+    let total_started = Instant::now();
+    let gate_started = Instant::now();
+    let compact_context = runtime_lane_compact_context_pack(&context_pack);
+    let prompt_text = runtime_lane_first_edit_tool_calls_prompt(prompt, &workspace_root, &compact_context);
+    let execution_shape_gate_ms =
+        gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let model_started = Instant::now();
+    let provider_response = match provider_client.complete(&ProviderRequest {
+            prompt: prompt_text,
+            system: Some(runtime_lane_first_edit_tool_calls_system()),
+            tools: Vec::new(),
+            model: lane_model,
+            metadata: json!({
+                "provider_timeout_seconds": timeout_seconds,
+                "provider_stream_until_tool_calls": true,
+                "omit_ollama_thinking_flags": false,
+                "lane": "first_edit_tool_calls",
+                "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+            }),
+        }) {
+        Ok(response) => response,
+        Err(error) => {
+            let model_call_ms = model_started
+                .elapsed()
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64;
+            if !strict_diagnostics {
+                return None;
+            }
+            return Some(runtime_lane_fail_closed_with_state(
+                "runtime_lane_first_edit_tool_calls_provider_failed",
+                json!({
+                    "lane": "first_edit_tool_calls",
+                    "failure_code": error.code.as_str(),
+                    "failure_message": error.message,
+                    "provider_latency_ms": model_call_ms,
+                    "provider_timeout_seconds": timeout_seconds,
+                }),
+                permissions,
+                wasm_sandbox,
+                voice_session,
+                state_path,
+                durable_state,
+            ));
+        }
+    };
+    let model_call_ms = model_started
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
+    let actions = parse_native_tool_calls(&provider_response.output)
+        .into_iter()
+        .take(6)
+        .filter_map(|call| runtime_lane_first_edit_tool_call_action(&call, &workspace_root))
+        .collect::<Vec<_>>();
+    if actions.is_empty() {
+        if !strict_diagnostics {
+            return None;
+        }
+        return Some(runtime_lane_fail_closed_with_state(
+            "runtime_lane_first_edit_tool_calls_no_mutation_tool_calls",
+            json!({
+                "lane": "first_edit_tool_calls",
+                "provider_latency_ms": model_call_ms,
+                "provider_timeout_seconds": timeout_seconds,
+                "provider_output_preview": provider_response.output.chars().take(1600).collect::<String>(),
+                "needed_input": "Return native tool_calls with file_write or file_patch only.",
+            }),
+            permissions,
+            wasm_sandbox,
+            voice_session,
+            state_path,
+            durable_state,
+        ));
+    }
+    let candidate = DeterministicLocalLoopCandidate {
+        workspace_root,
+        actions,
+        requires_validation: false,
+    };
+    let dispatch_started = Instant::now();
+    let dispatcher = NativeToolDispatcher::new(&["file_write".to_string(), "file_patch".to_string()]);
+    let mut receipts = Vec::<NativeToolReceipt>::new();
+    for (index, action) in candidate.actions.iter().enumerate() {
+        let call = match action {
+            DeterministicLocalAction::WriteFile {
+                target_path,
+                content,
+                overwrite,
+            } => NativeToolCall {
+                id: format!("first_edit_tool_calls_{}", index + 1),
+                name: "file_write".to_string(),
+                args: json!({
+                    "path": target_path.display().to_string(),
+                    "content": content,
+                    "overwrite": overwrite,
+                    "first_edit_tool_calls": true,
+                }),
+            },
+            DeterministicLocalAction::PatchFile {
+                target_path,
+                old,
+                new,
+                allow_multiple,
+            } => NativeToolCall {
+                id: format!("first_edit_tool_calls_{}", index + 1),
+                name: "file_patch".to_string(),
+                args: json!({
+                    "path": target_path.display().to_string(),
+                    "old": old,
+                    "new": new,
+                    "allow_multiple": allow_multiple,
+                    "first_edit_tool_calls": true,
+                }),
+            },
+            DeterministicLocalAction::CommandRun { .. } => continue,
+        };
+        let receipt = dispatcher.dispatch(call);
+        let should_stop = receipt.status != "ok";
+        receipts.push(receipt);
+        if should_stop {
+            break;
+        }
+    }
+    if !receipts.iter().any(runtime_lane_receipt_is_successful_mutation) {
+        if !strict_diagnostics {
+            return None;
+        }
+        return Some(runtime_lane_fail_closed_with_state(
+            "runtime_lane_first_edit_tool_calls_no_successful_mutation",
+            json!({
+                "lane": "first_edit_tool_calls",
+                "provider_latency_ms": model_call_ms,
+                "provider_timeout_seconds": timeout_seconds,
+                "native_tool_receipts": receipts,
+            }),
+            permissions,
+            wasm_sandbox,
+            voice_session,
+            state_path,
+            durable_state,
+        ));
+    }
+    let tool_dispatch_ms = dispatch_started
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64;
+    let mut response = runtime_lane_deterministic_local_loop_response(
+        name,
+        metadata,
+        tools,
+        capability_packs,
+        required_pack_permissions,
+        permissions,
+        wasm_sandbox,
+        voice_session,
+        receipt_merkle,
+        previous_receipt_root,
+        state_path,
+        durable_state,
+        candidate,
+        receipts,
+        execution_shape_gate_ms,
+        tool_dispatch_ms,
+        total_started,
+    );
+    runtime_lane_attach_coding_runtime_probe(
+        &mut response,
+        json!({
+            "lane": "first_edit_tool_calls",
+            "provider_latency_ms": model_call_ms,
+            "provider_timeout_seconds": timeout_seconds,
+            "prompt_chars": provider_response.output.chars().count(),
+            "time_to_first_tool_ms": provider_response.raw
+                .get("ollama_timing")
+                .and_then(|timing| timing.get("balanced_tool_calls_json_ms"))
+                .cloned()
+                .unwrap_or(Value::Null),
+        }),
+    );
+    Some(response)
+}
+
+fn runtime_lane_metadata_u64_value(metadata: &Value, pointers: &[&str]) -> Option<u64> {
+    for pointer in pointers {
+        if let Some(value) = metadata.pointer(pointer).and_then(Value::as_u64) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn runtime_lane_first_edit_tool_calls_system() -> String {
+    "Return only JSON: {\"tool_calls\":[...]}. Use file_write/file_patch only. No prose. Runtime validates later."
+        .to_string()
+}
+
+fn runtime_lane_first_edit_tool_calls_prompt(
+    prompt: &str,
+    workspace_root: &Path,
+    compact_context: &str,
+) -> String {
+    format!(
+        "Root: {}\nTask: {}\nContext:\n{}\nReturn JSON only: {{\"tool_calls\":[{{\"name\":\"file_write\",\"args\":{{\"path\":\"/absolute/path\",\"content\":\"complete file content\",\"overwrite\":true}}}}]}}\nUse only file_write/file_patch under Root. Mutate source before exports/tests. Include tests if requested. No validation/prose.",
+        workspace_root.display(),
+        runtime_lane_first_edit_task_brief(prompt),
+        compact_context
+    )
+}
+
+fn runtime_lane_first_edit_task_brief(prompt: &str) -> String {
+    prompt
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty()
+                && !trimmed.starts_with("Rules:")
+                && !trimmed.starts_with("Native")
+                && !trimmed.starts_with("Use this")
+        })
+        .take(18)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .chars()
+        .take(1800)
+        .collect()
+}
+
+fn runtime_lane_first_edit_tool_call_action(
+    call: &NativeToolCall,
+    workspace_root: &Path,
+) -> Option<DeterministicLocalAction> {
+    match call.name.trim().to_ascii_lowercase().as_str() {
+        "file_write" | "write_file" | "workspace.write" | "workspace_write" => {
+            let path = runtime_lane_first_edit_tool_call_path(call, workspace_root)?;
+            let content = runtime_lane_first_edit_tool_call_text(
+                call,
+                &["content", "contents", "text", "body"],
+            )?
+            .to_string();
+            Some(DeterministicLocalAction::WriteFile {
+                target_path: path,
+                content,
+                overwrite: call
+                    .args
+                    .get("overwrite")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+            })
+        }
+        "file_patch" | "patch_file" | "workspace.patch" | "workspace_patch" => {
+            let path = runtime_lane_first_edit_tool_call_path(call, workspace_root)?;
+            let old = runtime_lane_first_edit_tool_call_text(
+                call,
+                &["old", "find", "search", "before", "original"],
+            )?
+            .to_string();
+            let new = runtime_lane_first_edit_tool_call_text(
+                call,
+                &["new", "replace", "replacement", "after", "updated"],
+            )?
+            .to_string();
+            Some(DeterministicLocalAction::PatchFile {
+                target_path: path,
+                old,
+                new,
+                allow_multiple: call
+                    .args
+                    .get("allow_multiple")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn runtime_lane_first_edit_tool_call_path(
+    call: &NativeToolCall,
+    workspace_root: &Path,
+) -> Option<PathBuf> {
+    let raw = runtime_lane_first_edit_tool_call_text(
+        call,
+        &[
+            "path",
+            "file_path",
+            "filepath",
+            "target_path",
+            "target",
+            "file",
+            "absolute_path",
+            "full_path",
+        ],
+    )?;
+    let candidate = if Path::new(raw).is_absolute() {
+        PathBuf::from(raw)
+    } else {
+        workspace_root.join(raw)
+    };
+    if candidate
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    if candidate.starts_with(workspace_root) {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+fn runtime_lane_first_edit_tool_call_text<'a>(
+    call: &'a NativeToolCall,
+    keys: &[&str],
+) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| call.args.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "..." && *value != "…")
 }
 
 fn runtime_lane_try_bounded_existing_project_edit_loop(
@@ -5645,7 +6081,7 @@ fn runtime_lane_try_checkpointed_mutation_entry_recovery(
     if let Some(object) = recovery_metadata.as_object_mut() {
         object.insert("provider_timeout_seconds".to_string(), json!(120));
         object.insert("provider_stream_until_tool_calls".to_string(), json!(true));
-        object.insert("omit_ollama_thinking_flags".to_string(), json!(true));
+        object.insert("omit_ollama_thinking_flags".to_string(), json!(false));
         object.insert(
             "runtime_recovery_lane".to_string(),
             json!("checkpointed_mutation_entry"),
@@ -6147,7 +6583,7 @@ fn runtime_lane_checkpointed_stage_metadata(
     if let Some(object) = stage_metadata.as_object_mut() {
         object.insert("provider_timeout_seconds".to_string(), json!(timeout_seconds));
         object.insert("provider_stream_until_tool_calls".to_string(), json!(true));
-        object.insert("omit_ollama_thinking_flags".to_string(), json!(true));
+        object.insert("omit_ollama_thinking_flags".to_string(), json!(false));
         object.insert("runtime_recovery_lane".to_string(), json!(stage));
     }
     stage_metadata

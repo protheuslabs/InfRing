@@ -61,6 +61,7 @@ Output contract:\n\
 {{\"tool_calls\":[{{\"id\":\"first_mutation_1\",\"name\":\"file_patch\",\"args\":{{\"path\":\"/absolute/path\",\"old\":\"exact observed text\",\"new\":\"replacement text\",\"allow_multiple\":false}}}}]}}\n\n\
 Mutation rules:\n\
 - Mutate the smallest observed source/test files needed for the requested local code change.\n\
+- If failed_validation exists, treat it as the primary repair contract and patch observed product/source files before tests.\n\
 - Prefer file_patch when exact observed text is available.\n\
 - Use file_write only when replacing a small full file is safer than patching.\n\
 - Do not run validation or probes in this lane.\n\
@@ -71,7 +72,12 @@ Mutation rules:\n\
 
 fn first_mutation_artifact_lane_v1_context_packet(receipts: &[NativeToolReceipt]) -> String {
     let mut files = Vec::new();
+    let mut failed_validation = Vec::new();
     for receipt in receipts {
+        if let Some(validation) = first_mutation_artifact_lane_v1_failed_validation_packet(receipt)
+        {
+            failed_validation.push(validation);
+        }
         if receipt.tool_name != "file_read" && receipt.tool_name != "file_read_many" {
             continue;
         }
@@ -87,6 +93,7 @@ fn first_mutation_artifact_lane_v1_context_packet(receipts: &[NativeToolReceipt]
     }
     json!({
         "observed_files": files,
+        "failed_validation": failed_validation,
         "contract": {
             "context_already_loaded": true,
             "allowed_tools": ["file_patch", "file_write"],
@@ -95,6 +102,76 @@ fn first_mutation_artifact_lane_v1_context_packet(receipts: &[NativeToolReceipt]
         }
     })
     .to_string()
+}
+
+fn first_mutation_artifact_lane_v1_failed_validation_packet(
+    receipt: &NativeToolReceipt,
+) -> Option<Value> {
+    if receipt.tool_name != "command_run" {
+        return None;
+    }
+    let success = receipt
+        .result
+        .get("success")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if success {
+        return None;
+    }
+    let mut lines = Vec::new();
+    if let Some(error) = receipt.error.as_deref() {
+        first_mutation_artifact_lane_v1_extend_validation_lines(&mut lines, error);
+    }
+    for key in ["stdout", "stderr", "message", "summary", "diagnostic"] {
+        if let Some(text) = receipt.result.get(key).and_then(Value::as_str) {
+            first_mutation_artifact_lane_v1_extend_validation_lines(&mut lines, text);
+        }
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    Some(json!({
+        "call_id": receipt.call_id,
+        "tool_name": receipt.tool_name,
+        "command": receipt.result.get("command").cloned().unwrap_or(Value::Null),
+        "evidence_lines": lines.into_iter().take(24).collect::<Vec<_>>()
+    }))
+}
+
+fn first_mutation_artifact_lane_v1_extend_validation_lines(
+    lines: &mut Vec<String>,
+    text: &str,
+) {
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !first_mutation_artifact_lane_v1_validation_line_is_useful(trimmed) {
+            continue;
+        }
+        let compact = trimmed.chars().take(240).collect::<String>();
+        if !lines.iter().any(|existing| existing == &compact) {
+            lines.push(compact);
+        }
+        if lines.len() >= 32 {
+            break;
+        }
+    }
+}
+
+fn first_mutation_artifact_lane_v1_validation_line_is_useful(line: &str) -> bool {
+    if line.is_empty() || line.len() > 500 {
+        return false;
+    }
+    let lower = line.to_ascii_lowercase();
+    lower.contains("fail")
+        || lower.contains("assert")
+        || lower.contains("expected")
+        || lower.contains("actual")
+        || lower.contains("traceback")
+        || lower.contains("error")
+        || lower.contains("exception")
+        || lower.contains("import")
+        || line.starts_with("- ")
+        || line.starts_with("+ ")
 }
 
 fn first_mutation_artifact_lane_v1_file_packet(value: &Value) -> Option<Value> {
@@ -115,7 +192,7 @@ pub(crate) fn first_mutation_artifact_lane_v1_metadata(metadata: &Value) -> Valu
     if let Some(object) = metadata.as_object_mut() {
         object.insert("provider_timeout_seconds".to_string(), json!(timeout_seconds));
         object.insert("provider_stream_until_tool_calls".to_string(), json!(true));
-        object.insert("omit_ollama_thinking_flags".to_string(), json!(true));
+        object.insert("omit_ollama_thinking_flags".to_string(), json!(false));
     }
     metadata
 }

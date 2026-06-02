@@ -3677,3 +3677,212 @@ Pending.
 - Follow-up result: one bounded run after the closure fix reported runtime terminal status `ok`, passed validation/semantic/mutation checks, and completed in about `71s`; before the harness scoring fix it was marked `model_lock_violation` only.
 - Remaining blocker: a later confirmation attempt failed with `no_successful_mutation` after the model emitted a placeholder `file_patch` path ending in `...`; an attempted ellipsis placeholder-path guard was not kept because the next run timed out under the 180s outer guard and did not produce an obvious positive result.
 - Verdict: keep the recovery closure and harness scoring fixes. Do not claim Level 2 reliability yet; the next target is first-mutation reliability/speed for low-level existing-project edits.
+
+### EXP-CODING-156 - Preserved-API owner-source recovery packet
+
+- Date: 2026-06-02
+- Goal: Improve the first-mutation recovery path after the preserved-API guard blocks an overbroad existing-source rewrite.
+- Evidence: A post-commit Level 2 run failed with `no_successful_mutation` after a concrete owner-source `file_write` was blocked by `preserved_api_existing_source_requires_additive_patch`; dependent export/test writes were then blocked because owner source mutation had not succeeded.
+- Change: Preserved-API guard receipts now include the exact existing API blocks that must be preserved, plus a recovery hint. Mutation-only recovery now detects preserved-API owner-source failures from the recovery reason or mutation packet and asks for one owner-source patch/write before exports/tests/validation.
+- Primitive intent: Keep the guard strong while making recovery concrete and owner-source-first, independent of task level or fixture names.
+- Result: One bounded Level 2 diagnostic timed out under the 180s outer guard and produced no report or log output.
+- Verdict: reverted. Do not keep this behavior without a clearer positive signal. The blocker remains first-mutation reliability after preserved-API guard failures.
+
+### EXP-CODING-157 - Validation-backed preserved API full writes
+
+- Date: 2026-06-02
+- Goal: Reduce first-mutation stalls when a weak model proposes a concrete full-file source write that keeps the preserved API present but changes the preserved API behavior signature.
+- Evidence: The prior Level 2 failure produced a concrete owner-source `file_write`; the preserved-API guard blocked it, then dependent edits were blocked and the run timed out without a successful mutation.
+- Change: The preserved-API guard still blocks missing/removal of preserved APIs, but allows full-file writes when all preserved APIs remain present and the task explicitly requires validation plus regression tests. Validation then becomes the proof mechanism for behavior preservation instead of forcing brittle patch syntax.
+- Primitive intent: Keep deletion protection strict while allowing validation-backed full-file owner writes for small existing-project implementation slices.
+- Result: One bounded Level 2 diagnostic still failed with `no_successful_mutation` after `161.9s`. The preserved-API guard path was not exercised; the run failed earlier after a non-edit `command_run` was blocked by mutation-only recovery and the provider timed out.
+- Verdict: reverted. The next blocker is recovery after `mutation_only_recovery_requires_edit_before_non_edit_command`, not preserved-API full-write admission.
+
+### EXP-CODING-158 - File-only mutation recovery tool menu
+
+- Date: 2026-06-02
+- Goal: Prevent mutation-only recovery turns from spending provider output on validation commands, placeholder shell commands, or non-edit `command_run` calls before any successful mutation exists.
+- Evidence: A Level 2 run failed after mutation-only recovery blocked a non-edit `command_run`, then the provider timed out with no mutation receipts.
+- Change: Mutation-only recovery and compact bootstrap mutation turns now expose only staged edit tools (`file_write`/`file_patch`) instead of the broader mutation-recovery menu that can include `command_run`. The mutation-only system/prompt text now forbids shell actions and command_run to match the exposed tool menu.
+- Primitive intent: Separate "must mutate first" recovery from validation-guided repair. Validation remains runtime-owned after successful mutation.
+- Result: One bounded Level 2 diagnostic timed out under the 180s outer guard and produced no report or log output.
+- Verdict: reverted. Removing `command_run` from the mutation-only tool menu did not provide a measurable positive signal in this diagnostic shape.
+
+### EXP-CODING-159 - Enable compact action controller from reference trace evidence
+
+- Date: 2026-06-02
+- Goal: Fix the Level 2 first-mutation reliability/speed blocker without adding another task-specific patch.
+- Reference evidence: mini-swe-agent with the same `kimi-k2.6:cloud` control model performed the Level 2 existing-project edit in about `40s`: one file-list command, one batched source/export/test read, one semantic-probe read, direct heredoc source/export/test writes, validation, semantic probe, then receipt-backed finish.
+- Infring evidence before patch: a current Infring Level 2 probe failed with `no_successful_mutation` after about `130s`. Runtime bootstrap loaded the correct files, but no mutation happened; the run metadata showed `compact_mutation_entry_packet_enabled=true` and `compact_action_controller_enabled=false`.
+- Change: Enabled the already-defined compact action controller in the official coding workflow CD and lab phase-1 mutation spine CD.
+- Primitive intent: Route from loaded authoritative context to a tiny first-mutation action controller by runtime state, not by eval level, fixture path, or discount-domain symbols.
+- Result: One Level 2 probe after enabling the CD flag worsened the path: wall time reached about `240s`, native output was empty/non-JSON, no product files were changed, and the harness failed with import/semantic closure missing.
+- Verdict: reverted the CD toggle. Keep the behavioral-model finding, but do not enable the existing compact action controller directly until the runtime has a safe bridge from its action-shaped output into native mutation receipts.
+
+### EXP-CODING-160 - Action-shaped streaming bridge for compact first mutation
+
+- Date: 2026-06-02
+- Goal: Implement the missing bridge identified by EXP-CODING-159.
+- Evidence: The native parser already accepts `{"actions":[{"command":"..."}]}` and converts shell actions to `command_run`, but provider streaming only stopped on non-empty `tool_calls`. Compact action controller turns also explicitly disabled stream-until-tool-calls, so an action-shaped response could be generated early but still run until provider timeout.
+- Change: Provider balanced-JSON detection now treats non-empty `actions` as a stop target alongside `tool_calls`; compact action controller turns enable that streaming stop; the CD flag is re-enabled for measurement.
+- Primitive intent: Make action-shaped local edit controllers a first-class native output shape, matching mini-swe-agent's successful low-overhead pattern without encoding task-specific behavior.
+- Expected effect: Compact action controller should be able to stop as soon as it emits a shell edit batch, allowing the native dispatcher to create mutation receipts instead of timing out before mutation.
+- Result: One Level 2 probe still hit the `240s` harness bound with no native JSON output, no mutation receipts, and no changed files.
+- Verdict: reverted. The missing primitive is not just streaming detection; the runtime needs a safer action-controller bridge or a tool-call-shaped compact controller before CD activation.
+
+### EXP-CODING-161 - Structured local-work stream stop for bounded existing-project lane
+
+- Date: 2026-06-02
+- Goal: Reduce first-mutation latency without changing controller ownership or enabling the reverted compact action controller.
+- Evidence: The active bounded existing-project lane asks for `deterministic_local_loop` JSON, but provider streaming previously stopped only for `tool_calls`; reference mini-swe behavior shows the important primitive is early stop on a complete local-work action object, not a long natural-language completion.
+- Change: The provider balanced-JSON stop recognizer now accepts non-empty `tool_calls`, top-level `actions`, or `deterministic_local_loop.actions`. The bounded existing-project first manifest and manifest-repair provider calls opt into the stream stop.
+- Primitive intent: Treat complete structured local work as the handoff boundary. This is model/framework-pattern aligned and does not encode eval levels, fixture paths, or domain symbols.
+- Expected effect: If the model emits a valid deterministic local loop before its timeout, the runtime should stop generation, parse the manifest, dispatch edits, and reach mutation receipts faster.
+- Result: One Level 2 probe improved wall time from the prior `130s` no-mutation baseline to about `119s`, but still produced only bootstrap receipts, no mutation, and failed the fast budget.
+- Verdict: reverted. The bottleneck is not just stream-stop detection; the active failure is parent native provider timeout after bootstrap with no first-mutation lane taking control.
+
+### EXP-CODING-162 - Route multi-requirement existing-project edits into direct mutation entry
+
+- Date: 2026-06-02
+- Goal: Prevent context-loaded existing-project implementation tasks from falling through to the generic parent prompt before any mutation receipt exists.
+- Evidence: Level 2 traces show runtime bootstrap reads the correct source/export/test/probe context, then the parent native model call times out with no mutation. The direct existing-project mutation-entry primitive was gated off for multi-requirement validation tasks, even though the mini-swe reference trace solved the same multi-requirement task by moving directly from context to a bounded source/export/test edit batch.
+- Change: Removed the `!multi_requirement_validation_task` exclusion from the direct existing-project mutation-entry gate. Import-surface validation repair remains excluded so seeded import repair can keep ownership when validation has already proven that shape.
+- Primitive intent: Classify by runtime state, not task level: context loaded, mutation required, no mutation receipt, compact packet available, and no import-surface validation repair in progress.
+- Expected effect: Multi-requirement existing-project edits should enter mutation-only recovery/direct mutation entry before the generic parent turn can time out.
+- Result: One Level 2 probe hit the `240s` harness bound with empty native output and unchanged project source/test files.
+- Verdict: reverted. The design need remains real, but this direct-entry gate is not a safe bridge for multi-requirement tasks.
+
+### EXP-CODING-163 - Route sibling implementation lanes through constrained first mutation artifact lane
+
+- Date: 2026-06-02
+- Goal: Use the already-proven native `tool_calls` first-mutation primitive instead of the failed broad mutation-only/action-controller paths.
+- Evidence: `first_mutation_artifact_lane_v1` is already a narrow first-edit engine: loaded context in, `file_write`/`file_patch` `tool_calls` out, no reads, no validation, no command shell, no final answer. Prior failed probes showed that broad action/direct-entry routes could time out or bypass native receipt closure.
+- Change: Expanded `first_mutation_artifact_lane_v1_routes_lane` from only `existing_project_patch` to include sibling local implementation lanes: `bounded_existing_project_edit` and `implementation_slice`.
+- Primitive intent: Route by shared first-mutation need, not eval level. Existing local code slices with context loaded should reach the constrained native mutation lane before the generic parent prompt can time out.
+- Expected effect: Level 2 existing-project implementation should invoke `first_mutation_artifact_lane_v1`, produce mutation receipts faster, and keep validation runtime-owned after mutation.
+- Result: A Level 2 probe still did not show first-mutation-lane timeline markers and failed late. The classifier already routes the Level 2 prompt as `existing_project_patch`, so this widening was not the active blocker.
+- Verdict: reverted. Keep first-mutation route widening out until a task shape proves it needs the sibling labels.
+
+### EXP-CODING-164 - Validation-backed preserved API owner writes
+
+- Date: 2026-06-02
+- Goal: Unblock concrete owner-source full-file writes that preserve the public API surface but change implementation text before validation.
+- Evidence: The Level 2 route probe produced concrete source/export/test write attempts. The owner source write was blocked by `preserved_api_existing_source_requires_additive_patch`; dependent export/test writes then failed behind the unresolved owner-source guard. The source owner was the correct first mutation target, but the guard required additive patch syntax instead of allowing validation-backed full-file preservation.
+- Change: The preserved-API guard still blocks missing/removed preserved API blocks. For `file_write` owner writes only, if the original task requires both tests and validation, changed preserved API behavior signatures are admitted so runtime validation/regression tests can prove preservation.
+- Primitive intent: Preserve public API existence fail-closed while avoiding brittle patch-shape requirements for small existing-project implementation slices with explicit validation evidence.
+- Expected effect: Level 2 owner source write should succeed, allowing dependent export/test mutations and runtime validation to close or produce a real validation repair blocker.
+- Result: Isolated Level 2 probe returned to the same bootstrap-only no-mutation failure shape at about `130s`; the guard relaxation was not exercised and produced no positive signal.
+- Verdict: reverted. Keep the idea as a possible future primitive only after a trace proves the owner-write guard is the active blocker in an otherwise controlled run.
+
+### EXP-CODING-165 - Runtime first-edit tool-calls lane
+
+- Date: 2026-06-02
+- Goal: Build the missing first-mutation primitive instead of toggling existing broad gates.
+- Evidence: Mini-swe-agent succeeds on Level 2 by moving from bounded context directly to source/export/test edits. Infring repeatedly reads the right files, then falls into a broad parent/native turn that times out before a successful mutation receipt.
+- Change: Added a runtime first-edit lane before public API extension and bounded existing-project manifest probes. The lane is eligible only for existing-project edit shapes with a local context pack and native file mutation permissions. It prompts for native `tool_calls` only, permits `file_write`/`file_patch`, dispatches them through native receipts, and leaves validation to later runtime/eval layers.
+- Primitive intent: Make "context loaded -> first mutation receipts" a small reusable primitive, not a level-specific shortcut or action-controller side path.
+- Expected effect: Level 2 should produce source/test mutation receipts earlier, even if follow-up validation/repair still needs improvement.
+
+### EXP-CODING-165 result - First-edit tool-calls lane left dormant
+
+- Date: 2026-06-02
+- Result: One Level 2 probe with the new first-edit tool-calls lane did not show `first_edit_tool_calls` markers, did not produce successful mutation receipts, and failed late with the same preserved-API owner-source blocker from the parent native path.
+- Verdict: leave the lane implementation dormant behind explicit `first_edit_tool_calls_lane_enabled`; do not let `first_mutation_artifact_lane_v1_enabled` implicitly activate it. The primitive may still be useful, but it needs a targeted activation test before becoming default behavior.
+
+### EXP-CODING-166 - Validation-backed preserved API owner writes after active blocker trace
+
+- Date: 2026-06-02
+- Goal: Let concrete owner-source full-file writes proceed when they preserve the public API surface and the task is explicitly test/validation backed.
+- Evidence: The latest Level 2 trace produced concrete `write_pricing` and `write_tests` native calls. `write_pricing` was blocked by `preserved_api_existing_source_requires_additive_patch`; dependent test/export writes were then blocked by `resolve_owner_source_before_dependent_edits_or_validation`.
+- Change: The preserved-API guard still blocks removed/missing preserved API blocks. For `file_write` owner writes only, when the task requires both test changes and validation, changed preserved API behavior signatures are admitted so validation/regression tests can prove preservation.
+- Primitive intent: Preserve API existence fail-closed while avoiding brittle patch syntax as a prerequisite for receipt-backed validated local implementation slices.
+- Expected effect: The owner source write should succeed, allowing dependent tests/exports to mutate and shifting failures, if any, to validation or semantic closure rather than pre-mutation guard blockage.
+
+### EXP-CODING-166 result - Guard admission reverted
+
+- Date: 2026-06-02
+- Result: One Level 2 probe after the guard admission change failed as `provider:native_tool_terminal_tool_calls_after_finalization`, produced no native mutation receipts, and left the checked project files unchanged.
+- Verdict: reverted. The active trace still suggests preserved-API owner-source blocking is a real problem, but this admission change did not produce a clean positive signal in the measured run.
+
+### EXP-CODING-167 - First-edit tool-calls activation diagnostics
+
+- Date: 2026-06-02
+- Goal: Make the dormant first-edit tool-calls lane measurable before promoting it.
+- Evidence: Direct activation with `first_edit_tool_calls_lane_enabled=true` still fell through to the parent native loop and ended as bootstrap-only timeout, so the lane did not expose whether it failed provider generation, parsing, or mutation dispatch.
+- Change: When explicitly enabled and eligible, the lane now fail-closes with diagnostic details for provider unavailable/failure, no executable `file_write`/`file_patch` tool calls, or no successful mutation receipts. Default behavior remains unaffected because the lane is still off unless explicitly enabled.
+- Expected effect: The next direct activation run should return a lane-specific failure code or a mutation receipt response, not silently fall through.
+
+### EXP-CODING-168 - First-edit tool-calls micro-contract
+
+- Date: 2026-06-02
+- Goal: Reduce first-edit lane provider latency and make weak models emit native mutation tool calls earlier.
+- Evidence: Explicit activation failed closed at both `15s` and `45s` with `runtime_lane_first_edit_tool_calls_provider_failed`, meaning the lane was eligible but the model did not emit balanced `tool_calls` JSON within the budget.
+- Change: Replaced the verbose first-edit system/prompt with a tiny JSON-only micro-contract: root, compact task brief, authoritative context, one `file_write` example, and minimal mutation rules.
+- Primitive intent: Match the mini-swe-style small controller while keeping native receipt dispatch and no eval-specific task content.
+- Expected effect: Explicit activation should produce either executable `file_write`/`file_patch` calls or a faster no-tool-call diagnostic.
+
+### EXP-CODING-169 - Promote first-edit tool-calls lane after positive direct activation
+
+- Date: 2026-06-02
+- Goal: Move the measured first-edit primitive from explicit one-off override into the coding workflow CD for fresh harness validation.
+- Evidence: Direct activation with the micro-contract and `first_edit_tool_calls_provider_timeout_seconds=45` returned `ok=true`, produced three successful native `file_write` receipts, and wrote source, export, and focused tests for the Level 2 pricing task.
+- Change: Enabled `first_edit_tool_calls_lane_enabled=true` and set `first_edit_tool_calls_provider_timeout_seconds=45` in the official coding workflow and lab phase-1 mutation spine CD.
+- Primitive intent: Make context-loaded existing-project first mutation a native receipt-backed tool-call lane, not a broad parent-model loop.
+- Expected effect: Fresh Level 2 harness runs should produce mutation receipts and pass external validation/semantic checks faster than the prior 130s bootstrap-only failure.
+
+### EXP-CODING-170 - First-byte JSON contract and 60s first-edit budget
+
+- Date: 2026-06-02
+- Goal: Improve first-edit tool-calls reliability after the first 5-run batch passed only 2/5.
+- Evidence: Failures were not guard or validation failures. Two attempts timed out at the 45s first-edit provider budget, and one returned thinking/prose instead of executable `tool_calls`.
+- Change: Restored an explicit first-visible-byte JSON contract and forbade thinking text in the first-edit system/prompt. Raised the CD first-edit tool-calls provider budget from 45s to 60s, still below the Level 2 fast-budget envelope.
+- Primitive intent: Improve output-shape reliability and allow slower weak-model first-edit JSON generation without changing task-specific behavior.
+- Expected effect: Fewer provider timeouts/no-tool-call failures in the Level 2 batch.
+
+### EXP-CODING-171 - Restore micro-contract and uncap first-edit budget to 60s
+
+- Date: 2026-06-02
+- Goal: Test the measured micro-contract with the intended 60s CD budget actually applied.
+- Evidence: EXP-CODING-170 regressed to 1/5 and failure receipts still showed `provider_timeout_seconds=45`; runtime clamped the configured 60s budget to 45s. The first-byte/no-thinking wording also did not prevent thinking/prose output.
+- Change: Restored the prior micro-contract that produced a successful direct activation. Raised the runtime clamp from 45s to 60s so the CD budget is honored.
+- Primitive intent: Improve weak-model reliability by giving the small first-edit controller enough time without adding task-specific behavior.
+- Expected effect: Fewer first-edit provider timeout failures than the 45s batch.
+
+### EXP-CODING-172 - Non-strict first-edit fallback
+
+- Date: 2026-06-02
+- Goal: Prevent first-edit lane misses from becoming hard failures in the promoted workflow.
+- Evidence: With the 60s budget, Level 2 improved to 3/5, but the two remaining failures were first-edit provider/no-JSON misses. The lane is useful when it emits mutations, but a miss should not fail the whole run unless the experiment explicitly requests diagnostics.
+- Change: Added `first_edit_tool_calls_strict_diagnostics`. When false, provider unavailable/failure, no executable mutation calls, or no successful mutation receipts return `None` and allow the older runtime path to continue. When true, the lane fail-closes with diagnostic details.
+- Primitive intent: Treat first-edit tool-calls as an opportunistic fast first-mutation primitive, not a single point of failure.
+- Expected effect: First-edit passes remain fast; misses fall back to the existing runtime instead of immediate `no_successful_mutation` failure.
+
+### EXP-CODING-172 - Non-strict first-edit fallback result
+
+Change tested: allow the `first_edit_tool_calls` lane to fall back to the older runtime when provider calls fail, no mutation tool calls are returned, or no successful mutation receipts are produced.
+
+Result: negative. Level 2 five-run batch produced 2/5 pass with average wall time about 103.5s, compared with the prior strict first-edit run at 3/5. Failures included semantic mismatch, import surface missing after a 240s run, and latency budget exceeded. The fallback path hid first-edit misses behind slow secondary work rather than improving reliable useful work.
+
+Verdict: revert default behavior to strict diagnostics for `first_edit_tool_calls`. Keep the guard shape available only as an explicit experiment/config path, not the default coding workflow behavior.
+
+Report: `references/coding-agent-systems/runtime_trace_harness/reports/level2_infring_first_edit_tool_calls_fallback_5x_20260602.json`
+
+### EXP-CODING-173 - Disable thinking flags for tool-call micro-lanes
+
+Change tested: set `omit_ollama_thinking_flags=false` for first-edit and first-mutation tool-call micro-lanes so the provider passes `--hidethinking --think false` when supported. This targets timeout/`Thinking...`-only failures without adding another model call, fallback branch, or level-specific behavior. Existing provider fallback still retries without thinking flags when a model does not support them.
+
+Expected signal: fewer `runtime_lane_first_edit_tool_calls_no_mutation_tool_calls` failures caused by visible thinking chatter, with pass rate improving or latency decreasing relative to strict first-edit 3/5 and fallback 2/5 baselines.
+
+### EXP-CODING-174 - Honor tool-call streaming in provider complete path
+
+Change tested: make the Ollama provider `complete()` path honor `provider_stream_until_tool_calls=true` by using the existing streaming completion primitive and stopping after the first balanced `tool_calls` JSON object. This keeps the public provider call shape unchanged while allowing coding micro-lanes to stop as soon as executable tool calls are available.
+
+Expected signal: lower timeout/no-mutation rate and lower wall time for tool-call micro-lanes, especially after EXP-CODING-173 disables visible thinking for those lanes.
+
+### EXP-CODING-174 - Result
+
+Result: negative and reverted. Level 2 five-run batch with provider `complete()` honoring `provider_stream_until_tool_calls` produced 0/5 pass, with all attempts failing before successful mutation. Average wall time dropped to about 17.7s, but only because the provider path failed faster. This confirms the current streaming completion primitive is not drop-in compatible with the `complete()` path for native coding lanes.
+
+Verdict: revert provider `complete()` streaming integration. Keep EXP-CODING-173 active because it independently improved Level 2 from 3/5 to 4/5 by disabling visible thinking for tool-call micro-lanes.
+
+Report: `references/coding-agent-systems/runtime_trace_harness/reports/level2_infring_provider_stream_until_tool_calls_complete_5x_20260602.json`
