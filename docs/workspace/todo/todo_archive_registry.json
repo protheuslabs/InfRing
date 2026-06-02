@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T19:59:37.066Z",
+  "updated_at": "2026-06-02T20:01:08.625Z",
   "historical_snapshot": {
     "preserved_archive_path": "docs/workspace/todo/TODO_ARCHIVE_LEGACY.md",
     "total_rows": 4145,
@@ -1031,6 +1031,19 @@
       "real_work_score": 4,
       "completed_at": "2026-06-02T19:59:37.064Z",
       "completion_note": "Added Gateway shell-socket lifecycle ingress bridge for agent/session create, archive, revive, clone, stop, history clear, session switch, and delete routes. The bridge bounds request bodies, adds trace/receipt metadata, forwards to Rust shell-socket authority, and does not modify legacy Shell files."
+    },
+    {
+      "id": "SHELL-EXTRACT-CACHE",
+      "title": "Replace Shell conversation cache and search with projections",
+      "section": "yellow",
+      "owner": "unassigned",
+      "deadline": "2026-05-14",
+      "source_family": "Shell Authority Extraction Without Legacy Shell Mutation",
+      "summary": "Move conversation cache/search to bounded preview/index routes so the browser keeps only cursors, previews, counts, and refs rather than cloned full messages or raw tool payloads.",
+      "work_gate": "reliability",
+      "real_work_score": 4,
+      "completed_at": "2026-06-02T20:01:08.622Z",
+      "completion_note": "Extended the explicit Gateway shell-socket projection bridge to /api/shell-socket/search with bounded q/agent/scope/cursor/limit shaping. This gives Shell-next/cache replacement a Gateway-owned preview/search path without touching legacy Shell conversation cache code."
     }
   ]
 }

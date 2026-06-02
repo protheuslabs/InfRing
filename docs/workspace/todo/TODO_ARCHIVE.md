@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T19:59:37.066Z
+Updated: 2026-06-02T20:01:08.625Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T19:59:37.066Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `SHELL-EXTRACT-CACHE` — Replace Shell conversation cache and search with projections
+  completed_at: `2026-06-02T20:01:08.622Z`
+  previous_section: `yellow`
+  owner: `unassigned`
+  deadline: `2026-05-14`
+  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
+  summary: Move conversation cache/search to bounded preview/index routes so the browser keeps only cursors, previews, counts, and refs rather than cloned full messages or raw tool payloads.
+  completion_note: Extended the explicit Gateway shell-socket projection bridge to /api/shell-socket/search with bounded q/agent/scope/cursor/limit shaping. This gives Shell-next/cache replacement a Gateway-owned preview/search path without touching legacy Shell conversation cache code.
 - `SHELL-EXTRACT-LIFECYCLE` — Move agent and session lifecycle to receipts
   completed_at: `2026-06-02T19:59:37.064Z`
   previous_section: `yellow`

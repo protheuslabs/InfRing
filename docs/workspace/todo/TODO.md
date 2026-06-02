@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T19:59:37.066Z
+Updated: 2026-06-02T20:01:08.625Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-02T19:59:37.066Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 17
+- active_items: 16
 - red: 3
-- yellow: 6
+- yellow: 5
 - white: 8
 
 ## Red Section (Do Immediately)
@@ -43,13 +43,6 @@ Updated: 2026-06-02T19:59:37.066Z
   summary: Remove the remaining Alpine boot/runtime dependency once the retirement guard is green.
 
 ## Yellow Section (Do Soon)
-- `SHELL-EXTRACT-CACHE` — Replace Shell conversation cache and search with projections
-  owner: `unassigned`
-  deadline: `2026-05-14`
-  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
-  work_gate: `reliability`
-  real_work_score: `4`
-  summary: Move conversation cache/search to bounded preview/index routes so the browser keeps only cursors, previews, counts, and refs rather than cloned full messages or raw tool payloads.
 - `SHELL-EXTRACT-WORKFLOW` — Project workflow stage and thought status from Orchestration
   owner: `unassigned`
   deadline: `2026-05-14`

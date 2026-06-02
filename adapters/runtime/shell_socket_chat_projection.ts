@@ -49,6 +49,17 @@ function routeForPath(pathname) {
       timeout_ms: 10000,
     };
   }
+  if (path === '/api/shell-socket/search') {
+    return {
+      route_id: 'shell_socket.search',
+      capability_id: 'search',
+      route_class: 'bounded_search_query',
+      max_limit: 50,
+      default_limit: 20,
+      timeout_ms: 8000,
+      allow_search: true,
+    };
+  }
   if (/^\/api\/shell-socket\/details\/.+/.test(path)) {
     return {
       route_id: 'shell_socket.message_detail',
@@ -83,6 +94,16 @@ function boundedProjectionPath(requestUrl, route) {
       .toLowerCase()
       .replace(/[^a-z0-9_.:-]+/g, '_');
     search.set('view', rawView || 'summary');
+  }
+  if (route.allow_search) {
+    const q = cleanString(requestUrl.searchParams.get('q') || requestUrl.searchParams.get('query') || '', 500);
+    const agentId = cleanString(requestUrl.searchParams.get('agent_id') || '', 160)
+      .replace(/[^A-Za-z0-9_.:-]+/g, '_');
+    const scope = cleanString(requestUrl.searchParams.get('scope') || requestUrl.searchParams.get('scope_ref') || '', 160)
+      .replace(/[^A-Za-z0-9_.:/@#-]+/g, '_');
+    if (q) search.set('q', q);
+    if (agentId) search.set('agent_id', agentId);
+    if (scope) search.set('scope', scope);
   }
   const query = search.toString();
   return `${requestUrl.pathname}${query ? `?${query}` : ''}`;

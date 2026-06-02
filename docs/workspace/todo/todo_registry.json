@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T19:59:37.066Z",
+  "updated_at": "2026-06-02T20:01:08.625Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -45,17 +45,6 @@
       "summary": "Remove the remaining Alpine boot/runtime dependency once the retirement guard is green.",
       "work_gate": "reliability",
       "real_work_score": 5
-    },
-    {
-      "id": "SHELL-EXTRACT-CACHE",
-      "title": "Replace Shell conversation cache and search with projections",
-      "section": "yellow",
-      "owner": "unassigned",
-      "deadline": "2026-05-14",
-      "source_family": "Shell Authority Extraction Without Legacy Shell Mutation",
-      "summary": "Move conversation cache/search to bounded preview/index routes so the browser keeps only cursors, previews, counts, and refs rather than cloned full messages or raw tool payloads.",
-      "work_gate": "reliability",
-      "real_work_score": 4
     },
     {
       "id": "SHELL-EXTRACT-WORKFLOW",
