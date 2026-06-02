@@ -83,6 +83,7 @@
     "kernel_sentinel_evidence_trace",
     "validation_run_trace",
     "gateway_boundary_trace",
+    "gateway_shell_socket_trace",
     "shell_projection_trace",
     "external_assimilation_probe_trace"
   ],

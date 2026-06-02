@@ -53,6 +53,22 @@
       "required_projection": "Preserve route, listener, process identity, health probe, lifecycle state, and recovery refs."
     },
     {
+      "id": "gateway_shell_socket_trace",
+      "source_domain": "gateway",
+      "event_kinds": ["gateway_boundary", "health", "telemetry", "recovery", "error"],
+      "current_sources": [
+        "validation/conformance/contracts/gateway_shell_socket_trace_contract.json",
+        "adapters/runtime/shell_socket_chat_projection.ts",
+        "adapters/runtime/shell_socket_command_ingress.ts",
+        "adapters/runtime/shell_socket_eval_issue_ingress.ts",
+        "adapters/runtime/shell_socket_lifecycle_ingress.ts",
+        "adapters/runtime/shell_socket_status_projection.ts",
+        "core/local/artifacts/gateway_shell_socket_trace_guard_current.json"
+      ],
+      "projection_status": "guarded",
+      "required_projection": "Preserve trace_id, route_id, capability_id, route_class, gateway owner, projection or authority owner, boundedness state, ingress/projection family, upstream refs, and failure class while keeping raw traces, workflow graphs, execution observations, and tool payload bodies behind detail refs."
+    },
+    {
       "id": "agent_runtime_engine_trace",
       "source_domain": "gateway",
       "event_kinds": ["agent_runtime_engine", "engine_health", "agent_turn", "tool_call", "artifact", "receipt", "error"],
