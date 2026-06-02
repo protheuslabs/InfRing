@@ -67,6 +67,7 @@ function boundedIngressBody(route, body, traceId) {
     trace_id: cleanString(traceId, 180),
     route_id: route.route_id,
     capability_id: route.capability_id,
+    route_class: 'request_ingress',
     command_family: route.command_family,
     gateway_owner: 'adapters.runtime',
     authority_owner: 'core.shell_socket',

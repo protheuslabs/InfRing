@@ -89,6 +89,21 @@ function forbiddenPresent(source, tokens, module, violations) {
   }
 }
 
+function requireRawContextBlocking(source, module, violations) {
+  if (!source.includes('RAW_CONTEXT_FIELDS')) return;
+  for (const token of ['blocked_raw_fields', 'raw_context_upload_allowed: false']) {
+    if (!source.includes(token)) {
+      violations.push({
+        kind: 'raw_context_blocking_incomplete',
+        id: module.id,
+        path: module.path,
+        token,
+        detail: 'Raw context denylist declarations must be paired with explicit blocked-field reporting and upload denial.',
+      });
+    }
+  }
+}
+
 const contractPath = argValue('contract', DEFAULT_CONTRACT);
 const outJson = argValue('out-json', DEFAULT_OUT_JSON);
 const outMarkdown = argValue('out-markdown', DEFAULT_OUT_MARKDOWN);
@@ -147,7 +162,7 @@ for (const module of modules) {
     if (!source.includes("'x-infring-trace-id': traceId")) {
       violations.push({ kind: 'ingress_upstream_trace_header_missing', id: module.id, path: module.path });
     }
-    forbiddenPresent(source, forbiddenIngress.filter((field) => field.startsWith('raw_') || field === 'conversation_tree'), module, violations);
+    requireRawContextBlocking(source, module, violations);
   } else {
     violations.push({ kind: 'bridge_module_kind_unknown', id: module.id, path: module.path, detail: module.kind });
   }
