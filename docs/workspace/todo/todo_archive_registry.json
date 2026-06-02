@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T18:15:11.445Z",
+  "updated_at": "2026-06-02T18:18:44.751Z",
   "historical_snapshot": {
     "preserved_archive_path": "docs/workspace/todo/TODO_ARCHIVE_LEGACY.md",
     "total_rows": 4145,
@@ -875,6 +875,19 @@
       "real_work_score": 5,
       "completed_at": "2026-06-02T18:15:11.444Z",
       "completion_note": "Created canonical agent runtime engine registry declaring infring_native plus planned codex_cli, claude_code, openhands, openclaw, openfang, and custom_socket_engine adapters with interface, transport, health, capability, and authority constraints."
+    },
+    {
+      "id": "ARTENG-GATEWAY-ROUTER",
+      "title": "Add Gateway agent runtime router seam",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-20",
+      "source_family": "Agent Runtime Engine Socket Architecture",
+      "summary": "Add a Gateway-side router abstraction that selects an engine_id and dispatches through the normalized agent runtime contract without letting Shell or external engines call Orchestration or Kernel directly.",
+      "work_gate": "reliability",
+      "real_work_score": 5,
+      "completed_at": "2026-06-02T18:18:44.749Z",
+      "completion_note": "Added standalone Gateway agent runtime router seam with registry loading, engine_id selection, adapter registration, trace_id enforcement, normalized error events, bounded default payload checks, and forbidden raw/default field rejection."
     }
   ]
 }

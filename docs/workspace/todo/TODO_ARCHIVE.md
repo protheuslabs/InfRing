@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T18:15:11.445Z
+Updated: 2026-06-02T18:18:44.751Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T18:15:11.445Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `ARTENG-GATEWAY-ROUTER` — Add Gateway agent runtime router seam
+  completed_at: `2026-06-02T18:18:44.749Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-20`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  summary: Add a Gateway-side router abstraction that selects an engine_id and dispatches through the normalized agent runtime contract without letting Shell or external engines call Orchestration or Kernel directly.
+  completion_note: Added standalone Gateway agent runtime router seam with registry loading, engine_id selection, adapter registration, trace_id enforcement, normalized error events, bounded default payload checks, and forbidden raw/default field rejection.
 - `ARTENG-REGISTRY` — Create agent runtime engine registry
   completed_at: `2026-06-02T18:15:11.444Z`
   previous_section: `yellow`

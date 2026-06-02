@@ -20,6 +20,14 @@ Shell
         -> engine-specific transport
 ```
 
+Current router seam:
+
+- `agent_runtime_router.ts`
+
+The router loads the canonical registry, selects by `engine_id`, requires
+`trace_id`, dispatches only to registered adapters, and rejects forbidden default
+payload fields before events can become Gateway projections.
+
 ## Native engine
 
 `orchestration/**` is the planned implementation path for:
