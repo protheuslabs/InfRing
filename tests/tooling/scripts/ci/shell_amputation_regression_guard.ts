@@ -125,20 +125,30 @@ function rel(filePath: string, root = ROOT): string {
 
 function parseArgs(argv: string[]): Args {
   const common = parseStrictOutArgs(argv, { strict: true, out: DEFAULT_OUT_JSON });
-  const smokeTimeoutRaw = Number(readFlag(argv, 'smoke-timeout-ms') || 30_000);
-  const staticScanTimeoutRaw = Number(readFlag(argv, 'static-scan-timeout-ms') || 20_000);
+  const readLastFlag = (name: string): string => {
+    const exact = `--${name}`;
+    const prefix = `${exact}=`;
+    for (let idx = argv.length - 1; idx >= 0; idx -= 1) {
+      const arg = argv[idx] || '';
+      if (arg.startsWith(prefix)) return arg.slice(prefix.length);
+      if (arg === exact) return argv[idx + 1] || '';
+    }
+    return '';
+  };
+  const smokeTimeoutRaw = Number(readLastFlag('smoke-timeout-ms') || 30_000);
+  const staticScanTimeoutRaw = Number(readLastFlag('static-scan-timeout-ms') || 20_000);
   const skipSmokeFlag = argv.includes('--skip-smoke');
   const keepFixtureFlag = argv.includes('--keep-fixture');
   const controlledViolationFlag = argv.includes('--include-controlled-violation');
   return {
     strict: common.strict,
-    outJson: cleanText(readFlag(argv, 'out-json') || common.out || DEFAULT_OUT_JSON, 600),
-    outMarkdown: cleanText(readFlag(argv, 'out-markdown') || DEFAULT_OUT_MARKDOWN, 600),
-    includeControlledViolation: parseBool(readFlag(argv, 'include-controlled-violation'), controlledViolationFlag),
-    keepFixture: parseBool(readFlag(argv, 'keep-fixture'), keepFixtureFlag),
-    skipSmoke: parseBool(readFlag(argv, 'skip-smoke'), skipSmokeFlag),
+    outJson: cleanText(readLastFlag('out-json') || common.out || DEFAULT_OUT_JSON, 600),
+    outMarkdown: cleanText(readLastFlag('out-markdown') || DEFAULT_OUT_MARKDOWN, 600),
+    includeControlledViolation: parseBool(readLastFlag('include-controlled-violation'), controlledViolationFlag),
+    keepFixture: parseBool(readLastFlag('keep-fixture'), keepFixtureFlag),
+    skipSmoke: parseBool(readLastFlag('skip-smoke'), skipSmokeFlag),
     smokeTimeoutMs: Number.isFinite(smokeTimeoutRaw) ? Math.max(1000, Math.min(180_000, Math.floor(smokeTimeoutRaw))) : 30_000,
-    fixtureMode: cleanText(readFlag(argv, 'fixture-mode') || 'link', 40),
+    fixtureMode: cleanText(readLastFlag('fixture-mode') || 'link', 40),
     staticScanTimeoutMs: Number.isFinite(staticScanTimeoutRaw) ? Math.max(1000, Math.min(120_000, Math.floor(staticScanTimeoutRaw))) : 20_000,
   };
 }
@@ -310,10 +320,18 @@ function truncateOutput(value: unknown): string {
 }
 
 function runSmokeCommand(fixtureRoot: string, name: string, command: string[], timeoutMs: number): SmokeResult {
-  const result = spawnSync(command[0], command.slice(1), {
-    cwd: fixtureRoot,
+  const timeoutCommand = [
+    path.join(ROOT, 'client/runtime/lib/ts_entrypoint.ts'),
+    path.join(ROOT, 'tools/commands/timeout_command.ts'),
+    `--timeout-ms=${timeoutMs}`,
+    `--cwd=${fixtureRoot}`,
+    '--',
+    ...command,
+  ];
+  const result = spawnSync(process.execPath, timeoutCommand, {
+    cwd: ROOT,
     encoding: 'utf8',
-    timeout: timeoutMs,
+    timeout: timeoutMs + 5000,
     env: {
       ...process.env,
       CARGO_TARGET_DIR: path.join(ROOT, 'target/shell-amputation-regression'),
@@ -326,7 +344,9 @@ function runSmokeCommand(fixtureRoot: string, name: string, command: string[], t
     },
   });
   const error = result.error as (Error & { code?: string }) | undefined;
-  const timedOut = error?.code === 'ETIMEDOUT';
+  const timedOut = error?.code === 'ETIMEDOUT'
+    || result.status === 124
+    || String(result.stderr || '').includes('"type":"timeout_command"');
   return {
     name,
     command,

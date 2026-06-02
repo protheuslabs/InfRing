@@ -41,6 +41,7 @@ function readEnvAssignments(): Record<string, string> {
 
 const separator = process.argv.indexOf("--");
 const timeoutMs = Math.max(1000, Number(readFlag("timeout-ms", "30000")) || 30000);
+const requestedCwd = readFlag("cwd", process.cwd());
 const envAssignments = readEnvAssignments();
 const command = separator >= 0 ? process.argv.slice(separator + 1) : [];
 
@@ -51,7 +52,7 @@ if (command.length === 0) {
 
 const started = Date.now();
 const child = spawn(command[0], command.slice(1), {
-  cwd: process.cwd(),
+  cwd: requestedCwd || process.cwd(),
   detached: process.platform !== "win32",
   env: { ...process.env, ...envAssignments },
   stdio: "inherit",
@@ -68,6 +69,7 @@ const timer = setTimeout(() => {
       timed_out: true,
       timeout_ms: timeoutMs,
       elapsed_ms: elapsed,
+      cwd: requestedCwd || process.cwd(),
       command: command.join(" "),
     }),
   );
@@ -102,6 +104,7 @@ child.on("error", (error) => {
       ok: false,
       type: "timeout_command",
       error: String(error),
+      cwd: requestedCwd || process.cwd(),
       command: command.join(" "),
     }),
   );
