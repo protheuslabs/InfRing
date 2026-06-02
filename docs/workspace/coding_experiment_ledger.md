@@ -3971,3 +3971,24 @@ Verdict: do not call this a reliability win. Treat it as a coherence/evidence im
 - Positive delta: previous comparable baseline was `14/20`; terminal `runtime_lane_first_edit_tool_calls_provider_failed` / `no_successful_mutation` failures were removed from this batch.
 - Cost: average wall time increased from the prior `43.5s` band, with one long-tail `159.6s` attempt that failed the fast budget.
 - Verdict: keep as a reliability primitive, but next optimization target is bounding the demoted-parent long tail without reintroducing terminal no-mutation failures.
+
+### EXP-CODING-179: Skip redundant probes after first-edit timeout demotion
+
+- Change: when `first_edit_tool_calls_timeout_demotes_to_parent` fires on a provider timeout, record the demotion and skip the public-API extension probe plus bounded-existing-project pre-probe before parent recovery.
+- Primitive intent: keep the EXP-CODING-178 reliability improvement while reducing long-tail wall time. The long-tail Level 2 failure spent roughly `60s` in first-edit timeout, `20s` in public-API extension probe, `20s` in bounded-existing-project pre-probe, then `59s` in parent agent recovery.
+- Scope guard: only timeout-demoted first-edit probes skip these speculative probes. Normal non-timeout paths still run the existing lane order.
+- Expected signal: preserve or improve Level 2 pass rate while reducing average wall time and worst-case tail.
+
+#### EXP-CODING-179 refinement: demotion-specific first-edit timeout
+
+- Observation from 5x smoke: probe skipping worked mechanically (`public_api_extension_probe_ms=0`, `bounded_existing_project_probe_ms=0` on the long-tail attempt), but the first-edit probe still consumed `60s`; the failed attempt was semantically successful but exceeded the fast budget at `115.9s`.
+- Change: when timeout demotion is enabled, use `first_edit_tool_calls_demoting_provider_timeout_seconds` if provided; otherwise cap the first-edit probe timeout at `30s`, never above the manifest timeout.
+- Primitive intent: make demotable first-edit a bounded probe rather than a full-budget provider call, leaving time for parent recovery.
+
+#### EXP-CODING-179 result: rejected and rolled back
+
+- First 5x smoke after skipping redundant probes: `4/5`, average wall time `54.9s`, with one `latency_budget_exceeded` at `115.9s`.
+- Phase evidence: redundant probes were successfully skipped on the long-tail attempt (`public_api_extension_probe_ms=0`, `bounded_existing_project_probe_ms=0`), reducing the old `159s` shape to about `116s`, but still not enough for the Level 2 fast budget.
+- Refinement tested: demotion-specific first-edit timeout default cap at `30s`.
+- Refinement result: rejected. 5x fell to `2/5`, average wall time `137.3s`, with two `240s` blowups and worse semantic failures.
+- Verdict: rollback EXP-CODING-179 code. The previous EXP-CODING-178 reliability primitive remains the better checkpoint (`17/20` with known long-tail cost). Next action should target parent recovery loop budget/quality directly, not first-edit timeout shortening.
