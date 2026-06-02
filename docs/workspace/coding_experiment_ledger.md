@@ -3607,3 +3607,20 @@ Pending.
 - Evidence: `infring_levels5_7_semantic_blocks_recovery_timeout60_reliability_20260601_run1` through `run5` passed all 15 attempts.
 - Timings: Level 5 average wall time was about 49.8s, Level 6 about 64.7s, and Level 7 about 76.8s. One Level 5 outlier reached 101.1s.
 - Interpretation: The current patch stack is reliability-positive for Levels 5-7, including the previous run-4 breakpoint. Speed remains uneven and should be treated as the next optimization lane rather than blocking this correctness improvement.
+
+### EXP-CODING-151 - Prefer edit-only first mutation batches for speed
+
+- Date: 2026-06-01
+- Goal: Reduce first-turn provider latency by avoiding model-generated validation/probe command calls in the same batch as source mutations.
+- Evidence: The 15/15 reliability run showed the slow tail comes from one broad post-seed implementation turn with `system_chars=3625`, `tool_count=8`, and prompt sizes from about 9.5k to 13.4k. Successful batches often included source writes plus validation/probe commands even though the runtime already validates after successful mutation.
+- Change: Updated bounded direct edit prompt contracts to ask for source/test `file_write` or `file_patch` mutations first and let runtime validation/probe checks run after successful mutation. Validation/probe `command_run` calls are discouraged in the first mutation batch unless the user explicitly requested a different command.
+- Primitive intent: Keep verification owned by the runtime after mutation rather than making the model spend first-turn tokens generating command calls.
+- Expected effect: Lower output size and first-turn latency while preserving receipt-backed validation through runtime checks.
+
+### EXP-CODING-151 verdict - Reverted
+
+- Date: 2026-06-01
+- Result: Reverted.
+- Evidence: Smoke `infring_levels5_7_edit_only_first_mutation_smoke_20260601` made Level 6 pass in 27.1s and Level 7 pass in 22.5s, but Level 5 failed with `runtime_timeout` after 260.0s.
+- Failure detail: Level 5 entered a multi-turn loop after an incomplete mutation produced `return a * b` with undefined variables. The edit-only prompt removed the model-generated validation/probe command shape that had been helping the runtime close or repair simple tasks promptly.
+- Lesson: Edit-only first batches can be fast for harder Levels 6/7, but they destabilize simpler public API repair. The next speed primitive should be lane/classification-based or runtime-controlled, not a blanket prompt instruction.
