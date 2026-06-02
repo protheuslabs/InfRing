@@ -3624,3 +3624,35 @@ Pending.
 - Evidence: Smoke `infring_levels5_7_edit_only_first_mutation_smoke_20260601` made Level 6 pass in 27.1s and Level 7 pass in 22.5s, but Level 5 failed with `runtime_timeout` after 260.0s.
 - Failure detail: Level 5 entered a multi-turn loop after an incomplete mutation produced `return a * b` with undefined variables. The edit-only prompt removed the model-generated validation/probe command shape that had been helping the runtime close or repair simple tasks promptly.
 - Lesson: Edit-only first batches can be fast for harder Levels 6/7, but they destabilize simpler public API repair. The next speed primitive should be lane/classification-based or runtime-controlled, not a blanket prompt instruction.
+
+### EXP-CODING-152 - Edit-only first batch for seeded multi-requirement tasks
+
+- Date: 2026-06-02
+- Goal: Recover the Level 6/7 speed win from EXP-CODING-151 without applying edit-only first batches to simpler public API repair tasks.
+- Evidence: EXP-CODING-151 made Level 6 and Level 7 fast, but regressed Level 5. The successful fast cases were seeded multi-requirement implementation slices, while the failed Level 5 case was a simpler public API repair that benefited from model-emitted validation/probe command calls.
+- Change: Added a CD-gated `seeded_multi_requirement_edit_only_first_batch_enabled` primitive. When import-surface seed source receipts exist and the task is classified as multi-requirement validation work, the bootstrap rule asks for source/export file mutations only and leaves validation to runtime. Other bounded direct edit paths keep the reliability-proven edit-plus-validation contract.
+- Primitive intent: Make the speed optimization depend on generic runtime state and task shape, not eval level numbers or fixture names.
+- Expected effect: Level 6/7 should keep much of the edit-only speed improvement while Level 5 remains on the stable path.
+
+### EXP-CODING-153 - Seed-symbol evidence classifier for edit-only first mutation
+
+- Date: 2026-06-02
+- Goal: Make the Level 6/7 speed path depend on receipt evidence instead of brittle prompt-shape classification.
+- Evidence: EXP-CODING-152 passed a one-run Level 5/6/7 smoke but trace output suggested the edit-only classifier did not reliably activate; tool batches still included validation/probe commands.
+- Change: Import-surface seed receipts now annotate seed module, symbols, symbol count, and receipt kind in the receipt result. The edit-only first mutation path activates only when a successful seeded source owner has at least the CD-configured minimum number of public symbols.
+- Primitive intent: Treat seed receipts as reusable runtime planning evidence. One-symbol repair stays on the normal validation-aware path; multi-symbol implementation slices can use the leaner first mutation lane.
+- Expected effect: Preserve Level 5 stability while reducing Level 6/7 first-turn command generation overhead.
+- Result: 1x Level 5/6/7 trace smoke passed, but threshold `2` activated the edit-only path for Level 5 as well as Levels 6/7. Trace evidence: Level 5 max seed symbol count was 2, Level 6 was 3, and Level 7 was 4.
+- Verdict: threshold too broad; raise default/CD threshold to 3.
+
+### EXP-CODING-154 - Raise seeded edit-only threshold to larger implementation surfaces
+
+- Date: 2026-06-02
+- Goal: Keep simple import-surface repair on the stable validation-aware first batch while preserving the fast lean first mutation path for larger seeded implementation slices.
+- Evidence: EXP-CODING-153 showed a clean receipt-evidence split: simple repair max seed symbols was 2, while larger implementation slices were 3+.
+- Change: Raised `seeded_multi_requirement_edit_only_min_seed_symbols` from 2 to 3 in the coding workflow CDs and default helper.
+- Primitive intent: Classify by reusable seed-surface size, not eval level, fixture name, file path, or prompt wording.
+- Expected effect: Level 5 should report `seeded_multi_requirement_edit_only_first_batch=false`; Levels 6/7 should remain `true`.
+- Result: 3-run Levels 5-7 mini-gate passed 9/9. Route split was stable in every run: Level 5 reported edit-only `false` with max/min `2/3`, Level 6 reported `true` with `3/3`, and Level 7 reported `true` with `4/3`.
+- Timing: Mini-gate averages were about Level 5 `33.0s`, Level 6 `29.3s`, and Level 7 `29.6s`; first-mutation timing remained provider-variable but correctness and route isolation stayed stable.
+- Verdict: keep. This is a primitive-positive speed/routing improvement because it improves higher implementation slices without applying the lean path to the simpler repair lane.

@@ -107,6 +107,8 @@
       "seed_prepared_staged_controller_enabled": false,
       "seed_prepared_staged_controller_min_source_seed_receipts": 3,
       "seed_prepared_high_fanout_min_source_seed_receipts": 1,
+      "seeded_multi_requirement_edit_only_first_batch_enabled": true,
+      "seeded_multi_requirement_edit_only_min_seed_symbols": 3,
       "seed_prepared_staged_empty_retry_limit": 1,
       "seed_prepared_staged_retry_provider_timeout_seconds": 60,
       "seed_prepared_high_fanout_provider_timeout_seconds": 90,

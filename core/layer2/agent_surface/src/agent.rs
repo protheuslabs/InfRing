@@ -601,7 +601,21 @@ impl AgentContract {
                     native_tool_bootstrap_observation_prompt(&self.metadata, &all_receipts);
                 let preflight_ready = bounded_fast_edit_preflight
                     && native_tool_has_successful_read_context_receipt(&all_receipts);
-                let default_bootstrap_rule = if preflight_ready {
+                let seeded_multi_requirement_edit_only_min_seed_symbols =
+                    native_tool_seeded_multi_requirement_edit_only_min_seed_symbols(
+                        &self.metadata,
+                    );
+                let seeded_multi_requirement_edit_only_seed_max_symbol_count =
+                    native_tool_python_import_surface_seed_max_symbol_count(&all_receipts);
+                let seeded_multi_requirement_edit_only_first_batch =
+                    native_tool_seeded_multi_requirement_edit_only_first_batch_enabled(
+                        &self.metadata,
+                    )
+                    && seeded_multi_requirement_edit_only_seed_max_symbol_count
+                        >= seeded_multi_requirement_edit_only_min_seed_symbols;
+                let default_bootstrap_rule = if seeded_multi_requirement_edit_only_first_batch {
+                    "Runtime has already loaded bounded local context, validation evidence, and import-surface seed owner files for a multi-requirement local implementation. Do not call read/list/stat/resolve tools before the first non-seed mutation. Return one small JSON tool-call batch with only file_write/file_patch mutations against observed source/export owner files. Runtime validates after a successful mutation; do not include validation/probe command_run calls in this first mutation batch unless the user explicitly requested a different command. Return a structured blocker only if the loaded context proves mutation is unsafe."
+                } else if preflight_ready {
                     "Runtime bounded_fast_edit_preflight has already loaded bounded local context and any explicitly requested pre-mutation validation receipt. Do not call read/list/stat/resolve tools before the first mutation. Use the observed files and validation output to return one small JSON tool-call batch with file_patch/file_write edits first, followed by requested validation/probe command_run calls. Return a structured blocker only if the loaded context proves mutation is unsafe."
                 } else if native_tool_prompt_requires_pre_mutation_validation(
                     &self.initial_prompt,
@@ -1242,6 +1256,14 @@ impl AgentContract {
                         .as_deref(),
                         Some("import_surface_missing")
                     );
+            let seeded_multi_requirement_edit_only_min_seed_symbols =
+                native_tool_seeded_multi_requirement_edit_only_min_seed_symbols(&self.metadata);
+            let seeded_multi_requirement_edit_only_seed_max_symbol_count =
+                native_tool_python_import_surface_seed_max_symbol_count(&all_receipts);
+            let seeded_multi_requirement_edit_only_first_batch =
+                native_tool_seeded_multi_requirement_edit_only_first_batch_enabled(&self.metadata)
+                    && seeded_multi_requirement_edit_only_seed_max_symbol_count
+                        >= seeded_multi_requirement_edit_only_min_seed_symbols;
             let compact_bootstrap_mutation_turn =
                 native_tool_compact_mutation_entry_packet_enabled(&self.metadata)
                     && native_tool_requires_successful_mutation(&self.metadata)
@@ -1465,6 +1487,9 @@ impl AgentContract {
                     "stream_until_tool_calls": stream_until_tool_calls,
                     "staged_edit_turn": staged_edit_turn,
                     "seeded_import_surface_repair_turn": seeded_import_surface_repair_turn,
+                    "seeded_multi_requirement_edit_only_first_batch": seeded_multi_requirement_edit_only_first_batch,
+                    "seeded_multi_requirement_edit_only_seed_max_symbol_count": seeded_multi_requirement_edit_only_seed_max_symbol_count,
+                    "seeded_multi_requirement_edit_only_min_seed_symbols": seeded_multi_requirement_edit_only_min_seed_symbols,
                     "validation_guided_compact_repair_turn": validation_guided_compact_repair_turn,
                     "mutation_only_recovery_turn": mutation_only_recovery_turn,
                     "compact_action_controller_turn": compact_action_controller_turn,
@@ -3988,6 +4013,42 @@ fn native_tool_seed_prepared_high_fanout_min_source_seed_receipts(
         .and_then(Value::as_u64)
         .unwrap_or(3)
         .clamp(1, 8) as usize
+}
+
+fn native_tool_seeded_multi_requirement_edit_only_first_batch_enabled(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("seeded_multi_requirement_edit_only_first_batch_enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_seeded_multi_requirement_edit_only_min_seed_symbols(metadata: &Value) -> usize {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("seeded_multi_requirement_edit_only_min_seed_symbols"))
+        .and_then(Value::as_u64)
+        .map(|count| count.clamp(2, 8) as usize)
+        .unwrap_or(3)
+}
+
+fn native_tool_python_import_surface_seed_max_symbol_count(
+    receipts: &[NativeToolReceipt],
+) -> usize {
+    receipts
+        .iter()
+        .filter(|receipt| receipt.status == "ok")
+        .filter(|receipt| receipt.call_id.contains("runtime_python_import_surface_seed_source"))
+        .filter_map(|receipt| {
+            receipt
+                .result
+                .get("seed_symbol_count")
+                .and_then(Value::as_u64)
+        })
+        .max()
+        .unwrap_or(0) as usize
 }
 
 fn native_tool_seed_prepared_staged_retry_provider_timeout_seconds(metadata: &Value) -> u64 {
@@ -8540,7 +8601,7 @@ fn native_tool_python_import_surface_seed_receipts_from_details(
         let source_next =
             native_tool_python_import_seed_source_content(&source_original, &symbols);
         if source_next != source_original {
-            seed_receipts.push(dispatcher.dispatch(NativeToolCall {
+            let mut source_receipt = dispatcher.dispatch(NativeToolCall {
                 id: format!(
                     "{call_id_prefix}_source_{}",
                     native_tool_receipt_id_slug(&module)
@@ -8550,8 +8611,18 @@ fn native_tool_python_import_surface_seed_receipts_from_details(
                     "path": owner_path.display().to_string(),
                     "content": source_next,
                     "overwrite": true,
+                    "seed_module": module,
+                    "seed_symbols": symbols,
+                    "seed_symbol_count": symbols.len(),
                 }),
-            }));
+            });
+            if let Some(result) = source_receipt.result.as_object_mut() {
+                result.insert("seed_module".to_string(), json!(module));
+                result.insert("seed_symbols".to_string(), json!(symbols.clone()));
+                result.insert("seed_symbol_count".to_string(), json!(symbols.len()));
+                result.insert("seed_receipt_kind".to_string(), json!("source"));
+            }
+            seed_receipts.push(source_receipt);
         }
         if export_path != owner_path {
             if let Ok(export_original) = fs::read_to_string(&export_path) {
@@ -8562,7 +8633,7 @@ fn native_tool_python_import_surface_seed_receipts_from_details(
                     &symbols,
                 );
                 if export_next != export_original {
-                    seed_receipts.push(dispatcher.dispatch(NativeToolCall {
+                    let mut export_receipt = dispatcher.dispatch(NativeToolCall {
                         id: format!(
                             "{call_id_prefix}_export_{}",
                             native_tool_receipt_id_slug(&module)
@@ -8572,8 +8643,18 @@ fn native_tool_python_import_surface_seed_receipts_from_details(
                             "path": export_path.display().to_string(),
                             "content": export_next,
                             "overwrite": true,
+                            "seed_module": module,
+                            "seed_symbols": symbols,
+                            "seed_symbol_count": symbols.len(),
                         }),
-                    }));
+                    });
+                    if let Some(result) = export_receipt.result.as_object_mut() {
+                        result.insert("seed_module".to_string(), json!(module));
+                        result.insert("seed_symbols".to_string(), json!(symbols.clone()));
+                        result.insert("seed_symbol_count".to_string(), json!(symbols.len()));
+                        result.insert("seed_receipt_kind".to_string(), json!("export"));
+                    }
+                    seed_receipts.push(export_receipt);
                 }
             }
         }
