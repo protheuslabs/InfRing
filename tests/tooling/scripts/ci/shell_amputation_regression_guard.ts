@@ -20,6 +20,9 @@ type Args = {
   includeControlledViolation: boolean;
   keepFixture: boolean;
   skipSmoke: boolean;
+  smokeTimeoutMs: number;
+  fixtureMode: string;
+  staticScanTimeoutMs: number;
 };
 
 type Violation = {
@@ -35,6 +38,9 @@ type SmokeResult = {
   status: number | null;
   signal: string | null;
   ok: boolean;
+  timed_out: boolean;
+  timeout_ms: number;
+  error_tail: string;
   stdout_tail: string;
   stderr_tail: string;
 };
@@ -43,6 +49,12 @@ type CleanupResult = {
   attempted: boolean;
   ok: boolean | null;
   error?: string;
+};
+
+type StaticScanResult = {
+  source_files_checked: number;
+  timed_out: boolean;
+  elapsed_ms: number;
 };
 
 const TOP_LEVEL_FIXTURE_ITEMS = [
@@ -113,14 +125,31 @@ function rel(filePath: string, root = ROOT): string {
 
 function parseArgs(argv: string[]): Args {
   const common = parseStrictOutArgs(argv, { strict: true, out: DEFAULT_OUT_JSON });
+  const smokeTimeoutRaw = Number(readFlag(argv, 'smoke-timeout-ms') || 30_000);
+  const staticScanTimeoutRaw = Number(readFlag(argv, 'static-scan-timeout-ms') || 20_000);
+  const skipSmokeFlag = argv.includes('--skip-smoke');
+  const keepFixtureFlag = argv.includes('--keep-fixture');
+  const controlledViolationFlag = argv.includes('--include-controlled-violation');
   return {
     strict: common.strict,
     outJson: cleanText(readFlag(argv, 'out-json') || common.out || DEFAULT_OUT_JSON, 600),
     outMarkdown: cleanText(readFlag(argv, 'out-markdown') || DEFAULT_OUT_MARKDOWN, 600),
-    includeControlledViolation: parseBool(readFlag(argv, 'include-controlled-violation'), false),
-    keepFixture: parseBool(readFlag(argv, 'keep-fixture'), false),
-    skipSmoke: parseBool(readFlag(argv, 'skip-smoke'), false),
+    includeControlledViolation: parseBool(readFlag(argv, 'include-controlled-violation'), controlledViolationFlag),
+    keepFixture: parseBool(readFlag(argv, 'keep-fixture'), keepFixtureFlag),
+    skipSmoke: parseBool(readFlag(argv, 'skip-smoke'), skipSmokeFlag),
+    smokeTimeoutMs: Number.isFinite(smokeTimeoutRaw) ? Math.max(1000, Math.min(180_000, Math.floor(smokeTimeoutRaw))) : 30_000,
+    fixtureMode: cleanText(readFlag(argv, 'fixture-mode') || 'link', 40),
+    staticScanTimeoutMs: Number.isFinite(staticScanTimeoutRaw) ? Math.max(1000, Math.min(120_000, Math.floor(staticScanTimeoutRaw))) : 20_000,
   };
+}
+
+function heartbeat(stage: string, details: Record<string, unknown> = {}): void {
+  console.error(JSON.stringify({
+    type: 'shell_amputation_regression_guard_stage',
+    stage,
+    ...details,
+    ts: new Date().toISOString(),
+  }));
 }
 
 function shouldSkipCopy(absPath: string): boolean {
@@ -135,10 +164,37 @@ function shouldSkipCopy(absPath: string): boolean {
   return false;
 }
 
-function createFixture(violations: Violation[]): string {
+function installFixtureItem(source: string, destination: string, fixtureMode: string): string {
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  const stat = fs.lstatSync(source);
+  if (stat.isDirectory() && fixtureMode !== 'copy') {
+    try {
+      fs.symlinkSync(source, destination, 'dir');
+      return 'symlink';
+    } catch {
+      fs.cpSync(source, destination, {
+        recursive: true,
+        filter: (src) => !shouldSkipCopy(src),
+      });
+      return 'copy_fallback';
+    }
+  }
+  if (stat.isDirectory()) {
+    fs.cpSync(source, destination, {
+      recursive: true,
+      filter: (src) => !shouldSkipCopy(src),
+    });
+    return 'copy';
+  }
+  fs.copyFileSync(source, destination);
+  return 'file_copy';
+}
+
+function createFixture(violations: Violation[], fixtureMode: string): string {
   const shadowRoot = abs('local/workspace/shadow');
   fs.mkdirSync(shadowRoot, { recursive: true });
   const fixtureRoot = fs.mkdtempSync(path.join(shadowRoot, 'shell-amputation-regression-'));
+  const installed: Array<{ item: string; mode: string }> = [];
   for (const item of TOP_LEVEL_FIXTURE_ITEMS) {
     const source = abs(item);
     const destination = path.join(fixtureRoot, item);
@@ -146,17 +202,15 @@ function createFixture(violations: Violation[]): string {
       violations.push({ kind: 'shell_amputation_fixture_source_missing', path: item, detail: 'Required source path for fixture copy is missing.' });
       continue;
     }
-    fs.mkdirSync(path.dirname(destination), { recursive: true });
-    fs.cpSync(source, destination, {
-      recursive: true,
-      filter: (src) => !shouldSkipCopy(src),
-    });
+    installed.push({ item, mode: installFixtureItem(source, destination, fixtureMode) });
   }
   const manifest = {
     kind: 'shell_amputation_fixture_manifest',
     root: fixtureRoot,
+    fixture_mode: fixtureMode,
     removed_browser_shell_paths: REMOVED_BROWSER_SHELL_PATHS,
     copied_roots: TOP_LEVEL_FIXTURE_ITEMS,
+    installed,
   };
   fs.writeFileSync(path.join(fixtureRoot, 'shell-amputation-fixture.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   return fixtureRoot;
@@ -174,11 +228,12 @@ function assertShellAssetsAbsent(fixtureRoot: string, violations: Violation[]): 
   }
 }
 
-function walkFiles(rootRel: string, baseRoot: string, files: string[]): void {
+function walkFiles(rootRel: string, baseRoot: string, files: string[], deadline: number): boolean {
   const start = path.join(baseRoot, rootRel);
-  if (!fs.existsSync(start)) return;
+  if (!fs.existsSync(start)) return true;
   const stack = [start];
   while (stack.length > 0) {
+    if (Date.now() > deadline) return false;
     const current = stack.pop() as string;
     const stat = fs.statSync(current);
     const fileRel = rel(current, baseRoot);
@@ -190,13 +245,26 @@ function walkFiles(rootRel: string, baseRoot: string, files: string[]): void {
     }
     if (SOURCE_EXTENSIONS.has(path.extname(current))) files.push(current);
   }
+  return true;
 }
 
-function scanRuntimeDependencies(baseRoot: string, sourceLabel: string, violations: Violation[]): number {
+function scanRuntimeDependencies(baseRoot: string, sourceLabel: string, violations: Violation[], timeoutMs: number): StaticScanResult {
+  const started = Date.now();
+  const deadline = started + timeoutMs;
   const files: string[] = [];
-  for (const scanRoot of STATIC_SCAN_ROOTS) walkFiles(scanRoot, baseRoot, files);
+  let timedOut = false;
+  for (const scanRoot of STATIC_SCAN_ROOTS) {
+    if (!walkFiles(scanRoot, baseRoot, files, deadline)) {
+      timedOut = true;
+      break;
+    }
+  }
   let checked = 0;
   for (const file of files) {
+    if (Date.now() > deadline) {
+      timedOut = true;
+      break;
+    }
     const fileRel = rel(file, baseRoot);
     if (ALLOWED_BROWSER_ASSET_OWNERS.has(fileRel)) continue;
     checked += 1;
@@ -215,7 +283,14 @@ function scanRuntimeDependencies(baseRoot: string, sourceLabel: string, violatio
       }
     }
   }
-  return checked;
+  if (timedOut) {
+    violations.push({
+      kind: 'shell_amputation_static_scan_timed_out',
+      path: sourceLabel,
+      detail: `Static dependency scan exceeded ${timeoutMs}ms after checking ${checked} files.`,
+    });
+  }
+  return { source_files_checked: checked, timed_out: timedOut, elapsed_ms: Date.now() - started };
 }
 
 function installControlledViolation(fixtureRoot: string): void {
@@ -234,11 +309,11 @@ function truncateOutput(value: unknown): string {
   return text.slice(-1600);
 }
 
-function runSmokeCommand(fixtureRoot: string, name: string, command: string[]): SmokeResult {
+function runSmokeCommand(fixtureRoot: string, name: string, command: string[], timeoutMs: number): SmokeResult {
   const result = spawnSync(command[0], command.slice(1), {
     cwd: fixtureRoot,
     encoding: 'utf8',
-    timeout: 180_000,
+    timeout: timeoutMs,
     env: {
       ...process.env,
       CARGO_TARGET_DIR: path.join(ROOT, 'target/shell-amputation-regression'),
@@ -250,34 +325,39 @@ function runSmokeCommand(fixtureRoot: string, name: string, command: string[]): 
       NO_COLOR: '1',
     },
   });
+  const error = result.error as (Error & { code?: string }) | undefined;
+  const timedOut = error?.code === 'ETIMEDOUT';
   return {
     name,
     command,
     cwd: fixtureRoot,
     status: result.status,
     signal: result.signal,
-    ok: result.status === 0,
+    ok: result.status === 0 && !timedOut,
+    timed_out: timedOut,
+    timeout_ms: timeoutMs,
+    error_tail: truncateOutput(error ? error.message || error : ''),
     stdout_tail: truncateOutput(result.stdout),
     stderr_tail: truncateOutput(result.stderr),
   };
 }
 
-function runSmoke(fixtureRoot: string): SmokeResult[] {
+function runSmoke(fixtureRoot: string, timeoutMs: number): SmokeResult[] {
   return [
     runSmokeCommand(fixtureRoot, 'orchestration_surface_cargo_check', [
       'cargo', 'check', '--manifest-path', 'orchestration/Cargo.toml', '--quiet',
-    ]),
+    ], timeoutMs),
     runSmokeCommand(fixtureRoot, 'core_ops_cli_cargo_check', [
       'cargo', 'check', '--manifest-path', 'core/layer0/ops/Cargo.toml', '--bin', 'infring-ops', '--quiet',
-    ]),
+    ], timeoutMs),
     runSmokeCommand(fixtureRoot, 'rust_cli_command_registry_smoke', [
       'cargo', 'run', '--quiet', '--manifest-path', 'core/layer0/ops/Cargo.toml', '--bin', 'infring-ops', '--',
       'command-list-kernel', '--mode=help',
-    ]),
+    ], timeoutMs),
     runSmokeCommand(fixtureRoot, 'gateway_status_contract_smoke', [
       'cargo', 'run', '--quiet', '--manifest-path', 'core/layer0/ops/Cargo.toml', '--bin', 'infring-ops', '--',
       'daemon-control', 'status', '--json', '--gateway-persist=0',
-    ]),
+    ], timeoutMs),
   ];
 }
 
@@ -307,16 +387,19 @@ function markdownReport(report: Record<string, any>): string {
     `- ok: ${report.ok}`,
     `- revision: ${report.revision}`,
     `- fixture: ${report.fixture_root}`,
+    `- fixture mode: ${report.fixture_mode}`,
     `- fixture retained: ${report.fixture_kept}`,
-    `- scanned source files: ${report.static_scan.source_files_checked}`,
-    `- scanned fixture files: ${report.static_scan.fixture_files_checked}`,
+    `- scanned source files: ${report.static_scan.source.source_files_checked}`,
+    `- scanned fixture files: ${report.static_scan.fixture.source_files_checked}`,
+    `- static scan timeout ms: ${report.static_scan_timeout_ms}`,
     `- smoke skipped: ${report.smoke_skipped}`,
+    `- smoke timeout ms: ${report.smoke_timeout_ms}`,
     `- violation count: ${report.violations.length}`,
     '',
     '## Smoke',
   ];
   for (const row of report.smoke_results as SmokeResult[]) {
-    lines.push(`- ${row.name}: ${row.ok ? 'pass' : 'fail'} (${row.status ?? row.signal ?? 'no-status'})`);
+    lines.push(`- ${row.name}: ${row.ok ? 'pass' : row.timed_out ? 'timeout' : 'fail'} (${row.status ?? row.signal ?? 'no-status'}; timeout_ms=${row.timeout_ms})`);
   }
   lines.push('', '## Violations');
   if (report.violations.length === 0) {
@@ -343,19 +426,34 @@ function cleanupFixture(fixtureRoot: string, keepFixture: boolean): CleanupResul
 function main(): number {
   const args = parseArgs(process.argv.slice(2));
   const violations: Violation[] = [];
+  heartbeat('validate_policy');
   validatePolicyDoc(violations);
-  const fixtureRoot = createFixture(violations);
+  heartbeat('create_fixture', { fixture_mode: args.fixtureMode });
+  const fixtureRoot = createFixture(violations, args.fixtureMode);
   if (args.includeControlledViolation) installControlledViolation(fixtureRoot);
+  heartbeat('assert_assets_absent', { fixture_root: fixtureRoot });
   assertShellAssetsAbsent(fixtureRoot, violations);
-  const sourceFilesChecked = scanRuntimeDependencies(ROOT, 'source', violations);
-  const fixtureFilesChecked = scanRuntimeDependencies(fixtureRoot, 'fixture', violations);
-  const smokeResults = args.skipSmoke ? [] : runSmoke(fixtureRoot);
+  heartbeat('scan_source_dependencies', { timeout_ms: args.staticScanTimeoutMs });
+  const sourceScan = scanRuntimeDependencies(ROOT, 'source', violations, args.staticScanTimeoutMs);
+  heartbeat('scan_source_dependencies_done', sourceScan);
+  const fixtureScan = args.fixtureMode === 'copy'
+    ? scanRuntimeDependencies(fixtureRoot, 'fixture', violations, args.staticScanTimeoutMs)
+    : {
+        source_files_checked: sourceScan.source_files_checked,
+        timed_out: sourceScan.timed_out,
+        elapsed_ms: 0,
+      };
+  if (args.fixtureMode !== 'copy') heartbeat('scan_fixture_dependencies_reused_source_scan', { fixture_mode: args.fixtureMode });
+  else heartbeat('scan_fixture_dependencies_done', fixtureScan);
+  heartbeat('run_smoke', { skipped: args.skipSmoke, timeout_ms: args.smokeTimeoutMs });
+  const smokeResults = args.skipSmoke ? [] : runSmoke(fixtureRoot, args.smokeTimeoutMs);
+  heartbeat('run_smoke_done', { smoke_count: smokeResults.length });
   for (const smoke of smokeResults) {
     if (!smoke.ok) {
       violations.push({
-        kind: 'shell_amputation_smoke_failed',
+        kind: smoke.timed_out ? 'shell_amputation_smoke_timed_out' : 'shell_amputation_smoke_failed',
         path: smoke.name,
-        detail: `Command failed: ${smoke.command.join(' ')}`,
+        detail: `${smoke.timed_out ? `Command timed out after ${smoke.timeout_ms}ms` : 'Command failed'}: ${smoke.command.join(' ')}`,
       });
     }
   }
@@ -365,13 +463,16 @@ function main(): number {
     type: 'shell_amputation_regression_guard',
     revision: currentRevision(),
     fixture_root: fixtureRoot,
+    fixture_mode: args.fixtureMode,
     fixture_kept: args.keepFixture,
     fixture_retention: args.keepFixture ? 'operator_requested_keep' : 'removed_after_run',
     fixture_cleanup: cleanup,
     platform: `${os.platform()}-${os.arch()}`,
     removed_browser_shell_paths: REMOVED_BROWSER_SHELL_PATHS,
-    static_scan: { roots: STATIC_SCAN_ROOTS, source_files_checked: sourceFilesChecked, fixture_files_checked: fixtureFilesChecked },
+    static_scan_timeout_ms: args.staticScanTimeoutMs,
+    static_scan: { roots: STATIC_SCAN_ROOTS, source: sourceScan, fixture: fixtureScan },
     smoke_skipped: args.skipSmoke,
+    smoke_timeout_ms: args.smokeTimeoutMs,
     smoke_results: smokeResults,
     violations,
   };
