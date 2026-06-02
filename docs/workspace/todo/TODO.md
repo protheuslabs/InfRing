@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T19:50:45.206Z
+Updated: 2026-06-02T19:52:24.798Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,8 +14,8 @@ Updated: 2026-06-02T19:50:45.206Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 21
-- red: 4
+- active_items: 20
+- red: 3
 - yellow: 9
 - white: 8
 
@@ -27,13 +27,6 @@ Updated: 2026-06-02T19:50:45.206Z
   work_gate: `reliability`
   real_work_score: `5`
   summary: Extract remaining authority and source-of-truth responsibilities into Orchestration/Gateway-owned paths while preserving the fragile legacy Shell files until headless replacement paths are proven; do not delete or refactor legacy Shell behavior in this lane.
-- `SHELL-EXTRACT-COMMANDS` — Move interactive command authority out of Shell
-  owner: `unassigned`
-  deadline: `2026-05-07`
-  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
-  work_gate: `reliability`
-  real_work_score: `5`
-  summary: Route slash commands, model switching, model failover, prompt queue execution, and terminal execution through typed Orchestration/Gateway ingress receipts; preserve legacy Shell helpers as compatibility callers until the new path is proven.
 - `SHPURGE` — Finish the Shell authority purge
   owner: `unassigned`
   deadline: `2026-05-07`

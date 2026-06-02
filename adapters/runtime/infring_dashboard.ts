@@ -21,6 +21,10 @@ const {
   shellSocketChatProjection,
 } = require('./shell_socket_chat_projection.ts');
 const {
+  isShellSocketCommandIngressPath,
+  shellSocketCommandIngress,
+} = require('./shell_socket_command_ingress.ts');
+const {
   backendFreshnessSnapshot: backendFreshnessSnapshotFromProcess,
   backendSpawnEnv: backendSpawnEnvForRoot,
   shouldRestartStaleBackend,
@@ -952,6 +956,11 @@ async function runServe(flags) {
       }
       if (req.method === 'GET' && isShellSocketChatProjectionPath(pathname)) {
         const result = await shellSocketChatProjection({ flags, requestUrl, traceId, fetchBackendJson });
+        return void sendJson(res, result.status, result.payload);
+      }
+      if (req.method === 'POST' && isShellSocketCommandIngressPath(pathname)) {
+        const body = await readJsonBody(req, 65536);
+        const result = await shellSocketCommandIngress({ flags, requestUrl, traceId, body, fetchBackend });
         return void sendJson(res, result.status, result.payload);
       }
       if (req.method === 'GET') {

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T19:50:45.206Z",
+  "updated_at": "2026-06-02T19:52:24.798Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -21,17 +21,6 @@
       "deadline": "2026-05-07",
       "source_family": "Shell Cleanup Wave",
       "summary": "Extract remaining authority and source-of-truth responsibilities into Orchestration/Gateway-owned paths while preserving the fragile legacy Shell files until headless replacement paths are proven; do not delete or refactor legacy Shell behavior in this lane.",
-      "work_gate": "reliability",
-      "real_work_score": 5
-    },
-    {
-      "id": "SHELL-EXTRACT-COMMANDS",
-      "title": "Move interactive command authority out of Shell",
-      "section": "red",
-      "owner": "unassigned",
-      "deadline": "2026-05-07",
-      "source_family": "Shell Authority Extraction Without Legacy Shell Mutation",
-      "summary": "Route slash commands, model switching, model failover, prompt queue execution, and terminal execution through typed Orchestration/Gateway ingress receipts; preserve legacy Shell helpers as compatibility callers until the new path is proven.",
       "work_gate": "reliability",
       "real_work_score": 5
     },

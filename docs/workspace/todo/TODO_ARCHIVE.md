@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T19:50:45.206Z
+Updated: 2026-06-02T19:52:24.798Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T19:50:45.206Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `SHELL-EXTRACT-COMMANDS` — Move interactive command authority out of Shell
+  completed_at: `2026-06-02T19:52:24.797Z`
+  previous_section: `red`
+  owner: `unassigned`
+  deadline: `2026-05-07`
+  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
+  summary: Route slash commands, model switching, model failover, prompt queue execution, and terminal execution through typed Orchestration/Gateway ingress receipts; preserve legacy Shell helpers as compatibility callers until the new path is proven.
+  completion_note: Added explicit Gateway shell-socket command ingress bridge for submit input/message, model selection, and terminal command routes; requests are bounded and trace-tagged before forwarding to Rust shell-socket authority, with legacy Shell behavior left untouched.
 - `SHELL-EXTRACT-DETAILS` — Move message and tool details behind lazy routes
   completed_at: `2026-06-02T19:50:45.205Z`
   previous_section: `red`
