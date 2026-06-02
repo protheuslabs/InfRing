@@ -49,6 +49,16 @@ function routeForPath(pathname) {
       timeout_ms: 10000,
     };
   }
+  if (/^\/api\/shell-socket\/sessions\/[^/]+\/events$/.test(path)) {
+    return {
+      route_id: 'shell_socket.subscribe_events',
+      capability_id: 'subscribe_events',
+      route_class: 'event_output_egress',
+      max_limit: 100,
+      default_limit: 50,
+      timeout_ms: 10000,
+    };
+  }
   if (path === '/api/shell-socket/search') {
     return {
       route_id: 'shell_socket.search',

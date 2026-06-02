@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T20:01:08.625Z
+Updated: 2026-06-02T20:01:41.207Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-02T20:01:08.625Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 16
+- active_items: 15
 - red: 3
-- yellow: 5
+- yellow: 4
 - white: 8
 
 ## Red Section (Do Immediately)
@@ -43,13 +43,6 @@ Updated: 2026-06-02T20:01:08.625Z
   summary: Remove the remaining Alpine boot/runtime dependency once the retirement guard is green.
 
 ## Yellow Section (Do Soon)
-- `SHELL-EXTRACT-WORKFLOW` — Project workflow stage and thought status from Orchestration
-  owner: `unassigned`
-  deadline: `2026-05-14`
-  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
-  work_gate: `reliability`
-  real_work_score: `4`
-  summary: Make Orchestration emit workflow_stage_label and workflow_thought_preview projections so thinking bubbles render owner-provided status instead of Shell-authored fallback text.
 - `HYGIENE-RUST-UNUSED-IMPORTS` — Remove unused Rust imports in narrow batches
   owner: `codex`
   deadline: `2026-05-19`

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T20:01:08.625Z",
+  "updated_at": "2026-06-02T20:01:41.207Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -45,17 +45,6 @@
       "summary": "Remove the remaining Alpine boot/runtime dependency once the retirement guard is green.",
       "work_gate": "reliability",
       "real_work_score": 5
-    },
-    {
-      "id": "SHELL-EXTRACT-WORKFLOW",
-      "title": "Project workflow stage and thought status from Orchestration",
-      "section": "yellow",
-      "owner": "unassigned",
-      "deadline": "2026-05-14",
-      "source_family": "Shell Authority Extraction Without Legacy Shell Mutation",
-      "summary": "Make Orchestration emit workflow_stage_label and workflow_thought_preview projections so thinking bubbles render owner-provided status instead of Shell-authored fallback text.",
-      "work_gate": "reliability",
-      "real_work_score": 4
     },
     {
       "id": "WF-UTILITY",

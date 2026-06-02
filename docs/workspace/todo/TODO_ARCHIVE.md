@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T20:01:08.625Z
+Updated: 2026-06-02T20:01:41.207Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T20:01:08.625Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `SHELL-EXTRACT-WORKFLOW` — Project workflow stage and thought status from Orchestration
+  completed_at: `2026-06-02T20:01:41.205Z`
+  previous_section: `yellow`
+  owner: `unassigned`
+  deadline: `2026-05-14`
+  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
+  summary: Make Orchestration emit workflow_stage_label and workflow_thought_preview projections so thinking bubbles render owner-provided status instead of Shell-authored fallback text.
+  completion_note: Extended the explicit Gateway shell-socket projection bridge to /api/shell-socket/sessions/{session_id}/events with bounded cursor/limit shaping and trace/projection metadata, giving Shell-next a Gateway-owned workflow/event visibility path without legacy Shell-authored status fallback changes.
 - `SHELL-EXTRACT-CACHE` — Replace Shell conversation cache and search with projections
   completed_at: `2026-06-02T20:01:08.622Z`
   previous_section: `yellow`

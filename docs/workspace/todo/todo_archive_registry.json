@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T20:01:08.625Z",
+  "updated_at": "2026-06-02T20:01:41.207Z",
   "historical_snapshot": {
     "preserved_archive_path": "docs/workspace/todo/TODO_ARCHIVE_LEGACY.md",
     "total_rows": 4145,
@@ -1044,6 +1044,19 @@
       "real_work_score": 4,
       "completed_at": "2026-06-02T20:01:08.622Z",
       "completion_note": "Extended the explicit Gateway shell-socket projection bridge to /api/shell-socket/search with bounded q/agent/scope/cursor/limit shaping. This gives Shell-next/cache replacement a Gateway-owned preview/search path without touching legacy Shell conversation cache code."
+    },
+    {
+      "id": "SHELL-EXTRACT-WORKFLOW",
+      "title": "Project workflow stage and thought status from Orchestration",
+      "section": "yellow",
+      "owner": "unassigned",
+      "deadline": "2026-05-14",
+      "source_family": "Shell Authority Extraction Without Legacy Shell Mutation",
+      "summary": "Make Orchestration emit workflow_stage_label and workflow_thought_preview projections so thinking bubbles render owner-provided status instead of Shell-authored fallback text.",
+      "work_gate": "reliability",
+      "real_work_score": 4,
+      "completed_at": "2026-06-02T20:01:41.205Z",
+      "completion_note": "Extended the explicit Gateway shell-socket projection bridge to /api/shell-socket/sessions/{session_id}/events with bounded cursor/limit shaping and trace/projection metadata, giving Shell-next a Gateway-owned workflow/event visibility path without legacy Shell-authored status fallback changes."
     }
   ]
 }
