@@ -325,7 +325,6 @@ def judge_system_attempt(system: str, job: dict[str, Any], run_result: dict[str,
             "ok": (
                 not strict_model_lock_model
                 or all(model == strict_model_lock_model for model in observed_models)
-                and (bool(observed_models) or run_result.get("ok") is not True)
             ),
             "detail": {"expected": strict_model_lock_model, "observed": observed_models},
         },

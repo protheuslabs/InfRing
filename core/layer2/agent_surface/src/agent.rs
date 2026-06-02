@@ -8270,9 +8270,11 @@ fn native_tool_recovery_or_partial_progress(
         provider_call_count,
         &receipts,
     );
+    let recovery_repair_reasons =
+        native_tool_runtime_repair_reasons(metadata, original_prompt, &response.output, &receipts);
     let completed_after_recovery = native_tool_has_successful_mutation(&receipts)
         && native_tool_has_successful_validation_after_latest_mutation(&receipts)
-        && native_tool_prompt_evidence_gaps(original_prompt, &receipts).is_empty()
+        && recovery_repair_reasons.is_empty()
         && !native_tool_checkpointed_project_has_live_stage(metadata, original_prompt, &receipts);
     if completed_after_recovery {
         response = native_tool_synthetic_completion_evidence_response(

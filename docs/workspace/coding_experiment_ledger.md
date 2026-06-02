@@ -3665,3 +3665,15 @@ Pending.
 - Route evidence: Level 3 edit-only `false` with max/min `0/3`; Level 4 `false` with `0/3`; Level 5 `false` with `2/3`; Level 6 `true` with `3/3`; Level 7 `true` with `4/3`.
 - Timing: Level 3 `3.9s`, Level 4 `5.6s`, Level 5 `19.3s`, Level 6 `21.7s`, Level 7 `14.8s`.
 - Interpretation: The seed-surface classifier appears isolated: lower/non-seeded lanes stayed off, simple import-surface repair stayed off, and larger seeded implementation slices stayed on.
+
+### EXP-CODING-155 - Level 2 floor diagnostic after seed-surface checkpoint
+
+- Date: 2026-06-02
+- Goal: Fill the regression-floor gap left by the combined Levels 1-7 harness, which currently executes Levels 3-7 only.
+- Evidence: A 5-attempt Level 2 batch did not finish in a useful interactive window, so the diagnostic switched to bounded single-attempt runs.
+- Initial result: one Level 2 run mutated source/tests, passed validation, passed semantic probe, and stayed within the broad 180s budget, but returned `partial_timeout` and failed the 90s fast budget at about `155s`.
+- Runtime fix: recovery-pass exhaustion now closes success using the same runtime repair-reason predicate used by sibling timeout closure paths, instead of leaving a validated post-mutation run as `partial_timeout`.
+- Scoring fix: the Level 2 harness no longer treats an empty observed planner-model list as a strict-model-lock violation; no observed planner call means there is no different planner model to violate the lock.
+- Follow-up result: one bounded run after the closure fix reported runtime terminal status `ok`, passed validation/semantic/mutation checks, and completed in about `71s`; before the harness scoring fix it was marked `model_lock_violation` only.
+- Remaining blocker: a later confirmation attempt failed with `no_successful_mutation` after the model emitted a placeholder `file_patch` path ending in `...`; an attempted ellipsis placeholder-path guard was not kept because the next run timed out under the 180s outer guard and did not produce an obvious positive result.
+- Verdict: keep the recovery closure and harness scoring fixes. Do not claim Level 2 reliability yet; the next target is first-mutation reliability/speed for low-level existing-project edits.
