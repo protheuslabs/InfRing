@@ -1,10 +1,7 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
-import fs from 'node:fs';
-import path from 'node:path';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
+const fs = require('node:fs');
+const path = require('node:path');
 const ROOT = process.cwd();
 const registryPath = 'validation/conformance/contracts/agent_runtime_engine_registry.json';
 const socketPath = 'validation/conformance/contracts/agent_runtime_socket_contract.json';
