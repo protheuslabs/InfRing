@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-05-11T01:47:42.967Z
+Updated: 2026-06-02T18:15:11.445Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,10 +14,10 @@ Updated: 2026-05-11T01:47:42.967Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 23
+- active_items: 29
 - red: 6
-- yellow: 9
-- white: 8
+- yellow: 14
+- white: 9
 
 ## Red Section (Do Immediately)
 - `SHELL-CLEANUP` — Finish the Shell source-of-truth cleanup
@@ -127,6 +127,41 @@ Updated: 2026-05-11T01:47:42.967Z
   work_gate: `real_work`
   real_work_score: `5`
   summary: Build the workflow utility spine so the system is useful for real work after Shell de-authority.
+- `ARTENG-GATEWAY-ROUTER` — Add Gateway agent runtime router seam
+  owner: `codex`
+  deadline: `2026-06-20`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Add a Gateway-side router abstraction that selects an engine_id and dispatches through the normalized agent runtime contract without letting Shell or external engines call Orchestration or Kernel directly.
+- `ARTENG-INFRING-NATIVE` — Wrap Orchestration as infring_native runtime engine
+  owner: `codex`
+  deadline: `2026-06-23`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  work_gate: `real_work`
+  real_work_score: `5`
+  summary: Expose orchestration/** as engine_id infring_native with the same start_session, submit_turn, stream_events, cancel, collect_artifacts, health_check, and emit_receipts contract used by external engines; do not physically restructure orchestration yet.
+- `ARTENG-EXTERNAL-ADAPTER-FIRST` — Implement first external agent runtime adapter
+  owner: `codex`
+  deadline: `2026-06-27`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  work_gate: `real_work`
+  real_work_score: `5`
+  summary: Implement one bounded external adapter, preferably codex_cli or claude_code, behind the Gateway runtime router; normalize its stream into assistant deltas, tool projections, artifact refs, receipts, errors, and final result events.
+- `ARTENG-TRACE-OBSERVABILITY` — Record normalized agent runtime traces
+  owner: `codex`
+  deadline: `2026-06-27`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Add Observability evidence for engine turns: engine_id, trace_id, session_id, health, latency, failure class, tool proposal refs, artifact refs, receipt refs, and final status, without leaking raw external framework payloads.
+- `ARTENG-CONFORMANCE` — Add agent runtime engine conformance checks
+  owner: `codex`
+  deadline: `2026-06-30`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Add Validation checks for registry shape, socket event schema, trace propagation, cancellation, bounded payloads, receipt emission, capability-denial behavior, and artifact/detail-ref handling across infring_native and external adapters.
 
 ## White Section (Do At Leisure)
 - `TRACE-IMPL` — Implement end-to-end unified trace_id propagation
@@ -136,6 +171,13 @@ Updated: 2026-05-11T01:47:42.967Z
   work_gate: `reliability`
   real_work_score: `4`
   summary: Implement end-to-end unified trace_id propagation from initial request through Orchestration, workflows, tools, Kernel receipts, Sentinel, and final response.
+- `ARTENG-DASHBOARD-TOGGLE` — Add dashboard runtime-engine toggle through Gateway only
+  owner: `codex`
+  deadline: `after_agent_runtime_router`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  work_gate: `real_work`
+  real_work_score: `4`
+  summary: Add the UI selector only after the Gateway socket/router and at least one engine adapter are proven; Shell sends engine_id and displays normalized projections only, with no engine-specific execution logic.
 - `SHELL-NEXT` — Build Shell-next only after authority extraction proofs
   owner: `unassigned`
   deadline: `after_red_section`

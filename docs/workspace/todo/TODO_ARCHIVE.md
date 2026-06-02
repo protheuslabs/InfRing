@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-05-11T01:47:42.967Z
+Updated: 2026-06-02T18:15:11.445Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,22 @@ Updated: 2026-05-11T01:47:42.967Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `ARTENG-REGISTRY` — Create agent runtime engine registry
+  completed_at: `2026-06-02T18:15:11.444Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-16`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  summary: Create the canonical engine registry with infring_native plus planned external engines such as claude_code, codex_cli, openhands, openclaw, openfang, and custom_socket_engine; include capabilities, transport kind, health contract, and authority constraints.
+  completion_note: Created canonical agent runtime engine registry declaring infring_native plus planned codex_cli, claude_code, openhands, openclaw, openfang, and custom_socket_engine adapters with interface, transport, health, capability, and authority constraints.
+- `ARTENG-SOCKET-CONTRACT` — Define canonical Gateway agent runtime socket contract
+  completed_at: `2026-06-02T18:15:10.578Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-16`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  summary: Define the SRS-backed Gateway-owned /ws/agent-runtime protocol: engine discovery, health, session start, turn submission, cancel, assistant deltas, tool projections, artifact refs, errors, receipts, heartbeats, and turn completion; require unified trace_id and ref-only heavy payloads.
+  completion_note: Defined canonical Gateway-owned /ws/agent-runtime socket contract with required events, trace_id invariant, forbidden raw/default payload fields, Gateway enforcement duties, Kernel authority invariant, and Observability trace hook.
 - `KSENT-EMPTY-RESPONSE-HARNESS` — Fix recurring empty assistant response harness failures
   completed_at: `2026-05-11T01:47:42.966Z`
   previous_section: `red`

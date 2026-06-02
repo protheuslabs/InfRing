@@ -53,6 +53,18 @@
       "required_projection": "Preserve route, listener, process identity, health probe, lifecycle state, and recovery refs."
     },
     {
+      "id": "agent_runtime_engine_trace",
+      "source_domain": "gateway",
+      "event_kinds": ["agent_runtime_engine", "engine_health", "agent_turn", "tool_call", "artifact", "receipt", "error"],
+      "current_sources": [
+        "validation/conformance/contracts/agent_runtime_socket_contract.json",
+        "validation/conformance/contracts/agent_runtime_engine_registry.json",
+        "adapters/runtime/agent_engines/**"
+      ],
+      "projection_status": "queued",
+      "required_projection": "Preserve engine_id, engine_kind, trace_id, session_id, turn_id, event type, health state, latency, failure class, capability scope, artifact refs, tool_call refs, receipt refs, and final status while keeping raw framework payloads behind detail refs."
+    },
+    {
       "id": "shell_projection_trace",
       "source_domain": "shell",
       "event_kinds": ["telemetry", "health", "workflow_phase"],

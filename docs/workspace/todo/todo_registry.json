@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-05-11T01:47:42.967Z",
+  "updated_at": "2026-06-02T18:15:11.445Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -265,6 +265,72 @@
       "summary": "Live split-debt artifacts are classified, but decomposition is blocked until the outside-lane dashboard compat compile blocker is fixed so owner-scoped renames can be validated.",
       "work_gate": "simplification",
       "real_work_score": 3
+    },
+    {
+      "id": "ARTENG-GATEWAY-ROUTER",
+      "title": "Add Gateway agent runtime router seam",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-20",
+      "source_family": "Agent Runtime Engine Socket Architecture",
+      "summary": "Add a Gateway-side router abstraction that selects an engine_id and dispatches through the normalized agent runtime contract without letting Shell or external engines call Orchestration or Kernel directly.",
+      "work_gate": "reliability",
+      "real_work_score": 5
+    },
+    {
+      "id": "ARTENG-INFRING-NATIVE",
+      "title": "Wrap Orchestration as infring_native runtime engine",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-23",
+      "source_family": "Agent Runtime Engine Socket Architecture",
+      "summary": "Expose orchestration/** as engine_id infring_native with the same start_session, submit_turn, stream_events, cancel, collect_artifacts, health_check, and emit_receipts contract used by external engines; do not physically restructure orchestration yet.",
+      "work_gate": "real_work",
+      "real_work_score": 5
+    },
+    {
+      "id": "ARTENG-EXTERNAL-ADAPTER-FIRST",
+      "title": "Implement first external agent runtime adapter",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-27",
+      "source_family": "Agent Runtime Engine Socket Architecture",
+      "summary": "Implement one bounded external adapter, preferably codex_cli or claude_code, behind the Gateway runtime router; normalize its stream into assistant deltas, tool projections, artifact refs, receipts, errors, and final result events.",
+      "work_gate": "real_work",
+      "real_work_score": 5
+    },
+    {
+      "id": "ARTENG-TRACE-OBSERVABILITY",
+      "title": "Record normalized agent runtime traces",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-27",
+      "source_family": "Agent Runtime Engine Socket Architecture",
+      "summary": "Add Observability evidence for engine turns: engine_id, trace_id, session_id, health, latency, failure class, tool proposal refs, artifact refs, receipt refs, and final status, without leaking raw external framework payloads.",
+      "work_gate": "reliability",
+      "real_work_score": 5
+    },
+    {
+      "id": "ARTENG-CONFORMANCE",
+      "title": "Add agent runtime engine conformance checks",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-30",
+      "source_family": "Agent Runtime Engine Socket Architecture",
+      "summary": "Add Validation checks for registry shape, socket event schema, trace propagation, cancellation, bounded payloads, receipt emission, capability-denial behavior, and artifact/detail-ref handling across infring_native and external adapters.",
+      "work_gate": "reliability",
+      "real_work_score": 5
+    },
+    {
+      "id": "ARTENG-DASHBOARD-TOGGLE",
+      "title": "Add dashboard runtime-engine toggle through Gateway only",
+      "section": "white",
+      "owner": "codex",
+      "deadline": "after_agent_runtime_router",
+      "source_family": "Agent Runtime Engine Socket Architecture",
+      "summary": "Add the UI selector only after the Gateway socket/router and at least one engine adapter are proven; Shell sends engine_id and displays normalized projections only, with no engine-specific execution logic.",
+      "work_gate": "real_work",
+      "real_work_score": 4
     }
   ]
 }

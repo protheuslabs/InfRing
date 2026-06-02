@@ -1,0 +1,194 @@
+{
+  "type": "agent_runtime_engine_registry",
+  "schema_version": 1,
+  "version": "2026-06-02",
+  "owner": "gateway.agent_runtime_router",
+  "status": "contracted_not_live",
+  "srs_refs": [
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-002",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-003",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-004"
+  ],
+  "socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
+  "selection_rule": "Shell and external clients may select engine_id only through the Gateway socket. Engine-specific execution remains behind Gateway adapters.",
+  "required_engine_interface": [
+    "health_check",
+    "start_session",
+    "submit_turn",
+    "stream_events",
+    "cancel_turn",
+    "collect_artifacts",
+    "emit_receipts"
+  ],
+  "authority_rules": {
+    "kernel_authority_constant": true,
+    "gateway_boundary_constant": true,
+    "engines_are_work_runtimes_not_truth_owners": true,
+    "durable_mutation_requires_kernel_approved_path": true,
+    "shell_displays_projection_only": true
+  },
+  "engines": [
+    {
+      "engine_id": "infring_native",
+      "display_name": "InfRing Native",
+      "engine_kind": "native_orchestration",
+      "implementation_path": "orchestration/**",
+      "transport_kind": "internal_gateway_adapter",
+      "status": "planned_wrapper",
+      "capabilities": [
+        "planning",
+        "workflow_execution",
+        "tool_sequencing",
+        "task_decomposition",
+        "repair_loop",
+        "multi_agent_coordination",
+        "receipt_emission"
+      ],
+      "health_contract": "orchestration health projected through Gateway",
+      "adapter_boundary": "Gateway runtime router calls native orchestration through a normalized engine wrapper; Shell never calls orchestration directly.",
+      "authority_constraints": [
+        "kernel_authority_constant",
+        "gateway_policy_required",
+        "trace_id_required",
+        "receipt_ref_required_for_durable_effects"
+      ]
+    },
+    {
+      "engine_id": "codex_cli",
+      "display_name": "Codex CLI",
+      "engine_kind": "external_cli_adapter",
+      "implementation_path": "adapters/runtime/agent_engines/codex_cli/**",
+      "transport_kind": "local_process_or_socket",
+      "status": "planned_adapter",
+      "capabilities": [
+        "coding_agent_loop",
+        "workspace_read",
+        "workspace_edit_proposal",
+        "command_proposal",
+        "artifact_collection"
+      ],
+      "health_contract": "adapter resolves command availability and startup readiness without leaking process internals",
+      "adapter_boundary": "Gateway launches or connects to the adapter and normalizes stdout/socket events into the agent runtime event stream.",
+      "authority_constraints": [
+        "no_direct_kernel_write",
+        "no_direct_shell_socket",
+        "workspace_scope_required",
+        "mutation_approval_required"
+      ]
+    },
+    {
+      "engine_id": "claude_code",
+      "display_name": "Claude Code",
+      "engine_kind": "external_cli_adapter",
+      "implementation_path": "adapters/runtime/agent_engines/claude_code/**",
+      "transport_kind": "local_process_or_socket",
+      "status": "planned_adapter",
+      "capabilities": [
+        "coding_agent_loop",
+        "workspace_read",
+        "workspace_edit_proposal",
+        "command_proposal",
+        "artifact_collection"
+      ],
+      "health_contract": "adapter resolves command availability and startup readiness without leaking process internals",
+      "adapter_boundary": "Gateway launches or connects to the adapter and normalizes stdout/socket events into the agent runtime event stream.",
+      "authority_constraints": [
+        "no_direct_kernel_write",
+        "no_direct_shell_socket",
+        "workspace_scope_required",
+        "mutation_approval_required"
+      ]
+    },
+    {
+      "engine_id": "openhands",
+      "display_name": "OpenHands",
+      "engine_kind": "external_framework_adapter",
+      "implementation_path": "adapters/runtime/agent_engines/openhands/**",
+      "transport_kind": "http_or_websocket_adapter",
+      "status": "planned_adapter",
+      "capabilities": [
+        "agent_session",
+        "workspace_task_execution",
+        "tool_event_stream",
+        "artifact_collection"
+      ],
+      "health_contract": "adapter reports bounded service/container health and selected workspace scope",
+      "adapter_boundary": "Gateway normalizes OpenHands framework events into InfRing agent runtime events.",
+      "authority_constraints": [
+        "sandbox_required",
+        "no_direct_kernel_write",
+        "no_direct_shell_socket",
+        "capability_budget_required"
+      ]
+    },
+    {
+      "engine_id": "openclaw",
+      "display_name": "OpenClaw",
+      "engine_kind": "external_framework_adapter",
+      "implementation_path": "adapters/runtime/agent_engines/openclaw/**",
+      "transport_kind": "http_or_websocket_adapter",
+      "status": "planned_adapter",
+      "capabilities": [
+        "agent_session",
+        "coding_workflow",
+        "tool_event_stream",
+        "artifact_collection"
+      ],
+      "health_contract": "adapter reports bounded service health and available runtime capabilities",
+      "adapter_boundary": "Gateway normalizes OpenClaw events into InfRing agent runtime events.",
+      "authority_constraints": [
+        "sandbox_required",
+        "no_direct_kernel_write",
+        "no_direct_shell_socket",
+        "capability_budget_required"
+      ]
+    },
+    {
+      "engine_id": "openfang",
+      "display_name": "OpenFang",
+      "engine_kind": "external_framework_adapter",
+      "implementation_path": "adapters/runtime/agent_engines/openfang/**",
+      "transport_kind": "http_or_websocket_adapter",
+      "status": "planned_adapter",
+      "capabilities": [
+        "agent_session",
+        "coding_workflow",
+        "tool_event_stream",
+        "artifact_collection"
+      ],
+      "health_contract": "adapter reports bounded service health and available runtime capabilities",
+      "adapter_boundary": "Gateway normalizes OpenFang events into InfRing agent runtime events.",
+      "authority_constraints": [
+        "sandbox_required",
+        "no_direct_kernel_write",
+        "no_direct_shell_socket",
+        "capability_budget_required"
+      ]
+    },
+    {
+      "engine_id": "custom_socket_engine",
+      "display_name": "Custom Socket Engine",
+      "engine_kind": "external_socket_adapter",
+      "implementation_path": "adapters/runtime/agent_engines/custom_socket_engine/**",
+      "transport_kind": "bounded_websocket_adapter",
+      "status": "planned_adapter",
+      "capabilities": [
+        "agent_session",
+        "normalized_event_stream",
+        "artifact_collection"
+      ],
+      "health_contract": "adapter verifies protocol version, heartbeat, and bounded payload support",
+      "adapter_boundary": "Gateway accepts only the normalized engine protocol subset from custom engines.",
+      "authority_constraints": [
+        "protocol_version_required",
+        "no_direct_kernel_write",
+        "no_direct_shell_socket",
+        "capability_budget_required"
+      ]
+    }
+  ],
+  "first_adapter_recommendation": {
+    "engine_id": "codex_cli",
+    "reason": "Local process adapter is the smallest useful external-engine slice and can prove the Gateway normalization contract before heavier framework/container adapters."
+  }
+}
