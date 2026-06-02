@@ -3894,3 +3894,17 @@ Change tested: extend the Ollama provider compatibility fallback so calls that f
 Evidence: The Level 2 20-run batch after EXP-CODING-173 passed only 5/20. Most failures were `runtime_lane_first_edit_tool_calls_provider_failed` with `provider_unavailable` and `ollama_run_failed:status=1:stderr=... Error: 400 Bad Request`, often in 300-500ms. That indicates provider option incompatibility, not local file-tool failure.
 
 Expected signal: remove fast 400-provider failures while preserving the successful no-thinking behavior where the provider accepts the flags.
+
+### EXP-CODING-175 - Result
+
+Result: positive but incomplete. The provider compatibility patch removed the fast `400 Bad Request` failure class and recovered Level 2 from 5/20 to 14/20 on the same weak-model harness.
+
+Batch: `references/coding-agent-systems/runtime_trace_harness/reports/level2_infring_thinking_flag_bad_request_retry_20x_20260602.json`
+
+Summary:
+- Pass: 14/20
+- Fail: 6/20
+- Failure classes: `no_successful_mutation` 4, `type_error` 1, `assertion_mismatch` 1
+- Average wall time: about 43.5s
+
+Verdict: keep. This is a provider-compatibility primitive, not a task-specific workaround. The next target is not no-thinking flag compatibility; it is first-edit timeout/no-tool-call reliability and semantic closure after mutation.
