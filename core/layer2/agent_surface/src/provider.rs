@@ -181,7 +181,7 @@ impl ProviderClient for OllamaCliProvider {
         let mut stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if !omit_thinking_flags
             && !output.status.success()
-            && stderr.contains("does not support thinking")
+            && ollama_thinking_flags_retryable_stderr(&stderr)
         {
             output = run_ollama_cli_completion(&binary, &model, &full_prompt, true, timeout)?;
             stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -262,7 +262,7 @@ impl ProviderClient for OllamaCliProvider {
             )),
             Err(error)
                 if !omit_thinking_flags
-                    && error.message.contains("does not support thinking") =>
+                    && ollama_thinking_flags_retryable_stderr(&error.message) =>
             {
                 let stream = run_ollama_cli_streaming_completion(
                     &binary,
@@ -494,6 +494,12 @@ fn stream_response_from_output(
         stopped_early: output.stopped_early,
         stop_reason: output.stop_reason,
     }
+}
+
+fn ollama_thinking_flags_retryable_stderr(stderr: &str) -> bool {
+    stderr.contains("does not support thinking")
+        || stderr.contains("400 Bad Request")
+        || stderr.contains("Bad Request")
 }
 
 fn run_ollama_cli_completion(

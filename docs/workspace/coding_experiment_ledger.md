@@ -3886,3 +3886,11 @@ Result: negative and reverted. Level 2 five-run batch with provider `complete()`
 Verdict: revert provider `complete()` streaming integration. Keep EXP-CODING-173 active because it independently improved Level 2 from 3/5 to 4/5 by disabling visible thinking for tool-call micro-lanes.
 
 Report: `references/coding-agent-systems/runtime_trace_harness/reports/level2_infring_provider_stream_until_tool_calls_complete_5x_20260602.json`
+
+### EXP-CODING-175 - Retry no-thinking flag bad requests without thinking flags
+
+Change tested: extend the Ollama provider compatibility fallback so calls that fail with provider-side `400 Bad Request` while no-thinking flags are enabled retry once without those flags. This is a provider primitive, not a coding-task special case: if the model/provider rejects `--hidethinking --think false`, the runtime should fall back to the plain request instead of failing the coding lane before mutation.
+
+Evidence: The Level 2 20-run batch after EXP-CODING-173 passed only 5/20. Most failures were `runtime_lane_first_edit_tool_calls_provider_failed` with `provider_unavailable` and `ollama_run_failed:status=1:stderr=... Error: 400 Bad Request`, often in 300-500ms. That indicates provider option incompatibility, not local file-tool failure.
+
+Expected signal: remove fast 400-provider failures while preserving the successful no-thinking behavior where the provider accepts the flags.
