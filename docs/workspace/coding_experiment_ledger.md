@@ -3992,3 +3992,17 @@ Verdict: do not call this a reliability win. Treat it as a coherence/evidence im
 - Refinement tested: demotion-specific first-edit timeout default cap at `30s`.
 - Refinement result: rejected. 5x fell to `2/5`, average wall time `137.3s`, with two `240s` blowups and worse semantic failures.
 - Verdict: rollback EXP-CODING-179 code. The previous EXP-CODING-178 reliability primitive remains the better checkpoint (`17/20` with known long-tail cost). Next action should target parent recovery loop budget/quality directly, not first-edit timeout shortening.
+
+### EXP-CODING-180: Parent loop semantic probe closeout after manual validation
+
+- Change: parent native auto-validation no longer stops at a successful manual validation command when the project provides `.infring/semantic_probe.py` but no semantic probe closeout receipt exists.
+- Change: a successful combined validation command containing `semantic_probe.py` now counts as semantic closeout evidence.
+- Primitive intent: prevent parent recovery from returning success after tests pass while skipping the project-provided semantic probe. This targets the remaining Level 2 mutated-but-wrong API/behavior failures without fixture-specific logic.
+- Expected signal: reduce `type_error`, `assertion_mismatch`, and `import_surface_missing` escapes where external semantic probe fails after runtime claims success.
+
+#### EXP-CODING-180 result: rejected and rolled back
+
+- Level 2 5x result: `2/5`, average wall time `130.5s`.
+- Failure classes: `no_successful_mutation: 2`, `syntax_error: 1`.
+- Regressions: terminal no-mutation failures returned, two attempts exceeded `190s`, and one attempt entered `partial_timeout` after producing invalid test content.
+- Verdict: rollback. Forcing parent auto-validation to run semantic probe after manual validation is too disruptive in the current loop. The next patch should target parent-loop mutation entry quality/budget before semantic closeout enforcement.
