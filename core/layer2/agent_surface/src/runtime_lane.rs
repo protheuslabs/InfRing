@@ -1441,6 +1441,14 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
         ],
     )
     .unwrap_or(true);
+    let timeout_demotes_to_parent = runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/first_edit_tool_calls_timeout_demotes_to_parent",
+            "/workflow/native_success_criteria/first_edit_tool_calls_timeout_demotes_to_parent",
+        ],
+    )
+    .unwrap_or(true);
     let workspace_root = runtime_lane_extract_workspace_root(prompt)?;
     if !runtime_lane_bounded_existing_project_edit_loop_eligible(
         prompt,
@@ -1504,7 +1512,7 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
             prompt: prompt_text,
             system: Some(runtime_lane_first_edit_tool_calls_system()),
             tools: Vec::new(),
-            model: lane_model,
+            model: lane_model.clone(),
             metadata: json!({
                 "provider_timeout_seconds": timeout_seconds,
                 "provider_stream_until_tool_calls": true,
@@ -1519,6 +1527,11 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
                 .elapsed()
                 .as_millis()
                 .min(u128::from(u64::MAX)) as u64;
+            if timeout_demotes_to_parent
+                && runtime_lane_provider_error_is_timeout(error.code.as_str(), &error.message)
+            {
+                return None;
+            }
             if !strict_diagnostics {
                 return None;
             }
@@ -1568,7 +1581,7 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
             durable_state,
         ));
     }
-    let candidate = DeterministicLocalLoopCandidate {
+    let mut candidate = DeterministicLocalLoopCandidate {
         workspace_root,
         actions,
         requires_validation: false,
@@ -1635,6 +1648,103 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
             state_path,
             durable_state,
         ));
+    }
+    let validation_command =
+        runtime_lane_extract_validation_command(prompt, &candidate.workspace_root);
+    let semantic_probe =
+        runtime_lane_extract_or_default_semantic_probe_command(prompt, &candidate.workspace_root);
+    if validation_command.is_some() || semantic_probe.is_some() {
+        candidate.requires_validation = true;
+        runtime_lane_append_explicit_validation_recheck(
+            &mut receipts,
+            &candidate.workspace_root,
+            validation_command.as_ref(),
+            semantic_probe.as_ref(),
+            "first_edit_tool_calls_recheck",
+        );
+        if let Some(failure) = runtime_lane_semantic_probe_failure(&receipts, None) {
+            let repair_context_pack =
+                runtime_lane_model_manifest_context_pack(prompt, &candidate.workspace_root);
+            let repair_timeout_seconds = runtime_lane_metadata_u64_value(
+                metadata,
+                &[
+                    "/native_success_criteria/first_edit_tool_calls_repair_provider_timeout_seconds",
+                    "/workflow/native_success_criteria/first_edit_tool_calls_repair_provider_timeout_seconds",
+                    "/native_success_criteria/fast_lane_repair_provider_timeout_seconds",
+                    "/workflow/native_success_criteria/fast_lane_repair_provider_timeout_seconds",
+                ],
+            )
+            .unwrap_or(45)
+            .clamp(5, 60);
+            match provider_client.complete(&ProviderRequest {
+                prompt: runtime_lane_model_manifest_semantic_repair_prompt(
+                    prompt,
+                    &candidate.workspace_root,
+                    &repair_context_pack,
+                    &failure,
+                ),
+                system: Some(runtime_lane_bounded_existing_project_edit_loop_system()),
+                tools: Vec::new(),
+                model: lane_model,
+                metadata: json!({
+                    "provider_timeout_seconds": repair_timeout_seconds,
+                    "omit_ollama_thinking_flags": false,
+                    "lane": "first_edit_tool_calls",
+                    "attempt": "post_mutation_semantic_repair",
+                    "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+                }),
+            }) {
+                Ok(repair_response) => {
+                    match runtime_lane_model_manifest_candidate_from_output(
+                        &repair_response.output,
+                        tools,
+                        capability_packs,
+                        permissions,
+                    ) {
+                        Ok(mut repair_candidate) => {
+                            repair_candidate.requires_validation = true;
+                            let mut repair_receipts = runtime_lane_dispatch_model_manifest_actions(
+                                &repair_candidate,
+                                "first_edit_tool_calls_semantic_repair",
+                            );
+                            if repair_receipts
+                                .iter()
+                                .any(runtime_lane_receipt_is_successful_mutation)
+                            {
+                                runtime_lane_append_explicit_validation_recheck(
+                                    &mut repair_receipts,
+                                    &candidate.workspace_root,
+                                    validation_command.as_ref(),
+                                    semantic_probe.as_ref(),
+                                    "first_edit_tool_calls_semantic_repair_recheck",
+                                );
+                            }
+                            receipts.append(&mut repair_receipts);
+                        }
+                        Err(error) => receipts.push(runtime_lane_semantic_repair_failure_receipt(
+                            "first_edit_tool_calls_semantic_repair_parse_failed",
+                            "semantic_repair_parse_failed",
+                            "Semantic repair provider response did not produce a valid deterministic local loop.",
+                            json!({
+                                "lane": "first_edit_tool_calls",
+                                "provider_timeout_seconds": repair_timeout_seconds,
+                                "parse_error": format!("{error:?}"),
+                            }),
+                        )),
+                    }
+                }
+                Err(error) => receipts.push(runtime_lane_semantic_repair_failure_receipt(
+                    "first_edit_tool_calls_semantic_repair_provider_failed",
+                    error.code.as_str(),
+                    "Semantic repair provider call failed.",
+                    json!({
+                        "lane": "first_edit_tool_calls",
+                        "provider_timeout_seconds": repair_timeout_seconds,
+                        "failure_message": error.message,
+                    }),
+                )),
+            }
+        }
     }
     let tool_dispatch_ms = dispatch_started
         .elapsed()

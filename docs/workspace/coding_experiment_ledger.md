@@ -3908,3 +3908,66 @@ Summary:
 - Average wall time: about 43.5s
 
 Verdict: keep. This is a provider-compatibility primitive, not a task-specific workaround. The next target is not no-thinking flag compatibility; it is first-edit timeout/no-tool-call reliability and semantic closure after mutation.
+
+### EXP-CODING-176 - First-edit post-mutation semantic closeout and repair
+
+Change tested: after successful first-edit tool-call mutations, run the declared validation command and semantic probe command using native `command_run` receipts. If a post-mutation validation/semantic command fails, call the existing bounded semantic repair prompt and dispatch its deterministic local-loop repair actions through native receipts, then rerun validation/probe.
+
+Evidence: The Level 2 20-run batch after EXP-CODING-175 reached 14/20. Two failures had successful mutation receipts but failed semantic closure (`type_error` and `assertion_mismatch`) with zero runtime validation/repair receipts. The first-edit lane was returning before the runtime-owned semantic repair machinery used by broader lanes could engage.
+
+Primitive intent: make first-edit a complete bounded edit slice: mutate, validate/probe, repair once if post-mutation semantic evidence fails. This is not fixture-specific and reuses the existing semantic repair prompt, manifest parser, native dispatcher, and receipt model.
+
+Expected signal: reduce semantic-closure failures without hurting no-mutation reliability.
+
+### EXP-CODING-176 - Smoke result
+
+Result: viable smoke. A Level 2 five-run batch produced 4/5 pass with no new failure class. Passing attempts now include runtime-owned validation/probe receipts (`average_validation_command_count=2`) instead of relying only on the external harness to discover semantic failures.
+
+Smoke batch: `references/coding-agent-systems/runtime_trace_harness/reports/level2_infring_first_edit_semantic_closeout_repair_5x_20260602.json`
+
+Next measurement: run the 20x Level 2 batch and compare against the EXP-CODING-175 baseline of 14/20.
+
+### EXP-CODING-176 - 20x result
+
+Result: mixed. The Level 2 20-run batch stayed at 14/20, matching the EXP-CODING-175 pass rate. It removed the prior `assertion_mismatch` class and added runtime-owned validation/probe receipts to successful first-edit runs, but did not improve overall reliability. Remaining failures were `no_successful_mutation` 5 and `type_error` 1. Average wall time rose slightly from about 43.5s to about 45.1s.
+
+Batch: `references/coding-agent-systems/runtime_trace_harness/reports/level2_infring_first_edit_semantic_closeout_repair_20x_20260602.json`
+
+Verdict: do not call this a reliability win. Treat it as a coherence/evidence improvement candidate only. The next reliability target is first-edit provider timeout/no-mutation behavior, not semantic closeout.
+
+### EXP-CODING-177: Ollama JSON format for first mutation tool-call lanes
+
+- Change: enable provider JSON response mode only for first-mutation/tool-call micro lanes via `ollama_format_json`, with provider fallback to normal completion if the flag is rejected.
+- Primitive intent: reduce malformed/non-mutating first-edit responses without adding test-case-specific behavior.
+- Scope guard: keep JSON mode out of broad planning/checkpoint lanes unless later evidence shows those lanes are also JSON-only.
+- Test plan: build `xtask`, then run Level 2 5x. If it worsens pass rate or introduces provider-format failures, revert this experiment.
+
+#### EXP-CODING-177 result: rejected and rolled back
+
+- Level 2 5x result: `4/5`, average wall time `31.9s`, failure class `no_successful_mutation: 1`.
+- Level 2 20x result: `11/20`, average wall time `43.0s`, failure classes `no_successful_mutation: 8`, `assertion_mismatch: 1`.
+- Verdict: reject JSON-mode provider formatting as a default first-mutation primitive. It produced a small-sample speed win but worsened 20-run reliability versus the prior `14/20` baseline.
+- Rollback: removed `ollama_format_json` lane metadata and provider `--format json` handling. Keep the lesson: the remaining failure is provider timeout/no mutation, not generic malformed JSON.
+
+### EXP-CODING-178: First-edit provider timeout demotes to parent lane
+
+- Change: add `first_edit_tool_calls_timeout_demotes_to_parent` with default `true`.
+- Primitive intent: match reference-framework timeout handling by treating provider timeout as a structured control event that permits the next declared coding lane, instead of fail-closing the whole run before mutation recovery can start.
+- Scope guard: only provider timeout demotes. Non-timeout provider errors, malformed tool-call output, and no-successful-mutation receipts still use strict diagnostics.
+- Expected impact: reduce `runtime_lane_first_edit_tool_calls_provider_failed` terminal failures without changing task-specific behavior.
+- Test plan: build `xtask`, then run Level 2 5x. If this broadens into slow fallback failures or lowers pass rate, revert.
+
+#### EXP-CODING-178 smoke result
+
+- Level 2 5x result: `4/5`, average wall time `27.8s`.
+- Failure classes: `assertion_mismatch: 1`.
+- Delta versus recent 5x samples: preserved pass rate, removed `no_successful_mutation` from the smoke sample, and lowered average latency.
+- Decision: promising enough for a 20-run confirmation before commit.
+
+#### EXP-CODING-178 20-run result
+
+- Level 2 20x result: `17/20`, average wall time `54.2s`.
+- Failure classes: `assertion_mismatch: 1`, `import_surface_missing: 1`, `type_error: 1`.
+- Positive delta: previous comparable baseline was `14/20`; terminal `runtime_lane_first_edit_tool_calls_provider_failed` / `no_successful_mutation` failures were removed from this batch.
+- Cost: average wall time increased from the prior `43.5s` band, with one long-tail `159.6s` attempt that failed the fast budget.
+- Verdict: keep as a reliability primitive, but next optimization target is bounding the demoted-parent long tail without reintroducing terminal no-mutation failures.
