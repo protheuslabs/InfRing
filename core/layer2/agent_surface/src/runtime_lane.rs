@@ -1449,6 +1449,14 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
         ],
     )
     .unwrap_or(true);
+    let empty_response_demotes_to_parent = runtime_lane_metadata_bool(
+        metadata,
+        &[
+            "/native_success_criteria/first_edit_tool_calls_empty_demotes_to_parent",
+            "/workflow/native_success_criteria/first_edit_tool_calls_empty_demotes_to_parent",
+        ],
+    )
+    .unwrap_or(true);
     let workspace_root = runtime_lane_extract_workspace_root(prompt)?;
     if !runtime_lane_bounded_existing_project_edit_loop_eligible(
         prompt,
@@ -1508,7 +1516,7 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
     let execution_shape_gate_ms =
         gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let model_started = Instant::now();
-    let provider_response = match provider_client.complete(&ProviderRequest {
+    let provider_response = match provider_client.stream_complete(&ProviderRequest {
             prompt: prompt_text,
             system: Some(runtime_lane_first_edit_tool_calls_system()),
             tools: Vec::new(),
@@ -1516,12 +1524,12 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
             metadata: json!({
                 "provider_timeout_seconds": timeout_seconds,
                 "provider_stream_until_tool_calls": true,
-                "omit_ollama_thinking_flags": false,
+                "omit_ollama_thinking_flags": true,
                 "lane": "first_edit_tool_calls",
                 "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
             }),
         }) {
-        Ok(response) => response,
+        Ok(stream) => stream.response,
         Err(error) => {
             let model_call_ms = model_started
                 .elapsed()
@@ -1562,6 +1570,9 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
         .filter_map(|call| runtime_lane_first_edit_tool_call_action(&call, &workspace_root))
         .collect::<Vec<_>>();
     if actions.is_empty() {
+        if empty_response_demotes_to_parent {
+            return None;
+        }
         if !strict_diagnostics {
             return None;
         }

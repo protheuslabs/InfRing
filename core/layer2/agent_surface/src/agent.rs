@@ -1342,6 +1342,7 @@ impl AgentContract {
                 if validation_guided_compact_repair_turn
                     || mutation_only_recovery_turn
                     || compact_action_controller_turn
+                    || seeded_multi_requirement_edit_only_first_batch
                 {
                     object.insert("omit_ollama_thinking_flags".to_string(), json!(true));
                 }
@@ -1397,6 +1398,15 @@ impl AgentContract {
                         },
                         &mutation_packet,
                     )
+                } else if seeded_multi_requirement_edit_only_first_batch {
+                    let mutation_packet =
+                        native_tool_mutation_entry_packet(&self.metadata, &self.initial_prompt, &all_receipts);
+                    native_tool_mutation_only_recovery_prompt(
+                        &self.metadata,
+                        &self.initial_prompt,
+                        "seeded_multi_requirement_edit_only_first_batch",
+                        &mutation_packet,
+                    )
                 } else if mutation_only_recovery_turn {
                     let mutation_packet =
                         native_tool_mutation_entry_packet(&self.metadata, &self.initial_prompt, &all_receipts);
@@ -1440,7 +1450,10 @@ impl AgentContract {
                 native_tool_validation_guided_compact_repair_system()
             } else if compact_action_controller_turn {
                 native_tool_compact_action_controller_system()
-            } else if mutation_only_recovery_turn || compact_bootstrap_mutation_turn {
+            } else if mutation_only_recovery_turn
+                || compact_bootstrap_mutation_turn
+                || seeded_multi_requirement_edit_only_first_batch
+            {
                 native_tool_mutation_only_recovery_system()
             } else if first_edit_batch_turn {
                 native_tool_first_edit_batch_system()
@@ -1455,7 +1468,10 @@ impl AgentContract {
                 native_tool_mutation_recovery_tools(&self.metadata, tools)
             } else if compact_action_controller_turn {
                 native_tool_compact_action_controller_tools(tools)
-            } else if mutation_only_recovery_turn || compact_bootstrap_mutation_turn {
+            } else if mutation_only_recovery_turn
+                || compact_bootstrap_mutation_turn
+                || seeded_multi_requirement_edit_only_first_batch
+            {
                 native_tool_mutation_recovery_tools(&self.metadata, tools)
             } else if first_edit_batch_turn {
                 native_tool_bounded_fast_edit_preflight_tools(tools)

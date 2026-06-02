@@ -306,6 +306,7 @@
     "first_mutation_artifact_lane_v1_enabled": true,
     "first_edit_tool_calls_lane_enabled": true,
     "first_edit_tool_calls_provider_timeout_seconds": 60,
+    "first_edit_tool_calls_empty_demotes_to_parent": true,
     "direct_existing_project_mutation_entry_enabled": true,
       "first_mutation_artifact_lane_v1_provider_timeout_seconds": 15,
       "post_validation_closure_controller_enabled": true,
