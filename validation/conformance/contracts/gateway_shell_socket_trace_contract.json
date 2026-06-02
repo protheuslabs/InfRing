@@ -1,0 +1,99 @@
+{
+  "type": "gateway_shell_socket_trace_contract",
+  "version": 1,
+  "owner_domain": "validation",
+  "observability_owner": "observability.traces",
+  "purpose": "Ensure shell-socket Gateway bridge modules preserve the universal trace spine while keeping Shell projection and ingress authority outside the fragile legacy Shell.",
+  "trace_identity_rule": {
+    "single_trace_id": "Every shell-socket Gateway bridge must preserve the incoming trace_id when present and emit the same trace_id in every response payload and nested gateway metadata envelope.",
+    "gateway_mints_only_at_boundary": "Gateway code may mint a trace_id only at the initial Gateway boundary when one is missing; bridge modules must not fork or replace a supplied trace_id."
+  },
+  "required_common_fields": [
+    "trace_id",
+    "route_id",
+    "capability_id",
+    "gateway_owner"
+  ],
+  "projection_bridge_requirements": {
+    "required_response_field": "gateway_projection",
+    "required_metadata_fields": [
+      "trace_id",
+      "route_id",
+      "capability_id",
+      "route_class",
+      "projection_owner",
+      "gateway_owner",
+      "bounded"
+    ],
+    "forbidden_authority_shape": [
+      "raw_tool_result",
+      "trace_body",
+      "workflow_graph",
+      "execution_observation"
+    ]
+  },
+  "ingress_bridge_requirements": {
+    "required_body_field": "gateway_ingress",
+    "required_metadata_fields": [
+      "trace_id",
+      "route_id",
+      "capability_id",
+      "route_class",
+      "gateway_owner",
+      "authority_owner"
+    ],
+    "max_default_request_bytes": 65536,
+    "forbidden_raw_context_fields": [
+      "raw",
+      "raw_context",
+      "raw_messages",
+      "raw_transcript",
+      "conversation_tree",
+      "trace_body",
+      "workflow_graph",
+      "plan_graph",
+      "execution_observation",
+      "raw_tool_input",
+      "raw_tool_result"
+    ]
+  },
+  "bridge_modules": [
+    {
+      "id": "chat_projection",
+      "path": "adapters/runtime/shell_socket_chat_projection.ts",
+      "kind": "projection",
+      "expected_metadata_envelope": "gateway_projection"
+    },
+    {
+      "id": "status_projection",
+      "path": "adapters/runtime/shell_socket_status_projection.ts",
+      "kind": "projection",
+      "expected_metadata_envelope": "gateway_projection"
+    },
+    {
+      "id": "command_ingress",
+      "path": "adapters/runtime/shell_socket_command_ingress.ts",
+      "kind": "ingress",
+      "expected_metadata_envelope": "gateway_ingress"
+    },
+    {
+      "id": "eval_issue_ingress",
+      "path": "adapters/runtime/shell_socket_eval_issue_ingress.ts",
+      "kind": "ingress",
+      "expected_metadata_envelope": "gateway_ingress"
+    },
+    {
+      "id": "lifecycle_ingress",
+      "path": "adapters/runtime/shell_socket_lifecycle_ingress.ts",
+      "kind": "ingress",
+      "expected_metadata_envelope": "gateway_ingress"
+    }
+  ],
+  "acceptance_criteria": [
+    "Every declared bridge module exists.",
+    "Every declared bridge module emits trace_id.",
+    "Projection bridge modules emit gateway_projection metadata with route_id, capability_id, projection_owner, gateway_owner, and bounded=true.",
+    "Ingress bridge modules emit gateway_ingress metadata with route_id, capability_id, authority_owner, gateway_owner, and request byte budgeting.",
+    "Bridge modules must not introduce raw trace, workflow, execution observation, or raw tool payload fields into default Shell socket responses."
+  ]
+}
