@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T18:18:44.751Z
+Updated: 2026-06-02T18:33:52.770Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T18:18:44.751Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `ARTENG-INFRING-NATIVE` — Wrap Orchestration as infring_native runtime engine
+  completed_at: `2026-06-02T18:33:52.769Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-23`
+  source_family: `Agent Runtime Engine Socket Architecture`
+  summary: Expose orchestration/** as engine_id infring_native with the same start_session, submit_turn, stream_events, cancel, collect_artifacts, health_check, and emit_receipts contract used by external engines; do not physically restructure orchestration yet.
+  completion_note: Wrapped orchestration/** as engine_id infring_native through a Gateway adapter seam that implements the normalized runtime-engine interface and reports not_connected until a live orchestration client is attached; added router streamEvents support.
 - `ARTENG-GATEWAY-ROUTER` — Add Gateway agent runtime router seam
   completed_at: `2026-06-02T18:18:44.749Z`
   previous_section: `yellow`

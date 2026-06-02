@@ -34,7 +34,7 @@
       "engine_kind": "native_orchestration",
       "implementation_path": "orchestration/**",
       "transport_kind": "internal_gateway_adapter",
-      "status": "planned_wrapper",
+      "status": "adapter_seam_ready",
       "capabilities": [
         "planning",
         "workflow_execution",

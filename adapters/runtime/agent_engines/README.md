@@ -23,10 +23,16 @@ Shell
 Current router seam:
 
 - `agent_runtime_router.ts`
+- `infring_native.ts`
 
 The router loads the canonical registry, selects by `engine_id`, requires
 `trace_id`, dispatches only to registered adapters, and rejects forbidden default
 payload fields before events can become Gateway projections.
+
+The native adapter exposes `orchestration/**` as `engine_id: infring_native`
+through the same adapter methods as external engines. It does not move
+orchestration code and does not fabricate live dispatch; Gateway wiring must
+inject an orchestration client before `start_session` or `submit_turn` can run.
 
 ## Native engine
 

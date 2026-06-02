@@ -217,6 +217,9 @@ function createAgentRuntimeRouter(options = {}) {
     submitTurn(message) {
       return callAdapter(message, 'submit_turn', 'turn.complete');
     },
+    streamEvents(message) {
+      return callAdapter(message, 'stream_events', 'heartbeat');
+    },
     cancelTurn(message) {
       return callAdapter(message, 'cancel_turn', 'turn.cancelled');
     },

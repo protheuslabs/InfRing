@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T18:18:44.751Z
+Updated: 2026-06-02T18:33:52.770Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-02T18:18:44.751Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 28
+- active_items: 27
 - red: 6
-- yellow: 13
+- yellow: 12
 - white: 9
 
 ## Red Section (Do Immediately)
@@ -127,13 +127,6 @@ Updated: 2026-06-02T18:18:44.751Z
   work_gate: `real_work`
   real_work_score: `5`
   summary: Build the workflow utility spine so the system is useful for real work after Shell de-authority.
-- `ARTENG-INFRING-NATIVE` — Wrap Orchestration as infring_native runtime engine
-  owner: `codex`
-  deadline: `2026-06-23`
-  source_family: `Agent Runtime Engine Socket Architecture`
-  work_gate: `real_work`
-  real_work_score: `5`
-  summary: Expose orchestration/** as engine_id infring_native with the same start_session, submit_turn, stream_events, cancel, collect_artifacts, health_check, and emit_receipts contract used by external engines; do not physically restructure orchestration yet.
 - `ARTENG-EXTERNAL-ADAPTER-FIRST` — Implement first external agent runtime adapter
   owner: `codex`
   deadline: `2026-06-27`

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T18:18:44.751Z",
+  "updated_at": "2026-06-02T18:33:52.770Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -265,17 +265,6 @@
       "summary": "Live split-debt artifacts are classified, but decomposition is blocked until the outside-lane dashboard compat compile blocker is fixed so owner-scoped renames can be validated.",
       "work_gate": "simplification",
       "real_work_score": 3
-    },
-    {
-      "id": "ARTENG-INFRING-NATIVE",
-      "title": "Wrap Orchestration as infring_native runtime engine",
-      "section": "yellow",
-      "owner": "codex",
-      "deadline": "2026-06-23",
-      "source_family": "Agent Runtime Engine Socket Architecture",
-      "summary": "Expose orchestration/** as engine_id infring_native with the same start_session, submit_turn, stream_events, cancel, collect_artifacts, health_check, and emit_receipts contract used by external engines; do not physically restructure orchestration yet.",
-      "work_gate": "real_work",
-      "real_work_score": 5
     },
     {
       "id": "ARTENG-EXTERNAL-ADAPTER-FIRST",
