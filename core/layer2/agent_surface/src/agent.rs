@@ -611,6 +611,7 @@ impl AgentContract {
                     native_tool_seeded_multi_requirement_edit_only_first_batch_enabled(
                         &self.metadata,
                     )
+                    && !native_tool_first_edit_tool_calls_demoted_after_provider_budget(&self.metadata)
                     && seeded_multi_requirement_edit_only_seed_max_symbol_count
                         >= seeded_multi_requirement_edit_only_min_seed_symbols;
                 let default_bootstrap_rule = if seeded_multi_requirement_edit_only_first_batch {
@@ -1262,6 +1263,7 @@ impl AgentContract {
                 native_tool_python_import_surface_seed_max_symbol_count(&all_receipts);
             let seeded_multi_requirement_edit_only_first_batch =
                 native_tool_seeded_multi_requirement_edit_only_first_batch_enabled(&self.metadata)
+                    && !native_tool_first_edit_tool_calls_demoted_after_provider_budget(&self.metadata)
                     && seeded_multi_requirement_edit_only_seed_max_symbol_count
                         >= seeded_multi_requirement_edit_only_min_seed_symbols
                     && provider_call_count <= 1
@@ -1323,6 +1325,8 @@ impl AgentContract {
             }
             let seed_prepared_high_fanout_implementation_turn =
                 !seeded_multi_requirement_edit_only_first_batch
+                    && !native_tool_first_edit_tool_calls_demoted_after_provider_budget(&self.metadata)
+                    && provider_call_count <= 1
                     && native_tool_python_import_surface_seed_source_receipt_count(&all_receipts)
                     >= native_tool_seed_prepared_high_fanout_min_source_seed_receipts(
                         &self.metadata,
@@ -1335,6 +1339,17 @@ impl AgentContract {
             if seed_prepared_high_fanout_implementation_turn {
                 provider_turn_timeout_seconds =
                     native_tool_seed_prepared_high_fanout_provider_timeout_seconds(&self.metadata);
+            }
+            if native_tool_first_edit_tool_calls_demoted_after_provider_budget(&self.metadata)
+                && !validation_guided_compact_repair_turn
+                && !mutation_only_recovery_turn
+                && !seeded_multi_requirement_edit_only_first_batch
+                && !seeded_import_surface_repair_turn
+            {
+                provider_turn_timeout_seconds =
+                    native_tool_first_edit_tool_calls_demotion_repair_provider_timeout_seconds(
+                        &self.metadata,
+                    );
             }
             if native_tool_first_receipt_watchdog_enabled(&self.metadata, &self.initial_prompt)
                 && provider_call_count <= 1
@@ -1353,6 +1368,9 @@ impl AgentContract {
                     || mutation_only_recovery_turn
                     || compact_action_controller_turn
                     || seeded_multi_requirement_edit_only_first_batch
+                    || native_tool_first_edit_tool_calls_demoted_after_provider_budget(
+                        &self.metadata,
+                    )
                 {
                     object.insert("omit_ollama_thinking_flags".to_string(), json!(true));
                 }
@@ -2209,6 +2227,12 @@ impl AgentContract {
                         );
                         mutation_only_recovery_pending = true;
                         mutation_only_recovery_reason = Some(reason);
+                        if bounded_direct_edit_task {
+                            next_provider_timeout_seconds =
+                                Some(native_tool_bounded_patch_artifact_retry_provider_timeout_seconds(
+                                    &self.metadata,
+                                ));
+                        }
                     }
                     last_response = Some(response);
                     continue;
@@ -4050,6 +4074,31 @@ fn native_tool_seeded_multi_requirement_edit_only_first_batch_enabled(metadata: 
         .and_then(|value| value.get("seeded_multi_requirement_edit_only_first_batch_enabled"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
+}
+
+fn native_tool_first_edit_tool_calls_demoted_after_provider_budget(metadata: &Value) -> bool {
+    metadata
+        .get("native_success_criteria")
+        .or_else(|| metadata.pointer("/workflow/native_success_criteria"))
+        .and_then(|value| value.get("first_edit_tool_calls_demoted_after_provider_budget"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn native_tool_first_edit_tool_calls_demotion_repair_provider_timeout_seconds(
+    metadata: &Value,
+) -> u64 {
+    native_tool_success_criteria_u64(
+        metadata,
+        "first_edit_tool_calls_demotion_repair_provider_timeout_seconds",
+    )
+    .or_else(|| {
+        native_tool_success_criteria_u64(metadata, "first_edit_tool_calls_repair_provider_timeout_seconds")
+    })
+    .or_else(|| native_tool_success_criteria_u64(metadata, "fast_lane_repair_provider_timeout_seconds"))
+    .or_else(|| native_tool_success_criteria_u64(metadata, "mutation_only_recovery_provider_timeout_seconds"))
+    .unwrap_or(15)
+    .clamp(5, 30)
 }
 
 fn native_tool_seeded_multi_requirement_edit_only_provider_timeout_seconds(metadata: &Value) -> u64 {

@@ -473,6 +473,28 @@ pub fn run_runtime_lane_with_registry(
     }
     let first_edit_tool_calls_probe_ms =
         first_edit_tool_calls_probe_started.elapsed().as_millis() as u64;
+    let mut agent_metadata = metadata.clone();
+    let first_edit_tool_calls_demotion_marker_ms = runtime_lane_metadata_u64_value(
+        &metadata,
+        &[
+            "/native_success_criteria/first_edit_tool_calls_demotion_marker_ms",
+            "/workflow/native_success_criteria/first_edit_tool_calls_demotion_marker_ms",
+        ],
+    )
+    .unwrap_or(10_000)
+    .clamp(1_000, 60_000);
+    if first_edit_tool_calls_probe_ms >= first_edit_tool_calls_demotion_marker_ms {
+        runtime_lane_set_native_success_criteria_value(
+            &mut agent_metadata,
+            "first_edit_tool_calls_demoted_after_provider_budget",
+            json!(true),
+        );
+        runtime_lane_set_native_success_criteria_value(
+            &mut agent_metadata,
+            "first_edit_tool_calls_demoted_probe_ms",
+            json!(first_edit_tool_calls_probe_ms),
+        );
+    }
 
     let public_api_extension_probe_started = Instant::now();
     if let Some(response) = runtime_lane_try_public_api_extension_lane(
@@ -587,7 +609,7 @@ pub fn run_runtime_lane_with_registry(
             &initial_prompt,
         provider.as_deref(),
         model.as_ref(),
-        &metadata,
+        &agent_metadata,
         &tools,
         &bootstrap_receipts,
         providers,
@@ -599,12 +621,12 @@ pub fn run_runtime_lane_with_registry(
         initial_prompt.clone()
     };
     let agent_initial_prompt =
-        runtime_lane_apply_agent_loop_public_api_contract_prompt(&metadata, agent_initial_prompt);
+        runtime_lane_apply_agent_loop_public_api_contract_prompt(&agent_metadata, agent_initial_prompt);
     let checkpointed_recovery_provider = provider.clone();
     let checkpointed_recovery_model = model.clone();
     let mut builder = AgentBuilder::new(name)
         .initial_prompt(agent_initial_prompt)
-        .metadata(metadata.clone());
+        .metadata(agent_metadata.clone());
     if let Some(value) = preamble {
         builder = builder.preamble(value);
     }
@@ -1804,6 +1826,28 @@ fn runtime_lane_metadata_u64_value(metadata: &Value, pointers: &[&str]) -> Optio
         }
     }
     None
+}
+
+fn runtime_lane_set_native_success_criteria_value(
+    metadata: &mut Value,
+    key: &str,
+    value: Value,
+) {
+    if !metadata.is_object() {
+        *metadata = json!({});
+    }
+    let Some(object) = metadata.as_object_mut() else {
+        return;
+    };
+    let criteria = object
+        .entry("native_success_criteria".to_string())
+        .or_insert_with(|| json!({}));
+    if !criteria.is_object() {
+        *criteria = json!({});
+    }
+    if let Some(criteria_object) = criteria.as_object_mut() {
+        criteria_object.insert(key.to_string(), value);
+    }
 }
 
 fn runtime_lane_first_edit_tool_calls_system() -> String {
