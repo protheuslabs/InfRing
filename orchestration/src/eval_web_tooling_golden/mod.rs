@@ -1,5 +1,7 @@
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::process;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::eval_research_golden_scoring::{grade_case, response_diagnostics};
 use super::eval_research_golden_utils::{
@@ -75,6 +77,10 @@ pub fn run_web_tooling_golden(args: &[String]) -> i32 {
         super::parse_flag(args, "base-url").unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
     let timeout_seconds = super::parse_u64_flag(args, "timeout-seconds", 90).clamp(1, 600);
     let limit = super::parse_u64_flag(args, "limit", u64::MAX) as usize;
+    let requested_sample_size = super::parse_u64_flag(args, "sample-size", 0) as usize;
+    let requested_sample_seed = super::parse_flag(args, "sample-seed")
+        .map(|raw| clean_text(&raw, 120))
+        .filter(|raw| !raw.is_empty());
     let default_tool = clean_text(
         &super::parse_flag(args, "tool").unwrap_or_else(|| "batch_query".to_string()),
         80,
@@ -112,12 +118,18 @@ pub fn run_web_tooling_golden(args: &[String]) -> i32 {
         .as_deref()
         .map(load_request_pack_index)
         .unwrap_or_default();
+    let (selected_cases, case_selection) = select_tooling_cases(
+        &cases,
+        (requested_sample_size > 0).then_some(requested_sample_size),
+        requested_sample_seed.as_deref(),
+        limit,
+    );
 
     let mut rows = Vec::<Value>::new();
     let mut web_gate_pass_counts: BTreeMap<String, u64> = BTreeMap::new();
     let mut web_gate_total_counts: BTreeMap<String, u64> = BTreeMap::new();
     let mut transport_failures = 0_u64;
-    for case in cases.iter().take(limit) {
+    for case in selected_cases.iter().take(limit) {
         let case_id = str_at(case, &["id"], "unknown_case");
         let prompt = str_at(case, &["prompt"], "");
         let request_pack =
@@ -247,6 +259,7 @@ pub fn run_web_tooling_golden(args: &[String]) -> i32 {
         "web_tool_gate_metrics": web_tool_gate_metrics,
         "cases": rows,
         "setup_failures": setup_failures,
+        "case_selection": case_selection,
         "sources": {
             "cases": cases_path,
             "request_packs_from": request_packs_path,
@@ -266,4 +279,133 @@ pub fn run_web_tooling_golden(args: &[String]) -> i32 {
         return 1;
     }
     0
+}
+
+fn select_tooling_cases(
+    cases: &[Value],
+    requested_sample_size: Option<usize>,
+    requested_seed: Option<&str>,
+    limit: usize,
+) -> (Vec<Value>, Value) {
+    let pool_size = cases.len();
+    let requested_sample_size = requested_sample_size
+        .filter(|size| *size > 0)
+        .map(|size| size.min(pool_size));
+    let requested_seed = requested_seed
+        .map(|raw| clean_text(raw, 120))
+        .filter(|raw| !raw.is_empty());
+    let effective_sample_size = requested_sample_size.unwrap_or(pool_size);
+    let selection_applied = effective_sample_size < pool_size || requested_seed.is_some();
+    let effective_seed = selection_applied.then(|| {
+        requested_seed
+            .clone()
+            .unwrap_or_else(runtime_random_sample_seed)
+    });
+    let selected_cases = if let Some(seed) = effective_seed.as_deref() {
+        let mut ranked = cases
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(ordinal, case)| {
+                let case_id = clean_text(&str_at(&case, &["id"], ""), 160);
+                (case_selection_hash(seed, &case_id, ordinal), ordinal, case)
+            })
+            .collect::<Vec<_>>();
+        ranked.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
+        ranked
+            .into_iter()
+            .take(effective_sample_size)
+            .map(|(_, _, case)| case)
+            .collect::<Vec<_>>()
+    } else {
+        cases.to_vec()
+    };
+    let selected_case_ids = selected_cases
+        .iter()
+        .map(|case| clean_text(&str_at(case, &["id"], ""), 160))
+        .collect::<Vec<_>>();
+    (
+        selected_cases.clone(),
+        json!({
+            "selection_applied": selection_applied,
+            "selection_mode": if selection_applied {
+                if requested_seed.is_some() {
+                    "deterministic_seeded_sample"
+                } else {
+                    "runtime_random_recorded_sample"
+                }
+            } else {
+                "full_dataset_order"
+            },
+            "pool_size": pool_size,
+            "requested_sample_size": requested_sample_size,
+            "effective_sample_size": selected_cases.len(),
+            "requested_sample_seed": requested_seed,
+            "effective_sample_seed": effective_seed,
+            "limit_requested": limit,
+            "planned_execution_count": selected_cases.iter().take(limit).count(),
+            "selected_case_ids": selected_case_ids,
+            "selected_category_counts": selected_case_counts(&selected_cases, "category"),
+            "selected_tag_counts": selected_case_counts(&selected_cases, "tag")
+        }),
+    )
+}
+
+fn runtime_random_sample_seed() -> String {
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let raw = format!("web_tooling_golden:{now_nanos}:{}", process::id());
+    format!("random:{}", stable_hash_hex(&raw))
+}
+
+fn case_selection_hash(seed: &str, case_id: &str, ordinal: usize) -> String {
+    stable_hash_hex(&format!("{seed}\n{case_id}\n{ordinal}"))
+}
+
+fn stable_hash_hex(raw: &str) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in raw.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn selected_case_counts(cases: &[Value], key: &str) -> Vec<Value> {
+    let mut counts = BTreeMap::<String, u64>::new();
+    for case in cases {
+        let values = match key {
+            "category" => vec![str_at(case, &["category"], "")],
+            "tag" => case
+                .get("tags")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(|raw| raw.to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        for value in values {
+            let cleaned = clean_text(&value, 120);
+            if cleaned.is_empty() {
+                continue;
+            }
+            *counts.entry(cleaned).or_insert(0) += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(name, count)| {
+            json!({
+                key: name,
+                "count": count
+            })
+        })
+        .collect()
 }

@@ -314,13 +314,21 @@ mod tests {
     fn search_payload_prefers_result_link_locator_over_search_engine_request_url() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let query = "current ai agent framework benchmarks latency throughput";
+        let source_url = "https://artificialanalysis.ai/benchmarks/agent-frameworks";
         let out = with_fixture(
             json!({
                 query: {
                     "ok": true,
                     "summary": "Independent benchmark run reports median latency 820ms and throughput 48 tokens/s.",
                     "requested_url": "https://www.bing.com/search?q=current+ai+agent+framework+benchmarks+latency+throughput&format=rss&setlang=en-US",
-                    "links": ["https://artificialanalysis.ai/benchmarks/agent-frameworks"],
+                    "links": [source_url],
+                    "status_code": 200
+                },
+                format!("primary::{source_url}"): {
+                    "ok": true,
+                    "summary": "Artificial Analysis published a current AI agent framework benchmark page in May 2026. The benchmark reports median latency of 820ms and throughput of 48 tokens/s, and explains that the comparison uses measured framework runs rather than generic vendor claims.",
+                    "requested_url": source_url,
+                    "resolved_url": source_url,
                     "status_code": 200
                 }
             }),
@@ -331,7 +339,11 @@ mod tests {
                 )
             },
         );
-        assert_eq!(out.get("status").and_then(Value::as_str), Some("ok"));
+        assert_eq!(
+            out.get("status").and_then(Value::as_str),
+            Some("ok"),
+            "{out:#}"
+        );
         let locator = out
             .get("evidence_refs")
             .and_then(Value::as_array)
@@ -344,6 +356,84 @@ mod tests {
             "locator={locator}"
         );
         assert!(!locator.contains("bing.com/search"), "locator={locator}");
+    }
+
+    #[test]
+    fn provider_side_links_are_fetched_into_packaged_evidence_when_search_summary_is_thin() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let query = "scientific breakthroughs april 2026";
+        let source_url =
+            "https://www.cas.org/resources/cas-insights/scientific-breakthroughs-2026-emerging-trends-watch";
+        let out = with_fixture(
+            json!({
+                query: {
+                    "ok": true,
+                    "provider": "exa",
+                    "source_kind": "exa_api_search_result",
+                    "summary": "Search returned mixed provider previews and needs direct page extraction.",
+                    "requested_url": "https://api.example.test/search",
+                    "links": [
+                        source_url,
+                        "https://example.com/unrelated-directory"
+                    ],
+                    "status_code": 200
+                },
+                format!("primary::{source_url}"): {
+                    "ok": true,
+                    "summary": "CAS highlights scientific breakthroughs and emerging research trends to watch in 2026, including advances in AI-enabled discovery, materials research, biotechnology, and climate-focused chemistry.",
+                    "requested_url": source_url,
+                    "resolved_url": source_url,
+                    "status_code": 200
+                }
+            }),
+            || {
+                api_batch_query(
+                    tmp.path(),
+                    &json!({"source":"web","query":query,"aperture":"small"}),
+                )
+            },
+        );
+        assert_ne!(
+            out.get("status").and_then(Value::as_str),
+            Some("no_results"),
+            "{out:#}"
+        );
+        let evidence = out
+            .get("evidence_refs")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            evidence.iter().any(|row| {
+                row.get("locator")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .contains("cas.org")
+            }),
+            "{out:#}"
+        );
+        assert!(
+            out.get("evidence_pack")
+                .and_then(Value::as_array)
+                .map(|rows| !rows.is_empty())
+                .unwrap_or(false),
+            "{out:#}"
+        );
+    }
+
+    #[test]
+    fn page_extraction_prefetch_ignores_evidence_instruction_scaffold_terms() {
+        let query = "source-backed scientific breakthroughs or notable research milestones from April 2026? Separate confirmed findings from early or preliminary claims";
+        let source_url =
+            "https://www.cas.org/resources/cas-insights/scientific-breakthroughs-2026-emerging-trends-watch";
+        let context = "Scientific breakthroughs: 2026 emerging trends to watch - https://www.cas.org/resources/cas-insights/scientific-breakthroughs-2026-emerging-trends-watch - CAS summarizes emerging research trends to watch in 2026 with source-backed scientific breakthrough evidence.";
+
+        assert_eq!(
+            page_extraction_link_preflight_rejection_reason_with_context(
+                query, source_url, context
+            ),
+            None
+        );
     }
 
     #[test]
@@ -909,5 +999,54 @@ mod tests {
         assert!(lowered.contains("anti-bot challenge"));
         assert!(!lowered.contains("select all squares containing"));
         assert!(!lowered.contains("duckduckgo duckduckgo"));
+    }
+
+    #[test]
+    fn quota_or_circuit_block_skips_generated_second_pass_recovery() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let query = "compare remote meeting overload reduction strategies";
+        let out = with_fixture(
+            json!({
+                query: {
+                    "ok": false,
+                    "provider": "exa",
+                    "error": "provider_circuit_open:exa_provider_quota_exceeded_or_billing_required_http_402",
+                    "summary": "Search provider is temporarily unavailable because its circuit breaker is open."
+                }
+            }),
+            || {
+                api_batch_query(
+                    tmp.path(),
+                    &json!({"source":"web","query":query,"aperture":"small"}),
+                )
+            },
+        );
+
+        assert_eq!(
+            out.get("status").and_then(Value::as_str),
+            Some("no_results")
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/reason")
+                .and_then(Value::as_str),
+            Some("provider_access_or_budget_blocked")
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/queries")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(0)
+        );
+        assert!(out
+            .get("partial_failure_details")
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter().any(|row| {
+                    row.as_str()
+                        .unwrap_or("")
+                        .contains("provider_access_or_budget_blocked")
+                })
+            })
+            .unwrap_or(false));
     }
 }

@@ -53,6 +53,10 @@ pub(super) fn web_retrieval_measurement_report(
     let mut concrete_claim_count_total = 0_u64;
     let mut citation_ready_claim_count_total = 0_u64;
     let mut quality_claim_count_total = 0_u64;
+    let mut handoff_claim_count_total = 0_u64;
+    let mut handoff_concrete_claim_count_total = 0_u64;
+    let mut handoff_low_quality_claim_count_total = 0_u64;
+    let mut handoff_citation_ready_claim_count_total = 0_u64;
     for row in measured_rows {
         let gate = row
             .pointer("/web_tool_gate_diagnostics/first_failed_gate")
@@ -322,6 +326,49 @@ pub(super) fn web_retrieval_measurement_report(
             ],
             0,
         ));
+        handoff_claim_count_total = handoff_claim_count_total.saturating_add(u64_at(
+            row,
+            &[
+                "web_tool_gate_diagnostics",
+                "operator_metrics",
+                "evidence_quality",
+                "handoff_claim_count",
+            ],
+            0,
+        ));
+        handoff_concrete_claim_count_total =
+            handoff_concrete_claim_count_total.saturating_add(u64_at(
+                row,
+                &[
+                    "web_tool_gate_diagnostics",
+                    "operator_metrics",
+                    "evidence_quality",
+                    "handoff_concrete_claim_count",
+                ],
+                0,
+            ));
+        handoff_low_quality_claim_count_total =
+            handoff_low_quality_claim_count_total.saturating_add(u64_at(
+                row,
+                &[
+                    "web_tool_gate_diagnostics",
+                    "operator_metrics",
+                    "evidence_quality",
+                    "handoff_low_quality_claim_count",
+                ],
+                0,
+            ));
+        handoff_citation_ready_claim_count_total =
+            handoff_citation_ready_claim_count_total.saturating_add(u64_at(
+                row,
+                &[
+                    "web_tool_gate_diagnostics",
+                    "operator_metrics",
+                    "evidence_quality",
+                    "handoff_citation_ready_claim_count",
+                ],
+                0,
+            ));
         if u64_at(
             row,
             &[
@@ -475,6 +522,10 @@ pub(super) fn web_retrieval_measurement_report(
         quality_claim_count_total,
         concrete_claim_count_total,
         citation_ready_claim_count_total,
+        handoff_claim_count_total,
+        handoff_concrete_claim_count_total,
+        handoff_low_quality_claim_count_total,
+        handoff_citation_ready_claim_count_total,
         &first_failure_counts,
         gate_metrics,
     );

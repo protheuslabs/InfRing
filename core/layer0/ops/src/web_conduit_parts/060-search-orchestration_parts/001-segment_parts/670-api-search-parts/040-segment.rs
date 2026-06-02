@@ -185,6 +185,7 @@
                 exclude_subdomains,
                 top_k,
                 timeout_ms,
+                &normalized_filters,
             ),
             "serperdev" => api_search_serper(
                 root,

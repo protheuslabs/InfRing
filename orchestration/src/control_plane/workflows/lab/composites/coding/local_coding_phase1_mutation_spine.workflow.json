@@ -96,6 +96,8 @@
       "bounded_direct_edit_lane": true,
       "bounded_fast_edit_preflight": true,
       "first_mutation_artifact_lane_v1_provider_timeout_seconds": 15,
+      "first_edit_tool_calls_lane_enabled": true,
+      "first_edit_tool_calls_provider_timeout_seconds": 60,
       "mutation_only_recovery_gate_enabled": true,
           "compact_mutation_entry_packet_enabled": true,
       "compact_action_controller_enabled": false,

@@ -11,10 +11,12 @@ pub(super) fn request_pack_for_case(
     default_tool: &str,
 ) -> Value {
     if let Some(request) = report_request.filter(report_request_usable) {
+        let input = request.get("input").cloned().unwrap_or_else(|| json!({}));
+        let input = repair_report_request_input_if_polluted(&input, case);
         return json!({
             "request_pack_source": "research_report_pending_tool_request",
             "tool_name": str_at(request, &["tool_name"], default_tool),
-            "input": request.get("input").cloned().unwrap_or_else(|| json!({}))
+            "input": input
         });
     }
     if let Some(request) = case.get("tooling_request").and_then(Value::as_object) {
@@ -46,6 +48,151 @@ pub(super) fn request_pack_for_case(
     )
 }
 
+fn repair_report_request_input_if_polluted(input: &Value, case: &Value) -> Value {
+    if !query_pack_has_instruction_scaffold_pollution(input) {
+        return input.clone();
+    }
+    let raw_prompt = input
+        .get("query")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| str_at(case, &["prompt"], ""));
+    let prompt = clean_text(&raw_prompt, 2_000);
+    if prompt.is_empty() {
+        return input.clone();
+    }
+    let required_entities = string_array_at(case, &["required_entities"]);
+    let explicit_facets = string_array_at(case, &["required_facets"]);
+    let (coverage_entities, coverage_facets) =
+        partition_required_coverage_terms(&prompt, &required_entities, &explicit_facets);
+    let keywords = derived_keywords(&prompt, &required_entities, &coverage_facets);
+    let queries = derived_queries(&prompt, &coverage_entities, &coverage_facets, &keywords);
+    let mut repaired = input.clone();
+    if !repaired.is_object() {
+        repaired = json!({});
+    }
+    if let Some(obj) = repaired.as_object_mut() {
+        obj.insert("query".to_string(), json!(prompt));
+        obj.insert("queries".to_string(), json!(queries));
+        obj.insert("keywords".to_string(), json!(keywords));
+        obj.insert(
+            "required_coverage".to_string(),
+            json!({
+                "entities": coverage_entities,
+                "facets": coverage_facets
+            }),
+        );
+        let policy = obj
+            .entry("query_metadata_policy")
+            .or_insert_with(|| json!({}));
+        if !policy.is_object() {
+            *policy = json!({});
+        }
+        if let Some(policy_obj) = policy.as_object_mut() {
+            policy_obj.insert(
+                "eval_request_pack_repair".to_string(),
+                json!({
+                    "status": "repaired_instruction_scaffold_pollution",
+                    "source": "case_prompt_and_case_metadata"
+                }),
+            );
+        }
+    }
+    repaired
+}
+
+fn query_pack_has_instruction_scaffold_pollution(input: &Value) -> bool {
+    metadata_terms_at(input, "/required_coverage/entities")
+        .iter()
+        .any(|term| metadata_term_looks_like_instruction_scaffold(term))
+        || metadata_terms_at(input, "/required_coverage/facets")
+            .iter()
+            .filter(|term| metadata_term_looks_like_instruction_scaffold(term))
+            .count()
+            >= 3
+        || input
+            .get("queries")
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(Value::as_str)
+                    .any(query_lane_looks_instruction_polluted)
+            })
+            .unwrap_or(false)
+}
+
+fn metadata_terms_at(input: &Value, pointer: &str) -> Vec<String> {
+    input
+        .pointer(pointer)
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(Value::as_str)
+                .map(|row| clean_text(row, 160))
+                .filter(|row| !row.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn metadata_term_looks_like_instruction_scaffold(term: &str) -> bool {
+    let normalized = normalize_for_compare(term);
+    if normalized.is_empty() {
+        return false;
+    }
+    let tokens = normalized.split_whitespace().collect::<Vec<_>>();
+    !tokens.is_empty()
+        && tokens.iter().all(|token| {
+            matches!(
+                *token,
+                "research"
+                    | "focus"
+                    | "focused"
+                    | "focusing"
+                    | "biggest"
+                    | "major"
+                    | "current"
+                    | "latest"
+                    | "recent"
+                    | "month"
+                    | "week"
+                    | "year"
+                    | "development"
+                    | "developments"
+                    | "move"
+                    | "moves"
+                    | "matter"
+                    | "matters"
+                    | "generic"
+                    | "chatter"
+                    | "official"
+                    | "documentation"
+                    | "primary"
+                    | "source"
+                    | "sources"
+                    | "release"
+                    | "notes"
+                    | "announcements"
+            )
+        })
+}
+
+fn query_lane_looks_instruction_polluted(raw: &str) -> bool {
+    let normalized = normalize_for_compare(raw);
+    let tokens = normalized.split_whitespace().take(4).collect::<Vec<_>>();
+    if tokens.len() >= 2
+        && tokens[0] == tokens[1]
+        && metadata_term_looks_like_instruction_scaffold(tokens[0])
+    {
+        return true;
+    }
+    tokens
+        .first()
+        .map(|token| metadata_term_looks_like_instruction_scaffold(token))
+        .unwrap_or(false)
+        && normalized.contains(" official ")
+}
+
 fn request_pack_from_prompt(
     prompt: &str,
     case: &Value,
@@ -58,7 +205,7 @@ fn request_pack_from_prompt(
     let (coverage_entities, coverage_facets) =
         partition_required_coverage_terms(prompt, &required_entities, &explicit_facets);
     let keywords = derived_keywords(prompt, &required_entities, &coverage_facets);
-    let queries = derived_queries(prompt, &coverage_entities, &coverage_facets);
+    let queries = derived_queries(prompt, &coverage_entities, &coverage_facets, &keywords);
     json!({
         "request_pack_source": request_pack_source,
         "tool_name": default_tool,
@@ -292,6 +439,77 @@ fn exact_subject_query_term(raw: &str) -> String {
     }
 }
 
+fn text_contains_any(text: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| text.contains(needle))
+}
+
+fn prompt_or_keywords_look_like_local_stay_research(prompt: &str, keywords: &[String]) -> bool {
+    let mut haystack = normalize_for_compare(prompt);
+    for keyword in keywords {
+        haystack.push(' ');
+        haystack.push_str(&normalize_for_compare(keyword));
+    }
+    let local_stay_signal = text_contains_any(
+        &haystack,
+        &[
+            "neighborhood",
+            "neighborhoods",
+            "where to stay",
+            "stay",
+            "walkability",
+            "transit",
+            "museum",
+            "museums",
+        ],
+    );
+    let travel_signal = text_contains_any(
+        &haystack,
+        &[
+            "family",
+            "friendly",
+            "visitor",
+            "visit",
+            "travel",
+            "hotel",
+            "hotels",
+            "food",
+            "restaurant",
+            "restaurants",
+        ],
+    );
+    local_stay_signal && travel_signal
+}
+
+fn local_stay_query_tail(entity: &str, keywords: &[String]) -> String {
+    let entity_key = normalize_for_compare(entity);
+    let mut pieces = Vec::<String>::new();
+    for keyword in keywords {
+        let cleaned = clean_text(keyword, 80);
+        let key = normalize_for_compare(&cleaned);
+        if cleaned.is_empty() || key == entity_key {
+            continue;
+        }
+        pieces.push(cleaned);
+        if pieces.len() >= 4 {
+            break;
+        }
+    }
+    clean_text(&pieces.join(" "), 220)
+}
+
+fn push_local_stay_entity_queries(out: &mut Vec<String>, entity: &str, keywords: &[String]) {
+    let subject = exact_subject_query_term(entity);
+    if subject.is_empty() {
+        return;
+    }
+    let tail = local_stay_query_tail(entity, keywords);
+    if !tail.is_empty() {
+        push_unique_query(out, format!("{subject} {tail} travel guide comparison"));
+    }
+    push_unique_query(out, format!("{subject} where to stay guide"));
+    push_unique_query(out, format!("{subject} neighborhood guide"));
+}
+
 fn push_unique_query(out: &mut Vec<String>, raw: String) {
     let cleaned = clean_text(&raw, 600);
     if cleaned.is_empty() || out.iter().any(|current| current == &cleaned) {
@@ -304,8 +522,10 @@ fn derived_queries(
     prompt: &str,
     coverage_entities: &[String],
     coverage_facets: &[String],
+    keywords: &[String],
 ) -> Vec<String> {
     let mut queries = vec![clean_text(prompt, 600)];
+    let local_stay_research = prompt_or_keywords_look_like_local_stay_research(prompt, keywords);
     if coverage_entities.len() >= 2 {
         let mut pieces = coverage_entities
             .iter()
@@ -333,6 +553,10 @@ fn derived_queries(
     }
     let entity_lane_limit = if coverage_entities.len() >= 2 { 3 } else { 2 };
     for entity in coverage_entities.iter().take(entity_lane_limit) {
+        if local_stay_research {
+            push_local_stay_entity_queries(&mut queries, entity, keywords);
+            continue;
+        }
         let subject = exact_subject_query_term(entity);
         if subject.is_empty() {
             continue;

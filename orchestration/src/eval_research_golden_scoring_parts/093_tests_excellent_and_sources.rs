@@ -1310,6 +1310,68 @@ fn requested_specificity_is_ready_when_answer_delivers_named_units() {
 }
 
 #[test]
+fn requested_specificity_is_ready_when_user_named_options_are_covered() {
+    let case = json!({
+        "prompt": "Compare cordless vacuum options for a small apartment with pets. I care about Dyson, Shark, Tineco, and Miele.",
+        "expected_gate_path": {
+            "gate_1": "tool_required",
+            "gate_2": "web_research",
+            "gate_3": "web_search",
+            "gate_4_required_fields": ["query", "aperture"]
+        },
+        "required_entities": ["Dyson", "Shark", "Tineco", "Miele"]
+    });
+    let payload = json!({
+        "response": "For a small apartment with pets, compare the four brands by fit rather than chasing one universal winner. Dyson is strongest on suction and pet-hair tools. Shark competes on value and flexible designs. Tineco is worth considering for smart features and wet-dry variants. Miele emphasizes build quality, though it may cost more. The practical choice depends on storage footprint, dustbin emptying, hair-wrap resistance, filter washing, noise, and replacement-part cost.",
+        "pending_tool_request": {
+            "status": "pending_confirmation",
+            "selected_tool_family": "web_research",
+            "tool_name": "web_search",
+            "tool_key": "web_search",
+            "input": {
+                "query": "Dyson Shark Tineco Miele cordless vacuum small apartment pets",
+                "aperture": "web"
+            }
+        },
+        "tools": [{
+            "name": "web_search",
+            "status": "ok",
+            "candidate_count": 3,
+            "content_rich_candidate_count": 3,
+            "claim_hint_count": 3,
+            "evidence_refs": [{
+                "title": "Cordless vacuum brand comparison",
+                "locator": "https://example.test/vacuum-comparison",
+                "snippet": "Dyson scores high on suction and tool ecosystem; Shark competes on value and flexible designs; Tineco offers smart features and wet-dry variants; Miele emphasizes build quality but may cost more. Apartment owners care about storage footprint, dustbin emptying, hair-wrap resistance, filter washing, noise, and replacement-part cost.",
+                "claim_hints": ["Dyson, Shark, Tineco, and Miele each have distinct tradeoffs for pet owners in small apartments."]
+            }]
+        }]
+    });
+
+    let grade = grade_case(&case, &payload, 85, 95);
+    assert_eq!(
+        grade
+            .requested_specificity_satisfaction
+            .get("excellent_ready")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{:#?}",
+        grade.requested_specificity_satisfaction
+    );
+    assert_eq!(
+        grade
+            .requested_specificity_satisfaction
+            .get("prompt_named_entity_units")
+            .and_then(Value::as_u64),
+        Some(4),
+        "{:#?}",
+        grade.requested_specificity_satisfaction
+    );
+    assert!(!string_array_at(&grade.excellent_diagnostics, &["blockers"])
+        .contains(&"requested_specificity_not_excellent_ready".to_string()));
+}
+
+#[test]
 fn thin_source_inventory_answer_frame_fails_user_facing_quality() {
     let case = json!({
         "prompt": "Find recent benchmarks comparing agent frameworks. If the benchmark evidence is weak, explain why and suggest a practical evaluation plan.",

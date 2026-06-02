@@ -268,6 +268,27 @@
     }
 
     #[test]
+    fn search_payload_error_preserves_policy_rate_limit_boundary() {
+        let payload = json!({
+            "ok": false,
+            "error": "web_conduit_policy_denied",
+            "policy_decision": {
+                "allow": false,
+                "reason": "rate_limit_exceeded",
+                "requests_last_minute": 30,
+                "policy": {
+                    "rate_limit_per_minute": 30
+                }
+            }
+        });
+
+        assert_eq!(
+            search_payload_error(&payload),
+            "web_conduit_rate_limited"
+        );
+    }
+
+    #[test]
     fn sensitive_domain_requires_explicit_human_approval() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let out = api_fetch(

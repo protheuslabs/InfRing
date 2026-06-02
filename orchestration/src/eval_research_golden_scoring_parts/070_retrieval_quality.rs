@@ -126,6 +126,15 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
                 | "quota_exhausted"
         )
     });
+    let direct_quality_contract_conflict = direct_pack_structured_evidence_available
+        && direct_quality_flags.iter().any(|flag| match flag.as_str() {
+            "claim_hints_missing" | "evidence_claims_missing" => direct_evidence_claim_count == 0,
+            "content_rich_evidence_missing" => {
+                direct_pack_content_rich_count == 0 && content_rich_candidate_count == 0
+            }
+            "materialized_evidence_missing" => materialized_candidate_count == 0,
+            _ => false,
+        });
     let provider_degraded_observed = explicit_provider_degraded || direct_provider_degraded;
     let provider_degradation_blocks_supply = provider_degraded_observed
         && (candidate_count == 0 || evidence_count == 0 || materialized_candidate_count == 0);
@@ -135,7 +144,9 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
                 !direct_pack_structured_evidence_available
             }
             "low_relevance" => !topic_relevant_evidence,
-            "comparison_evidence_insufficient" | "low_signal" => true,
+            "comparison_evidence_insufficient" | "low_signal" => {
+                !direct_pack_structured_evidence_available
+            }
             _ => false,
         })
         || (direct_claim_contract_present && direct_evidence_claim_count == 0);
@@ -146,7 +157,7 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
         "not_attempted"
     } else if provider_degradation_blocks_supply {
         "provider_degraded"
-    } else if evidence_artifact_conflict {
+    } else if evidence_artifact_conflict || direct_quality_contract_conflict {
         "conflicting_provider_state"
     } else if explicit_no_results {
         "no_results"
@@ -205,6 +216,9 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
     if evidence_artifact_conflict {
         flags.push("evidence_artifact_conflict");
     }
+    if direct_quality_contract_conflict {
+        flags.push("direct_tool_quality_contract_conflict");
+    }
     if evidence_count == 0 {
         flags.push("no_evidence_refs");
     }
@@ -253,6 +267,7 @@ fn retrieval_provider_quality(payload: &Value, normalized_prompt: &str) -> Value
             "direct_pack_thin_marker": direct_pack_thin,
             "direct_pack_thin_blocks_signal": direct_pack_thin_blocks_signal,
             "direct_pack_structured_evidence_available": direct_pack_structured_evidence_available,
+            "direct_quality_contract_conflict": direct_quality_contract_conflict,
             "direct_pack_usable_count": direct_pack_usable_count,
             "direct_pack_content_rich_count": direct_pack_content_rich_count,
             "evidence_artifact_conflict": evidence_artifact_conflict,

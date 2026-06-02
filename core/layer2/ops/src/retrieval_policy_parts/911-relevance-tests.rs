@@ -1927,6 +1927,18 @@ mod web_quality_diagnostics_tests {
         assert!(!claim_text_is_synthesis_safe(
             "Pt 2: Long term service contracts Ian Makgill Business ,Software ,Technology 27 Apr, 2026 09 Mins read If you sell long-term services into European public sector buyers, the ground is moving under your feet."
         ));
+        assert!(!claim_text_is_synthesis_safe(
+            ", 3-5 g/day are well established throughout the scientific literature for increasing intramuscular creatine stores"
+        ));
+        assert!(!claim_text_is_synthesis_safe(
+            ". Japanese-American Incarceration During World War II In his speech to Congress, President Roosevelt declared a date"
+        ));
+        assert!(!claim_text_is_synthesis_safe(
+            "including follow-up surveys that found persistent fear across later generations"
+        ));
+        assert!(claim_text_is_synthesis_safe(
+            "Creatine supplementation is well established for increasing intramuscular creatine stores at recommended dosing"
+        ));
     }
 
     #[test]

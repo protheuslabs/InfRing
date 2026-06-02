@@ -61,7 +61,7 @@ fn search_filter_support_matrix() -> Value {
         "cache_ttl_minutes": true,
         "country": false,
         "language": false,
-        "freshness": false,
+        "freshness": true,
         "date_after": false,
         "date_before": false
     })
@@ -186,7 +186,6 @@ pub(crate) fn unsupported_search_filter_response(request: &Value) -> Option<Valu
     let filters = [
         ("country", "country filtering"),
         ("language", "language filtering"),
-        ("freshness", "freshness filtering"),
         ("date_after", "date_after/date_before filtering"),
         ("date_before", "date_after/date_before filtering"),
         ("dateAfter", "date_after/date_before filtering"),

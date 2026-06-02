@@ -4,6 +4,11 @@ fn search_payload_error(payload: &Value) -> String {
         220,
     );
     if !explicit.is_empty() {
+        if explicit == "web_conduit_policy_denied" {
+            if let Some(policy_error) = search_payload_policy_denial_error(payload) {
+                return policy_error;
+            }
+        }
         return explicit;
     }
     if payload_looks_like_search_challenge(payload) {
@@ -26,6 +31,27 @@ fn search_payload_error(payload: &Value) -> String {
         return "search_provider_failed".to_string();
     }
     "no_usable_summary".to_string()
+}
+
+fn search_payload_policy_denial_error(payload: &Value) -> Option<String> {
+    let reason = clean_text(
+        payload
+            .pointer("/policy_decision/reason")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        160,
+    )
+    .to_ascii_lowercase();
+    match reason.as_str() {
+        "rate_limit_exceeded" => Some("web_conduit_rate_limited".to_string()),
+        "human_approval_required_for_sensitive_domain" => {
+            Some("web_conduit_human_approval_required".to_string())
+        }
+        "domain_denylisted" | "domain_not_allowlisted" => {
+            Some(format!("web_conduit_policy_denied:{reason}"))
+        }
+        _ => None,
+    }
 }
 fn search_summary_has_low_signal_marker(summary: &str) -> bool {
     let lowered = clean_text(summary, 1_200).to_ascii_lowercase();

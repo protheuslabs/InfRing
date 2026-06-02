@@ -89,6 +89,102 @@
     }
 
     #[test]
+    fn search_freshness_filter_is_supported_and_cache_scoped() {
+        let request = json!({
+            "query": "major cybersecurity incidents this week",
+            "freshness": "week",
+            "summary_only": true
+        });
+        assert!(
+            unsupported_search_filter_response(&request).is_none(),
+            "freshness should be an admitted search filter"
+        );
+        let filters = normalized_search_filters(&request);
+        assert_eq!(filters.get("freshness").and_then(Value::as_str), Some("week"));
+        let provider_chain = vec!["tavily".to_string()];
+        let scoped_query = scoped_search_query("major cybersecurity incidents this week", &[], false);
+        let filtered_key = crate::web_conduit_provider_runtime::search_cache_key(
+            "major cybersecurity incidents this week",
+            &scoped_query,
+            &[],
+            false,
+            8,
+            true,
+            &provider_chain,
+            &filters,
+        );
+        let unfiltered_key = crate::web_conduit_provider_runtime::search_cache_key(
+            "major cybersecurity incidents this week",
+            &scoped_query,
+            &[],
+            false,
+            8,
+            true,
+            &provider_chain,
+            &json!({}),
+        );
+        assert_ne!(filtered_key, unfiltered_key);
+    }
+
+    #[test]
+    fn structured_search_native_filters_map_weekly_news_lane() {
+        let filters = json!({"freshness": "week"});
+        let tavily = structured_search_native_filter_controls(
+            "tavily",
+            "major cybersecurity incidents this week",
+            &filters,
+        );
+        assert_eq!(
+            tavily
+                .get("normalized_window")
+                .and_then(Value::as_str),
+            Some("week")
+        );
+        assert!(
+            tavily
+                .get("applied_fields")
+                .and_then(Value::as_array)
+                .map(|rows| rows.iter().any(|row| row.as_str() == Some("time_range")))
+                .unwrap_or(false),
+            "{tavily:?}"
+        );
+        assert!(
+            tavily
+                .get("applied_fields")
+                .and_then(Value::as_array)
+                .map(|rows| rows.iter().any(|row| row.as_str() == Some("topic")))
+                .unwrap_or(false),
+            "{tavily:?}"
+        );
+
+        let exa =
+            structured_search_native_filter_controls("exa", "major cybersecurity incidents", &filters);
+        assert!(
+            exa.get("applied_fields")
+                .and_then(Value::as_array)
+                .map(|rows| rows
+                    .iter()
+                    .any(|row| row.as_str() == Some("startPublishedDate")))
+                .unwrap_or(false),
+            "{exa:?}"
+        );
+
+        let brave =
+            structured_search_native_filter_controls("brave", "major cybersecurity incidents", &filters);
+        assert!(
+            brave
+                .get("applied_fields")
+                .and_then(Value::as_array)
+                .map(|rows| rows.iter().any(|row| row.as_str() == Some("freshness")))
+                .unwrap_or(false),
+            "{brave:?}"
+        );
+        assert!(
+            brave_search_url("major cybersecurity incidents", 8, &filters).contains("freshness=pw")
+        );
+    }
+
+    #[test]
     fn search_summary_only_aliases_are_explicit_opt_in() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let out = api_search(

@@ -720,6 +720,45 @@ pub(crate) fn native_tool_mutation_only_recovery_prompt(
     )
 }
 
+pub(crate) fn native_tool_compact_action_controller_prompt(
+    metadata: &Value,
+    original_prompt: &str,
+    recovery_reason: &str,
+    mutation_packet: &str,
+) -> String {
+    let rule = native_tool_bounded_orchestration_prompt_text(
+        metadata,
+        "compact_action_controller_rule",
+        "Compact action controller: local context is already loaded. Return only JSON in the shape {\"actions\":[{\"command\":\"shell command\"}]}. Use one controlled shell edit batch that writes project source/test files with heredocs. Write complete real source/test text, not template placeholders. Do not read files, run validation, plan in prose, or finalize; runtime validates after mutation.",
+        native_tool_mutation_entry_policy_char_budget(metadata),
+    );
+    let mutation_action = native_tool_missing_product_mutation_action(
+        original_prompt,
+        &["missing_product_mutation_receipt".to_string()],
+    )
+    .unwrap_or_default();
+    let task_brief = native_tool_task_brief(original_prompt);
+    let safe_packet = native_tool_action_controller_safe_packet(mutation_packet);
+    format!(
+        "{task_brief}\n\n{rule}\n\nRecovery reason:\n{recovery_reason}\n\nRequired product mutation action:\n{mutation_action}\n\n{safe_packet}"
+    )
+}
+
+fn native_tool_action_controller_safe_packet(mutation_packet: &str) -> String {
+    let mut safe = mutation_packet.to_string();
+    if let Some(start) = safe.find("Example:\n") {
+        let tail = &safe[start..];
+        if let Some(end) = tail.find("\nObserved candidate paths:") {
+            let replace_end = start + end;
+            safe.replace_range(
+                start..replace_end,
+                "Shell edit shape: use cat > observed/path <<'EOF' heredocs with complete real file contents.\n",
+            );
+        }
+    }
+    safe
+}
+
 fn native_tool_mutation_entry_policy_char_budget(metadata: &Value) -> usize {
     metadata
         .get("native_success_criteria")

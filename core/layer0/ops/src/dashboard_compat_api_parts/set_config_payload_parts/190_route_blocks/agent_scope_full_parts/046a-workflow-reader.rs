@@ -1291,6 +1291,10 @@ mod workflow_reader_tests {
             "{chat_requirement}"
         );
         assert!(
+            chat_requirement.contains("do not fill them in from general knowledge"),
+            "{chat_requirement}"
+        );
+        assert!(
             chat_requirement.contains("concrete answer units before any limitations")
                 && chat_requirement.contains("Do not treat source titles, snippets, retrieval status, provider status, or coverage gaps as the answer"),
             "{chat_requirement}"

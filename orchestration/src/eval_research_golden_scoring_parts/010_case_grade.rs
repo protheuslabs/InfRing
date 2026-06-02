@@ -119,6 +119,8 @@ pub(super) fn grade_case(
         &normalized,
         payload,
         &answer_unit_usefulness,
+        &coverage_entities,
+        entity_coverage,
     );
     let direct_useful_units = answer_unit_usefulness
         .get("direct_useful_units")

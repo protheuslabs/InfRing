@@ -113,6 +113,45 @@ fn summary_insights_from_evidence_claims(evidence_claims: &Value, limit: usize) 
     insights
 }
 
+fn provider_artifact_has_access_or_budget_block(artifact: &Value) -> bool {
+    let mut probe = String::new();
+    for pointer in [
+        "/error",
+        "/result_quality",
+        "/status",
+        "/summary",
+        "/provider_unavailable_reason",
+    ] {
+        let value = clean_text(artifact.pointer(pointer).and_then(Value::as_str).unwrap_or(""), 360);
+        if !value.is_empty() {
+            probe.push(' ');
+            probe.push_str(&value);
+        }
+    }
+    if let Some(reasons) = artifact.get("failure_reasons").and_then(Value::as_array) {
+        for reason in reasons {
+            let value = clean_text(reason.as_str().unwrap_or(""), 360);
+            if !value.is_empty() {
+                probe.push(' ');
+                probe.push_str(&value);
+            }
+        }
+    }
+    !probe.trim().is_empty() && issue_is_access_or_throttle_failure(&probe)
+}
+
+fn retrieval_access_or_budget_blocked(
+    provider_results: &[Value],
+    partial_failures: &[String],
+) -> bool {
+    partial_failures
+        .iter()
+        .any(|failure| issue_is_access_or_throttle_failure(failure))
+        || provider_results
+            .iter()
+            .any(provider_artifact_has_access_or_budget_block)
+}
+
 pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     let started = Instant::now();
     let policy = load_policy(root);
@@ -757,6 +796,10 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         !has_pack_ready_synthesis_candidate(&recovery_basis_query, &candidates);
     let first_pass_lacked_source_quality =
         !has_pack_ready_synthesis_source_quality(&recovery_basis_query, &candidates);
+    let first_pass_access_or_budget_blocked =
+        source == "web"
+            && (first_pass_lacked_usable || first_pass_lacked_source_quality)
+            && retrieval_access_or_budget_blocked(&provider_results, &partial_failures);
     let first_pass_research_facets = infer_research_facets(
         &recovery_basis_query,
         &executed_queries,
@@ -767,7 +810,11 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     let query_pack_declares_coverage = !query_plan.query_metadata.entities.is_empty()
         || !query_plan.query_metadata.facets.is_empty();
     let mut planned_second_pass_queries = Vec::<String>::new();
-    if source == "web" && query_execution_limited {
+    if first_pass_access_or_budget_blocked {
+        second_pass_reason = "provider_access_or_budget_blocked";
+        partial_failures
+            .push("second_pass_recovery_skipped:provider_access_or_budget_blocked".to_string());
+    } else if source == "web" && query_execution_limited {
         second_pass_reason = "deferred_due_initial_query_execution_budget";
         if second_pass_recovery_enabled(&policy) && first_pass_lacked_usable {
             planned_second_pass_queries = deferred_query_recovery_queries(

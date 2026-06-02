@@ -40,6 +40,41 @@ the broader `local_coding_program_builder` responsibility.
 Current level remains `4` because this is still the high-level coding operator;
 adding Level 0 primitives does not reduce its orchestration responsibility.
 
+## Typed pipeline rebuild target
+
+`local_coding_typed_execution_pipeline` is the next lab composite. It is not
+runtime-selectable yet. Its purpose is to replace broad parent-loop authority
+with hard typed stage boundaries:
+
+- `classify_task`
+- `gather_context`
+- `plan_slice`
+- `mutate`
+- `validate`
+- `verify_public_interface`
+- `repair_or_finalize`
+- `synthesize`
+
+This composite is workflow level `2` because it composes the Level `1`
+`local_coding_phase1_mutation_spine` plus Level `0` primitives. The live
+`coding_project_operator` remains level `4` and may delegate to this pipeline
+only after deterministic stage-adapter tests exist.
+
+The typed pipeline rule is stricter than the current legacy controller:
+
+- Each stage consumes a named input artifact.
+- Each stage emits a named output artifact.
+- `coding_execution_spine_v1` decides the next action after evidence is
+  normalized.
+- Stages may produce evidence, but they must not independently decide to
+  continue, repair, finalize, or timeout around the spine.
+- Timeout and validation failures become typed evidence, not hidden entry into
+  a broader parent loop.
+
+Until this composite is promoted, parent-loop patches must name the stage they
+implement. If a patch cannot be mapped to one of these stages, it is migration
+debt and should not be treated as scalable coding-workflow progress.
+
 ## Stage boundaries
 
 ### `local_project_bootstrap`

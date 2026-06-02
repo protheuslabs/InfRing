@@ -124,7 +124,12 @@ fn contains_antibot_marker(text: &str) -> bool {
         "error-lite@duckduckgo.com",
         "anomaly-modal",
         "captcha",
+        "access to this page has been denied",
         "are you a robot",
+        "confirm you are a human",
+        "press & hold to confirm you are a human",
+        "press and hold to confirm you are a human",
+        "not a bot",
         "not a robot",
         "robot check",
         "detected unusual activity",
@@ -402,6 +407,19 @@ fn canonical_batch_web_search_query(raw: &str) -> String {
     };
     if let Some(focused) = instruction_focused_search_query(&stripped) {
         focused
+    } else {
+        stripped
+    }
+}
+
+fn subject_preserving_batch_web_search_query(raw: &str) -> String {
+    let cleaned = strip_batch_query_terminal_response_suffix(raw, 600);
+    if cleaned.is_empty() {
+        return cleaned;
+    }
+    let stripped = strip_batch_query_leading_search_control(&cleaned, 600);
+    if stripped.is_empty() {
+        cleaned
     } else {
         stripped
     }
@@ -881,10 +899,178 @@ fn push_query_dedup(value: String, dedup: &mut HashSet<String>, queries: &mut Ve
     if value.is_empty() {
         return;
     }
-    let key = value.to_ascii_lowercase();
+    let key = query_plan_dedup_key(&value);
     if dedup.insert(key) {
         queries.push(value);
     }
+}
+
+fn query_plan_dedup_key(value: &str) -> String {
+    let canonical = canonical_batch_web_search_query(value);
+    let canonical = if canonical.is_empty() {
+        clean_text(value, 600)
+    } else {
+        canonical
+    };
+    let mut key = clean_text(&canonical, 600).to_ascii_lowercase();
+    while matches!(key.chars().last(), Some('.' | '!' | '?' | ';' | ':')) {
+        key.pop();
+        key = key.trim_end().to_string();
+    }
+    key
+}
+
+fn current_month_number() -> String {
+    chrono::Local::now().format("%m").to_string()
+}
+
+fn current_month_name() -> &'static str {
+    match current_month_number().as_str() {
+        "01" => "january",
+        "02" => "february",
+        "03" => "march",
+        "04" => "april",
+        "05" => "may",
+        "06" => "june",
+        "07" => "july",
+        "08" => "august",
+        "09" => "september",
+        "10" => "october",
+        "11" => "november",
+        "12" => "december",
+        _ => "",
+    }
+}
+
+fn current_day_number() -> String {
+    chrono::Local::now().format("%-d").to_string()
+}
+
+fn current_date_iso() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
+}
+
+fn query_uses_relative_current_window(query: &str) -> bool {
+    let lowered = clean_text(query, 600).to_ascii_lowercase();
+    [
+        "today",
+        "this week",
+        "this month",
+        "yesterday",
+        "hours ago",
+        "hour ago",
+        "minutes ago",
+        "minute ago",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker))
+}
+
+fn query_uses_week_or_day_current_window(query: &str) -> bool {
+    let lowered = clean_text(query, 600).to_ascii_lowercase();
+    [
+        "today",
+        "this week",
+        "yesterday",
+        "hours ago",
+        "hour ago",
+        "minutes ago",
+        "minute ago",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker))
+}
+
+fn query_already_has_current_month_scope(query: &str) -> bool {
+    let lowered = clean_text(query, 600).to_ascii_lowercase();
+    let year = current_year();
+    let month_number = current_month_number();
+    let month_name = current_month_name();
+    (!month_name.is_empty() && lowered.contains(month_name) && lowered.contains(&year))
+        || (!month_number.is_empty() && lowered.contains(&format!("{year}-{month_number}")))
+        || (!month_number.is_empty() && lowered.contains(&format!("{year}/{month_number}")))
+        || (!month_number.is_empty() && lowered.contains(&format!("{month_number}/{year}")))
+}
+
+fn query_already_has_current_date_scope(query: &str) -> bool {
+    let lowered = clean_text(query, 600).to_ascii_lowercase();
+    let year = current_year();
+    let month_number = current_month_number();
+    let month_name = current_month_name();
+    let day = current_day_number();
+    let day_padded = chrono::Local::now().format("%d").to_string();
+    lowered.contains(&current_date_iso())
+        || (!month_name.is_empty()
+            && lowered.contains(month_name)
+            && lowered.contains(&day)
+            && lowered.contains(&year))
+        || (!month_number.is_empty()
+            && lowered.contains(&format!("{year}-{month_number}-{day_padded}")))
+        || (!month_number.is_empty()
+            && lowered.contains(&format!("{month_number}/{day_padded}/{year}")))
+        || (!month_number.is_empty()
+            && lowered.contains(&format!("{month_number}/{day}/{year}")))
+}
+
+fn temporal_scope_query_lanes(query: &str) -> Vec<String> {
+    let cleaned = clean_text(query, 520);
+    if cleaned.is_empty() || !query_uses_relative_current_window(&cleaned) {
+        return Vec::new();
+    }
+    let year = current_year();
+    let month_number = current_month_number();
+    let month_name = current_month_name();
+    let day = current_day_number();
+    let mut lanes = Vec::<String>::new();
+
+    if query_uses_week_or_day_current_window(&cleaned)
+        && !query_already_has_current_date_scope(&cleaned)
+    {
+        lanes.push(clean_text(&format!("{cleaned} {}", current_date_iso()), 600));
+        if !month_name.is_empty() && !day.is_empty() {
+            lanes.push(clean_text(
+                &format!("{cleaned} week of {month_name} {day} {year}"),
+                600,
+            ));
+        }
+    }
+
+    if !query_already_has_current_month_scope(&cleaned) && !month_name.is_empty() {
+        lanes.push(clean_text(&format!("{cleaned} {month_name} {year}"), 600));
+    }
+    if !query_already_has_current_month_scope(&cleaned) && !month_number.is_empty() {
+        lanes.push(clean_text(&format!("{cleaned} {year}-{month_number}"), 600));
+    }
+    lanes
+        .into_iter()
+        .filter(|lane| !lane.is_empty())
+        .collect::<Vec<_>>()
+}
+
+fn push_temporal_scope_query_lanes(
+    primary_query: &str,
+    dedup: &mut HashSet<String>,
+    queries: &mut Vec<String>,
+    max_queries: usize,
+) {
+    for lane in temporal_scope_query_lanes(primary_query) {
+        if queries.len() >= max_queries {
+            break;
+        }
+        push_query_dedup(lane, dedup, queries);
+    }
+}
+
+fn push_recovery_temporal_scope_query_lanes(
+    query: &str,
+    dedup: &mut HashSet<String>,
+    queries: &mut Vec<String>,
+    max_queries: usize,
+) {
+    if !query_uses_week_or_day_current_window(query) {
+        return;
+    }
+    push_temporal_scope_query_lanes(query, dedup, queries, max_queries);
 }
 
 fn push_metadata_term(raw: &str, seen: &mut HashSet<String>, out: &mut Vec<String>, max: usize) {
@@ -2129,6 +2315,65 @@ fn push_subject_discovery_lanes(
     }
 }
 
+fn text_contains_any(text: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| text.contains(needle))
+}
+
+fn keyword_pack_looks_like_local_stay_research(pack: &BatchQueryKeywordPack) -> bool {
+    let haystack = pack
+        .keywords
+        .iter()
+        .chain(pack.facets.iter())
+        .map(|term| term.to_ascii_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let local_stay_signal = text_contains_any(
+        &haystack,
+        &[
+            "neighborhood",
+            "neighborhoods",
+            "where to stay",
+            "stay",
+            "walkability",
+            "transit",
+            "museum",
+            "museums",
+        ],
+    );
+    let travel_signal = text_contains_any(
+        &haystack,
+        &[
+            "family",
+            "friendly",
+            "visitor",
+            "visit",
+            "travel",
+            "hotel",
+            "hotels",
+            "food",
+            "restaurant",
+            "restaurants",
+        ],
+    );
+    local_stay_signal && travel_signal
+}
+
+fn subject_keyword_lane_suffix(pack: &BatchQueryKeywordPack) -> &'static str {
+    if keyword_pack_looks_like_local_stay_research(pack) {
+        "travel guide comparison"
+    } else {
+        "official"
+    }
+}
+
+fn subject_discovery_lane_suffixes(pack: &BatchQueryKeywordPack) -> &'static [&'static str] {
+    if keyword_pack_looks_like_local_stay_research(pack) {
+        &["where to stay guide", "neighborhood guide"]
+    } else {
+        &["official site"]
+    }
+}
+
 fn push_subject_keyword_lanes(
     subjects: &[String],
     keywords: &[String],
@@ -2158,9 +2403,59 @@ fn push_subject_keyword_lanes(
     if tail.is_empty() {
         return;
     }
+    let suffix = subject_keyword_lane_suffix(pack);
     for subject in subjects {
-        let candidate = clean_text(&format!("{subject} {tail} official"), 600);
+        let candidate = clean_text(&format!("{subject} {tail} {suffix}"), 600);
         push_compiled_metadata_query(candidate, pack, dedup, queries, max_queries);
+        if queries.len() >= max_queries {
+            return;
+        }
+    }
+}
+
+fn local_stay_research_topic(primary_query: &str, keywords: &[String]) -> String {
+    let keyword_topic = clean_text(
+        &keywords
+            .iter()
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" "),
+        300,
+    );
+    if !keyword_topic.is_empty() {
+        return keyword_topic;
+    }
+    clean_text(primary_query, 300)
+}
+
+fn push_local_stay_keyword_lanes(
+    primary_query: &str,
+    keywords: &[String],
+    pack: &BatchQueryKeywordPack,
+    dedup: &mut HashSet<String>,
+    queries: &mut Vec<String>,
+    max_queries: usize,
+) {
+    if !keyword_pack_looks_like_local_stay_research(pack) {
+        return;
+    }
+    let topic = local_stay_research_topic(primary_query, keywords);
+    if topic.is_empty() {
+        return;
+    }
+    for suffix in [
+        "travel guide comparison",
+        "where to stay guide",
+        "neighborhood guide",
+    ] {
+        push_compiled_metadata_query(
+            clean_text(&format!("{topic} {suffix}"), 600),
+            pack,
+            dedup,
+            queries,
+            max_queries,
+        );
         if queries.len() >= max_queries {
             return;
         }
@@ -2244,7 +2539,7 @@ fn broad_facet_topic(primary_query: &str, facets: &[String], keywords: &[String]
     let topical_facets = facets
         .iter()
         .filter(|facet| !looks_like_temporal_or_scope_facet(facet))
-        .take(2)
+        .take(3)
         .cloned()
         .collect::<Vec<_>>();
     let temporal_facets = facets
@@ -2307,10 +2602,43 @@ fn push_broad_facet_lanes(
     queries: &mut Vec<String>,
     max_queries: usize,
 ) {
+    let topical_facets = facets
+        .iter()
+        .filter(|facet| !looks_like_temporal_or_scope_facet(facet))
+        .map(|facet| clean_text(facet, 160))
+        .filter(|facet| !facet.is_empty())
+        .collect::<Vec<_>>();
     let topic = broad_facet_topic(primary_query, facets, keywords);
     if !topic.is_empty() {
+        push_compiled_metadata_query(
+            clean_text(&format!("{topic} latest developments"), 600),
+            pack,
+            dedup,
+            queries,
+            max_queries,
+        );
+        if queries.len() >= max_queries {
+            return;
+        }
+    }
+
+    if topical_facets.len() >= 2 {
+        for facet in &topical_facets {
+            push_compiled_metadata_query(
+                clean_text(&format!("{facet} source-backed evidence"), 600),
+                pack,
+                dedup,
+                queries,
+                max_queries,
+            );
+            if queries.len() >= max_queries {
+                return;
+            }
+        }
+    }
+
+    if !topic.is_empty() {
         for suffix in [
-            "latest developments",
             "primary source evidence",
             "official reports announcements",
             "independent analysis",
@@ -2435,16 +2763,18 @@ fn compile_keyword_pack_queries(
         if queries.len() >= max_queries {
             return queries;
         }
-        push_subject_discovery_lanes(
-            &exact_subjects,
-            &["official site"],
-            pack,
-            &mut dedup,
-            &mut queries,
-            max_queries,
-        );
-        if queries.len() >= max_queries {
-            return queries;
+        if facets.is_empty() {
+            push_subject_discovery_lanes(
+                &exact_subjects,
+                subject_discovery_lane_suffixes(pack),
+                pack,
+                &mut dedup,
+                &mut queries,
+                max_queries,
+            );
+            if queries.len() >= max_queries {
+                return queries;
+            }
         }
     }
 
@@ -2561,6 +2891,17 @@ fn compile_keyword_pack_queries(
         push_broad_facet_lanes(
             primary_query,
             &facets,
+            &keywords,
+            pack,
+            &mut dedup,
+            &mut queries,
+            max_queries,
+        );
+    }
+
+    if exact_subjects.is_empty() && facets.is_empty() && queries.len() < max_queries {
+        push_local_stay_keyword_lanes(
+            primary_query,
             &keywords,
             pack,
             &mut dedup,
@@ -2686,11 +3027,12 @@ fn normalize_requested_queries(
 ) -> Vec<String> {
     let mut dedup = HashSet::<String>::new();
     let mut queries = Vec::<String>::new();
+    let max_queries = max_explicit_queries_for_budget(primary_query, budget);
     let normalized_primary = clean_text(primary_query, 600);
     if !normalized_primary.is_empty() {
         push_query_dedup(normalized_primary, &mut dedup, &mut queries);
+        push_temporal_scope_query_lanes(primary_query, &mut dedup, &mut queries, max_queries);
     }
-    let max_queries = max_explicit_queries_for_budget(primary_query, budget);
     let compiled_metadata = compile_keyword_pack_queries(primary_query, keyword_pack, budget);
     let explicit_queries = request
         .get("queries")
@@ -2702,9 +3044,8 @@ fn normalize_requested_queries(
         })
         .unwrap_or_default();
     let has_explicit_queries = !explicit_queries.is_empty();
-    let comparison_intent = keyword_pack_requests_comparison(primary_query, keyword_pack);
     let explicit_head_count = if has_explicit_queries {
-        if comparison_intent && query_pack_has_coverage_terms(keyword_pack) {
+        if query_pack_has_coverage_terms(keyword_pack) {
             1.min(explicit_queries.len())
         } else {
             2.min(explicit_queries.len())
@@ -2722,10 +3063,22 @@ fn normalize_requested_queries(
         && query_pack_has_coverage_terms(keyword_pack)
     {
         let subject_count = keyword_pack.entities.len() + keyword_pack.aliases.len();
+        let topical_facet_count = keyword_pack
+            .facets
+            .iter()
+            .filter_map(|term| plain_query_term(term))
+            .filter(|term| !looks_like_temporal_or_scope_facet(term))
+            .count()
+            .min(4);
+        let facet_frontload_budget = if topical_facet_count >= 2 {
+            1 + topical_facet_count
+        } else {
+            topical_facet_count
+        };
         if subject_count >= 2 && !keyword_pack.facets.is_empty() {
-            4 + subject_count.min(4)
+            (4 + subject_count.min(4)).max(facet_frontload_budget)
         } else if subject_count >= 2 || !keyword_pack.facets.is_empty() {
-            3
+            3.max(facet_frontload_budget)
         } else {
             1
         }
@@ -2770,6 +3123,10 @@ fn query_pack_has_coverage_terms(pack: &BatchQueryKeywordPack) -> bool {
     !pack.entities.is_empty() || !pack.aliases.is_empty() || !pack.facets.is_empty()
 }
 
+fn query_pack_has_recovery_merge_terms(pack: &BatchQueryKeywordPack) -> bool {
+    query_pack_has_coverage_terms(pack) || keyword_pack_looks_like_local_stay_research(pack)
+}
+
 fn query_pack_has_facet_terms(pack: &BatchQueryKeywordPack) -> bool {
     !pack.facets.is_empty()
 }
@@ -2780,7 +3137,7 @@ fn merge_recovery_queries_with_metadata(
     keyword_pack: &BatchQueryKeywordPack,
     budget: ApertureBudget,
 ) -> Vec<String> {
-    if recovery_queries.is_empty() || !query_pack_has_coverage_terms(keyword_pack) {
+    if recovery_queries.is_empty() || !query_pack_has_recovery_merge_terms(keyword_pack) {
         return recovery_queries.to_vec();
     }
     let max_queries = max_explicit_queries_for_budget(primary_query, budget);
@@ -2791,7 +3148,7 @@ fn merge_recovery_queries_with_metadata(
     }
 
     let compiled_metadata = compile_keyword_pack_queries(primary_query, keyword_pack, budget);
-    if query_pack_has_coverage_terms(keyword_pack) {
+    if query_pack_has_recovery_merge_terms(keyword_pack) {
         for value in &compiled_metadata {
             if queries.len() >= max_queries {
                 return queries;
@@ -2904,9 +3261,16 @@ fn expand_query_recovery_template(template: &str, query: &str) -> Option<String>
     if template.contains("{current_year}") && query.to_ascii_lowercase().contains(&year) {
         return None;
     }
+    let month_name = current_month_name();
+    if template.contains("{current_month_name}")
+        && (!query_uses_relative_current_window(query) || query_already_has_current_month_scope(query))
+    {
+        return None;
+    }
     let expanded = template
         .replace("{query}", query)
-        .replace("{current_year}", &year);
+        .replace("{current_year}", &year)
+        .replace("{current_month_name}", month_name);
     let cleaned = clean_text(&expanded, 600);
     if cleaned.is_empty() {
         None
@@ -2928,6 +3292,11 @@ fn broad_current_research_recovery_queries(
     let max_queries = broad_current_research_recovery_max_queries(policy, budget);
     let mut dedup = HashSet::<String>::new();
     let mut queries = Vec::<String>::new();
+    let cleaned_query = clean_text(query, 600);
+    if !cleaned_query.is_empty() {
+        push_query_dedup(cleaned_query, &mut dedup, &mut queries);
+        push_recovery_temporal_scope_query_lanes(query, &mut dedup, &mut queries, max_queries);
+    }
     for template in broad_current_research_recovery_templates(policy) {
         if queries.len() >= max_queries {
             break;
@@ -3015,6 +3384,11 @@ fn general_research_recovery_queries(
     let max_queries = general_research_recovery_max_queries(policy, budget);
     let mut dedup = HashSet::<String>::new();
     let mut queries = Vec::<String>::new();
+    let cleaned_query = clean_text(query, 600);
+    if !cleaned_query.is_empty() {
+        push_query_dedup(cleaned_query, &mut dedup, &mut queries);
+        push_recovery_temporal_scope_query_lanes(query, &mut dedup, &mut queries, max_queries);
+    }
     for template in general_research_recovery_templates(policy) {
         if queries.len() >= max_queries {
             break;
@@ -3819,12 +4193,6 @@ fn resolve_query_plan(
     query: &str,
     budget: ApertureBudget,
 ) -> QueryPlanSelection {
-    let search_query = canonical_batch_web_search_query(query);
-    let planning_query = if search_query.is_empty() {
-        clean_text(query, 600)
-    } else {
-        search_query
-    };
     let mut query_metadata = batch_query_keyword_pack(request, budget);
     let explicit_metadata_supplied = !query_metadata.is_empty();
     let explicit_queries_supplied = request
@@ -3835,6 +4203,16 @@ fn resolve_query_plan(
                 .any(|row| extract_request_query_row(row, 600).is_some())
         })
         .unwrap_or(false);
+    let search_query = if explicit_queries_supplied || explicit_metadata_supplied {
+        subject_preserving_batch_web_search_query(query)
+    } else {
+        canonical_batch_web_search_query(query)
+    };
+    let planning_query = if search_query.is_empty() {
+        clean_text(query, 600)
+    } else {
+        search_query
+    };
     if query_metadata.is_empty() {
         if let Some(inferred) = inferred_comparison_query_pack(&planning_query, budget) {
             query_metadata = inferred;

@@ -6,11 +6,18 @@ fn requested_specificity_satisfaction(
     normalized_response: &str,
     payload: &Value,
     answer_unit_usefulness: &Value,
+    coverage_entities: &[String],
+    entity_coverage: f64,
 ) -> Value {
     let requested_kinds = requested_specificity_kinds(normalized_prompt);
     let requested = !requested_kinds.is_empty();
     let explicit_gap = explicit_specificity_gap_signal(normalized_response);
     let concrete_named_units = concrete_named_answer_units(response_text);
+    let prompt_named_entity_units = prompt_named_entity_specificity_units(
+        &requested_kinds,
+        coverage_entities,
+        entity_coverage,
+    );
     let evidence_concrete_units = concrete_named_evidence_units(payload, normalized_prompt);
     let min_specific_units = requested_specificity_min_units(&requested_kinds);
     let evidence_specificity_available = !requested || evidence_concrete_units >= min_specific_units;
@@ -26,7 +33,8 @@ fn requested_specificity_satisfaction(
         && useful_units_pass
         && direct_useful_units >= 3
         && has_tradeoff_or_structure(normalized_response);
-    let concrete_answer_present = concrete_named_units >= min_specific_units;
+    let concrete_answer_present = concrete_named_units >= min_specific_units
+        || prompt_named_entity_units >= min_specific_units;
     let pass = !requested || concrete_answer_present || bounded_substitute_useful || !explicit_gap;
     let excellent_ready = !requested || concrete_answer_present || !explicit_gap;
     let failure_boundary = requested_specificity_failure_boundary(
@@ -52,6 +60,8 @@ fn requested_specificity_satisfaction(
         "evidence_concrete_units": evidence_concrete_units,
         "evidence_specificity_available": evidence_specificity_available,
         "concrete_named_units": concrete_named_units,
+        "prompt_named_entity_units": prompt_named_entity_units,
+        "prompt_named_entity_coverage": entity_coverage,
         "concrete_answer_present": concrete_answer_present,
         "explicit_specificity_gap": explicit_gap,
         "bounded_substitute_useful": bounded_substitute_useful,
@@ -63,6 +73,23 @@ fn requested_specificity_satisfaction(
         "top_blocker": blockers.first().cloned().unwrap_or_else(|| "none".to_string()),
         "note": "Generic specificity lane. When a prompt asks for concrete examples, named options, dates, comparisons, or a shortlist, an answer that explicitly says the retrieved evidence lacks that specificity can pass as a bounded substitute, but does not earn Excellent unless it actually delivers the requested concrete units."
     })
+}
+
+fn prompt_named_entity_specificity_units(
+    requested_kinds: &[String],
+    coverage_entities: &[String],
+    entity_coverage: f64,
+) -> u64 {
+    if coverage_entities.is_empty() {
+        return 0;
+    }
+    let specificity_by_named_options = requested_kinds.iter().any(|kind| {
+        matches!(kind.as_str(), "shortlist_or_options" | "comparison" | "named_examples")
+    });
+    if !specificity_by_named_options || entity_coverage < 0.75 {
+        return 0;
+    }
+    coverage_entities.len() as u64
 }
 
 fn requested_specificity_failure_boundary(

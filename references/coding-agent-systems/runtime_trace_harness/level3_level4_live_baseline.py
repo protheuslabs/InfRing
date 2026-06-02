@@ -27,6 +27,7 @@ from command_resolution import command_execution_policy, resolve_forge_command, 
 THIS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = THIS_DIR.parents[2]
 DEFAULT_MODEL = "qwen2.5-coder:7b"
+RUN_TIMEOUT_OVERRIDE_SECONDS: int | None = None
 
 _LEVEL2_SPEC = importlib.util.spec_from_file_location(
     "level2_baseline", THIS_DIR / "level2_weak_model_live_baseline.py"
@@ -38,6 +39,12 @@ _LEVEL2_SPEC.loader.exec_module(level2)
 
 def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def runner_timeout(default_seconds: int) -> int:
+    if RUN_TIMEOUT_OVERRIDE_SECONDS is None:
+        return default_seconds
+    return max(5, RUN_TIMEOUT_OVERRIDE_SECONDS)
 
 
 def run_cmd(
@@ -695,7 +702,7 @@ def run_infring(job: dict[str, Any], model: str) -> dict[str, Any]:
     result = run_cmd(
         command,
         cwd=REPO_ROOT,
-        timeout=240,
+        timeout=runner_timeout(240),
         env=os.environ | {"INFRING_RUNTIME_LANE_MODEL_LOCK": model},
     )
     parsed: dict[str, Any] = {}
@@ -872,7 +879,7 @@ def run_aider(job: dict[str, Any], model: str) -> dict[str, Any]:
         if ".infring" in path.parts:
             continue
         command.extend(["--file", str(path.relative_to(job["project_root"]))])
-    result = run_cmd(command, cwd=job["project_root"], timeout=240, env=os.environ | {"PYTHONPATH": "."})
+    result = run_cmd(command, cwd=job["project_root"], timeout=runner_timeout(240), env=os.environ | {"PYTHONPATH": "."})
     stdout_path.write_text((result.get("stdout") or "") + "\n\nSTDERR:\n" + (result.get("stderr") or ""), encoding="utf-8")
     return {
         "ok": result["ok"],
@@ -917,7 +924,7 @@ def run_swe_agent(job: dict[str, Any], model: str) -> dict[str, Any]:
             f"--output_dir={output_dir}",
         ],
         cwd=REPO_ROOT / "references/coding-agent-systems/swe-agent",
-        timeout=300,
+        timeout=runner_timeout(300),
         env=os.environ | {"PYTHONPATH": f"{shim_path}:src", "SWE_AGENT_LOCAL_ROOT": str(local_root)},
     )
     stdout_path.write_text((result.get("stdout") or "") + "\n\nSTDERR:\n" + (result.get("stderr") or ""), encoding="utf-8")
@@ -988,7 +995,7 @@ def run_forgecode(job: dict[str, Any], model: str) -> dict[str, Any]:
             prompt_path.read_text(encoding="utf-8"),
         ],
         cwd=forge_root,
-        timeout=420,
+        timeout=runner_timeout(420),
         env=os.environ
         | {
             "FORGE_CONFIG": str(config_root),
@@ -1160,7 +1167,7 @@ def run_claude_code(job: dict[str, Any], model: str) -> dict[str, Any]:
     result = run_cmd(
         command,
         cwd=job["project_root"],
-        timeout=300,
+        timeout=runner_timeout(300),
         env=env,
     )
     stdout_path.write_text(result.get("stdout") or "", encoding="utf-8")
@@ -1367,7 +1374,7 @@ def run_grok(job: dict[str, Any], model: str) -> dict[str, Any]:
         command.extend(["--sandbox", sandbox])
     command.extend(["--single", prompt_path.read_text(encoding="utf-8")])
 
-    result = run_cmd(command, cwd=job["project_root"], timeout=300, env=os.environ | {"PYTHONPATH": "."})
+    result = run_cmd(command, cwd=job["project_root"], timeout=runner_timeout(300), env=os.environ | {"PYTHONPATH": "."})
     stdout_path.write_text(result.get("stdout") or "", encoding="utf-8")
     stderr_path.write_text(result.get("stderr") or "", encoding="utf-8")
     stream_summary = _summarize_grok_stream(result.get("stdout") or "")
@@ -1555,7 +1562,7 @@ def run_codex(job: dict[str, Any], model: str) -> dict[str, Any]:
             prompt_path.read_text(encoding="utf-8"),
         ],
         cwd=job["project_root"],
-        timeout=300,
+        timeout=runner_timeout(300),
         env=os.environ | {"PYTHONPATH": "."},
     )
     stdout_path.write_text(result.get("stdout") or "", encoding="utf-8")
@@ -1643,39 +1650,108 @@ def failure_counts(attempts: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def build_report(
+    args: argparse.Namespace,
+    requested_systems: list[str],
+    requested_levels: set[int],
+    attempts: list[dict[str, Any]],
+    *,
+    status: str,
+) -> dict[str, Any]:
+    return {
+        "harness_kind": "level3_level4_live_baseline_v1",
+        "generated_at": utc_now(),
+        "status": status,
+        "model": args.model,
+        "systems": requested_systems,
+        "levels": sorted(requested_levels),
+        "attempt_timeout_seconds": RUN_TIMEOUT_OVERRIDE_SECONDS,
+        "summary": summarize(attempts),
+        "attempts": attempts,
+    }
+
+
+def write_report(path: Path, report: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+
 def main() -> int:
+    global RUN_TIMEOUT_OVERRIDE_SECONDS
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--systems", default="infring,mini-swe-agent,aider,swe-agent,forgecode")
     parser.add_argument("--levels", default="3,4")
     parser.add_argument("--out", default="")
+    parser.add_argument(
+        "--attempt-timeout-seconds",
+        type=int,
+        default=0,
+        help="Override per-system attempt timeout so reference loops can stay bounded.",
+    )
     args = parser.parse_args()
+    if args.attempt_timeout_seconds > 0:
+        RUN_TIMEOUT_OVERRIDE_SECONDS = args.attempt_timeout_seconds
 
     requested_systems = [item.strip() for item in args.systems.split(",") if item.strip()]
     requested_levels = {int(item.strip()) for item in args.levels.split(",") if item.strip()}
     attempts: list[dict[str, Any]] = []
+    out_path = Path(args.out) if args.out else Path(tempfile.mkdtemp(prefix="level3-level4-baseline-")) / "report.json"
     for case in [case for case in cases() if case["level"] in requested_levels]:
         for system in requested_systems:
+            print(
+                json.dumps({
+                    "event": "attempt_start",
+                    "system": system,
+                    "level": case["level"],
+                    "case_id": case["id"],
+                    "at": utc_now(),
+                }),
+                file=sys.stderr,
+                flush=True,
+            )
             job = seed_case(case, system.replace("/", "_"))
             runner = RUNNERS.get(system)
             if runner is None:
                 run_result = {"ok": False, "blocked": "unknown_system", "wall_time_ms": None}
             else:
                 run_result = runner(job, args.model)
-            attempts.append(judge(system, job, run_result))
+            attempt = judge(system, job, run_result)
+            attempts.append(attempt)
+            print(
+                json.dumps({
+                    "event": "attempt_end",
+                    "system": system,
+                    "level": case["level"],
+                    "case_id": case["id"],
+                    "ok": attempt["ok"],
+                    "failure_class": attempt["failure_class"],
+                    "wall_time_ms": attempt["wall_time_ms"],
+                    "time_to_first_mutation_ms": attempt["time_to_first_mutation_ms"],
+                    "at": utc_now(),
+                }),
+                file=sys.stderr,
+                flush=True,
+            )
+            write_report(
+                out_path,
+                build_report(
+                    args,
+                    requested_systems,
+                    requested_levels,
+                    attempts,
+                    status="partial",
+                ),
+            )
 
-    report = {
-        "harness_kind": "level3_level4_live_baseline_v1",
-        "generated_at": utc_now(),
-        "model": args.model,
-        "systems": requested_systems,
-        "levels": sorted(requested_levels),
-        "summary": summarize(attempts),
-        "attempts": attempts,
-    }
-    out_path = Path(args.out) if args.out else Path(tempfile.mkdtemp(prefix="level3-level4-baseline-")) / "report.json"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    report = build_report(
+        args,
+        requested_systems,
+        requested_levels,
+        attempts,
+        status="complete",
+    )
+    write_report(out_path, report)
     print(json.dumps(report, indent=2))
     return 0
 

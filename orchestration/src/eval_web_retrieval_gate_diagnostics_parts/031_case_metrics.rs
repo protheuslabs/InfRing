@@ -121,7 +121,27 @@ fn web_operator_case_metrics(
         },
         "evidence_quality": {
             "source_quality_ready": bool_at(evidence_quality, &["source_quality_ready"], false),
+            "source_authority_sensitive": bool_at(
+                evidence_quality,
+                &["source_authority_sensitive"],
+                false
+            ),
+            "source_authority_ready": bool_at(
+                evidence_quality,
+                &["source_authority_ready"],
+                true
+            ),
+            "authority_grade_source_domain_count": u64_at(
+                evidence_quality,
+                &["authority_grade_source_domain_count"],
+                0
+            ),
             "claim_quality_ready": bool_at(evidence_quality, &["claim_quality_ready"], false),
+            "handoff_claim_quality_ready": bool_at(
+                evidence_quality,
+                &["handoff_claim_quality_ready"],
+                false
+            ),
             "citation_renderability_ready": bool_at(
                 evidence_quality,
                 &["citation_renderability_ready"],
@@ -154,6 +174,21 @@ fn web_operator_case_metrics(
                 &["citation_ready_claim_rate"],
                 0.0
             ),
+            "handoff_concrete_claim_rate": f64_at(
+                evidence_quality,
+                &["handoff_concrete_claim_rate"],
+                0.0
+            ),
+            "handoff_low_quality_claim_rate": f64_at(
+                evidence_quality,
+                &["handoff_low_quality_claim_rate"],
+                0.0
+            ),
+            "handoff_citation_ready_claim_rate": f64_at(
+                evidence_quality,
+                &["handoff_citation_ready_claim_rate"],
+                0.0
+            ),
             "evidence_item_count": u64_at(evidence_quality, &["evidence_item_count"], 0),
             "low_quality_evidence_item_count": u64_at(
                 evidence_quality,
@@ -165,6 +200,22 @@ fn web_operator_case_metrics(
             "citation_ready_claim_count": u64_at(
                 evidence_quality,
                 &["citation_ready_claim_count"],
+                0
+            ),
+            "handoff_claim_count": u64_at(evidence_quality, &["handoff_claim_count"], 0),
+            "handoff_concrete_claim_count": u64_at(
+                evidence_quality,
+                &["handoff_concrete_claim_count"],
+                0
+            ),
+            "handoff_low_quality_claim_count": u64_at(
+                evidence_quality,
+                &["handoff_low_quality_claim_count"],
+                0
+            ),
+            "handoff_citation_ready_claim_count": u64_at(
+                evidence_quality,
+                &["handoff_citation_ready_claim_count"],
                 0
             )
         },

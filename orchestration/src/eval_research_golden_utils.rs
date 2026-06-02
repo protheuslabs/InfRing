@@ -1143,7 +1143,14 @@ pub(super) fn clean_text(raw: &str, max_len: usize) -> String {
 }
 
 pub(super) fn normalize_for_compare(raw: &str) -> String {
-    clean_text(&raw.to_ascii_lowercase(), 4_000)
+    let normalized = raw
+        .chars()
+        .map(|ch| match ch {
+            '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2212}' => '-',
+            _ => ch,
+        })
+        .collect::<String>();
+    clean_text(&normalized.to_ascii_lowercase(), 4_000)
 }
 
 pub(super) fn normalize_agent_id(raw: &str) -> String {

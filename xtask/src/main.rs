@@ -775,6 +775,10 @@ fn load_workflow_context(raw_workflow_id: Option<&String>) -> Result<Option<(Str
         .and_then(|contract| contract.get("native_success_criteria"))
         .cloned()
         .unwrap_or(Value::Null);
+    let native_runtime_prompt_policy = workflow_spec
+        .get("native_runtime_prompt_policy")
+        .cloned()
+        .unwrap_or(Value::Null);
     let success_summary = compact_success_criteria_summary(&native_success_criteria);
     let public_reasoning_contract = workflow_spec
         .get("public_reasoning_trace_contract")
@@ -821,6 +825,7 @@ fn load_workflow_context(raw_workflow_id: Option<&String>) -> Result<Option<(Str
         "native_capability_packs": native_capability_packs,
         "native_permission_template": native_permission_template,
         "native_success_criteria": native_success_criteria,
+        "native_runtime_prompt_policy": native_runtime_prompt_policy,
         "public_reasoning_trace_contract": public_reasoning_contract,
         "completion_evidence_contract": completion_evidence_contract,
         "coding_persistence_safety_contract": persistence_safety_contract,

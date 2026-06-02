@@ -52,10 +52,44 @@ fn tool_calls_from_value(value: &Value) -> Vec<NativeToolCall> {
             .flat_map(|(idx, item)| tool_calls_from_item(item, idx))
             .collect();
     }
+    if let Some(items) = value.get("actions").and_then(Value::as_array) {
+        let calls = items
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, item)| action_call_from_item(item, idx))
+            .collect::<Vec<_>>();
+        if !calls.is_empty() {
+            return calls;
+        }
+    }
     if value.get("tool").is_some() || value.get("name").is_some() {
         return tool_calls_from_item(value, 0);
     }
     Vec::new()
+}
+
+fn action_call_from_item(value: &Value, idx: usize) -> Option<NativeToolCall> {
+    let command = value
+        .get("command")
+        .or_else(|| value.get("cmd"))
+        .and_then(Value::as_str)?
+        .trim();
+    if command.is_empty() || matches!(command, "..." | "…") {
+        return None;
+    }
+    let id = value
+        .get("id")
+        .or_else(|| value.get("call_id"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("action_{}", idx + 1));
+    Some(NativeToolCall {
+        id,
+        name: "command_run".to_string(),
+        args: json!({
+            "cmd": ["sh", "-lc", command],
+        }),
+    })
 }
 
 fn tool_calls_from_item(value: &Value, idx: usize) -> Vec<NativeToolCall> {

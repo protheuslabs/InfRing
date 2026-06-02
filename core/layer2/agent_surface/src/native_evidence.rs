@@ -29,15 +29,7 @@ pub(crate) fn native_tool_failed_validation_command_refs(
 ) -> Vec<String> {
     receipts
         .iter()
-        .filter(|receipt| {
-            receipt.status == "ok"
-                && receipt.tool_name == "command_run"
-                && !receipt
-                    .result
-                    .get("success")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-        })
+        .filter(|receipt| native_tool_receipt_is_failed_validation_command(receipt))
         .map(|receipt| format!("failed_validation_command_receipt:{}", receipt.call_id))
         .collect()
 }
@@ -47,53 +39,68 @@ pub(crate) fn native_tool_failed_validation_receipt_details(
 ) -> String {
     let details = receipts
         .iter()
-        .filter(|receipt| {
-            receipt.status == "ok"
-                && receipt.tool_name == "command_run"
-                && !receipt
-                    .result
-                    .get("success")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-        })
-        .map(|receipt| {
-            let cmd = receipt
-                .result
-                .get("cmd")
-                .and_then(|value| serde_json::to_string(value).ok())
-                .unwrap_or_else(|| "[]".to_string());
-            let exit_code = receipt
-                .result
-                .get("exit_code")
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "null".to_string());
-            let stdout = receipt
-                .result
-                .get("stdout")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .chars()
-                .take(1800)
-                .collect::<String>();
-            let stderr = receipt
-                .result
-                .get("stderr")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .chars()
-                .take(1800)
-                .collect::<String>();
-            format!(
-                "{} cmd={} exit_code={}\nstdout:\n{}\nstderr:\n{}",
-                receipt.call_id, cmd, exit_code, stdout, stderr
-            )
-        })
+        .filter(|receipt| native_tool_receipt_is_failed_validation_command(receipt))
+        .map(native_tool_failed_validation_receipt_detail)
         .collect::<Vec<_>>();
     if details.is_empty() {
         "none".to_string()
     } else {
         details.join("\n\n---\n\n")
     }
+}
+
+pub(crate) fn native_tool_latest_failed_validation_receipt_details(
+    receipts: &[NativeToolReceipt],
+) -> String {
+    receipts
+        .iter()
+        .rev()
+        .find(|receipt| native_tool_receipt_is_failed_validation_command(receipt))
+        .map(native_tool_failed_validation_receipt_detail)
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn native_tool_receipt_is_failed_validation_command(receipt: &NativeToolReceipt) -> bool {
+    receipt.status == "ok"
+        && receipt.tool_name == "command_run"
+        && !receipt
+            .result
+            .get("success")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+}
+
+fn native_tool_failed_validation_receipt_detail(receipt: &NativeToolReceipt) -> String {
+    let cmd = receipt
+        .result
+        .get("cmd")
+        .and_then(|value| serde_json::to_string(value).ok())
+        .unwrap_or_else(|| "[]".to_string());
+    let exit_code = receipt
+        .result
+        .get("exit_code")
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "null".to_string());
+    let stdout = receipt
+        .result
+        .get("stdout")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .chars()
+        .take(1800)
+        .collect::<String>();
+    let stderr = receipt
+        .result
+        .get("stderr")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .chars()
+        .take(1800)
+        .collect::<String>();
+    format!(
+        "{} cmd={} exit_code={}\nstdout:\n{}\nstderr:\n{}",
+        receipt.call_id, cmd, exit_code, stdout, stderr
+    )
 }
 
 pub(crate) fn native_tool_context_only_turn(receipts: &[NativeToolReceipt]) -> bool {
@@ -369,16 +376,23 @@ pub(crate) fn native_tool_artifact_repair_reasons(
     {
         return Vec::new();
     }
+    let evidence_gaps = native_tool_prompt_evidence_gaps(original_prompt, receipts);
+    let prompt_lower = original_prompt.to_ascii_lowercase();
+    let receipt_backed_complete = evidence_gaps.is_empty()
+        && native_tool_has_successful_mutation(receipts)
+        && (!native_tool_prompt_requires_validation_command(&prompt_lower)
+            || native_tool_has_successful_validation_command(receipts));
     let mut reasons = Vec::<String>::new();
-    if output.contains("partial_or_blocked")
-        || output.contains("\"status\": \"uncovered\"")
-        || output.contains("\"status\":\"uncovered\"")
-        || output.contains("\"status\": \"blocked\"")
-        || output.contains("\"status\":\"blocked\"")
+    if !receipt_backed_complete
+        && (output.contains("partial_or_blocked")
+            || output.contains("\"status\": \"uncovered\"")
+            || output.contains("\"status\":\"uncovered\"")
+            || output.contains("\"status\": \"blocked\"")
+            || output.contains("\"status\":\"blocked\""))
     {
         reasons.push("reported_uncovered_or_blocked_requirement".to_string());
     }
-    reasons.extend(native_tool_prompt_evidence_gaps(original_prompt, receipts));
+    reasons.extend(evidence_gaps);
     reasons.sort();
     reasons.dedup();
     reasons
@@ -476,7 +490,6 @@ fn native_tool_public_interface_verification_gaps(
     {
         return Vec::new();
     }
-
     let mut reasons = Vec::<String>::new();
     reasons.extend(native_tool_changed_test_import_surface_gaps(
         original_prompt,
@@ -914,6 +927,14 @@ fn native_tool_prompt_requested_public_api_names(original_prompt: &str) -> Vec<S
                 | "existing"
                 | "regression"
                 | "validation"
+                | "symbol"
+                | "symbols"
+                | "input"
+                | "inputs"
+                | "change"
+                | "changes"
+                | "real"
+                | "any"
                 | "task"
                 | "rules"
                 | "run"
@@ -1043,6 +1064,15 @@ fn native_tool_public_api_names_from_action_phrases(line: &str) -> Vec<String> {
                     | "test"
                     | "unittest"
                     | "failing"
+                    | "regression"
+                    | "symbol"
+                    | "symbols"
+                    | "input"
+                    | "inputs"
+                    | "change"
+                    | "changes"
+                    | "real"
+                    | "any"
                     | "relevant"
                     | "files"
                     | "file"

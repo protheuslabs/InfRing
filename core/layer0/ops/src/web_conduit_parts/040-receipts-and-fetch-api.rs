@@ -233,13 +233,9 @@ fn fetch_brave_with_retry(
     max_response_bytes: usize,
     max_attempts: usize,
     top_k: usize,
+    filters: &Value,
 ) -> Value {
-    let requested_url = format!(
-        "{}?q={}&count={}&extra_snippets=true",
-        BRAVE_SEARCH_URL,
-        encode_query_component(&clean_text(query, 600)),
-        top_k.clamp(1, 20)
-    );
+    let requested_url = brave_search_url(query, top_k, filters);
     let mut attempts = 0usize;
     let mut best = json!({
         "ok": false,

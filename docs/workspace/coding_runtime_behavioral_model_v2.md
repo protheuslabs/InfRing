@@ -881,3 +881,77 @@ The repair lane should expose only `file_write` and `file_patch`. Tests and
 probes are evidence for the product contract, not mutation targets. This keeps
 the primitive reusable across Python package tasks without encoding eval levels
 or fixture-specific marker strings.
+
+## Compact first-mutation action controller
+
+Reference trace evidence from mini-swe-agent on the Level 2 existing-project
+edit shows a reusable low-overhead controller shape:
+
+- list files once
+- read the relevant source, export, test, and semantic-probe files in a bounded
+  batch
+- emit a tiny action-shaped edit batch with complete source/test writes or
+  patches
+- run validation and the semantic probe after mutation
+- finish with receipt-backed changed files and caveats
+
+Infring should model this as a primitive first-mutation controller after
+runtime-owned context bootstrap, not as a task-specific shortcut. When
+authoritative local context is already loaded and no mutation receipt exists,
+the compact action controller may take the first product-mutation turn before
+heavier planning or bounded-existing-project loops can consume the run budget.
+
+This primitive is reusable because it is keyed by runtime state:
+
+- successful local context receipts exist
+- product mutation is required
+- no successful mutation receipt exists yet
+- a compact mutation-entry packet can name observed source/test/probe context
+
+It must not encode eval levels, fixture paths, domain symbols, or prompt-specific
+solutions. Its output remains action/receipt based, and validation stays
+runtime-owned after successful mutation.
+
+Multi-requirement existing-project edits still need a bounded first-mutation
+controller after context is loaded, but the controller must have a safe bridge
+into native mutation receipts. Directly routing them into a broad mutation-only
+turn is not sufficient unless the output shape, timeout behavior, and receipt
+admission path are proven.
+
+The preferred bridge is the constrained first-mutation artifact lane:
+
+- input is the runtime-loaded context packet
+- output is native `tool_calls`
+- allowed tools are only `file_patch` and `file_write`
+- provider streaming stops at balanced `tool_calls` JSON
+- validation remains runtime-owned after a successful mutation receipt
+
+This lane should route for local existing-project implementation slices, not
+only the narrow `existing_project_patch` label, because those sibling lanes have
+the same primitive need: context is loaded and the next safe act is a bounded
+source/test mutation.
+
+Preserved public API guards should distinguish removal from implementation
+rewrite, but any relaxation must be measured before activation. Removing a
+preserved API owner block is always blocked. A future validation-backed full-file
+owner-write admission may be useful only if it reliably produces mutation
+receipts and validation evidence without weakening API-preservation guarantees.
+
+## Runtime first-edit tool-calls lane
+
+When runtime has an authoritative local context pack for an existing-project
+edit and no mutation receipt exists yet, the fastest safe primitive is a
+tool-call-shaped first-edit lane:
+
+- provider prompt is small and context-bound
+- output must be native `tool_calls`
+- allowed tools are only `file_write` and `file_patch`
+- no shell actions, reads, validation commands, handoff artifacts, or final text
+- runtime dispatches the file mutations and records native receipts
+- validation and semantic probes happen after mutation in later runtime/eval
+  layers
+
+This mirrors the useful reference behavior from mini-swe-agent while keeping
+Infring inside its receipt substrate. It also avoids the failed `actions`
+controller path and the heavyweight deterministic manifest planner for simple
+existing-project implementation slices.

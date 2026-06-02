@@ -264,6 +264,38 @@
     }
 
     #[test]
+    fn answer_unit_alignment_single_low_risk_wording_gap_is_not_significant() {
+        let significant = answer_unit_unsupported_is_significant(
+            &normalize_for_compare(
+                "Consolidate to one central cloud storage solution.",
+            ),
+            &[],
+            &[],
+            &["consolidate".to_string()],
+        );
+
+        assert!(!significant);
+    }
+
+    #[test]
+    fn answer_unit_specific_terms_ignore_connective_words() {
+        let terms = answer_unit_specific_terms(
+            "Briggs & Riley - Along with Away, it excelled in Consumer Reports data.",
+        );
+
+        assert!(!terms.iter().any(|term| term == "along"), "{terms:?}");
+    }
+
+    #[test]
+    fn answer_unit_alignment_supports_related_adjective_forms() {
+        let evidence = vec![normalize_for_compare(
+            "Our evidence for witchcraft in Europe comes almost exclusively from hostile sources.",
+        )];
+
+        assert!(evidence_texts_support_term(&evidence, "european"));
+    }
+
+    #[test]
     fn answer_unit_alignment_generic_action_verbs_do_not_hard_fail() {
         let alignment = json!({
             "evaluated": true,
@@ -736,10 +768,11 @@
     #[test]
     fn answer_alignment_ignores_checklist_and_interface_scaffold_terms() {
         let terms = answer_unit_specific_terms(
-            "Lock in the move date, begin address changes, initiate postal forwarding, evaluate bids, insist on contract terms, and use API-driven internal tools. Want the easiest option?",
+            "Lock in the move date, begin address changes, initiate postal forwarding, evaluate bids, insist on contract terms, and use API-driven internal tools. During the same period, whichever lane you use, measure each class separately. **Target:** the easiest option. Named the strongest pick. **Why it is on the list:** a useful fit. Ueno offers older Tokyo atmosphere and value.",
         );
 
         assert!(!terms.contains(&"lock".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"during".to_string()), "{terms:?}");
         assert!(!terms.contains(&"begin".to_string()), "{terms:?}");
         assert!(!terms.contains(&"initiat".to_string()), "{terms:?}");
         assert!(!terms.contains(&"initiate".to_string()), "{terms:?}");
@@ -747,7 +780,45 @@
         assert!(!terms.contains(&"evaluate".to_string()), "{terms:?}");
         assert!(!terms.contains(&"insist".to_string()), "{terms:?}");
         assert!(!terms.contains(&"api".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"whichever".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"target".to_string()), "{terms:?}");
         assert!(!terms.contains(&"want".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"named".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"why".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"offer".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"offers".to_string()), "{terms:?}");
+    }
+
+    #[test]
+    fn answer_alignment_keeps_target_as_named_entity_when_not_a_label() {
+        let terms = answer_unit_specific_terms(
+            "The retailer Target announced new pickup policies for urban stores.",
+        );
+
+        assert!(terms.contains(&"target".to_string()), "{terms:?}");
+    }
+
+    #[test]
+    fn answer_alignment_ignores_acronym_expansion_scaffold_terms() {
+        let terms = answer_unit_specific_terms(
+            "Employer EAPs: Employee Assistance Programs can provide short-term counseling.",
+        );
+
+        assert!(terms.contains(&"eaps".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"assistance".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"programs".to_string()), "{terms:?}");
+    }
+
+    #[test]
+    fn answer_alignment_ignores_outline_and_pronoun_scaffold_terms() {
+        let terms = answer_unit_specific_terms(
+            "Inclusion criteria: They should add supported items rather than unsupported detail.",
+        );
+
+        assert!(!terms.contains(&"inclusion".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"they".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"add".to_string()), "{terms:?}");
+        assert!(!terms.contains(&"rather".to_string()), "{terms:?}");
     }
 
     #[test]

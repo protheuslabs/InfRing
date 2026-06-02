@@ -221,6 +221,7 @@
         top_k,
         summary_only,
         &provider_chain,
+        &normalized_filters,
     );
     if cache_ttl_seconds > 0 {
         if let Some(mut cached) = load_search_cache(root, &cache_key) {

@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{self, Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -241,6 +241,10 @@ fn run_test_input_replay(args: &[String]) -> i32 {
     let model_ref = parse_flag(args, "model");
     let case_id_filter = parse_flag(args, "case-id");
     let limit = parse_usize_flag(args, "limit", 5);
+    let requested_sample_size = parse_usize_flag(args, "sample-size", 0);
+    let requested_sample_seed = parse_flag(args, "sample-seed")
+        .map(|raw| clean_text(&raw, 120))
+        .filter(|raw| !raw.is_empty());
     let timeout_seconds = parse_u64_flag(args, "timeout-seconds", 45);
     let synthesis_retry_count = parse_usize_flag(args, "synthesis-retry-count", 1);
     let fresh_agent_per_case = parse_bool_flag(args, "fresh-agent-per-case", true);
@@ -262,21 +266,27 @@ fn run_test_input_replay(args: &[String]) -> i32 {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-
-    let mut rows = Vec::new();
-    let mut response_rows = Vec::new();
-    let mut setup_failures = Vec::<String>::new();
-
-    for case in cases
-        .iter()
+    let filtered_cases = cases
+        .into_iter()
         .filter(|case| {
             case_id_filter
                 .as_ref()
                 .map(|wanted| str_at(case, "id") == wanted.trim())
                 .unwrap_or(true)
         })
-        .take(limit)
-    {
+        .collect::<Vec<_>>();
+    let (selected_cases, case_selection) = select_replay_cases(
+        &filtered_cases,
+        (requested_sample_size > 0).then_some(requested_sample_size),
+        requested_sample_seed.as_deref(),
+        limit,
+    );
+
+    let mut rows = Vec::new();
+    let mut response_rows = Vec::new();
+    let mut setup_failures = Vec::<String>::new();
+
+    for case in selected_cases.iter().take(limit) {
         let case_id = str_at(case, "id");
         eprintln!("research-perfect-evidence replay: case start {case_id}");
         let readiness = evaluate_case(case);
@@ -373,12 +383,18 @@ fn run_test_input_replay(args: &[String]) -> i32 {
                     "synthesized"
                 }
             });
-        let empty_final_response =
+        let evidence_input_not_ready =
+            case_setup_failure_is_evidence_input_not_ready(&case_setup_failures);
+        let harness_setup_failure = case_setup_has_harness_failure(&case_setup_failures);
+        let empty_final_response_observed =
             final_llm_status == "empty" || grade.response_text.trim().is_empty();
+        let empty_final_response = empty_final_response_observed && !evidence_input_not_ready;
         let transport_or_harness_failure =
-            !case_setup_failures.is_empty() || transport_failure || empty_final_response;
+            harness_setup_failure || transport_failure || empty_final_response;
         let measurement_class = if production_lane_touched {
             "test_input_lane_contaminated"
+        } else if evidence_input_not_ready {
+            "evidence_input_not_ready"
         } else if transport_or_harness_failure {
             "transport_or_harness_failure"
         } else if case_pass {
@@ -414,6 +430,7 @@ fn run_test_input_replay(args: &[String]) -> i32 {
             },
             "measurement_class": measurement_class,
             "synthesized_case": measurement_class == "synthesis_pass" || measurement_class == "synthesis_hard_failure",
+            "evidence_input_not_ready": evidence_input_not_ready,
             "transport_or_harness_failure": transport_or_harness_failure,
             "response_preview": clean_text(&grade.response_text, 700),
             "response_full": clean_text(&grade.response_text, 12_000),
@@ -453,6 +470,11 @@ fn run_test_input_replay(args: &[String]) -> i32 {
         .unwrap_or(0)
         == 0
         && summary
+            .get("evidence_input_not_ready_cases")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            == 0
+        && summary
             .get("test_input_lane_leaks")
             .and_then(Value::as_u64)
             .unwrap_or(0)
@@ -477,12 +499,15 @@ fn run_test_input_replay(args: &[String]) -> i32 {
             "note": "Synthetic perfect evidence is injected only as eval prompt context and reattached only inside the test-mode scoring payload."
         },
         "summary": summary,
+        "case_selection": case_selection,
         "live_options": {
             "base_url": base_url,
             "ollama_base_url": ollama_base_url,
             "synthesis_engine": synthesis_engine,
             "requested_agent_id": requested_agent_id,
             "case_id_filter": case_id_filter,
+            "sample_size": requested_sample_size,
+            "requested_sample_seed": requested_sample_seed,
             "fresh_agent_per_case": fresh_agent_per_case,
             "cleanup_fresh_agents": cleanup_fresh_agents,
             "synthesis_retry_count": synthesis_retry_count,
@@ -497,6 +522,7 @@ fn run_test_input_replay(args: &[String]) -> i32 {
         "dataset_id": "research_perfect_evidence_test_mode_responses_v1",
         "input_lane": TEST_INPUT_LANE_ID,
         "test_mode": true,
+        "case_selection": case_selection,
         "responses": response_rows
     });
     let markdown = render_replay_markdown(&report);
@@ -679,6 +705,11 @@ fn run_test_input_regrade(args: &[String]) -> i32 {
         .and_then(Value::as_u64)
         .unwrap_or(0)
         == 0
+        && summary
+            .get("evidence_input_not_ready_cases")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            == 0
         && summary
             .get("test_input_lane_leaks")
             .and_then(Value::as_u64)
@@ -901,6 +932,11 @@ fn run_production_handoff_replay(args: &[String]) -> i32 {
         .unwrap_or(0)
         == 0
         && summary
+            .get("evidence_input_not_ready_cases")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            == 0
+        && summary
             .get("handoff_contract_failures")
             .and_then(Value::as_u64)
             .unwrap_or(0)
@@ -974,7 +1010,7 @@ fn evaluate_case(case: &Value) -> CaseReadiness {
         blockers.push("exact_answer_key_present".to_string());
     }
 
-    let required_packet_count = if posture == "insufficient" { 2 } else { 3 };
+    let required_packet_count = required_packet_count_for_case(case, &posture);
     if evidence_pack.len() < required_packet_count {
         blockers.push(format!("evidence_pack_lt_{required_packet_count}"));
     }
@@ -983,7 +1019,7 @@ fn evaluate_case(case: &Value) -> CaseReadiness {
         if let Some(domain) = non_empty_str(item, "source_domain") {
             source_domains.insert(domain.to_string());
         }
-        if let Some(kind) = non_empty_str(item, "source_kind") {
+        for kind in evidence_item_source_kinds(item) {
             source_kinds.insert(kind.to_string());
         }
         let hints = item
@@ -1006,8 +1042,8 @@ fn evaluate_case(case: &Value) -> CaseReadiness {
     if source_kinds.len() < 2 {
         blockers.push("source_kind_diversity_lt_2".to_string());
     }
-    if posture != "insufficient" && claim_hints < 3 {
-        blockers.push("claim_hints_lt_3".to_string());
+    if posture != "insufficient" && claim_hints < required_packet_count {
+        blockers.push(format!("claim_hints_lt_{required_packet_count}"));
     }
     let replay_payload_ready = blockers.iter().all(|blocker| {
         blocker != "missing_case_id"
@@ -1035,17 +1071,56 @@ fn evaluate_case(case: &Value) -> CaseReadiness {
 }
 
 fn evidence_item_ready(item: &Value) -> bool {
-    non_empty_str(item, "id").is_some()
-        && non_empty_str(item, "title").is_some()
+    non_empty_str(item, "title").is_some()
         && non_empty_str(item, "locator").is_some()
         && non_empty_str(item, "source_domain").is_some()
-        && non_empty_str(item, "source_kind").is_some()
-        && text_field_len(item, "relevant_extract") >= 120
+        && evidence_item_source_kind(item).is_some()
+        && evidence_item_extract_len(item) >= 120
         && item
             .get("claim_hints")
             .and_then(Value::as_array)
             .map(|hints| hints.iter().any(|hint| text_len(hint) >= 16))
             .unwrap_or(false)
+}
+
+fn required_packet_count_for_case(case: &Value, posture: &str) -> usize {
+    case.get("evidence_pack_minimum")
+        .and_then(Value::as_u64)
+        .map(|raw| raw.max(1) as usize)
+        .unwrap_or_else(|| if posture == "insufficient" { 2 } else { 3 })
+}
+
+fn evidence_item_extract_len(item: &Value) -> usize {
+    ["relevant_extract", "support_snippet", "snippet"]
+        .iter()
+        .map(|key| text_field_len(item, key))
+        .max()
+        .unwrap_or(0)
+}
+
+fn evidence_item_source_kind(item: &Value) -> Option<&str> {
+    ["source_kind", "source_type", "source_class"]
+        .iter()
+        .find_map(|key| non_empty_str(item, key))
+}
+
+fn evidence_item_source_kinds(item: &Value) -> Vec<&str> {
+    ["source_kind", "source_type", "source_class"]
+        .iter()
+        .filter_map(|key| non_empty_str(item, key))
+        .collect()
+}
+
+fn evidence_item_source_kind_text(item: &Value) -> String {
+    evidence_item_source_kind(item).unwrap_or("").to_string()
+}
+
+fn evidence_item_id(item: &Value) -> String {
+    non_empty_str(item, "id")
+        .or_else(|| non_empty_str(item, "locator"))
+        .or_else(|| non_empty_str(item, "title"))
+        .unwrap_or("evidence")
+        .to_string()
 }
 
 fn build_replay_payload(case: &Value) -> Value {
@@ -1508,7 +1583,7 @@ fn test_input_replay_prompt(case: &Value) -> String {
             "[{}] {} ({}, {}): {}\nClaim hints: {}",
             idx + 1,
             clean_text(&str_at(item, "title"), 180),
-            clean_text(&str_at(item, "source_kind"), 80),
+            clean_text(&evidence_item_source_kind_text(item), 80),
             clean_text(&str_at(item, "source_domain"), 120),
             clean_text(&str_at(item, "relevant_extract"), 900),
             hints
@@ -1516,7 +1591,7 @@ fn test_input_replay_prompt(case: &Value) -> String {
     }
     format!(
         "TEST MODE: {TEST_INPUT_LANE_ID}\n\
-This is an eval-only closed-context answer replay. Do not use web search, browser, batch_query, or any other tool. Treat the reference packets below as the only factual context for the answer. Write only the final user-facing answer, in whatever natural format best answers the original query. Do not mention this test mode, workflow internals, raw tool state, or that reference packets were supplied. Do not add extra concrete examples, dates, numbers, product capabilities, or named entities unless they appear in the reference packets or you clearly mark them as inference.\n\n\
+This is an eval-only closed-context answer replay. Do not use web search, browser, batch_query, or any other tool. Treat the reference packets below as the only factual context for the answer. Write only the final user-facing answer, in whatever natural format best answers the original query. Do not mention this test mode, workflow internals, raw tool state, or that reference packets were supplied. Do not add extra concrete examples, dates, numbers, product capabilities, or named entities unless they appear in the reference packets or you clearly mark them as inference. If a packet names a category, model, product, entity, or risk without giving subexamples or details, repeat only what the packet supports and name the missing detail instead of filling it from general knowledge.\n\n\
 Make the answer stand alone: preserve the user's named subject, entity, location, product, or comparison target when that context is needed to understand the answer.\n\n\
 Original user query:\n{}\n\n\
 Reference packets:\n{}\n\n\
@@ -1539,11 +1614,11 @@ fn source_refs_for_evidence(evidence_pack: &[Value]) -> Vec<Value> {
         .enumerate()
         .map(|(idx, item)| {
             json!({
-                "id": str_at(item, "id"),
+                "id": evidence_item_id(item),
                 "title": str_at(item, "title"),
                 "locator": str_at(item, "locator"),
                 "source_domain": str_at(item, "source_domain"),
-                "source_kind": str_at(item, "source_kind"),
+                "source_kind": evidence_item_source_kind_text(item),
                 "rank": idx + 1
             })
         })
@@ -1553,7 +1628,7 @@ fn source_refs_for_evidence(evidence_pack: &[Value]) -> Vec<Value> {
 fn evidence_claims_for_evidence(evidence_pack: &[Value]) -> Vec<Value> {
     let mut claims = Vec::new();
     for item in evidence_pack {
-        let source_id = str_at(item, "id");
+        let source_id = evidence_item_id(item);
         for hint in item
             .get("claim_hints")
             .and_then(Value::as_array)
@@ -1654,6 +1729,152 @@ fn render_markdown(report: &Value, rows: &[CaseReadiness]) -> String {
     out
 }
 
+fn select_replay_cases(
+    cases: &[Value],
+    requested_sample_size: Option<usize>,
+    requested_seed: Option<&str>,
+    limit: usize,
+) -> (Vec<Value>, Value) {
+    let pool_size = cases.len();
+    let requested_sample_size = requested_sample_size
+        .filter(|size| *size > 0)
+        .map(|size| size.min(pool_size));
+    let requested_seed = requested_seed
+        .map(|raw| clean_text(raw, 120))
+        .filter(|raw| !raw.is_empty());
+    let effective_sample_size = requested_sample_size.unwrap_or(pool_size);
+    let selection_applied = effective_sample_size < pool_size || requested_seed.is_some();
+    let effective_seed = selection_applied.then(|| {
+        requested_seed
+            .clone()
+            .unwrap_or_else(runtime_random_sample_seed)
+    });
+    let selected_cases = if let Some(seed) = effective_seed.as_deref() {
+        let mut ranked = cases
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(ordinal, case)| {
+                let case_id = clean_text(&str_at(&case, "id"), 160);
+                (case_selection_hash(seed, &case_id, ordinal), ordinal, case)
+            })
+            .collect::<Vec<_>>();
+        ranked.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
+        ranked
+            .into_iter()
+            .take(effective_sample_size)
+            .map(|(_, _, case)| case)
+            .collect::<Vec<_>>()
+    } else {
+        cases.to_vec()
+    };
+    let selected_case_ids = selected_cases
+        .iter()
+        .map(|case| clean_text(&str_at(case, "id"), 160))
+        .collect::<Vec<_>>();
+    (
+        selected_cases.clone(),
+        json!({
+            "selection_applied": selection_applied,
+            "selection_mode": if selection_applied {
+                if requested_seed.is_some() {
+                    "deterministic_seeded_sample"
+                } else {
+                    "runtime_random_recorded_sample"
+                }
+            } else {
+                "full_dataset_order"
+            },
+            "pool_size": pool_size,
+            "requested_sample_size": requested_sample_size,
+            "effective_sample_size": selected_cases.len(),
+            "requested_sample_seed": requested_seed,
+            "effective_sample_seed": effective_seed,
+            "limit_requested": limit,
+            "planned_execution_count": selected_cases.iter().take(limit).count(),
+            "selected_case_ids": selected_case_ids,
+            "selected_category_counts": replay_case_selection_counts(&selected_cases, "category"),
+            "selected_tag_counts": replay_case_selection_counts(&selected_cases, "tag")
+        }),
+    )
+}
+
+fn runtime_random_sample_seed() -> String {
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let raw = format!("research_perfect_evidence:{now_nanos}:{}", process::id());
+    format!("random:{}", stable_hash_hex(&raw))
+}
+
+fn case_selection_hash(seed: &str, case_id: &str, ordinal: usize) -> String {
+    stable_hash_hex(&format!("{seed}\n{case_id}\n{ordinal}"))
+}
+
+fn stable_hash_hex(raw: &str) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in raw.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn replay_case_selection_counts(cases: &[Value], key: &str) -> Vec<Value> {
+    let mut counts = BTreeMap::<String, u64>::new();
+    for case in cases {
+        let values = match key {
+            "category" => vec![str_at(case, "category")],
+            "tag" => case_string_array_at(case, "tags"),
+            _ => Vec::new(),
+        };
+        for value in values {
+            let cleaned = clean_text(&value, 120);
+            if cleaned.is_empty() {
+                continue;
+            }
+            *counts.entry(cleaned).or_insert(0) += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(name, count)| {
+            json!({
+                key: name,
+                "count": count
+            })
+        })
+        .collect()
+}
+
+fn case_string_array_at(value: &Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|raw| clean_text(raw, 120))
+                .filter(|raw| !raw.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn case_setup_failure_is_evidence_input_not_ready(failures: &[String]) -> bool {
+    failures
+        .iter()
+        .any(|failure| failure == "perfect_evidence_case_not_ready")
+}
+
+fn case_setup_has_harness_failure(failures: &[String]) -> bool {
+    failures
+        .iter()
+        .any(|failure| failure != "perfect_evidence_case_not_ready")
+}
+
 fn replay_summary(rows: &[Value], limit: usize, setup_failures: &[String]) -> Value {
     let total_cases = rows.len();
     let passed_cases = rows
@@ -1675,7 +1896,11 @@ fn replay_summary(rows: &[Value], limit: usize, setup_failures: &[String]) -> Va
     let transport_failures = rows.iter().filter(|row| row_transport_failure(row)).count();
     let empty_final_response_cases = rows
         .iter()
-        .filter(|row| row_empty_final_response(row))
+        .filter(|row| !row_evidence_input_not_ready(row) && row_empty_final_response(row))
+        .count();
+    let evidence_input_not_ready_cases = rows
+        .iter()
+        .filter(|row| row_evidence_input_not_ready(row))
         .count();
     let setup_failure_cases = rows
         .iter()
@@ -1693,7 +1918,11 @@ fn replay_summary(rows: &[Value], limit: usize, setup_failures: &[String]) -> Va
     let lane_leaks = rows.iter().filter(|row| row_lane_contaminated(row)).count();
     let synthesized_rows = rows
         .iter()
-        .filter(|row| !row_transport_or_harness_failure(row) && !row_lane_contaminated(row))
+        .filter(|row| {
+            !row_evidence_input_not_ready(row)
+                && !row_transport_or_harness_failure(row)
+                && !row_lane_contaminated(row)
+        })
         .collect::<Vec<_>>();
     let synthesized_cases = synthesized_rows.len();
     let synthesized_passed_cases = synthesized_rows
@@ -1728,6 +1957,12 @@ fn replay_summary(rows: &[Value], limit: usize, setup_failures: &[String]) -> Va
         .filter_map(|row| row.get("case_id").and_then(Value::as_str))
         .map(ToString::to_string)
         .collect::<Vec<_>>();
+    let evidence_input_not_ready_ids = rows
+        .iter()
+        .filter(|row| row_evidence_input_not_ready(row))
+        .filter_map(|row| row.get("case_id").and_then(Value::as_str))
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
     let lane_leak_ids = rows
         .iter()
         .filter(|row| row_lane_contaminated(row))
@@ -1746,6 +1981,9 @@ fn replay_summary(rows: &[Value], limit: usize, setup_failures: &[String]) -> Va
         "transport_failures": transport_failures,
         "empty_final_response_cases": empty_final_response_cases,
         "setup_failure_cases": setup_failure_cases,
+        "evidence_input_not_ready_cases": evidence_input_not_ready_cases,
+        "evidence_input_not_ready_rate": rate(evidence_input_not_ready_cases, total_cases),
+        "evidence_input_not_ready_ids": evidence_input_not_ready_ids,
         "transport_or_harness_failures": transport_or_harness_failures,
         "transport_or_harness_failure_rate": rate(transport_or_harness_failures, total_cases),
         "transport_or_harness_failure_ids": transport_or_harness_failure_ids,
@@ -1762,8 +2000,24 @@ fn replay_summary(rows: &[Value], limit: usize, setup_failures: &[String]) -> Va
         "synthesis_hard_failures": synthesis_hard_failure_ids.len(),
         "synthesis_hard_failure_ids": synthesis_hard_failure_ids,
         "setup_failures": setup_failures,
-        "note": "Raw pass/excellent rates include transport and harness failures. Synthesized rates exclude transport, empty final responses, setup failures, and actual test-lane contamination so the good-evidence-to-good-answer lane can be evaluated separately."
+        "note": "Raw pass/excellent rates include evidence-input failures plus transport and harness failures. Synthesized rates exclude not-ready evidence inputs, transport, empty final responses, setup failures, and actual test-lane contamination so the good-evidence-to-good-answer lane can be evaluated separately."
     })
+}
+
+fn row_evidence_input_not_ready(row: &Value) -> bool {
+    row.get("evidence_input_not_ready")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| {
+            row.get("setup_failures")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .any(|failure| failure == "perfect_evidence_case_not_ready")
+                })
+                .unwrap_or(false)
+        })
 }
 
 fn row_transport_or_harness_failure(row: &Value) -> bool {
@@ -1886,6 +2140,13 @@ fn render_replay_markdown(report: &Value) -> String {
             .unwrap_or(0)
     ));
     out.push_str(&format!(
+        "- evidence_input_not_ready_cases: {}\n",
+        summary
+            .get("evidence_input_not_ready_cases")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    ));
+    out.push_str(&format!(
         "- test_input_lane_leaks: {}\n",
         summary
             .get("test_input_lane_leaks")
@@ -1899,6 +2160,15 @@ fn render_replay_markdown(report: &Value) -> String {
             .and_then(Value::as_f64)
             .unwrap_or(0.0)
     ));
+    out.push_str("\n## Evidence Input Not Ready\n\n");
+    render_case_id_list(
+        &mut out,
+        summary
+            .get("evidence_input_not_ready_ids")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]),
+    );
     out.push_str("\n## Transport Or Harness Failures\n\n");
     render_case_id_list(
         &mut out,
@@ -2354,7 +2624,7 @@ fn invoke_direct_ollama_synthesis(
     timeout_seconds: u64,
 ) -> Value {
     let cleaned_model = clean_text(model, 240);
-    let system_prompt = "You write direct, useful final answers from supplied reference material. You do not call tools, expose evaluator state, or describe the prompt machinery.";
+    let system_prompt = "You write direct, useful final answers from supplied reference material. You do not call tools, expose evaluator state, or describe the prompt machinery. Do not expand supplied categories, models, products, entities, or risks with unsourced examples or details; either stay within the supplied text or label additions as inference.";
     let request = json!({
         "model": cleaned_model,
         "stream": false,
@@ -2808,10 +3078,35 @@ mod tests {
                 "response_diagnostics": {"response_empty": false, "final_llm_status": "synthesized"},
                 "user_facing_answer_quality": {"verdict": "borderline"}
             }),
+            json!({
+                "case_id": "not_ready",
+                "score": 69,
+                "pass": false,
+                "excellent": false,
+                "setup_failures": ["perfect_evidence_case_not_ready"],
+                "evidence_input_not_ready": true,
+                "transport_or_harness_failure": false,
+                "live_payload_transport_error": null,
+                "lane_isolation": {"production_web_lane_touched": false},
+                "response_diagnostics": {"response_empty": true, "final_llm_status": "empty"},
+                "user_facing_answer_quality": {"verdict": "sounds_bad"}
+            }),
         ];
-        let summary = replay_summary(&rows, 3, &[]);
+        let summary = replay_summary(&rows, 4, &[]);
         assert_eq!(
             summary.get("transport_failures").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            summary
+                .get("empty_final_response_cases")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            summary
+                .get("evidence_input_not_ready_cases")
+                .and_then(Value::as_u64),
             Some(1)
         );
         assert_eq!(

@@ -57,6 +57,10 @@ fn stage_search_request(
         "query": query,
         "summary_only": false
     });
+    if let Some(freshness) = inferred_search_freshness_filter_from_query(query) {
+        request["freshness"] = json!(freshness);
+        request["freshness_source"] = json!("batch_query_relative_current_window");
+    }
     if std::env::var(CACHE_MODE_ENV)
         .ok()
         .map(|raw| normalize_cache_mode(&raw) == "disabled")
@@ -76,6 +80,30 @@ fn stage_search_request(
         request["exclude_subdomains"] = json!(search_scope.exclude_subdomains);
     }
     request
+}
+
+fn inferred_search_freshness_filter_from_query(query: &str) -> Option<&'static str> {
+    let lowered = clean_text(query, 600).to_ascii_lowercase();
+    if [
+        "today",
+        "yesterday",
+        "hours ago",
+        "hour ago",
+        "minutes ago",
+        "minute ago",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker))
+    {
+        return Some("day");
+    }
+    if lowered.contains("this week") {
+        return Some("week");
+    }
+    if lowered.contains("this month") {
+        return Some("month");
+    }
+    None
 }
 
 fn lane_aware_search_provider_chain(query: &str, policy: &Value) -> Option<Vec<String>> {
@@ -977,6 +1005,14 @@ fn issue_is_access_or_throttle_failure(detail: &str) -> bool {
         "too many requests",
         "http_429",
         "429",
+        "provider_circuit_open",
+        "circuit_open",
+        "quota_exceeded",
+        "quota exceeded",
+        "billing_required",
+        "billing required",
+        "payment_required",
+        "payment required",
         "anti_bot_challenge",
         "captcha",
         "cloudflare",

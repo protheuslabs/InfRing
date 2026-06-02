@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use super::super::eval_research_golden_scoring::grade_case;
 use super::super::eval_research_golden_utils::str_at;
 use super::super::eval_web_retrieval_gate_diagnostics::web_retrieval_gate_diagnostics;
+use super::direct_tool::direct_tool_payload_sample;
 use super::request_packs::{load_request_pack_index, request_pack_for_case};
 use super::synthetic::{
     query_metadata_diagnostics, synthesize_tooling_eval_payload, synthetic_transition_diagnostics,
@@ -192,6 +193,41 @@ fn live_batch_query_tooling_eval_bypasses_cache_by_default() {
 }
 
 #[test]
+fn direct_tool_sample_preserves_cache_and_query_metadata_diagnostics() {
+    let payload = json!({
+        "status": "ok",
+        "ok": true,
+        "cache_status": "disabled",
+        "cache_mode": "disabled",
+        "query_metadata": {
+            "required_coverage": {
+                "entities": ["QuickBooks", "Xero"],
+                "facets": ["workflow fit"]
+            },
+            "compilation": {
+                "authority": "agent_submitted_request_metadata"
+            }
+        },
+        "query_plan": ["QuickBooks Xero workflow fit"]
+    });
+    let sample = direct_tool_payload_sample(&payload);
+    assert_eq!(
+        sample.pointer("/cache_status").and_then(Value::as_str),
+        Some("disabled")
+    );
+    assert_eq!(
+        sample.pointer("/cache_mode").and_then(Value::as_str),
+        Some("disabled")
+    );
+    assert_eq!(
+        sample
+            .pointer("/query_metadata/required_coverage/entities/0")
+            .and_then(Value::as_str),
+        Some("QuickBooks")
+    );
+}
+
+#[test]
 fn derived_request_pack_moves_generic_required_entities_into_facets() {
     let case = json!({
         "id": "case_sparse",
@@ -216,6 +252,61 @@ fn derived_request_pack_moves_generic_required_entities_into_facets() {
         .and_then(Value::as_array)
         .map(|rows| rows.len() > 1)
         .unwrap_or(false));
+}
+
+#[test]
+fn report_request_pack_repairs_instruction_scaffold_pollution() {
+    let case = json!({
+        "id": "research_pool_083_semiconductor_moves_this_month",
+        "prompt": "Research the biggest semiconductor industry moves this month. Focus on developments that would matter to builders or investors, not generic stock chatter.",
+        "required_entities": ["semiconductor industry"]
+    });
+    let report_request = json!({
+        "tool_name": "batch_query",
+        "input": {
+            "source": "web",
+            "query": "Research the biggest semiconductor industry moves this month. Focus on developments that would matter to builders or investors, not generic stock chatter.",
+            "queries": [
+                "Research the biggest semiconductor industry moves this month. Focus on developments that would matter to builders or investors, not generic stock chatter.",
+                "Focus research biggest semiconductor",
+                "Focus Focus official documentation"
+            ],
+            "keywords": ["Focus", "research", "biggest", "semiconductor"],
+            "required_coverage": {
+                "entities": ["Focus"],
+                "facets": ["research", "biggest", "semiconductor", "industry", "moves", "month", "focus", "developments", "matter", "builders"]
+            }
+        }
+    });
+
+    let pack = request_pack_for_case(&case, Some(&report_request), "batch_query");
+    let entities = pack
+        .pointer("/input/required_coverage/entities")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let queries = pack
+        .pointer("/input/queries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let query_strings = queries.iter().filter_map(Value::as_str).collect::<Vec<_>>();
+    assert!(
+        entities.iter().all(|row| row.as_str() != Some("Focus")),
+        "{pack:#?}"
+    );
+    assert!(
+        query_strings
+            .iter()
+            .all(|row| !row.starts_with("Focus ") && !row.contains("Focus Focus")),
+        "{pack:#?}"
+    );
+    assert_eq!(
+        pack.pointer("/input/query_metadata_policy/eval_request_pack_repair/status")
+            .and_then(Value::as_str),
+        Some("repaired_instruction_scaffold_pollution"),
+        "{pack:#?}"
+    );
 }
 
 #[test]
@@ -284,6 +375,46 @@ fn derived_request_pack_adds_public_sentiment_lanes_for_sentiment_prompts() {
         query_strings
             .iter()
             .any(|row| row.contains("public sentiment user reports")),
+        "{query_strings:#?}"
+    );
+}
+
+#[test]
+fn derived_request_pack_uses_travel_lanes_for_local_stay_prompts() {
+    let case = json!({
+        "id": "case_local_stay",
+        "prompt": "Research family-friendly neighborhoods to stay in Chicago for museums, transit access, and walkability. Compare a few options and tradeoffs.",
+        "required_entities": ["Chicago"]
+    });
+    let pack = request_pack_for_case(&case, None, "batch_query");
+    let queries = pack
+        .pointer("/input/queries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let query_strings = queries.iter().filter_map(Value::as_str).collect::<Vec<_>>();
+    assert!(
+        query_strings
+            .iter()
+            .any(|row| row.contains("travel guide comparison")),
+        "{query_strings:#?}"
+    );
+    assert!(
+        query_strings
+            .iter()
+            .any(|row| row.contains("where to stay guide")),
+        "{query_strings:#?}"
+    );
+    assert!(
+        query_strings
+            .iter()
+            .any(|row| row.contains("neighborhood guide")),
+        "{query_strings:#?}"
+    );
+    assert!(
+        query_strings
+            .iter()
+            .all(|row| !row.contains("official site")),
         "{query_strings:#?}"
     );
 }

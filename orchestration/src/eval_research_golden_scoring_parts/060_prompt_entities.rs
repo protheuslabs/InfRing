@@ -92,12 +92,18 @@ fn prompt_asks_informational_selection(normalized_prompt: &str) -> bool {
                 "which source",
                 "which law",
                 "which state",
+                "which approach",
+                "which approaches",
+                "which strategy",
+                "which strategies",
                 "which development",
                 "which example",
                 "which option",
                 "mattered most",
                 "matter most",
                 "matters most",
+                "look most promising",
+                "most promising",
                 "most important",
                 "most relevant",
                 "most useful",
@@ -123,12 +129,16 @@ fn response_has_informational_selection_signal(normalized_response: &str) -> boo
             "notable",
             "most important",
             "most relevant",
+            "most promising",
             "strongest",
             "best supported",
             "best-supported",
             "shortlist",
             "top",
             "leading",
+            "attractive",
+            "frequently discussed",
+            "centers on",
             "core",
             "mattered most",
             "matter most",
@@ -148,9 +158,38 @@ fn user_stated_required_entities(
     required_entities
         .iter()
         .filter(|entity| required_entity_needs_entity_coverage(entity))
+        .filter(|entity| !entity_is_broad_local_scope_for_area_selection(normalized_prompt, entity))
         .filter(|entity| normalized_response_covers_entity(normalized_prompt, entity))
         .cloned()
         .collect()
+}
+
+fn entity_is_broad_local_scope_for_area_selection(normalized_prompt: &str, entity: &str) -> bool {
+    if !contains_any(
+        normalized_prompt,
+        &[
+            "neighborhood",
+            "neighborhoods",
+            "district",
+            "districts",
+            "area to stay",
+            "areas to stay",
+            "where to stay",
+            "places to stay",
+        ],
+    ) {
+        return false;
+    }
+
+    let raw_tokens = entity
+        .split_whitespace()
+        .filter(|token| !token.trim().is_empty())
+        .collect::<Vec<_>>();
+    if raw_tokens.len() != 1 {
+        return false;
+    }
+    let raw = raw_tokens[0].trim_matches(|ch: char| !ch.is_ascii_alphanumeric());
+    raw.len() >= 2 && raw.len() <= 5 && raw.chars().all(|ch| ch.is_ascii_uppercase())
 }
 
 fn required_entity_needs_entity_coverage(entity: &str) -> bool {

@@ -90,6 +90,7 @@ fn search_uses_cached_response_when_available() {
         top_k,
         summary_only,
         &provider_chain,
+        &normalized_search_filters(&request),
     );
     crate::web_conduit_provider_runtime::store_search_cache(
         tmp.path(),

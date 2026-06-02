@@ -173,10 +173,17 @@ fn answer_unit_unsupported_is_significant(
     if answer_unit_is_followup_search_suggestion(normalized_unit) {
         return false;
     }
+    let high_commitment = answer_unit_has_high_commitment_claim(normalized_unit);
+    if unsupported_terms.len() == 1
+        && !high_commitment
+        && !unsupported_alignment_term_is_identity_or_numeric_risk(&unsupported_terms[0])
+    {
+        return false;
+    }
     if supported_terms.is_empty() && scope_supported_terms.is_empty() {
         return true;
     }
-    if answer_unit_has_high_commitment_claim(normalized_unit) {
+    if high_commitment {
         return true;
     }
     let total_terms = supported_terms.len() + scope_supported_terms.len() + unsupported_terms.len();
@@ -201,8 +208,30 @@ fn answer_unit_has_high_commitment_claim(normalized_unit: &str) -> bool {
             " reports ",
             " reported ",
             " published ",
+            " recommend ",
+            " recommends ",
+            " recommended ",
+            " choose ",
+            " chose ",
+            " chosen ",
+            " better ",
+            " best ",
+            " strongest ",
+            " weakest ",
+            " safer ",
+            " cheapest ",
+            " most durable ",
+            " least durable ",
         ],
     )
+}
+
+fn unsupported_alignment_term_is_identity_or_numeric_risk(term: &str) -> bool {
+    let normalized = normalize_research_token(term);
+    if normalized.is_empty() {
+        return false;
+    }
+    normalized.chars().any(|ch| ch.is_ascii_digit()) || token_looks_domain_like(term)
 }
 
 fn answer_unit_alignment_hard_failure(alignment: &Value) -> bool {
@@ -281,8 +310,15 @@ fn evidence_texts_support_term(evidence_texts: &[String], term: &str) -> bool {
     }
     let stem = research_term_stem(term);
     evidence_texts.iter().any(|text| {
+        let text_terms = text
+            .split_whitespace()
+            .map(research_term_stem)
+            .filter(|term| !term.is_empty())
+            .collect::<Vec<_>>();
         (term.len() > 2 && text.contains(term))
+            || compact_normalized_text_contains_term(text, term)
             || short_acronym_supported_by_compound(text, term)
+            || prompt_adjective_base_supported_by_text_terms(term, &text_terms)
             || text.split_whitespace().any(|token| {
                 let normalized = normalize_research_token(token);
                 normalized == term || (!stem.is_empty() && research_term_stem(&normalized) == stem)

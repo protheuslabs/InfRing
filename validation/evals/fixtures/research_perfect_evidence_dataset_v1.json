@@ -508,8 +508,8 @@
           "source_domain": "privacy-map.synthetic.test",
           "source_kind": "legislative_tracker",
           "coverage_facets": ["state coverage", "timeline"],
-          "relevant_extract": "The coverage map shows that US privacy obligations are increasingly state-by-state, with larger states and states with active enforcement shaping practical compliance. It highlights rights to access, delete, correct, opt out of certain processing, and appeal decisions as recurring themes.",
-          "claim_hints": ["The answer should emphasize state-by-state compliance rather than a single federal rule.", "Consumer rights themes recur across many state laws."]
+          "relevant_extract": "The coverage map shows that US privacy obligations are increasingly state-by-state, with larger states and states with active enforcement shaping practical compliance. For a mid-size internet business in 2026, the most important named laws to track are California's CCPA/CPRA, Colorado's CPA, Virginia's CDPA, Connecticut's CTDPA, Texas's TDPSA, and Oregon's Consumer Privacy Act because they combine large markets, active enforcement, broad consumer rights, or operationally significant opt-out duties. It highlights rights to access, delete, correct, opt out of certain processing, and appeal decisions as recurring themes.",
+          "claim_hints": ["The answer should emphasize state-by-state compliance rather than a single federal rule.", "The named state laws most likely to matter for a mid-size internet business are California CCPA/CPRA, Colorado CPA, Virginia CDPA, Connecticut CTDPA, Texas TDPSA, and Oregon Consumer Privacy Act.", "Consumer rights themes recur across many state laws."]
         },
         {
           "id": "perfect_ev_012_b",

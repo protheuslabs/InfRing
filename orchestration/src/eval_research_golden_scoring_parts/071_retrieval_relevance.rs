@@ -634,14 +634,30 @@ fn prompt_term_supported_by_text_terms(
     text_terms: &[String],
 ) -> bool {
     text_terms.iter().any(|text_term| text_term == term)
+        || compact_normalized_text_contains_term(normalized_text, term)
         || short_acronym_supported_by_compound(normalized_text, term)
         || prompt_adjective_base_supported_by_text_terms(term, text_terms)
 }
 
 fn prompt_adjective_base_supported_by_text_terms(term: &str, text_terms: &[String]) -> bool {
-    if term.len() < 7 || !term.ends_with("ic") {
+    if term.len() >= 7 && term.ends_with("ic") {
+        let base = &term[..term.len() - 2];
+        return base.len() >= 5 && text_terms.iter().any(|text_term| text_term == base);
+    }
+    if term.len() >= 7 && term.ends_with("ean") {
+        let base = &term[..term.len() - 2];
+        return base.len() >= 5 && text_terms.iter().any(|text_term| text_term == base);
+    }
+    false
+}
+
+fn compact_normalized_text_contains_term(normalized_text: &str, term: &str) -> bool {
+    if term.len() < 7 || !term.chars().all(|ch| ch.is_ascii_alphanumeric()) {
         return false;
     }
-    let base = &term[..term.len() - 2];
-    base.len() >= 5 && text_terms.iter().any(|text_term| text_term == base)
+    let compact = normalized_text
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .collect::<String>();
+    compact.contains(term)
 }

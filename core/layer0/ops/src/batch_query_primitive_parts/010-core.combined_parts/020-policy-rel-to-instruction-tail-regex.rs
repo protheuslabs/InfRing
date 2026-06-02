@@ -283,6 +283,7 @@ fn default_policy() -> Value {
                     ],
                     "templates": [
                         "{query}",
+                        "{query} {current_month_name} {current_year}",
                         "{query} latest",
                         "{query} recent report",
                         "{query} source-backed evidence"

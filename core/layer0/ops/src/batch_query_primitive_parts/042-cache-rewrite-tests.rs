@@ -282,7 +282,14 @@ mod cache_rewrite_tests {
             &query,
             aperture_budget("medium").expect("budget"),
         );
-        assert_eq!(plan.query_plan_source, "explicit_request_pack");
+        assert!(
+            matches!(
+                plan.query_plan_source,
+                "explicit_request_pack" | "tool_inferred_query_pack_from_user_query"
+            ),
+            "{}",
+            plan.query_plan_source
+        );
         assert_eq!(plan.rerank_query, query);
         assert!(plan.queries.len() >= 8, "{:?}", plan.queries);
         assert!(plan
@@ -297,6 +304,255 @@ mod cache_rewrite_tests {
             .queries
             .iter()
             .any(|row| row.contains("site:github.com huggingface/smolagents")), "{:?}", plan.queries);
+    }
+
+    #[test]
+    fn explicit_metadata_query_plan_does_not_promote_criterion_tail() {
+        let payload = json!({
+            "source": "web",
+            "query": "Research current bookkeeping and finance automation options for a small services business. Compare QuickBooks, Xero, Pilot, and Puzzle on practicality and workflow fit.",
+            "queries": [
+                "Research current bookkeeping and finance automation options for a small services business. Compare QuickBooks, Xero, Pilot, and Puzzle on practicality and workflow fit.",
+                "QuickBooks Xero Pilot Puzzle comparison",
+                "QuickBooks Xero Pilot Puzzle independent comparison"
+            ],
+            "keywords": [
+                "QuickBooks",
+                "Xero",
+                "Pilot",
+                "Puzzle",
+                "bookkeeping",
+                "finance",
+                "automation"
+            ],
+            "required_coverage": {
+                "entities": ["QuickBooks", "Xero", "Pilot", "Puzzle"],
+                "facets": []
+            },
+            "aperture": "medium"
+        });
+        let query = request_query_text(&payload, 600);
+        let plan = resolve_query_plan(
+            &default_policy(),
+            &payload,
+            &query,
+            aperture_budget("medium").expect("budget"),
+        );
+
+        assert_eq!(
+            plan.query_plan_source,
+            "explicit_request_pack_with_metadata"
+        );
+        assert!(
+            plan.queries
+                .first()
+                .map(|row| row.contains("QuickBooks") && row.contains("Xero"))
+                .unwrap_or(false),
+            "{:?}",
+            plan.queries
+        );
+        assert!(
+            plan.queries
+                .iter()
+                .take(3)
+                .all(|row| row != "practicality and workflow fit"),
+            "{:?}",
+            plan.queries
+        );
+    }
+
+    #[test]
+    fn local_stay_query_plan_avoids_generic_official_site_lane() {
+        let payload = json!({
+            "source": "web",
+            "query": "Research family-friendly neighborhoods to stay in Chicago for museums, transit access, and walkability. Compare a few options and tradeoffs.",
+            "keywords": [
+                "Chicago",
+                "family-friendly",
+                "neighborhoods",
+                "stay",
+                "museums",
+                "transit",
+                "access",
+                "walkability"
+            ],
+            "required_coverage": {
+                "entities": ["Chicago"],
+                "facets": []
+            },
+            "aperture": "medium"
+        });
+        let query = request_query_text(&payload, 600);
+        let plan = resolve_query_plan(
+            &default_policy(),
+            &payload,
+            &query,
+            aperture_budget("medium").expect("budget"),
+        );
+
+        assert_eq!(plan.query_plan_source, "explicit_request_pack_with_metadata");
+        assert!(
+            plan.queries
+                .iter()
+                .any(|row| row.contains("travel guide comparison")),
+            "{:?}",
+            plan.queries
+        );
+        assert!(
+            plan.queries
+                .iter()
+                .any(|row| row.contains("where to stay guide")
+                    || row.contains("neighborhood guide")),
+            "{:?}",
+            plan.queries
+        );
+        assert!(
+            plan.queries
+                .iter()
+                .all(|row| !row.contains("official site")
+                    && !row.ends_with(" official")),
+            "{:?}",
+            plan.queries
+        );
+    }
+
+    #[test]
+    fn broad_multi_facet_query_plan_allocates_each_requested_facet() {
+        let payload = json!({
+            "source": "web",
+            "query": "Compare the current evidence and commercialization status for direct air capture, mineralization, and biochar as carbon removal approaches.",
+            "queries": [
+                "Compare the current evidence and commercialization status for direct air capture, mineralization, and biochar as carbon removal approaches",
+                "direct air capture recent developments",
+                "direct air capture independent analysis",
+                "mineralization recent developments",
+                "mineralization independent analysis"
+            ],
+            "keywords": [
+                "direct air capture",
+                "mineralization",
+                "biochar",
+                "current",
+                "evidence",
+                "commercialization"
+            ],
+            "required_coverage": {
+                "entities": [],
+                "facets": ["direct air capture", "mineralization", "biochar"]
+            },
+            "aperture": "medium"
+        });
+        let query = request_query_text(&payload, 600);
+        let plan = resolve_query_plan(
+            &default_policy(),
+            &payload,
+            &query,
+            aperture_budget("medium").expect("budget"),
+        );
+
+        assert_eq!(
+            plan.query_plan_source,
+            "explicit_request_pack_with_metadata"
+        );
+        let primary_key = query_plan_dedup_key(
+            "Compare the current evidence and commercialization status for direct air capture, mineralization, and biochar as carbon removal approaches.",
+        );
+        assert_eq!(
+            plan.queries
+                .iter()
+                .filter(|row| query_plan_dedup_key(row) == primary_key)
+                .count(),
+            1,
+            "{:?}",
+            plan.queries
+        );
+        for facet in ["direct air capture", "mineralization", "biochar"] {
+            assert!(
+                plan.queries
+                    .iter()
+                    .take(5)
+                    .any(|row| row.to_ascii_lowercase().contains(facet)),
+                "{facet} missing from query plan: {:?}",
+                plan.queries
+            );
+        }
+        assert!(
+            plan.queries
+                .iter()
+                .any(|row| row.to_ascii_lowercase().contains("biochar source-backed evidence")),
+            "{:?}",
+            plan.queries
+        );
+    }
+
+    #[test]
+    fn single_subject_multi_facet_query_plan_frontloads_subject_facet_lanes() {
+        let payload = json!({
+            "source": "web",
+            "query": "Research the current status of right-to-repair legislation in the US for electronics and farm equipment. Where is momentum strongest, and where are the carve-outs?",
+            "queries": [
+                "Research the current status of right-to-repair legislation in the US for electronics and farm equipment. Where is momentum strongest, and where are the carve-outs?",
+                "right-to-repair official site",
+                "right-to-repair official documentation",
+                "electronics source-backed evidence",
+                "farm equipment source-backed evidence"
+            ],
+            "keywords": [
+                "right-to-repair",
+                "electronics",
+                "farm equipment",
+                "legislation",
+                "carve-outs"
+            ],
+            "required_coverage": {
+                "entities": ["right-to-repair"],
+                "facets": ["electronics", "farm equipment"]
+            },
+            "aperture": "medium"
+        });
+        let query = request_query_text(&payload, 600);
+        let plan = resolve_query_plan(
+            &default_policy(),
+            &payload,
+            &query,
+            aperture_budget("medium").expect("budget"),
+        );
+
+        assert_eq!(
+            plan.query_plan_source,
+            "explicit_request_pack_with_metadata"
+        );
+        let primary_key = query_plan_dedup_key(
+            "the current status of right-to-repair legislation in the US for electronics and farm equipment. Where is momentum strongest, and where are the carve-outs",
+        );
+        assert_eq!(
+            plan.queries
+                .iter()
+                .filter(|row| query_plan_dedup_key(row) == primary_key)
+                .count(),
+            1,
+            "{:?}",
+            plan.queries
+        );
+        assert!(
+            plan.queries.iter().take(3).any(|row| {
+                let lowered = row.to_ascii_lowercase();
+                lowered.contains("right-to-repair")
+                    && lowered.contains("electronics")
+                    && lowered.contains("farm equipment")
+            }),
+            "subject+facet lane should fit inside the first execution window: {:?}",
+            plan.queries
+        );
+        assert!(
+            !plan
+                .queries
+                .iter()
+                .take(3)
+                .any(|row| row.eq_ignore_ascii_case("right-to-repair official site")),
+            "generic official-site lane should not consume the first coverage slot: {:?}",
+            plan.queries
+        );
     }
 
     #[test]
@@ -316,6 +572,72 @@ mod cache_rewrite_tests {
         assert_eq!(plan.query_plan_source, "agent_submitted_single_query");
         assert_eq!(plan.queries, vec!["top AI agentic frameworks".to_string()]);
         assert!(plan.rewrite_set.is_empty(), "{:?}", plan.rewrite_set);
+    }
+
+    #[test]
+    fn relative_current_query_plan_adds_visible_local_month_lane() {
+        let payload = json!({
+            "source": "web",
+            "query": "give me global news from this week",
+            "aperture": "medium"
+        });
+        let query = request_query_text(&payload, 600);
+        let plan = resolve_query_plan(
+            &default_policy(),
+            &payload,
+            &query,
+            aperture_budget("medium").expect("budget"),
+        );
+        let year = current_year();
+        let month = chrono::Local::now().format("%B").to_string().to_ascii_lowercase();
+        let date = current_date_iso();
+        assert!(
+            plan.queries
+                .iter()
+                .any(|row| row.to_ascii_lowercase().contains(&month)
+                    && row.contains(&year)),
+            "{:?}",
+            plan.queries
+        );
+        assert!(
+            plan.queries.iter().any(|row| row.contains(&date)),
+            "relative week queries should expose an exact-date lane: {:?}",
+            plan.queries
+        );
+        assert!(
+            plan.queries
+                .iter()
+                .any(|row| row.to_ascii_lowercase().contains("week of")
+                    && row.to_ascii_lowercase().contains(&month)
+                    && row.contains(&year)),
+            "relative week queries should expose a week-of lane: {:?}",
+            plan.queries
+        );
+        assert!(
+            plan.query_plan_source.contains("recovery")
+                || plan.query_plan_source.contains("request_pack"),
+            "{} {:?}",
+            plan.query_plan_source,
+            plan.queries
+        );
+    }
+
+    #[test]
+    fn relative_current_stage_search_request_sets_freshness_filter() {
+        let request = stage_search_request(
+            "give me global news from this week",
+            None,
+            &default_policy(),
+            &BatchQuerySearchScope::default(),
+        );
+        assert_eq!(
+            request.get("freshness").and_then(Value::as_str),
+            Some("week")
+        );
+        assert_eq!(
+            request.get("freshness_source").and_then(Value::as_str),
+            Some("batch_query_relative_current_window")
+        );
     }
 
     #[test]

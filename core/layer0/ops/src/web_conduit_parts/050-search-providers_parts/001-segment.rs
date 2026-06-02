@@ -1,3 +1,124 @@
+fn structured_search_freshness_filter(filters: &Value) -> String {
+    clean_text(
+        filters
+            .get("freshness")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        40,
+    )
+    .to_ascii_lowercase()
+}
+
+fn normalized_search_freshness_window(raw: &str) -> Option<&'static str> {
+    match clean_text(raw, 40).to_ascii_lowercase().as_str() {
+        "day" | "daily" | "today" | "yesterday" | "24h" | "past_day" | "past-day" => Some("day"),
+        "week" | "weekly" | "this_week" | "this-week" | "past_week" | "past-week" => {
+            Some("week")
+        }
+        "month" | "monthly" | "this_month" | "this-month" | "past_month" | "past-month" => {
+            Some("month")
+        }
+        "year" | "yearly" | "past_year" | "past-year" => Some("year"),
+        _ => None,
+    }
+}
+
+fn search_query_requests_news_source_lane(query: &str) -> bool {
+    let lowered = clean_text(query, 900).to_ascii_lowercase();
+    [
+        "news",
+        "headline",
+        "headlines",
+        "breaking",
+        "incident",
+        "incidents",
+        "event",
+        "events",
+    ]
+    .iter()
+    .any(|marker| lowered.contains(marker))
+}
+
+fn exa_published_date_bounds_for_freshness(window: &str) -> Option<(String, String)> {
+    let days = match window {
+        "day" => 1,
+        "week" => 7,
+        "month" => 31,
+        "year" => 366,
+        _ => return None,
+    };
+    let end = chrono::Local::now().date_naive();
+    let start = end - chrono::Duration::days(days);
+    Some((
+        start.format("%Y-%m-%d").to_string(),
+        end.format("%Y-%m-%d").to_string(),
+    ))
+}
+
+fn brave_freshness_param_for_window(window: &str) -> Option<&'static str> {
+    match window {
+        "day" => Some("pd"),
+        "week" => Some("pw"),
+        _ => None,
+    }
+}
+
+fn brave_search_url(query: &str, top_k: usize, filters: &Value) -> String {
+    let freshness = structured_search_freshness_filter(filters);
+    let window = normalized_search_freshness_window(&freshness);
+    let mut url = format!(
+        "{}?q={}&count={}&extra_snippets=true",
+        BRAVE_SEARCH_URL,
+        encode_query_component(&clean_text(query, 600)),
+        top_k.clamp(1, 20)
+    );
+    if let Some(token) = window.and_then(brave_freshness_param_for_window) {
+        url.push_str("&freshness=");
+        url.push_str(token);
+    }
+    url
+}
+
+fn structured_search_native_filter_controls(provider: &str, query: &str, filters: &Value) -> Value {
+    let freshness = structured_search_freshness_filter(filters);
+    let window = normalized_search_freshness_window(&freshness);
+    let mut controls = json!({
+        "version": "structured_search_native_filter_controls_v1",
+        "freshness": if freshness.is_empty() { Value::Null } else { Value::String(freshness.clone()) },
+        "normalized_window": window.map(|row| Value::String(row.to_string())).unwrap_or(Value::Null),
+        "provider": clean_text(provider, 80),
+        "applied_fields": []
+    });
+    let Some(window_value) = window else {
+        return controls;
+    };
+    let applied = controls
+        .get_mut("applied_fields")
+        .and_then(Value::as_array_mut)
+        .expect("applied_fields array");
+    match provider {
+        "tavily" => {
+            applied.push(json!("time_range"));
+            if search_query_requests_news_source_lane(query) {
+                applied.push(json!("topic"));
+            }
+        }
+        "exa" => {
+            if exa_published_date_bounds_for_freshness(window_value).is_some() {
+                applied.push(json!("startPublishedDate"));
+                applied.push(json!("endPublishedDate"));
+            }
+        }
+        "brave" => {
+            if brave_freshness_param_for_window(window_value).is_some() {
+                applied.push(json!("freshness"));
+            }
+        }
+        _ => {}
+    }
+    controls
+}
+
 fn api_search_structured_provider(
     root: &Path,
     provider: &str,
@@ -8,17 +129,13 @@ fn api_search_structured_provider(
     exclude_subdomains: bool,
     top_k: usize,
     requested_timeout_ms: u64,
+    filters: &Value,
 ) -> Value {
     let provider = clean_text(provider, 80);
     let requested_url = match provider.as_str() {
         "tavily" => TAVILY_SEARCH_URL.to_string(),
         "exa" => EXA_SEARCH_URL.to_string(),
-        "brave" => format!(
-            "{}?q={}&count={}&extra_snippets=true",
-            BRAVE_SEARCH_URL,
-            encode_query_component(&clean_text(query, 600)),
-            top_k.clamp(1, 20)
-        ),
+        "brave" => brave_search_url(query, top_k, filters),
         _ => String::new(),
     };
     let (policy, _policy_path_value) = load_policy(root);
@@ -95,6 +212,10 @@ fn api_search_structured_provider(
         .unwrap_or(2)
         .clamp(1, 4) as usize;
     let domain_filter = json!(allowed_domains);
+    let freshness = structured_search_freshness_filter(filters);
+    let normalized_freshness = normalized_search_freshness_window(&freshness);
+    let native_filter_controls =
+        structured_search_native_filter_controls(&provider, query, filters);
     let fetched = match provider.as_str() {
         "tavily" => {
             let mut payload = json!({
@@ -105,6 +226,12 @@ fn api_search_structured_provider(
                 "include_raw_content": false,
                 "include_favicon": false
             });
+            if let Some(window) = normalized_freshness {
+                payload["time_range"] = json!(window);
+                if search_query_requests_news_source_lane(query) {
+                    payload["topic"] = json!("news");
+                }
+            }
             if !allowed_domains.is_empty() {
                 payload["include_domains"] = domain_filter;
             }
@@ -127,6 +254,12 @@ fn api_search_structured_provider(
                     "highlights": true
                 }
             });
+            if let Some(window) = normalized_freshness {
+                if let Some((start, end)) = exa_published_date_bounds_for_freshness(window) {
+                    payload["startPublishedDate"] = json!(start);
+                    payload["endPublishedDate"] = json!(end);
+                }
+            }
             if !allowed_domains.is_empty() {
                 payload["includeDomains"] = domain_filter;
             }
@@ -147,6 +280,7 @@ fn api_search_structured_provider(
             max_response_bytes,
             retry_attempts,
             top_k,
+            filters,
         ),
         _ => json!({
             "ok": false,
@@ -261,6 +395,8 @@ fn api_search_structured_provider(
         "links": parsed.get("links").cloned().unwrap_or_else(|| json!([])),
         "results": parsed.get("results").cloned().unwrap_or_else(|| json!([])),
         "content_domains": parsed.get("content_domains").cloned().unwrap_or_else(|| json!([])),
+        "filters": filters.clone(),
+        "provider_native_filters": native_filter_controls,
         "provider_raw_count": parsed.get("provider_raw_count").cloned().unwrap_or_else(|| json!(0)),
         "provider_filtered_count": parsed.get("provider_filtered_count").cloned().unwrap_or_else(|| json!(0)),
         "retry_attempts": fetched.get("retry_attempts").cloned().unwrap_or_else(|| json!(1)),

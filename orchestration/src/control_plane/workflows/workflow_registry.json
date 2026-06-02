@@ -244,6 +244,27 @@
       ]
     },
     {
+      "workflow_id": "local_coding_typed_execution_pipeline",
+      "tier": "lab",
+      "source_framework": "primitive_first_typed_coding_pipeline",
+      "source_path": "orchestration/src/control_plane/workflows/lab/composites/coding/local_coding_typed_execution_pipeline.workflow.json",
+      "runtime_selectable": false,
+      "promotion_status": "lab_contract_only",
+      "test_scenarios": [
+        "level_1_monotonic_gate",
+        "level_2_existing_project_typed_pipeline",
+        "structured_blocker_without_parent_loop_escape"
+      ],
+      "promotion_requirements": [
+        "schema_valid",
+        "composition_ledger_level_valid",
+        "deterministic_stage_adapter_tests",
+        "level_1_monotonic_gate",
+        "level_2_20_run_gate",
+        "operator_promotion_approval"
+      ]
+    },
+    {
       "workflow_id": "project_context_capture",
       "tier": "lab",
       "source_framework": "local_coding_memory_resume_layer",

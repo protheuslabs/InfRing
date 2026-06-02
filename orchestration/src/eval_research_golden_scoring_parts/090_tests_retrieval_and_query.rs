@@ -286,6 +286,107 @@ fn generic_prompt_shape_terms_do_not_force_false_relevance_failures() {
 }
 
 #[test]
+fn prompt_relevance_supports_compact_compound_topic_terms() {
+    let relevance = evidence_prompt_relevance_from_texts(
+        &normalize_for_compare(
+            "Research youth social-media restriction bills and current gig-worker classification rules.",
+        ),
+        vec![
+            normalize_for_compare(
+                "States passed bills addressing minors' access to social media platforms.",
+            ),
+            normalize_for_compare(
+                "Gig worker classification remains split between employee and contractor tests.",
+            ),
+        ],
+        "compound prompt terms should match equivalent spaced or hyphenated evidence text",
+        true,
+    );
+
+    assert_eq!(
+        relevance
+            .get("topic_relevant_evidence")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{relevance:#?}"
+    );
+    assert!(
+        relevance
+            .get("relevant_evidence_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            >= 2,
+        "{relevance:#?}"
+    );
+}
+
+#[test]
+fn direct_usable_evidence_pack_overrides_stale_low_signal_flag() {
+    let payload = json!({
+        "tools": [{
+            "name": "batch_query",
+            "status": "partial"
+        }],
+        "tool_result_quality": {
+            "status": "partial",
+            "candidate_count": 24,
+            "evidence_count": 5,
+            "materialized_candidate_count": 5,
+            "content_rich_candidate_count": 5,
+            "flags": ["low_signal"]
+        },
+        "evidence_pack_quality": {
+            "status": "usable",
+            "usable_count": 5,
+            "claim_hint_count": 5,
+            "content_rich_item_count": 5
+        },
+        "evidence_claims": [{
+            "claim": "Cursor is an AI coding assistant used inside the IDE.",
+            "support_snippet": "Cursor is an AI coding assistant used inside the IDE for code editing and refactoring.",
+            "source_title": "Cursor coding assistant overview",
+            "source_domain": "cursor.com"
+        }, {
+            "claim": "GitHub Copilot is an enterprise coding assistant used by engineering teams.",
+            "support_snippet": "GitHub Copilot is positioned as an enterprise coding assistant for engineering teams.",
+            "source_title": "GitHub Copilot enterprise overview",
+            "source_domain": "github.com"
+        }],
+        "evidence_refs": [{
+            "title": "Cursor coding assistant overview",
+            "snippet": "Cursor is an AI coding assistant used inside the IDE for code editing and refactoring."
+        }, {
+            "title": "GitHub Copilot enterprise overview",
+            "snippet": "GitHub Copilot is positioned as an enterprise coding assistant for engineering teams."
+        }]
+    });
+
+    let quality = retrieval_provider_quality(
+        &payload,
+        &normalize_for_compare(
+            "Research the current enterprise AI coding assistant market. Compare GitHub Copilot and Cursor.",
+        ),
+    );
+    assert_eq!(
+        quality.get("status").and_then(Value::as_str),
+        Some("usable"),
+        "{quality:#?}"
+    );
+    assert_eq!(
+        quality.get("usable_evidence").and_then(Value::as_bool),
+        Some(true),
+        "{quality:#?}"
+    );
+    assert_eq!(
+        quality
+            .pointer("/classification_inputs/direct_low_signal_marker")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{quality:#?}"
+    );
+}
+
+#[test]
 fn direct_evidence_claim_contract_zero_claims_is_low_signal() {
     let payload = json!({
         "tools": [{
@@ -394,6 +495,158 @@ fn direct_provider_starved_contract_is_nonblocking_when_evidence_arrived() {
             .pointer("/classification_inputs/provider_degradation_blocks_supply")
             .and_then(Value::as_bool),
         Some(false),
+        "{quality:#?}"
+    );
+}
+
+#[test]
+fn direct_usable_pack_overrides_stale_missing_flags_when_counts_are_present() {
+    let payload = json!({
+        "tools": [{
+            "name": "batch_query",
+            "status": "partial"
+        }],
+        "tool_result_quality": {
+            "status": "partial",
+            "candidate_count": 76,
+            "evidence_count": 36,
+            "materialized_candidate_count": 74,
+            "content_rich_candidate_count": 15,
+            "flags": [
+                "quota_exhausted",
+                "provider_starved",
+                "materialized_evidence_missing",
+                "content_rich_evidence_missing",
+                "claim_hints_missing"
+            ]
+        },
+        "evidence_pack_quality": {
+            "status": "usable",
+            "usable_count": 6,
+            "claim_hint_count": 6,
+            "content_rich_item_count": 5
+        },
+        "evidence_claims": [{
+            "claim": "A scientific breakthrough in April 2026 reported improved methane conversion selectivity.",
+            "support_snippet": "The April 2026 scientific breakthrough report described improved methane conversion selectivity.",
+            "source_title": "April 2026 scientific breakthrough result",
+            "source_domain": "example.test"
+        }, {
+            "claim": "Another scientific breakthrough in April 2026 reported a materials discovery with measured performance gains.",
+            "support_snippet": "The April 2026 article described a scientific materials breakthrough with measured performance gains.",
+            "source_title": "April 2026 materials scientific breakthrough",
+            "source_domain": "example.test"
+        }],
+        "evidence_refs": [{
+            "title": "April 2026 scientific breakthrough result",
+            "snippet": "The April 2026 scientific breakthrough report described improved methane conversion selectivity."
+        }, {
+            "title": "April 2026 materials scientific breakthrough",
+            "snippet": "The April 2026 article described a scientific materials breakthrough with measured performance gains."
+        }]
+    });
+
+    let quality = retrieval_provider_quality(
+        &payload,
+        &normalize_for_compare("What are some scientific breakthroughs in April 2026?"),
+    );
+    assert_eq!(
+        quality.get("status").and_then(Value::as_str),
+        Some("usable"),
+        "{quality:#?}"
+    );
+    assert_eq!(
+        quality.get("usable_evidence").and_then(Value::as_bool),
+        Some(true),
+        "{quality:#?}"
+    );
+    assert_eq!(
+        quality
+            .pointer("/classification_inputs/direct_quality_contract_conflict")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{quality:#?}"
+    );
+    assert_eq!(
+        quality
+            .pointer("/classification_inputs/provider_degradation_blocks_supply")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{quality:#?}"
+    );
+    assert!(
+        quality
+            .get("quality_flags")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .any(|flag| flag.as_str() == Some("provider_degradation_nonblocking")),
+        "{quality:#?}"
+    );
+    assert!(
+        !quality
+            .get("quality_flags")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .any(|flag| flag.as_str() == Some("direct_tool_quality_contract_conflict")),
+        "{quality:#?}"
+    );
+}
+
+#[test]
+fn direct_usable_pack_conflicts_with_missing_quality_flags() {
+    let payload = json!({
+        "tools": [{
+            "name": "batch_query",
+            "status": "ok"
+        }],
+        "tool_result_quality": {
+            "status": "partial",
+            "candidate_count": 12,
+            "evidence_count": 5,
+            "materialized_candidate_count": 0,
+            "content_rich_candidate_count": 0,
+            "flags": [
+                "claim_hints_missing",
+                "content_rich_evidence_missing",
+                "materialized_evidence_missing"
+            ]
+        },
+        "evidence_pack_quality": {
+            "status": "usable",
+            "usable_count": 5,
+            "claim_hint_count": 5,
+            "content_rich_item_count": 5
+        },
+        "evidence_claims": [{
+            "claim": "The source says a named clinical milestone happened in April 2026.",
+            "source_domain": "example.test"
+        }]
+    });
+
+    let quality = retrieval_provider_quality(
+        &payload,
+        &normalize_for_compare("What source-backed science milestones happened in April 2026?"),
+    );
+    assert_eq!(
+        quality.get("status").and_then(Value::as_str),
+        Some("conflicting_provider_state"),
+        "{quality:#?}"
+    );
+    assert_eq!(
+        quality.get("usable_evidence").and_then(Value::as_bool),
+        Some(false),
+        "{quality:#?}"
+    );
+    assert_eq!(
+        quality
+            .get("quality_flags")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .any(|flag| flag.as_str() == Some("direct_tool_quality_contract_conflict")),
+        true,
         "{quality:#?}"
     );
 }
@@ -585,6 +838,43 @@ fn entity_coverage_accepts_generic_policy_phrase_aliases() {
 }
 
 #[test]
+fn entity_coverage_accepts_unicode_dash_variants() {
+    let response = normalize_for_compare(
+        "GLP\u{2011}1 and related incretin medications have evidence for \
+         non-diabetic weight management when clinically supervised.",
+    );
+
+    assert!(normalized_response_covers_entity(
+        &response,
+        "GLP-1 medications"
+    ));
+    assert_eq!(
+        entity_coverage(&response, &["GLP-1 medications".to_string()]),
+        1.0
+    );
+}
+
+#[test]
+fn entity_coverage_accepts_named_place_in_negative_constraint() {
+    let prompt = normalize_for_compare(
+        "Compare NYC neighborhoods for a first-time visitor who wants food, museums, and \
+         easy subway access without staying in Times Square.",
+    );
+    let response = normalize_for_compare(
+        "For a first-time visitor who wants food, museums, and subway access while avoiding \
+         Times Square, Upper West Side is the strongest all-around fit. Chelsea and Flatiron \
+         also keep you well-connected without staying in Times Square.",
+    );
+    let entities = user_stated_required_entities(
+        &prompt,
+        &["NYC".to_string(), "Times Square".to_string()],
+    );
+    assert_eq!(entities, vec!["Times Square".to_string()]);
+    assert!(normalized_response_covers_entity(&response, "Times Square"));
+    assert_eq!(entity_coverage(&response, &entities), 1.0);
+}
+
+#[test]
 fn query_satisfaction_reports_entity_aliases_without_requiring_format() {
     let response = normalize_for_compare(
         "According to source evidence, MCP is useful as an integration pattern, \
@@ -662,6 +952,60 @@ fn decision_value_accepts_informational_selection_prompts() {
     assert_eq!(
         satisfaction.get("decision_value").and_then(Value::as_bool),
         Some(true)
+    );
+}
+
+#[test]
+fn decision_value_accepts_action_oriented_practical_guidance() {
+    let response = normalize_for_compare(
+        "Consolidate to one central cloud storage solution, adopt a unified filing system, \
+             and decide clear organization rules for the family.",
+    );
+    let satisfaction = query_satisfaction(
+        &normalize_for_compare(
+            "Research practical approaches for moving a family from scattered cloud storage to a simple organized digital filing system.",
+        ),
+        &response,
+        &[],
+        1.0,
+        true,
+        true,
+        true,
+        false,
+    );
+
+    assert_eq!(
+        satisfaction.get("decision_value").and_then(Value::as_bool),
+        Some(true),
+        "{satisfaction:#?}"
+    );
+}
+
+#[test]
+fn decision_value_accepts_promising_approaches_selection_prompts() {
+    let response = normalize_for_compare(
+        "Progress centers on three frequently discussed approaches: lipid nanoparticles, \
+             viral vectors, and virus-like particles. Lipid nanoparticles are attractive for \
+             transient delivery, while viral vectors offer targeting experience. Broad use is \
+             still blocked by tissue targeting, immune reactions, and manufacturing consistency.",
+    );
+    let satisfaction = query_satisfaction(
+        &normalize_for_compare(
+            "Research delivery progress. Which approaches look most promising, and what is still blocking broad use?",
+        ),
+        &response,
+        &[],
+        1.0,
+        true,
+        true,
+        true,
+        false,
+    );
+
+    assert_eq!(
+        satisfaction.get("decision_value").and_then(Value::as_bool),
+        Some(true),
+        "{satisfaction:#?}"
     );
 }
 

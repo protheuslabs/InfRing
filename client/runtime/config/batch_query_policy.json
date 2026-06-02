@@ -759,6 +759,7 @@
         ],
         "templates": [
           "{query}",
+          "{query} {current_month_name} {current_year}",
           "{query} primary evidence",
           "{query} primary sources",
           "{query} official sources",

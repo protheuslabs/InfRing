@@ -119,7 +119,7 @@ fn metric_number_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(
-            r"(?i)\b\d+(?:\.\d+)?\s*(?:%|ms|s|sec|seconds|min|mins|minutes|air\s*watts?|watts?|w|x|qps|tps|ops/?sec|tokens/?s)\b",
+            r"(?i)\b\d+(?:\.\d+)?\s*(?:%|ms|s|sec|seconds|min|mins|minutes|air\s*watts?|watts?|w|x|qps|tps|ops/?sec|tokens/?s)(?:\b|\s|$|[,.);:])",
         )
         .expect("metric-number")
     })

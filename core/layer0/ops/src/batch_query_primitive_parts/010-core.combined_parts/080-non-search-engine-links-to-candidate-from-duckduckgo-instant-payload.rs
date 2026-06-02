@@ -228,7 +228,7 @@ fn non_search_engine_links(payload: &Value, max_links: usize) -> Vec<String> {
     }
     let mut out = Vec::<String>::new();
     let mut seen = HashSet::<String>::new();
-    let mut push_link = |raw: &str, out: &mut Vec<String>, seen: &mut HashSet<String>| {
+    let push_link = |raw: &str, out: &mut Vec<String>, seen: &mut HashSet<String>| {
         let link = canonical_search_result_locator(raw, &[]);
         let Some(link) = normalize_document_candidate_link(&link) else {
             return;
@@ -288,6 +288,10 @@ fn payload_text_links(payload: &Value, max_links: usize, origin: Option<&str>) -
         &[
             payload.get("summary").and_then(Value::as_str).unwrap_or(""),
             payload.get("content").and_then(Value::as_str).unwrap_or(""),
+            payload
+                .get("content_preview")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
             payload.get("markdown").and_then(Value::as_str).unwrap_or(""),
             payload.get("text").and_then(Value::as_str).unwrap_or(""),
         ]

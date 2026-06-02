@@ -1,56 +1,56 @@
 {
-  "trace_id": "observability:2026-05-20T06:21:01.395Z:31456",
-  "span_id": "span:observability:2026-05-20T06:21:01.395Z:31456",
+  "trace_id": "observability:2026-06-01T02:22:53.181Z:69542",
+  "span_id": "span:observability:2026-06-01T02:22:53.181Z:69542",
   "parent_span_id": null,
   "source_domain": "observability",
   "type": "sentinel_timing_trend_report",
-  "generated_at": "2026-05-20T06:21:01.396Z",
+  "generated_at": "2026-06-01T02:22:53.181Z",
   "policy_path": "observability/sentinel/sentinel_timing_trend_policy.json",
-  "sample_count": 16,
-  "full_sample_count": 16,
+  "sample_count": 18,
+  "full_sample_count": 18,
   "required_cadences": [
     "dream",
     "release"
   ],
   "cadence_counts": {
     "dream": 10,
-    "release": 6
+    "release": 8
   },
   "full_cadence_counts": {
     "dream": 10,
-    "release": 6
+    "release": 8
   },
   "missing_required_cadences": [],
   "status": "trend_ready",
   "by_stage": {
     "evidence_collect": {
-      "count": 16,
+      "count": 18,
       "max_ms": 8,
-      "total_ms": 27,
+      "total_ms": 32,
       "avg_ms": 2
     },
     "freshness_filter": {
-      "count": 16,
+      "count": 18,
       "max_ms": 2,
       "total_ms": 6,
       "avg_ms": 0
     },
     "root_cause_cluster": {
-      "count": 16,
+      "count": 18,
       "max_ms": 1,
-      "total_ms": 2,
+      "total_ms": 3,
       "avg_ms": 0
     },
     "report_synthesis": {
-      "count": 16,
+      "count": 18,
       "max_ms": 93,
-      "total_ms": 174,
-      "avg_ms": 11
+      "total_ms": 187,
+      "avg_ms": 10
     },
     "self_study": {
-      "count": 16,
+      "count": 18,
       "max_ms": 1,
-      "total_ms": 1,
+      "total_ms": 2,
       "avg_ms": 0
     }
   },
@@ -548,6 +548,68 @@
         {
           "stage": "self_study",
           "elapsed_ms": 0
+        }
+      ]
+    },
+    {
+      "path": "local/state/observability/sentinel/timing_samples.jsonl",
+      "generated_at": "2026-06-01T02:17:06.273Z",
+      "trace_id": "observability:2026-06-01T02:17:06.273Z:sentinel-timing-sample:a43ee8216a9b",
+      "cadence": "release",
+      "artifact_kind": "staged_sentinel_full_run",
+      "full_cycle": true,
+      "stage_count": 5,
+      "stage_timings": [
+        {
+          "stage": "evidence_collect",
+          "elapsed_ms": 1
+        },
+        {
+          "stage": "freshness_filter",
+          "elapsed_ms": 0
+        },
+        {
+          "stage": "root_cause_cluster",
+          "elapsed_ms": 0
+        },
+        {
+          "stage": "report_synthesis",
+          "elapsed_ms": 4
+        },
+        {
+          "stage": "self_study",
+          "elapsed_ms": 0
+        }
+      ]
+    },
+    {
+      "path": "local/state/observability/sentinel/timing_samples.jsonl",
+      "generated_at": "2026-06-01T02:21:05.950Z",
+      "trace_id": "observability:2026-06-01T02:21:05.950Z:sentinel-timing-sample:b8b95fe752df",
+      "cadence": "release",
+      "artifact_kind": "staged_sentinel_full_run",
+      "full_cycle": true,
+      "stage_count": 5,
+      "stage_timings": [
+        {
+          "stage": "evidence_collect",
+          "elapsed_ms": 4
+        },
+        {
+          "stage": "freshness_filter",
+          "elapsed_ms": 0
+        },
+        {
+          "stage": "root_cause_cluster",
+          "elapsed_ms": 1
+        },
+        {
+          "stage": "report_synthesis",
+          "elapsed_ms": 9
+        },
+        {
+          "stage": "self_study",
+          "elapsed_ms": 1
         }
       ]
     }

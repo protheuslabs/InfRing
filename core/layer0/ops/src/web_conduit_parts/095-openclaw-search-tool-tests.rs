@@ -79,6 +79,7 @@ mod openclaw_search_tool_tests {
             top_k,
             true,
             &provider_chain,
+            &normalized_search_filters(&request),
         );
         crate::web_conduit_provider_runtime::store_search_cache(
             tmp.path(),

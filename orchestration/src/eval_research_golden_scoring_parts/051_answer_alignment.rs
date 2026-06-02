@@ -477,6 +477,7 @@ fn answer_unit_specific_terms(unit: &str) -> Vec<String> {
     let mut seen = BTreeSet::<String>::new();
     let mut terms = Vec::<String>::new();
     for (token_index, raw) in unit.split_whitespace().enumerate() {
+        let presentation_label = raw_token_is_presentation_label(raw);
         let mut cleaned = raw.trim_matches(|ch: char| {
             !ch.is_ascii_alphanumeric() && ch != '-' && ch != '.' && ch != '/'
         });
@@ -502,7 +503,14 @@ fn answer_unit_specific_terms(unit: &str) -> Vec<String> {
             {
                 continue;
             }
-            if answer_specific_stop_term(&normalized_token) || answer_specific_stop_term(&normalized_stem) {
+            if answer_specific_stop_term(&normalized_token)
+                || answer_specific_stop_term(&normalized_stem)
+            {
+                continue;
+            }
+            if presentation_label
+                && answer_specific_presentation_label_term(&normalized_token)
+            {
                 continue;
             }
             let letters = piece
@@ -551,6 +559,17 @@ fn answer_unit_specific_terms(unit: &str) -> Vec<String> {
     terms
 }
 
+fn raw_token_is_presentation_label(raw: &str) -> bool {
+    let trimmed = raw.trim_matches(|ch: char| {
+        ch.is_ascii_whitespace() || ch == '*' || ch == '_' || ch == '`'
+    });
+    trimmed.ends_with(':') && trimmed.len() <= 40
+}
+
+fn answer_specific_presentation_label_term(token: &str) -> bool {
+    matches!(token, "target")
+}
+
 fn answer_specific_term_pieces(token: &str) -> Vec<&str> {
     if token_looks_domain_like(token) {
         return vec![token];
@@ -594,13 +613,16 @@ fn answer_specific_stop_term(token: &str) -> bool {
         token,
         "about"
             | "according"
+            | "along"
             | "across"
             | "also"
             | "answer"
             | "api"
             | "area"
             | "areas"
+            | "assistance"
             | "activity"
+            | "add"
             | "apis"
             | "based"
             | "begin"
@@ -640,6 +662,7 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "details"
             | "digital"
             | "does"
+            | "during"
             | "dynamics"
             | "ease"
             | "enforc"
@@ -677,6 +700,7 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "included"
             | "includes"
             | "including"
+            | "inclusion"
             | "initiat"
             | "initiate"
             | "implement"
@@ -705,7 +729,12 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "metrics"
             | "momentum"
             | "near"
+            | "named"
             | "once"
+            | "offer"
+            | "offered"
+            | "offering"
+            | "offers"
             | "one"
             | "option"
             | "options"
@@ -721,6 +750,8 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "probably"
             | "prescrib"
             | "previous"
+            | "program"
+            | "programs"
             | "priority"
             | "priorities"
             | "prioritize"
@@ -735,6 +766,7 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "recommendation"
             | "recommended"
             | "recent"
+            | "rather"
             | "regardless"
             | "researcher"
             | "researchers"
@@ -766,6 +798,7 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "their"
             | "there"
             | "these"
+            | "they"
             | "tailor"
             | "term"
             | "terms"
@@ -791,7 +824,9 @@ fn answer_specific_stop_term(token: &str) -> bool {
             | "watch"
             | "what"
             | "whether"
+            | "whichever"
             | "while"
+            | "why"
             | "western"
             | "wherever"
             | "establish"

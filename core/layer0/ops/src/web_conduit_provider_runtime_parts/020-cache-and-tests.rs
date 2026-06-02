@@ -18,16 +18,18 @@ pub(crate) fn search_cache_key(
     top_k: usize,
     summary_only: bool,
     provider_chain: &[String],
+    filters: &Value,
 ) -> String {
     crate::deterministic_receipt_hash(&json!({
-        "version": 2,
+        "version": 3,
         "query": clean_text(query, 900),
         "effective_query": clean_text(effective_query, 900),
         "allowed_domains": allowed_domains,
         "exclude_subdomains": exclude_subdomains,
         "top_k": top_k,
         "summary_only": summary_only,
-        "provider_chain": provider_chain
+        "provider_chain": provider_chain,
+        "filters": filters
     }))
 }
 

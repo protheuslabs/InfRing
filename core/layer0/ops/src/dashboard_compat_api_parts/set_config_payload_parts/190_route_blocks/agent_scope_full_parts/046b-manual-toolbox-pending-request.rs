@@ -623,7 +623,8 @@ fn workflow_recovery_entity_boundary_after(raw: &str) -> bool {
 }
 
 fn workflow_recovery_token_looks_like_entity(token: &str) -> bool {
-    if workflow_recovery_entity_stopword(token) {
+    if workflow_recovery_entity_stopword(token) || workflow_recovery_entity_instruction_token(token)
+    {
         return false;
     }
     let letters = token.chars().filter(|ch| ch.is_alphabetic()).count();
@@ -691,9 +692,38 @@ fn workflow_recovery_entity_stopword(token: &str) -> bool {
     )
 }
 
+fn workflow_recovery_entity_instruction_token(token: &str) -> bool {
+    matches!(
+        token.to_ascii_lowercase().as_str(),
+        "analyze"
+            | "assess"
+            | "check"
+            | "compare"
+            | "explain"
+            | "explore"
+            | "find"
+            | "focus"
+            | "identify"
+            | "investigate"
+            | "list"
+            | "research"
+            | "review"
+            | "show"
+            | "summarise"
+            | "summarize"
+    )
+}
+
 fn workflow_recovery_flush_entity_phrase(out: &mut Vec<String>, current: &mut Vec<String>) {
     if current.is_empty() {
         return;
+    }
+    while current
+        .first()
+        .map(|token| workflow_recovery_entity_instruction_token(token))
+        .unwrap_or(false)
+    {
+        current.remove(0);
     }
     let phrase = clean_text(&current.join(" "), 120);
     current.clear();
@@ -727,7 +757,7 @@ fn workflow_recovery_facet_terms(
 fn workflow_recovery_facet_stopword(token: &str) -> bool {
     matches!(
         token,
-        "about"
+            "about"
             | "after"
             | "also"
             | "and"
@@ -735,6 +765,7 @@ fn workflow_recovery_facet_stopword(token: &str) -> bool {
             | "based"
             | "between"
             | "could"
+            | "focus"
             | "from"
             | "give"
             | "have"
@@ -1666,6 +1697,46 @@ mod manual_toolbox_pending_request_tests {
                 .pointer("/query_metadata_policy/classification")
                 .and_then(Value::as_str),
             Some("expanded_query_pack")
+        );
+    }
+
+    #[test]
+    fn recovered_payload_repair_does_not_promote_instruction_verbs_to_entities() {
+        let payload = workflow_repair_recovered_request_payload(
+            "web_research",
+            "batch_query",
+            serde_json::json!({
+                "source": "web",
+                "query": "Research the biggest semiconductor industry moves this month. Focus on developments that would matter to builders or investors, not generic stock chatter.",
+                "aperture": "medium"
+            }),
+            "Research the biggest semiconductor industry moves this month. Focus on developments that would matter to builders or investors, not generic stock chatter.",
+        );
+
+        let entities = payload
+            .pointer("/required_coverage/entities")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            entities
+                .iter()
+                .all(|value| value.as_str() != Some("Focus")),
+            "{payload}"
+        );
+        let rendered_queries = payload
+            .pointer("/queries")
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+        assert!(
+            !rendered_queries.contains("Focus official"),
+            "{payload}"
         );
     }
 

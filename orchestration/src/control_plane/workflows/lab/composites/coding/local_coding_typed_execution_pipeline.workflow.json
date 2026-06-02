@@ -1,0 +1,402 @@
+{
+  "name": "local_coding_typed_execution_pipeline",
+  "workflow_type": "control_plane_orchestration_workflow",
+  "workflow_role": "assistant_response_workflow",
+  "default": false,
+  "description": "Level 2 primitive-first local coding composite that turns a coding task into typed stage artifacts: task contract, context, slice plan, mutation, validation, public-interface verification, repair or finalization, and receipt-backed synthesis.",
+  "primitive_first_contract": {
+    "case_specific_hardcoding_allowed": false,
+    "specificity_owner": "composite",
+    "extension_surface": "workflow_cd",
+    "registered_capability_id": "workflow.local_coding_typed_execution_pipeline",
+    "special_case_policy": "Eval-specific filenames, expected symbols, benchmark levels, and fixture-specific behavior must stay in eval fixtures or stage-local evidence adapters. This composite may sequence primitives, but it must not encode product-specific repair rules.",
+    "monotonic_lower_level_regression_policy": "This pipeline composes Phase 1 and Level 0 primitives without changing their contracts. A higher-level repair, validation, or public-interface change must not alter Level 1 direct mutation behavior."
+  },
+  "workflow_composition": {
+    "primitive_level": 2,
+    "composed_of_workflow_ids": [
+      "local_coding_phase1_mutation_spine",
+      "coding_task_contract",
+      "local_context_pack_builder",
+      "plan_artifact_create",
+      "first_mutation_executor",
+      "file_mutation_executor",
+      "validation_command_runner",
+      "public_interface_verification",
+      "failure_diagnosis",
+      "bounded_repair_loop",
+      "final_receipt_synthesis",
+      "coding_execution_spine_v1"
+    ]
+  },
+  "provenance_contract": {
+    "source_systems": [
+      "Codex",
+      "Aider",
+      "OpenHands",
+      "ForgeCode",
+      "SWE-agent",
+      "Claude Code"
+    ],
+    "import_rule": "compose proven coding-agent runtime mechanics as typed primitives rather than broad parent-loop prompt patches",
+    "artifact_corpus_ref": "references/coding-agent-systems"
+  },
+  "typed_pipeline_contract": {
+    "version": "local_coding_typed_execution_pipeline_v1",
+    "purpose": "Replace broad parent-loop authority with explicit typed stage ownership. Each stage consumes a named artifact and returns one terminal or continuation artifact. Fallback and looping decisions belong to this composite, not to hidden primitive side effects.",
+    "stage_order": [
+      "classify_task",
+      "gather_context",
+      "plan_slice",
+      "mutate",
+      "validate",
+      "verify_public_interface",
+      "repair_or_finalize",
+      "synthesize"
+    ],
+    "stage_artifacts": {
+      "classify_task": {
+        "workflow_id": "coding_task_contract",
+        "input_artifact": "user_coding_request_v1",
+        "output_artifact": "coding_task_contract_output_envelope_v1",
+        "owns": [
+          "task_kind",
+          "required_context",
+          "required_mutation",
+          "required_validation",
+          "required_public_interface",
+          "repair_budget"
+        ],
+        "must_not_own": [
+          "file_reading",
+          "file_writing",
+          "validation_execution",
+          "final_success_claims"
+        ]
+      },
+      "gather_context": {
+        "workflow_id": "local_context_pack_builder",
+        "input_artifact": "coding_task_contract_output_envelope_v1",
+        "output_artifact": "local_context_pack_artifact_v1",
+        "skip_when": "coding_task_contract.requires_context=false",
+        "owns": [
+          "bounded_file_selection",
+          "context_pack_refs",
+          "validation_command_candidates"
+        ],
+        "must_not_own": [
+          "mutation",
+          "repair",
+          "final_success_claims"
+        ]
+      },
+      "plan_slice": {
+        "workflow_id": "plan_artifact_create",
+        "input_artifact": "coding_task_contract_output_envelope_v1 + local_context_pack_artifact_v1",
+        "output_artifact": "coding_slice_plan_artifact_v1",
+        "skip_when": "coding_task_contract.task_kind=context_free_create_file or explicit_manifest_supplied",
+        "owns": [
+          "smallest_safe_slice",
+          "implementation_requirements",
+          "public_interface_requirements",
+          "validation_plan"
+        ],
+        "must_not_own": [
+          "file_writes",
+          "command_execution",
+          "unbounded_architecture_planning"
+        ]
+      },
+      "mutate": {
+        "workflow_id": "first_mutation_executor",
+        "delegates_to": [
+          "file_mutation_executor",
+          "local_coding_phase1_mutation_spine"
+        ],
+        "input_artifact": "coding_task_contract_output_envelope_v1 + local_context_pack_artifact_v1 + coding_slice_plan_artifact_v1",
+        "output_artifact": "mutation_receipt_set_v1",
+        "owns": [
+          "actual_file_write_receipts",
+          "actual_file_patch_receipts",
+          "changed_file_refs"
+        ],
+        "must_not_own": [
+          "validation_success",
+          "public_interface_success",
+          "final_user_response"
+        ]
+      },
+      "validate": {
+        "workflow_id": "validation_command_runner",
+        "input_artifact": "mutation_receipt_set_v1 + validation_plan",
+        "output_artifact": "validation_result_artifact_v1",
+        "skip_when": "coding_task_contract.requires_validation=false",
+        "owns": [
+          "command_receipts",
+          "exit_code",
+          "stdout_ref",
+          "stderr_ref",
+          "validation_status"
+        ],
+        "must_not_own": [
+          "source_repair",
+          "public_interface_inference",
+          "final_success_claims"
+        ]
+      },
+      "verify_public_interface": {
+        "workflow_id": "public_interface_verification",
+        "input_artifact": "coding_task_contract_output_envelope_v1 + mutation_receipt_set_v1 + validation_result_artifact_v1",
+        "output_artifact": "public_interface_verification_result_ref",
+        "skip_when": "coding_task_contract.requires_public_interface_check=false",
+        "owns": [
+          "named_public_surface_status",
+          "semantic_probe_receipts",
+          "missing_public_interface_requirements"
+        ],
+        "must_not_own": [
+          "test_command_execution",
+          "unbounded_symbol_search",
+          "final_user_response"
+        ]
+      },
+      "repair_or_finalize": {
+        "workflow_id": "bounded_repair_loop",
+        "input_artifact": "coding_execution_spine_decision_v1 + validation_result_artifact_v1 + public_interface_verification_result_ref",
+        "output_artifact": "repair_loop_result_artifact_v1 or ready_for_final_synthesis_artifact_v1",
+        "owns": [
+          "repair_budget",
+          "repair_attempt_receipts",
+          "structured_blocker_when_budget_exhausted"
+        ],
+        "must_not_own": [
+          "initial_context_discovery",
+          "silent_success_after_failed_validation",
+          "unbounded_parent_loop_continuation"
+        ]
+      },
+      "synthesize": {
+        "workflow_id": "final_receipt_synthesis",
+        "input_artifact": "ready_for_final_synthesis_artifact_v1",
+        "output_artifact": "final_receipt_synthesis_result_artifact_v1",
+        "owns": [
+          "user_visible_summary",
+          "changed_files",
+          "validation_status",
+          "blockers",
+          "receipt_refs"
+        ],
+        "must_not_own": [
+          "new_mutation",
+          "new_validation",
+          "hidden_success_inference"
+        ]
+      }
+    },
+    "spine_authority": {
+      "workflow_id": "coding_execution_spine_v1",
+      "rule": "After every stage artifact, normalize evidence and ask the spine for the next action. Stages may emit evidence but must not independently decide to continue, repair, finalize, or timeout around the spine.",
+      "allowed_actions": [
+        "build_context",
+        "mutate",
+        "validate",
+        "repair",
+        "close_success",
+        "close_blocked",
+        "fail_budget"
+      ]
+    },
+    "loop_contract": {
+      "max_repair_turns_source": "coding_task_contract.max_repair_turns",
+      "default_max_repair_turns": 1,
+      "forbidden_loops": [
+        "retry_provider_until_wall_timeout",
+        "run_parent_native_loop_after_typed_blocker",
+        "repeat_context_discovery_after_context_ready_without_new_evidence",
+        "finalize_success_without_spine_close_success"
+      ],
+      "timeout_policy": "Timeouts return typed timeout evidence to the spine. Timeout evidence may trigger repair, structured blocker, or fail_budget, but must not silently enter a broader parent controller."
+    }
+  },
+  "child_workflows": [
+    {
+      "stage": "classify_task",
+      "workflow_id": "coding_task_contract",
+      "input_contract": "user_coding_request_v1",
+      "output_artifact": "coding_task_contract_output_envelope_v1"
+    },
+    {
+      "stage": "gather_context",
+      "workflow_id": "local_context_pack_builder",
+      "input_contract": "local_context_pack_builder_input_envelope_v1",
+      "output_artifact": "local_context_pack_artifact_v1"
+    },
+    {
+      "stage": "plan_slice",
+      "workflow_id": "plan_artifact_create",
+      "input_contract": "plan_artifact_create_input_envelope_v1",
+      "output_artifact": "coding_slice_plan_artifact_v1"
+    },
+    {
+      "stage": "mutate",
+      "workflow_id": "first_mutation_executor",
+      "input_contract": "first_mutation_executor_input_envelope_v1",
+      "output_artifact": "first_mutation_executor_artifact_v1"
+    },
+    {
+      "stage": "mutate",
+      "workflow_id": "file_mutation_executor",
+      "input_contract": "file_mutation_executor_input_envelope_v1",
+      "output_artifact": "file_mutation_receipt_v1"
+    },
+    {
+      "stage": "validate",
+      "workflow_id": "validation_command_runner",
+      "input_contract": "validation_command_runner_input_envelope_v1",
+      "output_artifact": "validation_result_artifact_v1"
+    },
+    {
+      "stage": "verify_public_interface",
+      "workflow_id": "public_interface_verification",
+      "input_contract": "public_interface_verification_input_envelope_v1",
+      "output_artifact": "public_interface_verification_result_ref"
+    },
+    {
+      "stage": "repair_or_finalize",
+      "workflow_id": "bounded_repair_loop",
+      "input_contract": "bounded_repair_loop_input_envelope_v1",
+      "output_artifact": "repair_loop_result_artifact_v1"
+    },
+    {
+      "stage": "synthesize",
+      "workflow_id": "final_receipt_synthesis",
+      "input_contract": "final_receipt_synthesis_input_envelope_v1",
+      "output_artifact": "final_receipt_synthesis_result_artifact_v1"
+    },
+    {
+      "stage": "spine_decision",
+      "workflow_id": "coding_execution_spine_v1",
+      "input_contract": "coding_execution_spine_input_v1",
+      "output_artifact": "coding_execution_spine_decision_v1"
+    }
+  ],
+  "typed_execution_contract": {
+    "gate_kind": "structured_control_plane_gate",
+    "input_kind": "typed_artifact_envelope",
+    "allowed_transitions": [
+      "classify_task->gather_context",
+      "classify_task->plan_slice",
+      "classify_task->mutate",
+      "classify_task->needs_input",
+      "gather_context->plan_slice",
+      "gather_context->mutate",
+      "gather_context->blocked",
+      "plan_slice->mutate",
+      "plan_slice->blocked",
+      "mutate->validate",
+      "mutate->verify_public_interface",
+      "mutate->repair_or_finalize",
+      "mutate->blocked",
+      "validate->verify_public_interface",
+      "validate->repair_or_finalize",
+      "verify_public_interface->repair_or_finalize",
+      "repair_or_finalize->mutate",
+      "repair_or_finalize->validate",
+      "repair_or_finalize->synthesize",
+      "repair_or_finalize->blocked",
+      "repair_or_finalize->failed",
+      "synthesize->completed"
+    ],
+    "terminal_states": [
+      "completed",
+      "blocked",
+      "needs_input",
+      "failed",
+      "aborted"
+    ],
+    "run_budgets": {
+      "max_stage_invocations": 12,
+      "max_model_turns": 4,
+      "max_repair_turns": 1,
+      "max_tool_calls": 12,
+      "loop_signature_detector": "local_coding_typed_execution_pipeline_v1"
+    },
+    "visible_chat_policy": "llm_final_only_no_system_injection",
+    "telemetry_streams": [
+      "workflow_state",
+      "tool_trace",
+      "artifact_refs",
+      "eval_trace",
+      "final_answer"
+    ]
+  },
+  "migration_policy": {
+    "status": "lab_contract_only_until_adapter_tests_exist",
+    "first_migration_target": "level_2_existing_project_patch",
+    "runtime_rule": "Do not route live coding tasks through this composite until deterministic stage-adapter tests prove each artifact boundary. While migrating, any live parent-loop patch must declare which stage it implements or be recorded as migration debt.",
+    "promotion_requirements": [
+      "schema_valid",
+      "composition_ledger_level_valid",
+      "deterministic_stage_adapter_tests",
+      "level_1_monotonic_gate",
+      "level_2_20_run_gate",
+      "operator_promotion_approval"
+    ]
+  },
+  "final_response_policy": "control_plane_packaged_response",
+  "final_output_contract": {
+    "schema_version": "local_coding_typed_execution_pipeline_final_output_contract_v1",
+    "source": "workflow_cd",
+    "visible_chat_source": "llm_final_answer_only",
+    "required_summary_fields": [
+      "status",
+      "task_kind",
+      "stage_history",
+      "changed_files",
+      "validation_status",
+      "public_interface_status",
+      "repair_status",
+      "blockers",
+      "receipt_refs"
+    ],
+    "quality_contract": {
+      "answer_user_goal": "complete or truthfully block one bounded local coding slice",
+      "scope_boundary": "do not continue beyond the typed slice unless a parent project operator supplies the next task contract",
+      "validation_calibration": "success requires spine close_success and receipt-backed mutation, validation, and public-interface evidence when required",
+      "visibility": "summarize receipts and blockers without hidden chain-of-thought"
+    }
+  },
+  "workflow_composition_contract": {
+    "version": "workflow_composition_contract_v1",
+    "cd_kind": "composite",
+    "returns_exactly_one_terminal_artifact": true,
+    "terminal_artifact_contract": {
+      "artifact_schema": "workflow_terminal_artifact_v1",
+      "allowed_kinds": [
+        "completed_final_answer",
+        "clarification_request",
+        "structured_failure",
+        "delegated_workflow_result"
+      ],
+      "parent_receives": "terminal_artifact_only_refs_for_internals"
+    },
+    "child_workflow_calls": [
+      "coding_task_contract",
+      "local_context_pack_builder",
+      "plan_artifact_create",
+      "first_mutation_executor",
+      "file_mutation_executor",
+      "validation_command_runner",
+      "public_interface_verification",
+      "bounded_repair_loop",
+      "final_receipt_synthesis",
+      "coding_execution_spine_v1"
+    ],
+    "non_goals": [
+      "do_not_return_raw_tool_payloads",
+      "do_not_expose_internal_trace",
+      "do_not_embed_eval_fixture_logic",
+      "do_not_patch_legacy_parent_loop_behavior_as_pipeline_logic"
+    ]
+  }
+}

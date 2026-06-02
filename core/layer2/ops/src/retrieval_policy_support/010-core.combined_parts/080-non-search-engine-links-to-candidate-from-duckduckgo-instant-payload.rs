@@ -291,6 +291,10 @@ fn payload_text_links(payload: &Value, max_links: usize, origin: Option<&str>) -
         &[
             payload.get("summary").and_then(Value::as_str).unwrap_or(""),
             payload.get("content").and_then(Value::as_str).unwrap_or(""),
+            payload
+                .get("content_preview")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
             payload.get("markdown").and_then(Value::as_str).unwrap_or(""),
             payload.get("text").and_then(Value::as_str).unwrap_or(""),
         ]

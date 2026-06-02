@@ -165,8 +165,7 @@ fn entityish_query_token(raw: &str) -> Option<String> {
     let lowered = cleaned.to_ascii_lowercase();
     if matches!(
         lowered.as_str(),
-        "a"
-            | "an"
+        "a" | "an"
             | "and"
             | "as"
             | "at"
@@ -205,7 +204,10 @@ fn entityish_query_token(raw: &str) -> Option<String> {
     ) {
         return None;
     }
-    let alpha_count = cleaned.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
+    let alpha_count = cleaned
+        .chars()
+        .filter(|ch| ch.is_ascii_alphabetic())
+        .count();
     let all_upper = alpha_count >= 2
         && cleaned
             .chars()
@@ -225,11 +227,7 @@ fn entityish_query_token(raw: &str) -> Option<String> {
     Some(clean_text(cleaned, 120))
 }
 
-fn push_unique_subject_phrase(
-    out: &mut Vec<String>,
-    seen: &mut HashSet<String>,
-    raw: &str,
-) {
+fn push_unique_subject_phrase(out: &mut Vec<String>, seen: &mut HashSet<String>, raw: &str) {
     let cleaned = clean_text(raw, 160);
     if cleaned.is_empty() {
         return;
@@ -259,26 +257,27 @@ fn query_subject_phrases(query: &str) -> Vec<String> {
         .filter_map(entityish_query_token)
         .collect::<Vec<_>>();
     let mut current = Vec::<String>::new();
-    let flush_current = |current: &mut Vec<String>,
-                         out: &mut Vec<String>,
-                         seen: &mut HashSet<String>| {
-        if current.is_empty() {
-            return;
-        }
-        let phrase = current.iter().take(4).cloned().collect::<Vec<_>>().join(" ");
-        push_unique_subject_phrase(out, seen, &phrase);
-        if current.len() == 1 {
-            push_unique_subject_phrase(out, seen, &current[0]);
-        }
-        current.clear();
-    };
+    let flush_current =
+        |current: &mut Vec<String>, out: &mut Vec<String>, seen: &mut HashSet<String>| {
+            if current.is_empty() {
+                return;
+            }
+            let phrase = current
+                .iter()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" ");
+            push_unique_subject_phrase(out, seen, &phrase);
+            if current.len() == 1 {
+                push_unique_subject_phrase(out, seen, &current[0]);
+            }
+            current.clear();
+        };
     for token in tokens {
-        let continuation = current.last().map(|prior| {
-            prior.chars()
-                .last()
-                .map(|ch| ch != '.')
-                .unwrap_or(true)
-        });
+        let continuation = current
+            .last()
+            .map(|prior| prior.chars().last().map(|ch| ch != '.').unwrap_or(true));
         if continuation.unwrap_or(true) && current.len() < 4 {
             current.push(token);
             continue;
@@ -290,11 +289,7 @@ fn query_subject_phrases(query: &str) -> Vec<String> {
     out
 }
 
-fn push_topical_phrase_windows(
-    out: &mut Vec<String>,
-    seen: &mut HashSet<String>,
-    run: &[String],
-) {
+fn push_topical_phrase_windows(out: &mut Vec<String>, seen: &mut HashSet<String>, run: &[String]) {
     if run.len() < 2 {
         return;
     }
@@ -368,11 +363,10 @@ fn query_topical_phrases(query: &str) -> Vec<String> {
     let mut out = Vec::<String>::new();
     let mut seen = HashSet::<String>::new();
     let mut run = Vec::<String>::new();
-    let flush_run =
-        |run: &mut Vec<String>, out: &mut Vec<String>, seen: &mut HashSet<String>| {
-            push_topical_phrase_windows(out, seen, run);
-            run.clear();
-        };
+    let flush_run = |run: &mut Vec<String>, out: &mut Vec<String>, seen: &mut HashSet<String>| {
+        push_topical_phrase_windows(out, seen, run);
+        run.clear();
+    };
     for raw in clean_text(query, 800)
         .to_ascii_lowercase()
         .split(|ch: char| !ch.is_ascii_alphanumeric())
@@ -541,7 +535,9 @@ fn candidate_has_trusted_primary_source_signal(query: &str, candidate: &Candidat
     let locator = clean_text(&candidate.locator, 2_200).to_ascii_lowercase();
     let domain = candidate_domain_hint(candidate);
     let domain_lower = domain.to_ascii_lowercase();
-    let snippet_words = clean_text(&candidate.snippet, 1_800).split_whitespace().count();
+    let snippet_words = clean_text(&candidate.snippet, 1_800)
+        .split_whitespace()
+        .count();
     let (overlap, distinctive_overlap, query_len) = query_overlap_profile(query, candidate);
     let subject_phrase_match = query_subject_phrase_matches_candidate(query, candidate);
     let direct_official_subject_source =
@@ -574,9 +570,7 @@ fn candidate_has_trusted_primary_source_signal(query: &str, candidate: &Candidat
     distinctive_overlap >= 1
         || subject_phrase_match
         || (overlap >= 2 && snippet_words >= 8)
-        || (overlap >= 1
-            && overview_signal
-            && (query_len <= 8 || snippet_words >= 12))
+        || (overlap >= 1 && overview_signal && (query_len <= 8 || snippet_words >= 12))
 }
 
 fn candidate_title_for_relevance(candidate: &Candidate) -> String {
@@ -725,6 +719,8 @@ fn is_weak_relevance_token(token: &str) -> bool {
             | "backed"
             | "verified"
             | "verification"
+            | "confirm"
+            | "confirmed"
             | "reporting"
             | "publication"
             | "publications"
@@ -754,8 +750,12 @@ fn is_weak_relevance_token(token: &str) -> bool {
             | "finding"
             | "findings"
             | "overview"
+            | "focus"
+            | "focused"
+            | "focusing"
             | "guide"
             | "general"
+            | "generic"
             | "information"
             | "world"
             | "global"
@@ -773,13 +773,35 @@ fn is_weak_relevance_token(token: &str) -> bool {
             | "different"
             | "multiple"
             | "various"
+            | "separate"
+            | "early"
+            | "preliminary"
+            | "claim"
+            | "claims"
             | "breaking"
             | "headline"
             | "headlines"
             | "story"
             | "stories"
+            | "move"
+            | "moves"
+            | "january"
+            | "february"
+            | "march"
+            | "april"
+            | "may"
+            | "june"
+            | "july"
+            | "august"
+            | "september"
+            | "october"
+            | "november"
+            | "december"
             | "development"
             | "developments"
+            | "notable"
+            | "milestone"
+            | "milestones"
             | "update"
             | "updates"
             | "landscape"

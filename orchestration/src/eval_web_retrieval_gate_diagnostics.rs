@@ -16,6 +16,10 @@ include!("eval_web_retrieval_gate_diagnostics_parts/060_provider_supply.rs");
 include!("eval_web_retrieval_gate_diagnostics_parts/070_browser_materialization.rs");
 include!("eval_web_retrieval_gate_diagnostics_parts/080_access_blockers.rs");
 
+pub fn evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) -> Value {
+    web_evidence_quality_diagnostics(payload, retrieval_quality)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -84,9 +84,9 @@
             packaged_evidence_present && claim_extraction_present,
             answerability_ready,
             if answerability_ready {
-                "evidence has enough clean source material, concrete claims, and citation data for a bounded useful answer"
+                "evidence has enough clean source material, concrete claims, citation data, and any source-sensitive authority coverage for a bounded useful answer"
             } else if packaged_evidence_present && claim_extraction_present {
-                "evidence and claims exist, but the package is not yet strong enough for a coherent source-backed answer"
+                "evidence and claims exist, but the package is not yet strong enough for a coherent source-backed answer, often because coverage, claim, citation, or source-authority support is thin"
             } else {
                 "answerability cannot be assessed before evidence packaging and claim extraction both exist"
             },
@@ -106,22 +106,35 @@
             evidence_quality_refs(&evidence_quality),
         ),
         web_gate(
+            "web_5i_malformed_evidence_absent",
+            packaged_evidence_present && claim_extraction_present,
+            malformed_evidence_clean,
+            if malformed_evidence_clean {
+                "selected evidence text is free of stitched title tails, page chrome, and malformed claim fragments"
+            } else {
+                "selected evidence includes malformed answer material such as stitched title tails, page chrome, or clipped claim fragments"
+            },
+            evidence_quality_refs(&evidence_quality),
+        ),
+        web_gate(
             "web_7_usable_evidence_available",
             packaged_evidence_present || tool_attempted,
             usable_evidence
                 && content_rich_candidates_present
                 && claim_extraction_present
                 && answerability_ready
-                && evidence_packet_contract_ready,
+                && evidence_packet_contract_ready
+                && malformed_evidence_clean,
             if usable_evidence
                 && content_rich_candidates_present
                 && claim_extraction_present
                 && answerability_ready
                 && evidence_packet_contract_ready
+                && malformed_evidence_clean
             {
                 "retrieval quality classifies the packaged, materialized, claim-bearing, citation-ready evidence packet as usable"
             } else {
-                "packaged output exists only as thin, unmaterialized, claim-poor, citation-poor, low-signal/no-results/degraded evidence, lacks the evidence-packet contract, or no usable evidence was available"
+                "packaged output exists only as thin, unmaterialized, claim-poor, citation-poor, malformed, low-signal/no-results/degraded evidence, lacks the evidence-packet contract, or no usable evidence was available"
             },
             vec![
                 "retrieval_quality.usable_evidence".to_string(),
@@ -130,6 +143,7 @@
                 "retrieval_quality.content_rich_candidate_count".to_string(),
                 "retrieval_quality.claim_hint_count".to_string(),
                 "evidence_quality.evidence_packet_contract".to_string(),
+                "evidence_quality.malformed_evidence_clean".to_string(),
             ],
         ),
         web_gate(

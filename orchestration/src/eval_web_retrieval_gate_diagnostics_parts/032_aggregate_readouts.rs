@@ -31,6 +31,10 @@ fn web_operator_aggregate_metrics(
     quality_claim_count_total: u64,
     concrete_claim_count_total: u64,
     citation_ready_claim_count_total: u64,
+    handoff_claim_count_total: u64,
+    handoff_concrete_claim_count_total: u64,
+    handoff_low_quality_claim_count_total: u64,
+    handoff_citation_ready_claim_count_total: u64,
     first_failure_counts: &BTreeMap<String, u64>,
     gate_metrics: &[Value],
 ) -> Value {
@@ -94,6 +98,18 @@ fn web_operator_aggregate_metrics(
             "citation_ready_claim_rate": ratio(
                 citation_ready_claim_count_total,
                 quality_claim_count_total
+            ),
+            "handoff_concrete_claim_rate": ratio(
+                handoff_concrete_claim_count_total,
+                handoff_claim_count_total
+            ),
+            "handoff_low_quality_claim_rate": ratio(
+                handoff_low_quality_claim_count_total,
+                handoff_claim_count_total
+            ),
+            "handoff_citation_ready_claim_rate": ratio(
+                handoff_citation_ready_claim_count_total,
+                handoff_claim_count_total
             )
         },
         "blocker_rates": {
@@ -114,6 +130,9 @@ fn web_operator_aggregate_metrics(
             "claim_hints_per_evidence": "How much claim-level material synthesis received per evidence item.",
             "source_quality_ready_case_rate": "Share of cases where selected evidence was source-backed and not dominated by low-quality/candidate-only material.",
             "claim_quality_ready_case_rate": "Share of cases where extracted claims looked like concrete answer material rather than headings, source labels, or boilerplate.",
+            "handoff_concrete_claim_rate": "Share of promoted evidence_claims that looked like concrete answer material.",
+            "handoff_low_quality_claim_rate": "Share of promoted evidence_claims that still looked like malformed fragments, headings, source labels, or boilerplate.",
+            "handoff_citation_ready_claim_rate": "Share of promoted evidence_claims that retained enough locator/title/domain data to render citations.",
             "citation_renderability_ready_case_rate": "Share of cases where claim/evidence material retained enough locator/title/domain data to render citations.",
             "answerability_ready_case_rate": "Share of cases where clean evidence, concrete claims, and citation data all existed together.",
             "evidence_packet_contract_ready_case_rate": "Share of cases where answerable evidence also preserved source identity, source type, useful extract, concrete claim material, and query-relevance rationale.",
@@ -199,6 +218,9 @@ fn web_operator_case_readout(primary_bottleneck: &str, retrieval_status: &str) -
         "evidence_packet_contract_not_ready" => {
             "evidence can look answerable, but selected packets do not preserve the fields a chat response needs to cite and explain the answer".to_string()
         }
+        "malformed_evidence_fragments_present" => {
+            "selected evidence carries stitched title tails, page chrome, or clipped fragments that would make the final answer read like source debris".to_string()
+        }
         "retrieval_quality_not_usable" => {
             "evidence reached the tool layer, but quality is too weak for source-backed synthesis".to_string()
         }
@@ -237,6 +259,7 @@ fn web_failure_layer(gate: &str) -> &'static str {
         | "web_5f_citation_renderability_ready"
         | "web_5g_answerability_ready"
         | "web_5h_evidence_packet_contract_ready"
+        | "web_5i_malformed_evidence_absent"
         | "web_7_usable_evidence_available"
         | "web_8_evidence_context_to_synthesis" => "usable_evidence_packaging",
         "web_5c_claim_extraction_present" | "web_5e_claim_quality_ready" => "claim_extraction",
@@ -312,6 +335,9 @@ fn web_operator_next_action(primary_bottleneck: &str) -> &'static str {
         }
         "evidence_packet_contract_not_ready" => {
             "preserve source identity, source type, relevant extracts, concrete claim material, and query-relevance rationale in each selected evidence packet"
+        }
+        "malformed_evidence_fragments_present" => {
+            "tighten extraction and evidence cleaning so selected evidence contains answer material, not stitched titles or page chrome"
         }
         "retrieval_quality_not_usable" => "increase candidate quality and source diversity",
         "evidence_context_handoff_missing" => "inspect evidence-to-synthesis handoff",
