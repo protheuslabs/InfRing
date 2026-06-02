@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T19:26:54.010Z
+Updated: 2026-06-02T19:50:45.206Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,8 +14,8 @@ Updated: 2026-06-02T19:26:54.010Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 22
-- red: 5
+- active_items: 21
+- red: 4
 - yellow: 9
 - white: 8
 
@@ -34,13 +34,6 @@ Updated: 2026-06-02T19:26:54.010Z
   work_gate: `reliability`
   real_work_score: `5`
   summary: Route slash commands, model switching, model failover, prompt queue execution, and terminal execution through typed Orchestration/Gateway ingress receipts; preserve legacy Shell helpers as compatibility callers until the new path is proven.
-- `SHELL-EXTRACT-DETAILS` — Move message and tool details behind lazy routes
-  owner: `unassigned`
-  deadline: `2026-05-07`
-  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
-  work_gate: `reliability`
-  real_work_score: `5`
-  summary: Expose message, tool, artifact, trace, and workflow detail fetches by stable refs through bounded audited Gateway/Orchestration routes, without removing legacy Shell rendering or local compatibility paths yet.
 - `SHPURGE` — Finish the Shell authority purge
   owner: `unassigned`
   deadline: `2026-05-07`

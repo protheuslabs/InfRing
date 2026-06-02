@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T19:26:54.010Z",
+  "updated_at": "2026-06-02T19:50:45.206Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -32,17 +32,6 @@
       "deadline": "2026-05-07",
       "source_family": "Shell Authority Extraction Without Legacy Shell Mutation",
       "summary": "Route slash commands, model switching, model failover, prompt queue execution, and terminal execution through typed Orchestration/Gateway ingress receipts; preserve legacy Shell helpers as compatibility callers until the new path is proven.",
-      "work_gate": "reliability",
-      "real_work_score": 5
-    },
-    {
-      "id": "SHELL-EXTRACT-DETAILS",
-      "title": "Move message and tool details behind lazy routes",
-      "section": "red",
-      "owner": "unassigned",
-      "deadline": "2026-05-07",
-      "source_family": "Shell Authority Extraction Without Legacy Shell Mutation",
-      "summary": "Expose message, tool, artifact, trace, and workflow detail fetches by stable refs through bounded audited Gateway/Orchestration routes, without removing legacy Shell rendering or local compatibility paths yet.",
       "work_gate": "reliability",
       "real_work_score": 5
     },

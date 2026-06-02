@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T19:26:54.010Z
+Updated: 2026-06-02T19:50:45.206Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T19:26:54.010Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `SHELL-EXTRACT-DETAILS` — Move message and tool details behind lazy routes
+  completed_at: `2026-06-02T19:50:45.205Z`
+  previous_section: `red`
+  owner: `unassigned`
+  deadline: `2026-05-07`
+  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
+  summary: Expose message, tool, artifact, trace, and workflow detail fetches by stable refs through bounded audited Gateway/Orchestration routes, without removing legacy Shell rendering or local compatibility paths yet.
+  completion_note: Extended the explicit Gateway shell-socket projection bridge to detail fetches under /api/shell-socket/details/* with bounded limit/view shaping, trace/projection metadata, and Rust shell-socket as owner of truth; legacy Shell files were not modified.
 - `SHELL-EXTRACT-CHAT` — Move chat and session projections behind Gateway
   completed_at: `2026-06-02T19:26:54.007Z`
   previous_section: `red`

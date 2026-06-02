@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T19:26:54.010Z",
+  "updated_at": "2026-06-02T19:50:45.206Z",
   "historical_snapshot": {
     "preserved_archive_path": "docs/workspace/todo/TODO_ARCHIVE_LEGACY.md",
     "total_rows": 4145,
@@ -966,6 +966,19 @@
       "real_work_score": 5,
       "completed_at": "2026-06-02T19:26:54.007Z",
       "completion_note": "Added explicit Node Gateway shell-socket chat/session projection bridge for agent roster, session list, and bounded message windows; Rust shell-socket remains the projection owner, Gateway caps query shape and adds trace/projection metadata, and legacy Shell files were not modified."
+    },
+    {
+      "id": "SHELL-EXTRACT-DETAILS",
+      "title": "Move message and tool details behind lazy routes",
+      "section": "red",
+      "owner": "unassigned",
+      "deadline": "2026-05-07",
+      "source_family": "Shell Authority Extraction Without Legacy Shell Mutation",
+      "summary": "Expose message, tool, artifact, trace, and workflow detail fetches by stable refs through bounded audited Gateway/Orchestration routes, without removing legacy Shell rendering or local compatibility paths yet.",
+      "work_gate": "reliability",
+      "real_work_score": 5,
+      "completed_at": "2026-06-02T19:50:45.205Z",
+      "completion_note": "Extended the explicit Gateway shell-socket projection bridge to detail fetches under /api/shell-socket/details/* with bounded limit/view shaping, trace/projection metadata, and Rust shell-socket as owner of truth; legacy Shell files were not modified."
     }
   ]
 }

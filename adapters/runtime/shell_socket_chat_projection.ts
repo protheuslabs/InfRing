@@ -43,9 +43,21 @@ function routeForPath(pathname) {
     return {
       route_id: 'shell_socket.message_window',
       capability_id: 'get_message_window',
+      route_class: 'event_output_egress',
       max_limit: 80,
       default_limit: 80,
       timeout_ms: 10000,
+    };
+  }
+  if (/^\/api\/shell-socket\/details\/.+/.test(path)) {
+    return {
+      route_id: 'shell_socket.message_detail',
+      capability_id: 'get_message_detail',
+      route_class: 'detail_fetch',
+      max_limit: 20,
+      default_limit: 1,
+      timeout_ms: 10000,
+      allow_view: true,
     };
   }
   return null;
@@ -66,6 +78,12 @@ function boundedProjectionPath(requestUrl, route) {
   const cursor = cleanString(requestUrl.searchParams.get('cursor') || '', 120);
   search.set('limit', String(limit));
   if (cursor) search.set('cursor', cursor);
+  if (route.allow_view) {
+    const rawView = cleanString(requestUrl.searchParams.get('view') || 'summary', 40)
+      .toLowerCase()
+      .replace(/[^a-z0-9_.:-]+/g, '_');
+    search.set('view', rawView || 'summary');
+  }
   const query = search.toString();
   return `${requestUrl.pathname}${query ? `?${query}` : ''}`;
 }
@@ -75,6 +93,7 @@ function projectionMetadata(route, traceId) {
     trace_id: cleanString(traceId, 180),
     route_id: route.route_id,
     capability_id: route.capability_id,
+    route_class: cleanString(route.route_class || 'bounded_search_query', 80),
     projection_owner: 'core.shell_socket',
     gateway_owner: 'adapters.runtime',
     bounded: true,
