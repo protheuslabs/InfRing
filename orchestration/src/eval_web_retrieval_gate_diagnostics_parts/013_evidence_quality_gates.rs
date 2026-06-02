@@ -117,6 +117,17 @@
             evidence_quality_refs(&evidence_quality),
         ),
         web_gate(
+            "web_5j_citation_titles_clean",
+            citation_renderability_ready,
+            citation_titles_clean,
+            if citation_titles_clean {
+                "citation titles are clean source labels rather than dangling fragments or page debris"
+            } else {
+                "citation metadata is renderable but some visible source titles contain dangling fragments or page debris"
+            },
+            evidence_quality_refs(&evidence_quality),
+        ),
+        web_gate(
             "web_7_usable_evidence_available",
             packaged_evidence_present || tool_attempted,
             usable_evidence
@@ -124,17 +135,19 @@
                 && claim_extraction_present
                 && answerability_ready
                 && evidence_packet_contract_ready
-                && malformed_evidence_clean,
+                && malformed_evidence_clean
+                && citation_titles_clean,
             if usable_evidence
                 && content_rich_candidates_present
                 && claim_extraction_present
                 && answerability_ready
                 && evidence_packet_contract_ready
                 && malformed_evidence_clean
+                && citation_titles_clean
             {
                 "retrieval quality classifies the packaged, materialized, claim-bearing, citation-ready evidence packet as usable"
             } else {
-                "packaged output exists only as thin, unmaterialized, claim-poor, citation-poor, malformed, low-signal/no-results/degraded evidence, lacks the evidence-packet contract, or no usable evidence was available"
+                "packaged output exists only as thin, unmaterialized, claim-poor, citation-poor, malformed, citation-title-debris, low-signal/no-results/degraded evidence, lacks the evidence-packet contract, or no usable evidence was available"
             },
             vec![
                 "retrieval_quality.usable_evidence".to_string(),
@@ -144,6 +157,7 @@
                 "retrieval_quality.claim_hint_count".to_string(),
                 "evidence_quality.evidence_packet_contract".to_string(),
                 "evidence_quality.malformed_evidence_clean".to_string(),
+                "evidence_quality.citation_titles_clean".to_string(),
             ],
         ),
         web_gate(

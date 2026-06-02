@@ -147,6 +147,16 @@ fn web_operator_case_metrics(
                 &["citation_renderability_ready"],
                 false
             ),
+            "citation_titles_clean": bool_at(
+                evidence_quality,
+                &["citation_titles_clean"],
+                true
+            ),
+            "malformed_citation_title_count": u64_at(
+                evidence_quality,
+                &["malformed_citation_title_count"],
+                0
+            ),
             "answerability_ready": bool_at(evidence_quality, &["answerability_ready"], false),
             "evidence_packet_contract_ready": bool_at(
                 evidence_quality,

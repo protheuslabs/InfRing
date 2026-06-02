@@ -222,6 +222,7 @@ pub(super) fn web_failure_boundary(gate: &str) -> &'static str {
         "web_5g_answerability_ready" => "answerability_not_ready",
         "web_5h_evidence_packet_contract_ready" => "evidence_packet_contract_not_ready",
         "web_5i_malformed_evidence_absent" => "malformed_evidence_fragments_present",
+        "web_5j_citation_titles_clean" => "malformed_citation_titles_present",
         "web_6_provider_not_empty_or_degraded" => "provider_empty_or_degraded",
         "web_7_usable_evidence_available" => "retrieval_quality_not_usable",
         "web_8_evidence_context_to_synthesis" => "evidence_context_handoff_missing",

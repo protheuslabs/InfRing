@@ -12,6 +12,9 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
     scan.malformed_evidence_samples.sort_unstable();
     scan.malformed_evidence_samples.dedup();
     scan.malformed_evidence_samples.truncate(8);
+    scan.malformed_citation_title_samples.sort_unstable();
+    scan.malformed_citation_title_samples.dedup();
+    scan.malformed_citation_title_samples.truncate(8);
     scan.evidence_packet_missing_fields.sort_unstable();
     scan.evidence_packet_missing_fields.dedup();
     scan.refs.sort_unstable();
@@ -119,6 +122,7 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
     let malformed_evidence_item_rate =
         ratio(scan.malformed_evidence_item_count, evidence_item_count);
     let malformed_evidence_clean = scan.malformed_evidence_fragment_count == 0;
+    let citation_titles_clean = scan.malformed_citation_title_count == 0;
     let concrete_claim_rate = ratio(concrete_claim_count, claim_count);
     let low_quality_claim_rate = ratio(scan.low_quality_claim_count, claim_count);
     let citation_ready_claim_rate = ratio(citation_ready_claim_count, claim_count);
@@ -131,7 +135,8 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
         && handoff_concrete_claim_count > 0
         && handoff_low_quality_claim_count == 0
         && handoff_concrete_claim_rate >= 0.5;
-    let source_authority_sensitive = source_authority_sensitive_request(payload, &scan.request_terms);
+    let source_authority_sensitive =
+        source_authority_sensitive_request(payload, &scan.request_terms);
     let authority_grade_source_domain_count = scan.authority_grade_source_domains.len() as u64;
     let source_authority_ready =
         !source_authority_sensitive || authority_grade_source_domain_count >= 2;
@@ -310,6 +315,18 @@ fn web_evidence_quality_diagnostics(payload: &Value, retrieval_quality: &Value) 
     out.insert(
         "malformed_evidence_samples".to_string(),
         json!(scan.malformed_evidence_samples),
+    );
+    out.insert(
+        "citation_titles_clean".to_string(),
+        json!(citation_titles_clean),
+    );
+    out.insert(
+        "malformed_citation_title_count".to_string(),
+        json!(scan.malformed_citation_title_count),
+    );
+    out.insert(
+        "malformed_citation_title_samples".to_string(),
+        json!(scan.malformed_citation_title_samples),
     );
     out.insert(
         "source_quality_threshold_met".to_string(),
@@ -540,6 +557,7 @@ struct EvidenceQualityScan {
     low_quality_evidence_item_count: u64,
     malformed_evidence_fragment_count: u64,
     malformed_evidence_item_count: u64,
+    malformed_citation_title_count: u64,
     citation_ready_evidence_item_count: u64,
     authority_grade_evidence_item_count: u64,
     claim_count: u64,
@@ -558,6 +576,7 @@ struct EvidenceQualityScan {
     authority_grade_source_domains: Vec<String>,
     low_quality_flags: Vec<String>,
     malformed_evidence_samples: Vec<String>,
+    malformed_citation_title_samples: Vec<String>,
     refs: Vec<String>,
     sample_rows: Vec<Value>,
 }
@@ -629,6 +648,10 @@ fn analyze_evidence_quality_object(
 
     if let Some(domain) = source_domain_value(map) {
         push_unique_case_insensitive(&mut scan.source_domains, &domain);
+    }
+    if let Some(title) = malformed_citation_title_for_object(map) {
+        scan.malformed_citation_title_count = scan.malformed_citation_title_count.saturating_add(1);
+        push_malformed_citation_title_sample(scan, &title);
     }
 
     let citation_ready = evidence_object_citation_ready(map);
@@ -813,7 +836,10 @@ fn evidence_quality_request_terms(payload: &Value) -> Vec<String> {
         "/tooling_request/required_coverage/entities",
         "/tooling_request/required_coverage/facets",
     ] {
-        collect_value_strings(payload.pointer(pointer).unwrap_or(&Value::Null), &mut raw_terms);
+        collect_value_strings(
+            payload.pointer(pointer).unwrap_or(&Value::Null),
+            &mut raw_terms,
+        );
     }
     let mut out = Vec::<String>::new();
     for raw in raw_terms {
@@ -964,7 +990,10 @@ fn source_authority_sensitive_request(payload: &Value, request_terms: &[String])
         "/tooling_request/required_coverage/entities",
         "/tooling_request/required_coverage/facets",
     ] {
-        collect_value_strings(payload.pointer(pointer).unwrap_or(&Value::Null), &mut values);
+        collect_value_strings(
+            payload.pointer(pointer).unwrap_or(&Value::Null),
+            &mut values,
+        );
     }
     values.extend(request_terms.iter().cloned());
     let normalized = format!(" {} ", normalize_for_compare(&values.join(" ")));
@@ -1128,7 +1157,9 @@ fn source_title_is_generic_for_domain(title: &str, domain: &str) -> bool {
         || normalized_title == normalized_domain
 }
 
-fn evidence_packet_publisher_menu_signature(map: &serde_json::Map<String, Value>) -> Option<String> {
+fn evidence_packet_publisher_menu_signature(
+    map: &serde_json::Map<String, Value>,
+) -> Option<String> {
     evidence_object_content_strings(map)
         .into_iter()
         .find_map(|raw| publisher_menu_signature_from_text(&raw))
@@ -1183,8 +1214,7 @@ fn compact_identity_name_without_tld(raw: &str) -> String {
         .filter(|part| {
             !matches!(
                 part.to_ascii_lowercase().as_str(),
-                "www" | "com" | "org" | "net" | "gov" | "edu" | "co" | "uk" | "io" | "ai"
-                    | "dev"
+                "www" | "com" | "org" | "net" | "gov" | "edu" | "co" | "uk" | "io" | "ai" | "dev"
             )
         })
         .map(ToString::to_string)
@@ -1364,7 +1394,8 @@ fn evidence_object_low_quality(
         low_quality = true;
         push_unique_case_insensitive(&mut scan.low_quality_flags, "not_usable");
     }
-    if evidence_packet_contract_path(path) && !evidence_packet_request_aligned(map, &scan.request_terms)
+    if evidence_packet_contract_path(path)
+        && !evidence_packet_request_aligned(map, &scan.request_terms)
     {
         low_quality = true;
         push_unique_case_insensitive(&mut scan.low_quality_flags, "query_relevance_not_aligned");
@@ -1407,17 +1438,14 @@ fn evidence_object_low_quality(
     }
     if malformed_item {
         low_quality = true;
-        scan.malformed_evidence_item_count =
-            scan.malformed_evidence_item_count.saturating_add(1);
+        scan.malformed_evidence_item_count = scan.malformed_evidence_item_count.saturating_add(1);
     }
     if !claim_strings.is_empty()
-        && claim_strings
-            .iter()
-            .all(|claim| {
-                claim_text_low_quality(claim)
-                    || claim_text_malformed_fragment(claim)
-                    || !claim_text_concrete(claim)
-            })
+        && claim_strings.iter().all(|claim| {
+            claim_text_low_quality(claim)
+                || claim_text_malformed_fragment(claim)
+                || !claim_text_concrete(claim)
+        })
     {
         low_quality = true;
         push_unique_case_insensitive(&mut scan.low_quality_flags, "low_quality_claim_text");
@@ -1434,6 +1462,29 @@ fn push_malformed_evidence_sample(scan: &mut EvidenceQualityScan, raw: &str) {
         return;
     }
     push_unique_case_insensitive(&mut scan.malformed_evidence_samples, &cleaned);
+}
+
+fn malformed_citation_title_for_object(map: &serde_json::Map<String, Value>) -> Option<String> {
+    let title = first_string_at(map, &["title", "source_title"], 220);
+    if title.is_empty() {
+        return None;
+    }
+    let domain = source_domain_value(map).unwrap_or_default();
+    if source_title_is_generic_for_domain(&title, &domain) {
+        return None;
+    }
+    citation_title_malformed_fragment(&title).then_some(title)
+}
+
+fn push_malformed_citation_title_sample(scan: &mut EvidenceQualityScan, raw: &str) {
+    if scan.malformed_citation_title_samples.len() >= 16 {
+        return;
+    }
+    let cleaned = clean_text(raw, 220);
+    if cleaned.is_empty() {
+        return;
+    }
+    push_unique_case_insensitive(&mut scan.malformed_citation_title_samples, &cleaned);
 }
 
 fn malformed_fragment_samples_for_object(map: &serde_json::Map<String, Value>) -> Vec<String> {
@@ -1620,6 +1671,81 @@ fn claim_text_malformed_fragment(raw: &str) -> bool {
     evidence_text_malformed_fragment(&cleaned)
         || text_looks_like_dangling_claim_fragment(&cleaned)
         || text_looks_like_title_shell_fragment(&cleaned)
+}
+
+fn citation_title_malformed_fragment(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 220);
+    if cleaned.is_empty() {
+        return false;
+    }
+    text_looks_like_page_chrome_fragment(&cleaned)
+        || text_looks_like_dangling_claim_fragment(&cleaned)
+        || source_title_starts_with_page_debris_lead(&cleaned)
+        || source_title_starts_with_lowercase_fragment_before_title_shell(&cleaned)
+}
+
+fn source_title_starts_with_page_debris_lead(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 220);
+    let words = cleaned.split_whitespace().collect::<Vec<_>>();
+    if words.len() < 4 {
+        return false;
+    }
+    let first = words[0]
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+        .to_ascii_lowercase();
+    let second = words[1]
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+        .to_ascii_lowercase();
+    let first_is_debris = matches!(
+        first.as_str(),
+        "browse"
+            | "click"
+            | "continue"
+            | "listen"
+            | "menu"
+            | "more"
+            | "open"
+            | "read"
+            | "see"
+            | "view"
+            | "visit"
+            | "watch"
+    );
+    if !first_is_debris {
+        return false;
+    }
+    let tail_start = if matches!(second.as_str(), "as" | "more" | "now" | "the" | "this") {
+        2
+    } else {
+        1
+    };
+    if words.len() <= tail_start + 2 {
+        return false;
+    }
+    tail_looks_like_title_shell(&words[tail_start..].join(" "))
+}
+
+fn source_title_starts_with_lowercase_fragment_before_title_shell(raw: &str) -> bool {
+    let cleaned = clean_text(raw, 220);
+    let words = cleaned.split_whitespace().collect::<Vec<_>>();
+    if words.len() < 5 || words.len() > 18 {
+        return false;
+    }
+    for lead_len in 1..=3.min(words.len().saturating_sub(3)) {
+        let lead_is_fragment = words[..lead_len].iter().all(|word| {
+            let token = word.trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '-');
+            !token.is_empty()
+                && token.len() <= 18
+                && token.chars().all(|ch| ch.is_ascii_lowercase() || ch == '-')
+        });
+        if !lead_is_fragment {
+            continue;
+        }
+        if tail_looks_like_title_shell(&words[lead_len..].join(" ")) {
+            return true;
+        }
+    }
+    false
 }
 
 fn claim_text_low_quality(raw: &str) -> bool {

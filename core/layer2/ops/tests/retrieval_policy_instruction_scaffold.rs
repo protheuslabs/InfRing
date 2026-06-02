@@ -1,5 +1,5 @@
 use infring_ops_core_v1::retrieval_policy::{
-    candidate_coverage_facets_api, candidate_quality_flags_api,
+    candidate_coverage_facets_api, candidate_quality_flags_api, evidence_claims_from_pack_api,
     evidence_pack_from_ranked_candidates_api,
 };
 use serde_json::{json, Value};
@@ -205,10 +205,7 @@ fn access_denied_human_confirmation_copy_is_not_usable_evidence() {
     });
 
     let flags = candidate_quality_flags_api(query, &candidate, 0.92);
-    assert!(
-        flags.iter().any(|flag| flag == "junk_marker"),
-        "{flags:#?}"
-    );
+    assert!(flags.iter().any(|flag| flag == "junk_marker"), "{flags:#?}");
 
     let pack = evidence_pack_for_query(query, candidate);
     assert_eq!(usable_item_count(&pack), 0, "{pack:#?}");
@@ -555,6 +552,97 @@ fn symbol_glued_adjacent_title_tail_is_trimmed_from_evidence_material() {
 }
 
 #[test]
+fn dangling_fragment_source_title_falls_back_to_domain_label() {
+    let query =
+        "family-friendly neighborhoods to stay in a city for museums, transit access, and walkability";
+    let candidate = json!({
+        "source_kind": "tavily_api_search_result",
+        "title": "and gall Where to Stay in the City - A Local's Neighborhood Guide",
+        "locator": "https://local.example/blog/where-to-stay",
+        "snippet": "For visitors, central neighborhoods near downtown keep families close to major museums, transit stations, walkable restaurants, and short rides between activities.",
+        "excerpt_hash": "dangling-fragment-source-title",
+        "timestamp": infring_ops_core_v1::now_iso(),
+        "permissions": "public_web;trusted_structured_feed",
+        "status_code": 200
+    });
+
+    let pack = evidence_pack_for_query(query, candidate);
+    assert_eq!(usable_item_count(&pack), 1, "{pack:#?}");
+    assert_eq!(
+        pack.pointer("/0/title").and_then(Value::as_str),
+        Some("Web result from local.example"),
+        "{pack:#?}"
+    );
+
+    let claims = evidence_claims_from_pack_api(&json!({}), &pack, 3);
+    assert_eq!(
+        claims.pointer("/0/source_title").and_then(Value::as_str),
+        Some("Web result from local.example"),
+        "{claims:#?}"
+    );
+}
+
+#[test]
+fn page_debris_source_title_falls_back_without_blocking_clean_evidence() {
+    let query =
+        "family-friendly neighborhoods to stay in a city for museums, transit access, and walkability";
+    let candidate = json!({
+        "source_kind": "tavily_api_search_result",
+        "title": "visit as BEST PLACES TO STAY IN THE CITY FOR FAMILIES - example",
+        "locator": "https://family.example/best-places-to-stay",
+        "snippet": "Family-friendly areas like River North, Old Town, and Lincoln Park offer a blend of safety, proximity to transit, and access to cultural spots.",
+        "excerpt_hash": "page-debris-source-title",
+        "timestamp": infring_ops_core_v1::now_iso(),
+        "permissions": "public_web;trusted_structured_feed",
+        "status_code": 200
+    });
+
+    let pack = evidence_pack_for_query(query, candidate);
+    assert_eq!(usable_item_count(&pack), 1, "{pack:#?}");
+    assert_eq!(
+        pack.pointer("/0/title").and_then(Value::as_str),
+        Some("Web result from family.example"),
+        "{pack:#?}"
+    );
+    assert!(
+        pack.pointer("/0/claim_hints/0")
+            .and_then(Value::as_str)
+            .is_some_and(|claim| claim.contains("River North")),
+        "{pack:#?}"
+    );
+}
+
+#[test]
+fn lowercase_fragment_title_lead_falls_back_without_blocking_clean_evidence() {
+    let query =
+        "family-friendly neighborhoods to stay in a city for museums, transit access, and walkability";
+    let candidate = json!({
+        "source_kind": "tavily_api_search_result",
+        "title": "safety affordability BEST PLACES TO STAY IN THE CITY FOR FAMILIES - example",
+        "locator": "https://planning.example/best-family-neighborhoods",
+        "snippet": "Family-friendly areas with safer streets, transit access, and walkable cultural attractions help families reduce travel friction during museum-focused trips.",
+        "excerpt_hash": "lowercase-fragment-source-title",
+        "timestamp": infring_ops_core_v1::now_iso(),
+        "permissions": "public_web;trusted_structured_feed",
+        "status_code": 200
+    });
+
+    let pack = evidence_pack_for_query(query, candidate);
+    assert_eq!(usable_item_count(&pack), 1, "{pack:#?}");
+    assert_eq!(
+        pack.pointer("/0/title").and_then(Value::as_str),
+        Some("Web result from planning.example"),
+        "{pack:#?}"
+    );
+    assert!(
+        pack.pointer("/0/claim_hints/0")
+            .and_then(Value::as_str)
+            .is_some_and(|claim| claim.contains("Family-friendly areas")),
+        "{pack:#?}"
+    );
+}
+
+#[test]
 fn adjacent_title_marker_suffix_is_trimmed_from_relevant_extract() {
     let query =
         "family-friendly neighborhoods to stay in a city for museums, transit access, and walkability";
@@ -606,7 +694,10 @@ fn leading_page_title_prefix_is_trimmed_from_relevant_extract() {
         .unwrap_or("");
     assert!(extract.starts_with("For visitors"), "{pack:#?}");
     assert!(!extract.contains("Where to Stay"), "{pack:#?}");
-    assert!(!extract.contains("But, if travelers stay longer"), "{pack:#?}");
+    assert!(
+        !extract.contains("But, if travelers stay longer"),
+        "{pack:#?}"
+    );
 }
 
 #[test]

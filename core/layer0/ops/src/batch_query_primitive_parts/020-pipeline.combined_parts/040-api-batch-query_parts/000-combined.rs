@@ -113,6 +113,97 @@ fn summary_insights_from_evidence_claims(evidence_claims: &Value, limit: usize) 
     insights
 }
 
+fn string_vec_from_value(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(Value::as_str)
+                .map(|raw| clean_text(raw, 120))
+                .filter(|raw| !raw.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn option_clean_string_from_value(value: Option<&Value>, max_len: usize) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(|raw| clean_text(raw, max_len))
+        .filter(|raw| !raw.is_empty())
+}
+
+fn evidence_ref_from_pack_row(row: &Value) -> Option<EvidenceRef> {
+    let map = row.as_object()?;
+    let locator = clean_text(
+        map.get("locator").and_then(Value::as_str).unwrap_or(""),
+        2_200,
+    );
+    if locator.is_empty() {
+        return None;
+    }
+    let title = clean_text(
+        map.get("title")
+            .or_else(|| map.get("source_title"))
+            .and_then(Value::as_str)
+            .unwrap_or("Retrieved web source"),
+        240,
+    );
+    Some(EvidenceRef {
+        source_kind: clean_text(
+            map.get("source_kind")
+                .and_then(Value::as_str)
+                .unwrap_or("web"),
+            120,
+        ),
+        title: if title.is_empty() {
+            "Retrieved web source".to_string()
+        } else {
+            title
+        },
+        locator,
+        excerpt_hash: clean_text(
+            map.get("excerpt_hash")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            160,
+        ),
+        score: map
+            .get("score")
+            .and_then(Value::as_f64)
+            .map(|score| (score * 100.0).round() / 100.0)
+            .unwrap_or(0.0),
+        timestamp: option_clean_string_from_value(map.get("timestamp"), 80),
+        permissions: option_clean_string_from_value(map.get("permissions"), 160),
+        confidence: clean_text(
+            map.get("confidence")
+                .and_then(Value::as_str)
+                .unwrap_or("usable"),
+            40,
+        ),
+        quality_flags: string_vec_from_value(map.get("quality_flags")),
+        coverage_facets: string_vec_from_value(map.get("coverage_facets")),
+    })
+}
+
+fn evidence_refs_from_evidence_pack(evidence_pack: &Value) -> Vec<EvidenceRef> {
+    evidence_pack
+        .as_array()
+        .into_iter()
+        .flat_map(|rows| rows.iter())
+        .filter_map(evidence_ref_from_pack_row)
+        .collect::<Vec<_>>()
+}
+
+fn evidence_refs_json_from_evidence_pack(evidence_pack: &Value) -> Value {
+    let refs = evidence_refs_from_evidence_pack(evidence_pack);
+    if refs.is_empty() {
+        json!([])
+    } else {
+        json!(refs)
+    }
+}
+
 fn provider_artifact_has_access_or_budget_block(artifact: &Value) -> bool {
     let mut probe = String::new();
     for pointer in [
@@ -122,7 +213,13 @@ fn provider_artifact_has_access_or_budget_block(artifact: &Value) -> bool {
         "/summary",
         "/provider_unavailable_reason",
     ] {
-        let value = clean_text(artifact.pointer(pointer).and_then(Value::as_str).unwrap_or(""), 360);
+        let value = clean_text(
+            artifact
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            360,
+        );
         if !value.is_empty() {
             probe.push(' ');
             probe.push_str(&value);
@@ -277,7 +374,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
                 .unwrap_or(query_plan.query_plan_source),
             64,
         );
-        let evidence_refs = cached
+        let cached_evidence_refs = cached
             .get("evidence_refs")
             .and_then(Value::as_array)
             .cloned()
@@ -295,6 +392,16 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             .cloned()
             .map(Value::Array)
             .unwrap_or_else(|| json!([]));
+        let pack_evidence_refs = evidence_refs_json_from_evidence_pack(&evidence_pack);
+        let evidence_refs = if pack_evidence_refs
+            .as_array()
+            .map(|rows| !rows.is_empty())
+            .unwrap_or(false)
+        {
+            pack_evidence_refs
+        } else {
+            cached_evidence_refs
+        };
         let evidence_coverage = cached
             .get("evidence_coverage")
             .and_then(Value::as_array)
@@ -796,10 +903,9 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         !has_pack_ready_synthesis_candidate(&recovery_basis_query, &candidates);
     let first_pass_lacked_source_quality =
         !has_pack_ready_synthesis_source_quality(&recovery_basis_query, &candidates);
-    let first_pass_access_or_budget_blocked =
-        source == "web"
-            && (first_pass_lacked_usable || first_pass_lacked_source_quality)
-            && retrieval_access_or_budget_blocked(&provider_results, &partial_failures);
+    let first_pass_access_or_budget_blocked = source == "web"
+        && (first_pass_lacked_usable || first_pass_lacked_source_quality)
+        && retrieval_access_or_budget_blocked(&provider_results, &partial_failures);
     let first_pass_research_facets = infer_research_facets(
         &recovery_basis_query,
         &executed_queries,
@@ -994,7 +1100,8 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
                 }
             }
             for local_idx in 0..expected {
-                let fallback_query = clean_text(&planned_second_pass_queries[offset + local_idx], 120);
+                let fallback_query =
+                    clean_text(&planned_second_pass_queries[offset + local_idx], 120);
                 match chunk_rows[local_idx].take() {
                     Some((recovery_query, (mut rows, issues, artifacts))) => {
                         query_lane_sources.push(query_lane_source(
@@ -1271,28 +1378,6 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         ));
     }
 
-    let evidence_refs = evidence_ranked
-        .iter()
-        .filter(|(row, _)| {
-            candidate_counts_as_query_usable_evidence(
-                &rerank_query,
-                row,
-                rerank_score(&rerank_query, row),
-            )
-        })
-        .map(|(row, score)| EvidenceRef {
-            source_kind: row.source_kind.clone(),
-            title: row.title.clone(),
-            locator: row.locator.clone(),
-            excerpt_hash: row.excerpt_hash.clone(),
-            score: (*score * 100.0).round() / 100.0,
-            timestamp: row.timestamp.clone(),
-            permissions: row.permissions.clone(),
-            confidence: "usable".to_string(),
-            quality_flags: candidate_quality_flags(&rerank_query, row, *score),
-            coverage_facets: candidate_coverage_facets(&research_facets, row, facet_min_terms),
-        })
-        .collect::<Vec<_>>();
     let evidence_pack = evidence_pack_from_ranked_candidates(
         &policy,
         &rerank_query,
@@ -1316,6 +1401,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             })
             .unwrap_or_default(),
     );
+    let evidence_refs = evidence_refs_from_evidence_pack(&evidence_pack);
     let evidence_claims = evidence_claims_from_pack(
         &query_plan.query_metadata,
         &evidence_pack,

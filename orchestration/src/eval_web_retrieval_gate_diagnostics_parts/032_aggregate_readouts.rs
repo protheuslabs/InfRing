@@ -260,6 +260,7 @@ fn web_failure_layer(gate: &str) -> &'static str {
         | "web_5g_answerability_ready"
         | "web_5h_evidence_packet_contract_ready"
         | "web_5i_malformed_evidence_absent"
+        | "web_5j_citation_titles_clean"
         | "web_7_usable_evidence_available"
         | "web_8_evidence_context_to_synthesis" => "usable_evidence_packaging",
         "web_5c_claim_extraction_present" | "web_5e_claim_quality_ready" => "claim_extraction",

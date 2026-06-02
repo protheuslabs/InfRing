@@ -818,6 +818,139 @@ fn evidence_packet_contract_rejects_generic_source_identity_with_different_publi
 }
 
 #[test]
+fn evidence_quality_gate_rejects_malformed_citation_titles_separately() {
+    let payload = json!({
+        "pending_tool_request": {
+            "tool_key": "batch_query",
+            "input": {
+                "query": "family-friendly neighborhoods to stay in a city for museums and transit",
+                "queries": ["family-friendly neighborhoods to stay in a city for museums and transit"],
+                "keywords": ["family", "neighborhoods", "museums", "transit"]
+            }
+        },
+        "tools": [{
+            "status": "done"
+        }],
+        "evidence_pack": [
+            {
+                "title": "and gall Where to Stay in the City - A Local's Neighborhood Guide",
+                "locator": "https://local.example/blog/where-to-stay",
+                "source_domain": "local.example",
+                "source_type": "independent_analysis",
+                "source_kind": "tavily_api_search_result",
+                "relevant_extract": "For visitors, central neighborhoods near downtown keep families close to major museums, transit stations, walkable restaurants, and short rides between activities.",
+                "snippet": "For visitors, central neighborhoods near downtown keep families close to major museums, transit stations, walkable restaurants, and short rides between activities.",
+                "claim_hints": ["Central neighborhoods near downtown keep families close to museums, transit stations, restaurants, and short rides between activities."],
+                "why_relevant_to_query": "Selected because it covers family stays near museums and transit.",
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+            },
+            {
+                "title": "Independent family neighborhood guide",
+                "locator": "https://planning.example/family-neighborhoods",
+                "source_domain": "planning.example",
+                "source_type": "independent_analysis",
+                "source_kind": "tavily_api_search_result",
+                "relevant_extract": "Family-friendly areas with parks, walkable blocks, and nearby rail stops reduce trip friction for museum-heavy city visits.",
+                "snippet": "Family-friendly areas with parks, walkable blocks, and nearby rail stops reduce trip friction for museum-heavy city visits.",
+                "claim_hints": ["Family-friendly areas with parks, walkable blocks, and nearby rail stops reduce trip friction for museum-heavy visits."],
+                "why_relevant_to_query": "Selected because it covers family-friendly neighborhood tradeoffs.",
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+            },
+            {
+                "title": "safety affordability BEST PLACES TO STAY IN THE CITY FOR FAMILIES - example",
+                "locator": "https://planning.example/best-family-neighborhoods",
+                "source_domain": "planning.example",
+                "source_type": "independent_analysis",
+                "source_kind": "tavily_api_search_result",
+                "relevant_extract": "Family-friendly areas with safer streets, transit access, and walkable cultural attractions help families reduce travel friction during museum-focused trips.",
+                "snippet": "Family-friendly areas with safer streets, transit access, and walkable cultural attractions help families reduce travel friction during museum-focused trips.",
+                "claim_hints": ["Family-friendly areas with safer streets, transit access, and walkable cultural attractions reduce trip friction for families."],
+                "why_relevant_to_query": "Selected because it covers safety, transit, and family travel friction.",
+                "counts_as_usable_evidence": true,
+                "confidence": "usable"
+            }
+        ],
+        "evidence_claims": [
+            {
+                "claim": "Central neighborhoods near downtown keep families close to museums, transit stations, restaurants, and short rides between activities.",
+                "title": "and gall Where to Stay in the City - A Local's Neighborhood Guide",
+                "source_title": "and gall Where to Stay in the City - A Local's Neighborhood Guide",
+                "locator": "https://local.example/blog/where-to-stay",
+                "source_domain": "local.example",
+                "support_snippet": "For visitors, central neighborhoods near downtown keep families close to major museums, transit stations, walkable restaurants, and short rides between activities.",
+                "confidence": "usable"
+            },
+            {
+                "claim": "Family-friendly areas with parks, walkable blocks, and nearby rail stops reduce trip friction for museum-heavy visits.",
+                "title": "Independent family neighborhood guide",
+                "source_title": "Independent family neighborhood guide",
+                "locator": "https://planning.example/family-neighborhoods",
+                "source_domain": "planning.example",
+                "support_snippet": "Family-friendly areas with parks, walkable blocks, and nearby rail stops reduce trip friction for museum-heavy city visits.",
+                "confidence": "usable"
+            },
+            {
+                "claim": "Family-friendly areas with safer streets, transit access, and walkable cultural attractions reduce trip friction for families.",
+                "title": "safety affordability BEST PLACES TO STAY IN THE CITY FOR FAMILIES - example",
+                "source_title": "safety affordability BEST PLACES TO STAY IN THE CITY FOR FAMILIES - example",
+                "locator": "https://planning.example/best-family-neighborhoods",
+                "source_domain": "planning.example",
+                "support_snippet": "Family-friendly areas with safer streets, transit access, and walkable cultural attractions help families reduce travel friction during museum-focused trips.",
+                "confidence": "usable"
+            }
+        ]
+    });
+    let retrieval_quality = json!({
+        "status": "usable",
+        "candidate_count": 3,
+        "evidence_count": 3,
+        "content_rich_candidate_count": 3,
+        "materialized_candidate_count": 3,
+        "claim_hint_count": 3,
+        "usable_evidence": true
+    });
+    let query_metadata = json!({
+        "metadata_present": true,
+        "rich_query_pack_or_narrow_marker": true
+    });
+    let transitions = json!({
+        "checkpoints": [{
+            "checkpoint": "5e_agent_received_evidence_context",
+            "status": "pass"
+        }]
+    });
+    let diag =
+        web_retrieval_gate_diagnostics(&payload, &retrieval_quality, &query_metadata, &transitions);
+
+    assert_eq!(
+        diag.pointer("/first_failed_gate").and_then(Value::as_str),
+        Some("web_5j_citation_titles_clean"),
+        "{diag:#?}"
+    );
+    assert_eq!(
+        diag.pointer("/evidence_quality/malformed_evidence_clean")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{diag:#?}"
+    );
+    assert_eq!(
+        diag.pointer("/evidence_quality/citation_titles_clean")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{diag:#?}"
+    );
+    assert!(
+        diag.pointer("/evidence_quality/malformed_citation_title_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            >= 2,
+        "{diag:#?}"
+    );
+}
+
+#[test]
 fn evidence_quality_gates_pass_clean_source_backed_claims() {
     let payload = json!({
         "pending_tool_request": {
