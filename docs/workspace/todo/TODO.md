@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T19:53:28.880Z
+Updated: 2026-06-02T19:58:10.061Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-02T19:53:28.880Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 19
+- active_items: 18
 - red: 3
-- yellow: 8
+- yellow: 7
 - white: 8
 
 ## Red Section (Do Immediately)
@@ -50,13 +50,6 @@ Updated: 2026-06-02T19:53:28.880Z
   work_gate: `reliability`
   real_work_score: `4`
   summary: Move conversation cache/search to bounded preview/index routes so the browser keeps only cursors, previews, counts, and refs rather than cloned full messages or raw tool payloads.
-- `SHELL-EXTRACT-EVAL` — Move report/eval issue flow behind Gateway ingress
-  owner: `unassigned`
-  deadline: `2026-05-14`
-  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
-  work_gate: `reliability`
-  real_work_score: `4`
-  summary: Make chat-local report issue send bounded refs/context through Gateway to Orchestration eval without Shell-owned policy, GitHub submission, or raw context upload.
 - `SHELL-EXTRACT-LIFECYCLE` — Move agent and session lifecycle to receipts
   owner: `unassigned`
   deadline: `2026-05-14`

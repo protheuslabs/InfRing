@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T19:53:28.880Z",
+  "updated_at": "2026-06-02T19:58:10.061Z",
   "historical_snapshot": {
     "preserved_archive_path": "docs/workspace/todo/TODO_ARCHIVE_LEGACY.md",
     "total_rows": 4145,
@@ -1005,6 +1005,19 @@
       "real_work_score": 4,
       "completed_at": "2026-06-02T19:53:28.880Z",
       "completion_note": "Added explicit Gateway shell-socket runtime-status projection with trace/projection metadata and bounded Gateway fallback; Shell consumers can render health/connectivity from Gateway status instead of local inference."
+    },
+    {
+      "id": "SHELL-EXTRACT-EVAL",
+      "title": "Move report/eval issue flow behind Gateway ingress",
+      "section": "yellow",
+      "owner": "unassigned",
+      "deadline": "2026-05-14",
+      "source_family": "Shell Authority Extraction Without Legacy Shell Mutation",
+      "summary": "Make chat-local report issue send bounded refs/context through Gateway to Orchestration eval without Shell-owned policy, GitHub submission, or raw context upload.",
+      "work_gate": "reliability",
+      "real_work_score": 4,
+      "completed_at": "2026-06-02T19:58:10.059Z",
+      "completion_note": "Added Gateway-only shell-socket eval issue ingress for /api/shell-socket/issues. It forwards bounded summaries/refs to Rust shell-socket authority, strips raw transcript/context/trace/workflow fields, reports blocked_raw_fields, and leaves legacy Shell behavior untouched."
     }
   ]
 }

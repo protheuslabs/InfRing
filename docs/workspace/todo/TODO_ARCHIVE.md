@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T19:53:28.880Z
+Updated: 2026-06-02T19:58:10.061Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T19:53:28.880Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `SHELL-EXTRACT-EVAL` — Move report/eval issue flow behind Gateway ingress
+  completed_at: `2026-06-02T19:58:10.059Z`
+  previous_section: `yellow`
+  owner: `unassigned`
+  deadline: `2026-05-14`
+  source_family: `Shell Authority Extraction Without Legacy Shell Mutation`
+  summary: Make chat-local report issue send bounded refs/context through Gateway to Orchestration eval without Shell-owned policy, GitHub submission, or raw context upload.
+  completion_note: Added Gateway-only shell-socket eval issue ingress for /api/shell-socket/issues. It forwards bounded summaries/refs to Rust shell-socket authority, strips raw transcript/context/trace/workflow fields, reports blocked_raw_fields, and leaves legacy Shell behavior untouched.
 - `SHELL-EXTRACT-HEALTH` — Make health and connectivity purely Gateway projected
   completed_at: `2026-06-02T19:53:28.880Z`
   previous_section: `yellow`
