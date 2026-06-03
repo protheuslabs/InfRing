@@ -1,13 +1,18 @@
 {
   "type": "agent_runtime_engine_registry",
   "schema_version": 1,
-  "version": "2026-06-02",
+  "version": "2026-06-03",
   "owner": "gateway.agent_runtime_router",
   "status": "contracted_not_live",
   "srs_refs": [
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-002",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-003",
-    "V13-AGENT-RUNTIME-ENGINE-SOCKET-004"
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-004",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-006",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-007",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-008",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-009",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-010"
   ],
   "socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
   "selection_rule": "Shell and external clients may select engine_id only through the Gateway socket. Engine-specific execution remains behind Gateway adapters.",
@@ -57,6 +62,14 @@
         "download_available": false,
         "download_action_ref": null,
         "display_badge": "native"
+      },
+      "discovery": {
+        "custom_location_allowed": false,
+        "authority_order": [
+          "internal_native_engine"
+        ],
+        "install_state_source": "internal_native_engine",
+        "notes": "Native orchestration is selected through Gateway; it does not require external path discovery."
       }
     },
     {
@@ -89,6 +102,31 @@
         "command_line_hint": "Install the Codex CLI using the current official OpenAI/Codex installer for this machine.",
         "browser_fallback_url": "https://developers.openai.com/codex",
         "display_when_missing": "download_icon"
+      },
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_config_key": "agent_runtimes.codex_cli.command",
+        "env_vars": [
+          "INFRING_CODEX_CLI_PATH",
+          "INFRING_CODEX_CLI_BIN"
+        ],
+        "path_commands": [
+          "codex"
+        ],
+        "default_paths": [
+          "~/.local/bin/codex",
+          "/opt/homebrew/bin/codex",
+          "/usr/local/bin/codex",
+          "%USERPROFILE%\\.local\\bin\\codex.cmd"
+        ],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "path_discovery",
+          "default_location_probe",
+          "missing_installable"
+        ]
       }
     },
     {
@@ -121,6 +159,31 @@
         "command_line_hint": "Install Claude Code with Anthropic's current command-line installer.",
         "browser_fallback_url": "https://docs.anthropic.com/en/docs/claude-code",
         "display_when_missing": "download_icon"
+      },
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_config_key": "agent_runtimes.claude_code.command",
+        "env_vars": [
+          "INFRING_CLAUDE_CODE_PATH",
+          "INFRING_CLAUDE_CODE_BIN"
+        ],
+        "path_commands": [
+          "claude"
+        ],
+        "default_paths": [
+          "~/.local/bin/claude",
+          "/opt/homebrew/bin/claude",
+          "/usr/local/bin/claude",
+          "%USERPROFILE%\\.local\\bin\\claude.cmd"
+        ],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "path_discovery",
+          "default_location_probe",
+          "missing_installable"
+        ]
       }
     },
     {
@@ -152,6 +215,24 @@
         "command_line_hint": "Install or start OpenHands through its current official local runtime path.",
         "browser_fallback_url": "https://github.com/All-Hands-AI/OpenHands",
         "display_when_missing": "download_icon"
+      },
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_url_config_key": "agent_runtimes.openhands.url",
+        "env_vars": [
+          "INFRING_OPENHANDS_URL"
+        ],
+        "default_urls": [
+          "http://127.0.0.1:3000",
+          "http://127.0.0.1:3001"
+        ],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "default_url_probe",
+          "missing_installable"
+        ]
       }
     },
     {
@@ -183,6 +264,23 @@
         "command_line_hint": "Install or start OpenClaw through the configured local runtime path.",
         "browser_fallback_url": "https://github.com",
         "display_when_missing": "download_icon"
+      },
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_url_config_key": "agent_runtimes.openclaw.url",
+        "env_vars": [
+          "INFRING_OPENCLAW_URL"
+        ],
+        "default_urls": [
+          "http://127.0.0.1:8787"
+        ],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "default_url_probe",
+          "missing_installable"
+        ]
       }
     },
     {
@@ -214,6 +312,23 @@
         "command_line_hint": "Install or start OpenFang through the configured local runtime path.",
         "browser_fallback_url": "https://github.com",
         "display_when_missing": "download_icon"
+      },
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_url_config_key": "agent_runtimes.openfang.url",
+        "env_vars": [
+          "INFRING_OPENFANG_URL"
+        ],
+        "default_urls": [
+          "http://127.0.0.1:8788"
+        ],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "default_url_probe",
+          "missing_installable"
+        ]
       }
     },
     {
@@ -244,11 +359,52 @@
         "command_line_hint": "Configure a bounded local socket endpoint that implements the agent runtime engine protocol.",
         "browser_fallback_url": null,
         "display_when_missing": "configure_icon"
+      },
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_url_config_key": "agent_runtimes.custom_socket_engine.url",
+        "env_vars": [
+          "INFRING_CUSTOM_AGENT_RUNTIME_URL"
+        ],
+        "default_urls": [],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "missing_installable"
+        ]
       }
     }
   ],
   "first_adapter_recommendation": {
     "engine_id": "codex_cli",
     "reason": "Local process adapter is the smallest useful external-engine slice and can prove the Gateway normalization contract before heavier framework/container adapters."
+  },
+  "private_adapter_contracts": "validation/conformance/contracts/agent_runtime_adapter_contracts.json",
+  "engine_selection_model": {
+    "public_selection_surface": "Gateway Agent Runtime Socket engine_id",
+    "default_native_engine": "infring_native",
+    "native_engine_runtime_path": "orchestration/**",
+    "engine_selection_owner": "gateway.agent_runtime_router",
+    "shell_selection_role": "display bounded engine projections and submit selected engine_id through Gateway only",
+    "kernel_selection_role": "none; Kernel executes authorized effects and records receipts without selecting runtime engines",
+    "private_adapter_role": "translate engine-specific protocols into canonical socket events behind Gateway"
+  },
+  "discovery_model": {
+    "defaults_are_probes_not_truth": true,
+    "discovery_owner": "gateway.agent_runtime_router",
+    "projection_owner": "gateway.agent_runtime_router",
+    "shell_role": "display adapter health/install/config projections and submit selected engine_id only",
+    "config_location": "~/.infring/agent_runtimes.json",
+    "custom_location_allowed": true,
+    "authority_order": [
+      "user_override",
+      "config_value",
+      "environment_variable",
+      "path_discovery",
+      "default_location_probe",
+      "default_url_probe",
+      "missing_installable"
+    ]
   }
 }

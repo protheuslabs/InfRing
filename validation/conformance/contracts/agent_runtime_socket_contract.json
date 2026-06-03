@@ -1,13 +1,18 @@
 {
   "type": "agent_runtime_socket_contract",
   "schema_version": 1,
-  "version": "2026-06-02",
+  "version": "2026-06-03",
   "owner": "assurance.validation",
   "status": "contracted",
   "srs_refs": [
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-001",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-004",
-    "V13-AGENT-RUNTIME-ENGINE-SOCKET-005"
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-005",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-006",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-007",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-008",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-009",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-010"
   ],
   "policy_refs": [
     "docs/workspace/SRS.md",
@@ -47,90 +52,242 @@
   "required_client_to_gateway_events": [
     {
       "type": "engine.list",
-      "required_fields": ["type", "trace_id", "request_id"],
+      "required_fields": [
+        "type",
+        "trace_id",
+        "request_id"
+      ],
       "purpose": "Discover selectable agent runtime engines through Gateway."
     },
     {
       "type": "engine.health",
-      "required_fields": ["type", "trace_id", "request_id", "engine_id"],
+      "required_fields": [
+        "type",
+        "trace_id",
+        "request_id",
+        "engine_id"
+      ],
       "purpose": "Request bounded health for a selected engine."
     },
     {
       "type": "session.start",
-      "required_fields": ["type", "trace_id", "request_id", "engine_id", "session_id", "scope"],
+      "required_fields": [
+        "type",
+        "trace_id",
+        "request_id",
+        "engine_id",
+        "session_id",
+        "scope"
+      ],
       "purpose": "Create or attach a runtime session under a selected engine."
     },
     {
       "type": "turn.submit",
-      "required_fields": ["type", "trace_id", "request_id", "engine_id", "session_id", "input", "scope", "capability_budget"],
+      "required_fields": [
+        "type",
+        "trace_id",
+        "request_id",
+        "engine_id",
+        "session_id",
+        "input",
+        "scope",
+        "capability_budget"
+      ],
       "purpose": "Submit a user turn to the selected runtime engine."
     },
     {
       "type": "turn.cancel",
-      "required_fields": ["type", "trace_id", "request_id", "engine_id", "session_id", "turn_id"],
+      "required_fields": [
+        "type",
+        "trace_id",
+        "request_id",
+        "engine_id",
+        "session_id",
+        "turn_id"
+      ],
       "purpose": "Cancel a live turn through Gateway-owned admission."
     }
   ],
   "required_gateway_to_client_events": [
     {
       "type": "engine.list.result",
-      "required_fields": ["type", "trace_id", "request_id", "engines"],
-      "payload_rules": ["engine rows are bounded projections", "no adapter internals"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "request_id",
+        "engines"
+      ],
+      "payload_rules": [
+        "engine rows are bounded projections",
+        "no adapter internals"
+      ]
     },
     {
       "type": "engine.health.result",
-      "required_fields": ["type", "trace_id", "request_id", "engine_id", "status"],
-      "payload_rules": ["health is a projection", "no raw process dumps"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "request_id",
+        "engine_id",
+        "status"
+      ],
+      "payload_rules": [
+        "health is a projection",
+        "no raw process dumps"
+      ]
     },
     {
       "type": "session.started",
-      "required_fields": ["type", "trace_id", "request_id", "engine_id", "session_id", "receipt_ref"],
-      "payload_rules": ["receipt_ref required", "no raw orchestration or external framework state"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "request_id",
+        "engine_id",
+        "session_id",
+        "receipt_ref"
+      ],
+      "payload_rules": [
+        "receipt_ref required",
+        "no raw orchestration or external framework state"
+      ]
     },
     {
       "type": "assistant.delta",
-      "required_fields": ["type", "trace_id", "engine_id", "session_id", "turn_id", "delta"],
-      "payload_rules": ["delta is display-bounded", "large content moves behind detail_ref"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "turn_id",
+        "delta"
+      ],
+      "payload_rules": [
+        "delta is display-bounded",
+        "large content moves behind detail_ref"
+      ]
     },
     {
       "type": "tool.proposed",
-      "required_fields": ["type", "trace_id", "engine_id", "session_id", "turn_id", "tool_call_ref", "capability"],
-      "payload_rules": ["tool inputs are redacted projections", "raw tool input requires detail route and policy"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "turn_id",
+        "tool_call_ref",
+        "capability"
+      ],
+      "payload_rules": [
+        "tool inputs are redacted projections",
+        "raw tool input requires detail route and policy"
+      ]
     },
     {
       "type": "tool.started",
-      "required_fields": ["type", "trace_id", "engine_id", "session_id", "turn_id", "tool_call_ref", "receipt_ref"],
-      "payload_rules": ["receipt_ref required"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "turn_id",
+        "tool_call_ref",
+        "receipt_ref"
+      ],
+      "payload_rules": [
+        "receipt_ref required"
+      ]
     },
     {
       "type": "tool.completed",
-      "required_fields": ["type", "trace_id", "engine_id", "session_id", "turn_id", "tool_call_ref", "status", "result_ref", "receipt_ref"],
-      "payload_rules": ["result_ref required for non-trivial outputs", "no raw tool result in default event"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "turn_id",
+        "tool_call_ref",
+        "status",
+        "result_ref",
+        "receipt_ref"
+      ],
+      "payload_rules": [
+        "result_ref required for non-trivial outputs",
+        "no raw tool result in default event"
+      ]
     },
     {
       "type": "artifact.created",
-      "required_fields": ["type", "trace_id", "engine_id", "session_id", "turn_id", "artifact_ref", "artifact_kind"],
-      "payload_rules": ["artifact body by ref only"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "turn_id",
+        "artifact_ref",
+        "artifact_kind"
+      ],
+      "payload_rules": [
+        "artifact body by ref only"
+      ]
     },
     {
       "type": "receipt.created",
-      "required_fields": ["type", "trace_id", "engine_id", "session_id", "receipt_ref", "receipt_kind"],
-      "payload_rules": ["receipt body by ref unless explicitly budgeted"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "receipt_ref",
+        "receipt_kind"
+      ],
+      "payload_rules": [
+        "receipt body by ref unless explicitly budgeted"
+      ]
     },
     {
       "type": "error",
-      "required_fields": ["type", "trace_id", "engine_id", "session_id", "error_code", "retryable"],
-      "payload_rules": ["error text bounded", "stack traces by ref only"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "error_code",
+        "retryable"
+      ],
+      "payload_rules": [
+        "error text bounded",
+        "stack traces by ref only"
+      ]
     },
     {
       "type": "heartbeat",
-      "required_fields": ["type", "trace_id", "engine_id", "session_id", "status"],
-      "payload_rules": ["heartbeat must be compact and periodicity-bounded"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "status"
+      ],
+      "payload_rules": [
+        "heartbeat must be compact and periodicity-bounded"
+      ]
     },
     {
       "type": "turn.complete",
-      "required_fields": ["type", "trace_id", "engine_id", "session_id", "turn_id", "status", "result_ref", "receipt_ref"],
-      "payload_rules": ["final result is a projection plus refs", "raw framework transcript prohibited by default"]
+      "required_fields": [
+        "type",
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "turn_id",
+        "status",
+        "result_ref",
+        "receipt_ref"
+      ],
+      "payload_rules": [
+        "final result is a projection plus refs",
+        "raw framework transcript prohibited by default"
+      ]
     }
   ],
   "forbidden_default_payload_fields": [
@@ -183,6 +340,25 @@
     "router can select an engine_id",
     "one engine emits assistant.delta and turn.complete",
     "all emitted events carry trace_id",
-    "tool/artifact/receipt data is represented by refs"
-  ]
+    "tool/artifact/receipt data is represented by refs",
+    "private adapter contracts declare every selectable engine",
+    "no runtime-specific public socket schemas are allowed",
+    "Kernel/Core remains engine-neutral while receipts may record engine_id"
+  ],
+  "private_adapter_contracts": "validation/conformance/contracts/agent_runtime_adapter_contracts.json",
+  "canonical_public_socket_invariant": {
+    "single_gateway_socket_schema": true,
+    "runtime_specific_public_schemas_allowed": false,
+    "public_events_are_runtime_neutral": true,
+    "engine_specific_payloads_private_to_adapter": true,
+    "adapter_must_normalize_to_public_events": true,
+    "shell_sees_engine_projection_not_private_schema": true
+  },
+  "engine_discovery_projection": {
+    "defaults_are_probes_not_truth": true,
+    "gateway_reports_discovery_source": true,
+    "gateway_reports_custom_location_allowed": true,
+    "shell_may_not_infer_install_state": true,
+    "shell_may_not_probe_user_filesystem_directly": true
+  }
 }

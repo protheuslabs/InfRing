@@ -9,6 +9,7 @@
 'use strict';
 
 const childProcess = require('child_process');
+const { resolveEngineDiscovery } = require('./discovery.ts');
 
 function cleanString(value, max = 2000) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -87,18 +88,36 @@ function extractPrompt(ctx) {
 }
 
 function createCodexCliEngineAdapter(options = {}) {
-  const command = cleanString(options.command || process.env.INFRING_CODEX_CLI_BIN || 'codex', 500);
   const liveDispatch = options.liveDispatch === true || process.env.INFRING_AGENT_RUNTIME_CODEX_LIVE === '1';
   const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 60000, 300000));
+  let selectedCommand = cleanString(options.command || process.env.INFRING_CODEX_CLI_BIN || process.env.INFRING_CODEX_CLI_PATH || 'codex', 500);
+
+  function discover(ctx) {
+    const engine = (ctx && ctx.engine) || { engine_id: 'codex_cli' };
+    const discovery = resolveEngineDiscovery(engine, {
+      command: options.command,
+      config: options.config,
+      env: options.env || process.env,
+    });
+    if (discovery.command) selectedCommand = cleanString(discovery.command, 500);
+    return discovery;
+  }
 
   return {
     async health_check(ctx) {
-      const probe = await spawnCapture(command, ['--version'], { timeoutMs: 5000, maxOutputBytes: 4096 });
+      const discovery = discover(ctx);
+      const command = cleanString(discovery.command || selectedCommand || 'codex', 500);
+      const probe = discovery.status === 'available'
+        ? await spawnCapture(command, ['--version'], { timeoutMs: 5000, maxOutputBytes: 4096 })
+        : { ok: false, stdout: '', stderr: discovery.reason || discovery.status };
       return {
         ...baseEvent(ctx, 'engine.health.result'),
-        status: probe.ok ? 'available' : 'not_downloaded',
+        status: probe.ok ? 'available' : discovery.status || 'not_downloaded',
         engine_kind: 'external_cli_adapter',
         command,
+        discovery_source: discovery.discovery_source,
+        custom_location_allowed: discovery.custom_location_allowed,
+        resolved_path: discovery.resolved_path || null,
         download_available: true,
         download_action_ref: 'agent_runtime_download/codex_cli',
         version_preview: cleanString(probe.stdout || probe.stderr, 500),
@@ -131,6 +150,7 @@ function createCodexCliEngineAdapter(options = {}) {
           retryable: false,
         };
       }
+      const command = cleanString(selectedCommand || discover(ctx).command || 'codex', 500);
       const run = await spawnCapture(command, ['exec', prompt], { timeoutMs, maxOutputBytes: 64000 });
       return {
         ...baseEvent(ctx, 'turn.complete'),
