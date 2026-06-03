@@ -111,6 +111,24 @@ if (exists(codexPath)) {
 if (exists(tracePath)) {
   const trace = require(path.join(ROOT, tracePath));
   if (typeof trace.createAgentRuntimeTraceWriter !== 'function') violations.push({ kind: 'trace_writer_factory_missing' });
+  if (typeof trace.compactEvent !== 'function') violations.push({ kind: 'trace_compact_event_missing' });
+  if (typeof trace.compactEvent === 'function') {
+    const compact = trace.compactEvent({
+      trace_id: 'trace-agent-runtime-001',
+      parent_span_id: 'span-parent',
+      type: 'tool.completed',
+      request_id: 'request-1',
+      engine_id: 'infring_native',
+      session_id: 'session-1',
+      turn_id: 'turn-1',
+      receipt_ref: 'receipt/ref',
+    });
+    for (const field of ['trace_id', 'span_id', 'parent_span_id', 'source_domain', 'producer', 'authority_class', 'event_kind', 'subject', 'correlation']) {
+      if (!compact || compact[field] == null) violations.push({ kind: 'trace_compact_universal_field_missing', field });
+    }
+    if (compact?.event_kind !== 'tool_call') violations.push({ kind: 'trace_compact_event_kind_wrong', event_kind: compact?.event_kind });
+    if (compact?.correlation?.request_id !== 'request-1') violations.push({ kind: 'trace_compact_correlation_missing_request_id' });
+  }
 }
 
 const payload = {
