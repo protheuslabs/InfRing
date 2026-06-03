@@ -484,8 +484,12 @@ async function fetchBackend(flags, pathname, init = {}, timeoutMs = 15000) {
   try { return await fetch(`${backendBase(flags)}${pathname}`, { ...init, signal: controller.signal }); }
   finally { clearTimeout(timer); }
 }
-async function fetchBackendJson(flags, pathname, timeoutMs = 15000) {
-  const res = await fetchBackend(flags, pathname, { cache: 'no-store' }, timeoutMs);
+async function fetchBackendJson(flags, pathname, timeoutMs = 15000, traceId = '') {
+  const cleanTraceId = sanitizeTraceId(traceId);
+  const init = cleanTraceId
+    ? { cache: 'no-store', headers: { 'x-infring-trace-id': cleanTraceId } }
+    : { cache: 'no-store' };
+  const res = await fetchBackend(flags, pathname, init, timeoutMs);
   if (!res.ok) throw new Error(`backend_http_${pathname}_${res.status}`);
   return res.json();
 }
@@ -598,10 +602,20 @@ function sanitizeTraceId(value) {
 }
 function requestTraceId(req) {
   if (req.__infringTraceId) return req.__infringTraceId;
-  const existing = sanitizeTraceId(req.headers && (req.headers['x-infring-trace-id'] || req.headers['traceparent']));
+  const rawHeader = req.headers && (req.headers['x-infring-trace-id'] || req.headers['traceparent']);
+  const existing = sanitizeTraceId(rawHeader);
   const minted = `trace_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 14)}`;
   req.__infringTraceId = existing || minted;
+  req.__infringTraceBoundary = {
+    trace_id: req.__infringTraceId,
+    source: existing ? 'incoming_header' : 'gateway_minted',
+    gateway_boundary: 'adapters.runtime.infring_dashboard',
+  };
   return req.__infringTraceId;
+}
+function requestTraceBoundary(req) {
+  requestTraceId(req);
+  return req.__infringTraceBoundary || { trace_id: req.__infringTraceId || '', source: 'unknown' };
 }
 function sendJson(res, statusCode, value) {
   res.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -920,6 +934,7 @@ async function runServe(flags) {
     const pathname = requestUrl.pathname;
     const traceId = requestTraceId(req);
     try { res.setHeader('x-infring-trace-id', traceId); } catch {}
+    try { res.setHeader('x-infring-trace-source', requestTraceBoundary(req).source || 'unknown'); } catch {}
     try {
       if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/dashboard-classic' || pathname === '/dashboard-shell')) {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });

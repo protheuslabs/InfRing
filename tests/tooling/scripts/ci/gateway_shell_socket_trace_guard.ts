@@ -153,6 +153,14 @@ for (const module of modules) {
     if (!source.includes('bounded: true')) {
       violations.push({ kind: 'projection_not_marked_bounded', id: module.id, path: module.path });
     }
+    if (source.includes('fetchBackendJson') && !/fetchBackendJson\([^;\n]+traceId\)/s.test(source)) {
+      violations.push({
+        kind: 'projection_upstream_trace_not_propagated',
+        id: module.id,
+        path: module.path,
+        detail: 'Projection bridge backend reads must pass traceId to fetchBackendJson so upstream owners see the same trace.',
+      });
+    }
     forbiddenPresent(source, forbiddenProjection, module, violations);
   } else if (module.kind === 'ingress') {
     includesAll(source, [module.expected_metadata_envelope || 'gateway_ingress', ...ingressFields], module, violations, 'ingress_trace_field_missing');

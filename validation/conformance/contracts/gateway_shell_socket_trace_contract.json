@@ -16,6 +16,7 @@
   ],
   "projection_bridge_requirements": {
     "required_response_field": "gateway_projection",
+    "upstream_trace_header_required": true,
     "required_metadata_fields": [
       "trace_id",
       "route_id",

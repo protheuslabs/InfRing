@@ -32,7 +32,7 @@ function statusMetadata(traceId) {
 async function shellSocketStatusProjection(options) {
   const traceId = cleanString(options && options.traceId, 180);
   try {
-    const payload = await options.fetchBackendJson(options.flags, '/api/shell-socket/runtime-status', 5000);
+    const payload = await options.fetchBackendJson(options.flags, '/api/shell-socket/runtime-status', 5000, traceId);
     const base = payload && typeof payload === 'object' ? payload : {};
     return {
       status: base.ok === false ? 503 : 200,

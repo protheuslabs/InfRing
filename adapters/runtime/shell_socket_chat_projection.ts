@@ -148,7 +148,7 @@ async function shellSocketChatProjection(options) {
   }
   try {
     const path = boundedProjectionPath(requestUrl, route);
-    const payload = await options.fetchBackendJson(options.flags, path, route.timeout_ms);
+    const payload = await options.fetchBackendJson(options.flags, path, route.timeout_ms, traceId);
     const base = payload && typeof payload === 'object' ? payload : {};
     return {
       status: base.ok === false ? 502 : 200,
