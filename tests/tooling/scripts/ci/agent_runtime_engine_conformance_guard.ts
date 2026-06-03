@@ -22,6 +22,7 @@ const socket = readJson(socketPath);
 if (registry.socket_contract !== socketPath) violations.push({ kind: 'registry_socket_contract_mismatch', path: registryPath });
 if (socket.canonical_endpoint?.canonical_route_pattern !== '/ws/agent-runtime') violations.push({ kind: 'socket_route_not_canonical', path: socketPath });
 if (!socket.trace_identity_rule?.trace_id_required_on_every_message) violations.push({ kind: 'trace_id_not_required', path: socketPath });
+if (!socket.trace_identity_rule?.gateway_router_rejects_adapter_trace_id_replacement) violations.push({ kind: 'trace_replacement_rejection_not_required', path: socketPath });
 if (!socket.kernel_authority_invariant?.durable_effects_require_kernel_or_gateway_policy) violations.push({ kind: 'kernel_authority_not_invariant', path: socketPath });
 
 const requiredMethods = Array.isArray(registry.required_engine_interface) ? registry.required_engine_interface : [];
@@ -73,6 +74,30 @@ if (exists(routerPath)) {
   const router = require(path.join(ROOT, routerPath));
   for (const exported of ['createAgentRuntimeRouter', 'loadAgentRuntimeEngineRegistry', 'normalizeGatewayEvent', 'hasForbiddenDefaultField']) {
     if (typeof router[exported] !== 'function') violations.push({ kind: 'router_export_missing', exported });
+  }
+  if (typeof router.normalizeGatewayEvent === 'function') {
+    const replacement = router.normalizeGatewayEvent(
+      { type: 'turn.complete', trace_id: 'trace-replaced', engine_id: 'infring_native', session_id: 's1' },
+      { trace_id: 'trace-original', engine_id: 'infring_native', session_id: 's1' },
+      'turn.complete',
+    );
+    if (replacement?.error_code !== 'agent_runtime_trace_id_replaced' || replacement?.trace_id !== 'trace-original') {
+      violations.push({
+        kind: 'router_trace_replacement_not_rejected',
+        detail: 'normalizeGatewayEvent must reject adapter attempts to replace the canonical message trace_id.',
+      });
+    }
+    const inherited = router.normalizeGatewayEvent(
+      { type: 'turn.complete', engine_id: 'infring_native', session_id: 's1' },
+      { trace_id: 'trace-original', engine_id: 'infring_native', session_id: 's1' },
+      'turn.complete',
+    );
+    if (inherited?.trace_id !== 'trace-original' || inherited?.error_code) {
+      violations.push({
+        kind: 'router_trace_inheritance_broken',
+        detail: 'normalizeGatewayEvent must preserve the canonical message trace_id when adapter events omit trace_id.',
+      });
+    }
   }
 }
 if (exists(nativePath)) {

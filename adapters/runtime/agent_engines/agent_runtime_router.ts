@@ -118,15 +118,24 @@ function makeErrorEvent(message, code, reason) {
 
 function normalizeGatewayEvent(event, message, fallbackType) {
   const source = event && typeof event === 'object' ? event : {};
+  const messageTraceId = cleanString(message && message.trace_id, 200);
+  const sourceTraceId = cleanString(source.trace_id, 200);
+  if (!messageTraceId) return makeErrorEvent(message, 'agent_runtime_trace_id_missing', 'Agent runtime message missing trace_id.');
+  if (sourceTraceId && sourceTraceId !== messageTraceId) {
+    return makeErrorEvent(
+      message,
+      'agent_runtime_trace_id_replaced',
+      'Agent runtime adapter attempted to replace the canonical trace_id.',
+    );
+  }
   const normalized = {
     ...source,
     type: cleanString(source.type || fallbackType || 'agent_runtime.event', 120),
-    trace_id: cleanString(source.trace_id || (message && message.trace_id), 200),
+    trace_id: messageTraceId,
     request_id: cleanString(source.request_id || (message && message.request_id), 200),
     engine_id: cleanString(source.engine_id || (message && message.engine_id), 120),
     session_id: cleanString(source.session_id || (message && message.session_id), 200),
   };
-  if (!normalized.trace_id) return makeErrorEvent(message, 'agent_runtime_trace_id_missing', 'Agent runtime event missing trace_id.');
   if (hasForbiddenDefaultField(normalized)) {
     return makeErrorEvent(message, 'agent_runtime_forbidden_default_payload_field', 'Agent runtime event contains a forbidden default payload field.');
   }

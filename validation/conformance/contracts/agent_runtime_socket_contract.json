@@ -41,7 +41,8 @@
     "engines_may_create_span_id": true,
     "engines_may_not_remint_trace_id": true,
     "engines_may_not_drop_trace_id": true,
-    "engines_may_not_replace_trace_id": true
+    "engines_may_not_replace_trace_id": true,
+    "gateway_router_rejects_adapter_trace_id_replacement": true
   },
   "required_client_to_gateway_events": [
     {
