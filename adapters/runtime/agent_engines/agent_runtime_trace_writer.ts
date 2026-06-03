@@ -19,6 +19,23 @@ function cleanString(value, max = 2000) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+function cleanRefs(value, maxItems = 8, max = 500) {
+  const rows = Array.isArray(value) ? value : (value == null || value === '' ? [] : [value]);
+  const out = [];
+  for (const row of rows) {
+    const clean = cleanString(row, max);
+    if (clean) out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function confidenceValue(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 1;
+  return Math.max(0, Math.min(1, num));
+}
+
 function eventKindForType(type) {
   const clean = cleanString(type, 120);
   if (clean.includes('health') || clean === 'heartbeat') return 'health';
@@ -31,14 +48,24 @@ function eventKindForType(type) {
 
 function compactEvent(event) {
   const source = event && typeof event === 'object' ? event : {};
+  const generatedAt = new Date().toISOString();
   const eventType = cleanString(source.type || 'agent_runtime.event', 120);
   const engineId = cleanString(source.engine_id, 120);
   const sessionId = cleanString(source.session_id, 200);
   const turnId = cleanString(source.turn_id, 200);
   const requestId = cleanString(source.request_id, 200);
+  const status = cleanString(source.status || '', 120);
+  const errorCode = cleanString(source.error_code || '', 120);
+  const artifactRef = cleanString(source.artifact_ref || source.result_ref || '', 500);
+  const toolCallRef = cleanString(source.tool_call_ref || '', 500);
+  const receiptRef = cleanString(source.receipt_ref || '', 500);
+  const receiptRefs = cleanRefs(source.receipt_refs || receiptRef, 12, 500);
+  const evidenceRefs = cleanRefs(source.evidence_refs || source.evidence_ref, 12, 500);
   return {
+    schema_version: 1,
     type: 'agent_runtime_engine_trace_event',
-    generated_at: new Date().toISOString(),
+    generated_at: generatedAt,
+    timestamp: generatedAt,
     trace_id: cleanString(source.trace_id, 200),
     span_id: cleanString(source.span_id || `span:agent-runtime:${process.pid}:${Date.now()}`, 240),
     parent_span_id: cleanString(source.parent_span_id || '', 240),
@@ -61,12 +88,26 @@ function compactEvent(event) {
     session_id: sessionId,
     turn_id: turnId,
     event_type: eventType,
-    status: cleanString(source.status || '', 120),
-    error_code: cleanString(source.error_code || '', 120),
+    status,
+    error_code: errorCode,
     retryable: source.retryable === true,
-    artifact_ref: cleanString(source.artifact_ref || source.result_ref || '', 500),
-    tool_call_ref: cleanString(source.tool_call_ref || '', 500),
-    receipt_ref: cleanString(source.receipt_ref || '', 500),
+    payload_schema: 'observability.traces.agent_runtime_engine_trace_event.v1',
+    payload: {
+      event_type: eventType,
+      status,
+      error_code: errorCode,
+      retryable: source.retryable === true,
+      artifact_ref: artifactRef,
+      tool_call_ref: toolCallRef,
+      receipt_ref: receiptRef,
+    },
+    evidence_refs: evidenceRefs,
+    receipt_refs: receiptRefs,
+    severity: cleanString(source.severity || (errorCode ? 'error' : 'info'), 40),
+    confidence: confidenceValue(source.confidence),
+    artifact_ref: artifactRef,
+    tool_call_ref: toolCallRef,
+    receipt_ref: receiptRef,
   };
 }
 
@@ -89,6 +130,7 @@ function createAgentRuntimeTraceWriter(options = {}) {
 module.exports = {
   DEFAULT_TRACE_PATH,
   compactEvent,
+  cleanRefs,
   eventKindForType,
   createAgentRuntimeTraceWriter,
 };

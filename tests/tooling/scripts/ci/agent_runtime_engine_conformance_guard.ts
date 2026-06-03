@@ -122,12 +122,15 @@ if (exists(tracePath)) {
       session_id: 'session-1',
       turn_id: 'turn-1',
       receipt_ref: 'receipt/ref',
+      evidence_refs: ['evidence/ref'],
     });
-    for (const field of ['trace_id', 'span_id', 'parent_span_id', 'source_domain', 'producer', 'authority_class', 'event_kind', 'subject', 'correlation']) {
+    for (const field of ['schema_version', 'trace_id', 'span_id', 'parent_span_id', 'timestamp', 'source_domain', 'producer', 'authority_class', 'event_kind', 'subject', 'correlation', 'payload_schema', 'payload', 'evidence_refs', 'receipt_refs', 'severity', 'confidence']) {
       if (!compact || compact[field] == null) violations.push({ kind: 'trace_compact_universal_field_missing', field });
     }
     if (compact?.event_kind !== 'tool_call') violations.push({ kind: 'trace_compact_event_kind_wrong', event_kind: compact?.event_kind });
     if (compact?.correlation?.request_id !== 'request-1') violations.push({ kind: 'trace_compact_correlation_missing_request_id' });
+    if (!Array.isArray(compact?.receipt_refs) || compact.receipt_refs[0] !== 'receipt/ref') violations.push({ kind: 'trace_compact_receipt_refs_missing' });
+    if (!Array.isArray(compact?.evidence_refs) || compact.evidence_refs[0] !== 'evidence/ref') violations.push({ kind: 'trace_compact_evidence_refs_missing' });
   }
 }
 
