@@ -6,14 +6,22 @@
   "required_tokens": [
     "requestTraceId",
     "x-infring-trace-id",
+    "x-infring-trace-source",
+    "__infringTraceBoundary",
     "filteredHeaders(req.headers",
     "res.setHeader('x-infring-trace-id'",
+    "res.setHeader('x-infring-trace-source'",
+    "source: existing ? 'incoming_header' : 'gateway_minted'",
+    "fetchBackendJson(flags, pathname, timeoutMs = 15000, traceId = '')",
+    "'x-infring-trace-id': cleanTraceId",
     "trace_id: traceId"
   ],
   "policy": {
     "gateway_must_not_break_trace_identity": true,
     "incoming_trace_id_is_preserved_when_valid": true,
     "missing_trace_id_is_minted_at_gateway_boundary": true,
-    "proxied_api_and_websocket_requests_forward_trace_id": true
+    "trace_boundary_source_is_visible_to_callers": true,
+    "proxied_api_and_websocket_requests_forward_trace_id": true,
+    "gateway_backend_json_reads_forward_trace_id_when_available": true
   }
 }
