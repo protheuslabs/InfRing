@@ -231,10 +231,14 @@
         var rows = self.normalizeRuntimeEngineRows(payload);
         self.runtimeEngineRows = rows;
         self.runtimeEngineCacheTime = Date.now();
+        var restoredLocalSelection = typeof self.restoreAgentRuntimeEngineSelection === 'function' ? self.restoreAgentRuntimeEngineSelection() : false;
+        var serverSelected = String(payload && (payload.active_engine_id || payload.selected_default_engine_id) || '').trim();
+        if (!restoredLocalSelection && serverSelected) self.selectedAgentRuntimeEngineId = serverSelected;
         return rows;
       }).catch(function(e) {
         self.runtimeEngineError = e && e.message ? String(e.message) : 'runtime_engines_unavailable';
         self.runtimeEngineRows = self.runtimeEngineRows && self.runtimeEngineRows.length ? self.runtimeEngineRows : self.fallbackRuntimeEngineRows();
+        if (typeof self.restoreAgentRuntimeEngineSelection === 'function') self.restoreAgentRuntimeEngineSelection();
         return self.runtimeEngineRows;
       }).finally(function() {
         self.runtimeEngineLoading = false;
@@ -254,12 +258,63 @@
     },
 
     activeRuntimeEngineRow: function() {
+      if (typeof this.restoreAgentRuntimeEngineSelection === 'function') this.restoreAgentRuntimeEngineSelection();
       var id = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim();
       var rows = Array.isArray(this.runtimeEngineRows) && this.runtimeEngineRows.length ? this.runtimeEngineRows : this.fallbackRuntimeEngineRows();
       for (var i = 0; i < rows.length; i += 1) {
         if (String(rows[i] && rows[i].engine_id || '') === id) return rows[i];
       }
       return rows[0] || null;
+    },
+
+    restoreAgentRuntimeEngineSelection: function() {
+      if (this._agentRuntimeEngineSelectionRestored === true) return this._agentRuntimeEngineSelectionSource === 'local_storage';
+      this._agentRuntimeEngineSelectionRestored = true;
+      var key = String(this.agentRuntimeEngineStorageKey || 'infring-selected-agent-runtime-engine-v1');
+      var saved = '';
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) saved = String(window.localStorage.getItem(key) || '').trim();
+      } catch (_e) {}
+      if (!saved) return false;
+      this.selectedAgentRuntimeEngineId = saved;
+      this._agentRuntimeEngineSelectionSource = 'local_storage';
+      return true;
+    },
+
+    persistAgentRuntimeEngineSelection: function(engineId) {
+      var id = String(engineId || 'infring_native').trim() || 'infring_native';
+      this.selectedAgentRuntimeEngineId = id;
+      try { window.localStorage.setItem(this.agentRuntimeEngineStorageKey, id); } catch (_e) {}
+      InfringAPI.post('/api/shell-socket/agent-runtime/selection', { engine_id: id }).catch(function() {});
+      return id;
+    },
+
+    runtimeEngineDisplayNameForId: function(engineId, fallbackRow) {
+      var id = String(engineId || '').trim() || 'infring_native';
+      if (fallbackRow && String(fallbackRow.engine_id || '').trim() === id) {
+        return String(fallbackRow.display_name || id).trim() || id;
+      }
+      var rows = Array.isArray(this.runtimeEngineRows) && this.runtimeEngineRows.length ? this.runtimeEngineRows : this.fallbackRuntimeEngineRows();
+      for (var i = 0; i < rows.length; i += 1) {
+        if (String(rows[i] && rows[i].engine_id || '').trim() === id) {
+          return String(rows[i].display_name || id).trim() || id;
+        }
+      }
+      return id === 'infring_native' ? 'InfRing Native' : id;
+    },
+
+    addRuntimeEngineSwitchNotice: function(previousEngineId, nextEngineId, nextRow) {
+      var previousId = String(previousEngineId || 'infring_native').trim() || 'infring_native';
+      var nextId = String(nextEngineId || 'infring_native').trim() || 'infring_native';
+      if (previousId === nextId) return;
+      if (typeof this.addNoticeEvent !== 'function') return;
+      var fromName = this.runtimeEngineDisplayNameForId(previousId, null);
+      var toName = this.runtimeEngineDisplayNameForId(nextId, nextRow);
+      this.addNoticeEvent({
+        notice_label: 'Changed active engine from ' + fromName + ' to ' + toName,
+        notice_type: 'info',
+        ts: Date.now()
+      });
     },
 
     runtimeEngineMenuLabel: function() {
@@ -309,15 +364,17 @@
         this.openRuntimeEngineInstall(row);
         return;
       }
-      this.selectedAgentRuntimeEngineId = engineId;
-      try { window.localStorage.setItem(this.agentRuntimeEngineStorageKey, engineId); } catch (_e) {}
+      var previousEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      this.persistAgentRuntimeEngineSelection(engineId);
       this.showRuntimeSwitcher = false;
+      this.addRuntimeEngineSwitchNotice(previousEngineId, engineId, row);
       InfringToast.success('Agent runtime: ' + String((row && row.display_name) || engineId));
     },
 
     installRuntimeEngine: function(row) {
       var engineId = String(row && row.engine_id || '').trim();
       if (!engineId) return Promise.resolve(null);
+      var previousEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
       var self = this;
       var label = String((row && row.display_name) || engineId);
       this.showRuntimeSwitcher = false;
@@ -327,8 +384,8 @@
       }).then(function(payload) {
         var status = String(payload && payload.status || '').trim();
         if (payload && payload.ok && (status === 'installed_available' || status === 'already_available')) {
-          self.selectedAgentRuntimeEngineId = engineId;
-          try { window.localStorage.setItem(self.agentRuntimeEngineStorageKey, engineId); } catch (_e) {}
+          self.persistAgentRuntimeEngineSelection(engineId);
+          self.addRuntimeEngineSwitchNotice(previousEngineId, engineId, row);
           InfringToast.success('Agent runtime ready: ' + label);
           return self.loadRuntimeEnginesSafely({ force: true });
         }

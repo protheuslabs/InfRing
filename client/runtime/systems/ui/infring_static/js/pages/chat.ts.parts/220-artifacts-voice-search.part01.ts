@@ -417,10 +417,11 @@
       }
       var lineWindow = this.messageVisibleLineWindow(msg, idx);
       var displayText = String(lineWindow.text || '');
+      var role = String(msg.role || '').trim().toLowerCase();
       var baseHtml = '';
       if (msg.isHtml) {
         baseHtml = String(displayText || '');
-      } else if ((msg.role === 'agent' || msg.role === 'system') && !msg.thinking) {
+      } else if ((role === 'agent' || role === 'assistant' || role === 'system') && !msg.thinking) {
         baseHtml = this.renderMarkdown(String(displayText || ''));
       } else {
         baseHtml = this.escapeHtml(String(displayText || ''));

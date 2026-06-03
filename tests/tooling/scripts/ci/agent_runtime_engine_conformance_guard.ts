@@ -65,6 +65,10 @@ if (!contextPackContract.universal_tool_policy?.attached_to_context_pack || !con
 if (!Array.isArray(contextPackContract.required_gateway_enriched_pack_fields) || !contextPackContract.required_gateway_enriched_pack_fields.includes('universal_tool_grants')) violations.push({ kind: 'context_pack_gateway_enriched_universal_tool_grants_missing', path: contextPackContractPath });
 if (universalToolsContract.type !== 'agent_runtime_universal_tools_contract') violations.push({ kind: 'universal_tools_contract_type_wrong', path: universalToolsContractPath });
 if (!universalToolsContract.authority_model?.engines_may_propose_tool_calls || universalToolsContract.authority_model?.engines_may_not_execute_universal_tools_directly !== true) violations.push({ kind: 'universal_tools_authority_model_wrong', path: universalToolsContractPath });
+if (!universalToolsContract.authority_model?.permission_gatekeeper_is_runtime_neutral || !universalToolsContract.permission_policy?.framework_independent) violations.push({ kind: 'universal_tool_permission_policy_missing', path: universalToolsContractPath });
+for (const decision of ['allow_once', 'deny', 'always_allow_tool_call']) {
+  if (!Array.isArray(universalToolsContract.permission_policy?.decisions) || !universalToolsContract.permission_policy.decisions.includes(decision)) violations.push({ kind: 'universal_tool_permission_decision_missing', decision, path: universalToolsContractPath });
+}
 for (const toolId of ['conversation.read', 'memory.read', 'memory.write_propose', 'artifact.read', 'artifact.create_propose', 'permission.request']) {
   if (!Array.isArray(universalToolsContract.tools) || !universalToolsContract.tools.some((row) => row.tool_id === toolId)) violations.push({ kind: 'universal_tool_missing', tool_id: toolId, path: universalToolsContractPath });
 }
@@ -188,6 +192,9 @@ for (const event of socket.required_gateway_to_client_events || []) {
     violations.push({ kind: 'gateway_event_trace_id_missing', event_type: event.type });
   }
 }
+if (!Array.isArray(socket.required_gateway_to_client_events) || !socket.required_gateway_to_client_events.some((event) => event.type === 'permission.requested')) {
+  violations.push({ kind: 'socket_permission_requested_event_missing', path: socketPath });
+}
 
 for (const forbidden of ['raw_tool_result', 'trace_body', 'workflow_graph', 'external_framework_transcript']) {
   if (!Array.isArray(socket.forbidden_default_payload_fields) || !socket.forbidden_default_payload_fields.includes(forbidden)) {
@@ -246,17 +253,20 @@ if (exists(kernelContextBridgePath)) {
   if (!kernelContextBridgeSource.includes('INFRING_AGENT_RUNTIME_CONTEXT_KERNEL_BIN') || !kernelContextBridgeSource.includes('INFRING_AGENT_RUNTIME_CONTEXT_KERNEL_CARGO')) violations.push({ kind: 'kernel_context_bridge_discovery_controls_missing', path: kernelContextBridgePath });
   if (!kernelContextBridgeSource.includes("INFRING_AGENT_RUNTIME_CONTEXT_KERNEL_CARGO || 'auto'")) violations.push({ kind: 'kernel_context_bridge_auto_cargo_default_missing', path: kernelContextBridgePath });
 }
-if (exists(codexPath)) {
-  const codexSource = fs.readFileSync(path.join(ROOT, codexPath), 'utf8');
-  if (!codexSource.includes('buildPromptWithContext') || !codexSource.includes('message.context_pack')) violations.push({ kind: 'codex_cli_context_pack_injection_missing', path: codexPath });
-}
 if (exists(cliRuntimePath)) {
   const cliSource = fs.readFileSync(path.join(ROOT, cliRuntimePath), 'utf8');
+  if (!cliSource.includes('buildPromptWithContext') || !cliSource.includes('message.context_pack')) violations.push({ kind: 'cli_runtime_context_pack_injection_missing', path: cliRuntimePath });
   if (!cliSource.includes('renderUniversalToolGrantPromptSection') || !cliSource.includes('toolGrantSection')) violations.push({ kind: 'cli_runtime_universal_tool_prompt_missing', path: cliRuntimePath });
+  if (!cliSource.includes('stableExternalSessionUuid')) violations.push({ kind: 'cli_runtime_stable_session_helper_missing', path: cliRuntimePath });
+}
+if (exists(codexPath)) {
+  const codexSource = fs.readFileSync(path.join(ROOT, codexPath), 'utf8');
+  if (!codexSource.includes('createCliRuntimeEngineAdapter')) violations.push({ kind: 'codex_cli_shared_adapter_missing', path: codexPath });
+  if (codexSource.includes('--ephemeral')) violations.push({ kind: 'codex_cli_ephemeral_session_forbidden', path: codexPath });
 }
 if (exists(universalCoreToolsPath)) {
   const tools = require(path.join(ROOT, universalCoreToolsPath));
-  for (const exported of ['buildUniversalToolGrants', 'renderUniversalToolGrantPromptSection', 'normalizeUniversalToolProposal']) {
+  for (const exported of ['buildUniversalToolGrants', 'renderUniversalToolGrantPromptSection', 'normalizeUniversalToolProposal', 'evaluateUniversalToolPermission']) {
     if (typeof tools[exported] !== 'function') violations.push({ kind: 'universal_core_tools_export_missing', exported });
   }
   if (typeof tools.buildUniversalToolGrants === 'function' && typeof tools.normalizeUniversalToolProposal === 'function' && typeof tools.renderUniversalToolGrantPromptSection === 'function') {
@@ -264,9 +274,12 @@ if (exists(universalCoreToolsPath)) {
     const prompt = tools.renderUniversalToolGrantPromptSection(grants);
     const okProposal = tools.normalizeUniversalToolProposal({ type: 'infring_universal_tool_proposal', tool_id: 'memory.read', reason: 'need memory', arguments: { query: 'x' } }, grants);
     const badProposal = tools.normalizeUniversalToolProposal({ type: 'infring_universal_tool_proposal', tool_id: 'terminal.run', reason: 'bad', arguments: {} }, grants);
+    const gatedProposal = tools.normalizeUniversalToolProposal({ type: 'infring_universal_tool_proposal', tool_id: 'memory.write_propose', reason: 'remember this', arguments: { summary: 'x' } }, grants);
     if (!Array.isArray(grants.tools) || grants.tools.length !== 6) violations.push({ kind: 'universal_core_tool_grant_count_wrong', count: grants.tools && grants.tools.length });
+    if (!grants.permission_policy || grants.permission_policy.gatekeeper_kind !== 'user') violations.push({ kind: 'universal_core_tool_permission_policy_not_attached' });
     if (!prompt.includes('proposal-only') || !prompt.includes('memory.read')) violations.push({ kind: 'universal_core_tool_prompt_wrong' });
-    if (!okProposal.ok || okProposal.type !== 'tool.proposed' || okProposal.engine_may_execute_directly !== false) violations.push({ kind: 'universal_core_tool_valid_proposal_not_normalized', result: okProposal });
+    if (!okProposal.ok || okProposal.type !== 'tool.proposed' || okProposal.engine_may_execute_directly !== false || okProposal.permission_status !== 'allowed_by_default_read_policy') violations.push({ kind: 'universal_core_tool_valid_proposal_not_normalized', result: okProposal });
+    if (!gatedProposal.ok || gatedProposal.permission_requires_user_approval !== true || gatedProposal.permission_status !== 'requires_user_approval') violations.push({ kind: 'universal_core_tool_gated_proposal_not_marked', result: gatedProposal });
     if (badProposal.ok || badProposal.error_code !== 'universal_tool_not_granted') violations.push({ kind: 'universal_core_tool_unknown_proposal_not_denied', result: badProposal });
   }
 }
@@ -360,8 +373,28 @@ if (exists(routerPath)) {
       },
       'tool.proposed',
     );
-    if (proposed?.type !== 'tool.proposed' || proposed?.tool_id !== 'memory.read' || proposed?.engine_may_execute_directly !== false || Array.isArray(proposed?.argument_keys) === false) {
+    if (proposed?.type !== 'tool.proposed' || proposed?.tool_id !== 'memory.read' || proposed?.engine_may_execute_directly !== false || Array.isArray(proposed?.argument_keys) === false || proposed?.permission_status !== 'allowed_by_default_read_policy') {
       violations.push({ kind: 'router_universal_tool_proposal_not_normalized', result: proposed });
+    }
+    const approvalRequired = router.normalizeGatewayEvent(
+      { type: 'infring_universal_tool_proposal', tool_id: 'memory.write_propose', reason: 'remember user preference', arguments: { summary: 'x' } },
+      {
+        trace_id: 'trace-tools',
+        request_id: 'request-tools',
+        engine_id: 'codex_cli',
+        session_id: 's1',
+        turn_id: 't1',
+        context_pack: {
+          universal_tool_grants: {
+            permission_policy: { gatekeeper_kind: 'user', default_allow_read_tools: true, revoked_default_read_tools: [], always_allowed_tool_calls: [] },
+            tools: [{ tool_id: 'memory.write_propose' }],
+          },
+        },
+      },
+      'tool.proposed',
+    );
+    if (approvalRequired?.permission_requires_user_approval !== true || approvalRequired?.permission_request?.type !== 'permission.requested' || !approvalRequired?.permission_request?.approval_route) {
+      violations.push({ kind: 'router_universal_tool_permission_request_missing', result: approvalRequired });
     }
     const denied = router.normalizeGatewayEvent(
       { type: 'infring_universal_tool_proposal', tool_id: 'terminal.run', reason: 'bad', arguments: {} },
@@ -391,15 +424,15 @@ if (exists(nativePath)) {
 if (exists(codexPath)) {
   const codex = require(path.join(ROOT, codexPath));
   if (typeof codex.createCodexCliEngineAdapter !== 'function') violations.push({ kind: 'codex_adapter_factory_missing' });
-  if (typeof codex.stripTerminalControls !== 'function') violations.push({ kind: 'codex_adapter_terminal_control_stripper_missing' });
   const codexSource = fs.readFileSync(path.join(ROOT, codexPath), 'utf8');
-  if (!codexSource.includes('cleanDisplayString') || !codexSource.includes('output_text')) violations.push({ kind: 'codex_adapter_formatted_output_missing', path: codexPath });
+  if (!codexSource.includes('createCliRuntimeEngineAdapter')) violations.push({ kind: 'codex_adapter_shared_runtime_missing', path: codexPath });
 }
 if (exists(cliRuntimePath)) {
   const cliRuntime = require(path.join(ROOT, cliRuntimePath));
   if (typeof cliRuntime.createCliRuntimeEngineAdapter !== 'function') violations.push({ kind: 'cli_runtime_factory_missing' });
   if (typeof cliRuntime.stripTerminalControls !== 'function') violations.push({ kind: 'cli_runtime_terminal_control_stripper_missing' });
-	  const cliSource = fs.readFileSync(path.join(ROOT, cliRuntimePath), 'utf8');
+		  const cliSource = fs.readFileSync(path.join(ROOT, cliRuntimePath), 'utf8');
+  if (!cliSource.includes('cleanDisplayString') || !cliSource.includes('output_text')) violations.push({ kind: 'cli_runtime_formatted_output_missing', path: cliRuntimePath });
 	  if (!cliSource.includes('cleanDisplayString') || !cliSource.includes('output_text') || !cliSource.includes('stripTerminalControls')) violations.push({ kind: 'cli_runtime_formatted_output_missing', path: cliRuntimePath });
 	  if (typeof cliRuntime.buildPromptWithContext !== 'function') violations.push({ kind: 'cli_runtime_context_prompt_builder_missing', path: cliRuntimePath });
 	  if (typeof cliRuntime.buildPromptWithContext === 'function') {

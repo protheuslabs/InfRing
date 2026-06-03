@@ -19,6 +19,7 @@ const {
   ingestAgentRuntimeContextProjection,
   appendAgentRuntimeTurnAtoms,
   materializeAgentRuntimeContextPack,
+  loadAgentRuntimeContextRows,
 } = require('./agent_engines/agent_runtime_context_store.ts');
 const { materializeKernelAgentRuntimeContextPack } = require('./agent_engines/agent_runtime_kernel_context_bridge.ts');
 const { buildUniversalToolGrants } = require('./agent_engines/universal_core_tools.ts');
@@ -92,6 +93,11 @@ const DASHBOARD_SHUTDOWN_EXIT_DELAY_DEFAULT_MS = 180;
 const DASHBOARD_SHUTDOWN_EXIT_DELAY_MIN_MS = 80;
 const DASHBOARD_SHUTDOWN_EXIT_DELAY_MAX_MS = 5000;
 const HOP_BY_HOP = new Set(['connection', 'host', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailers', 'transfer-encoding', 'upgrade']);
+const AGENT_RUNTIME_APPROVAL_DECISIONS = new Map();
+const AGENT_RUNTIME_TRANSCRIPT_PATH = path.resolve(STATUS_DIR, 'agent_runtime_transcripts.jsonl');
+const AGENT_RUNTIME_SELECTION_PATH = path.resolve(STATUS_DIR, 'agent_runtime_selection.json');
+const AGENT_RUNTIME_TRANSCRIPT_MAX_RECORDS = 2000;
+const AGENT_RUNTIME_TRANSCRIPT_WINDOW_LIMIT = 80;
 
 function nowIso() { return new Date().toISOString(); }
 function cleanText(value, maxLen = 200) { return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen); }
@@ -102,6 +108,20 @@ function stripTerminalControls(value) {
 }
 function cleanDisplayText(value, maxLen = 24000) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim().slice(0, maxLen); }
 function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
+function cleanApprovalId(value) { return cleanText(value, 260).replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, ''); }
+function cleanTranscriptComponent(value, maxLen = 200) { return cleanText(value, maxLen).replace(/[^A-Za-z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '') || 'default'; }
+function agentRuntimeSessionRef(agentId, sessionId) { return `${cleanTranscriptComponent(agentId, 160)}::${cleanTranscriptComponent(sessionId, 200)}`; }
+function decodeAgentRuntimeSessionRef(value) {
+  const raw = cleanText(decodeURIComponent(String(value || '')), 420);
+  const parts = raw.split('::');
+  if (parts.length >= 2) {
+    return {
+      agentId: cleanTranscriptComponent(parts.shift(), 160),
+      sessionId: cleanTranscriptComponent(parts.join('::'), 200),
+    };
+  }
+  return { agentId: '', sessionId: cleanTranscriptComponent(raw, 200) };
+}
 const AGENT_RUNTIME_CONTEXT_FANOUT_TARGET = 7;
 const AGENT_RUNTIME_CONTEXT_HOT_TAIL_COUNT = 4;
 const AGENT_RUNTIME_CONTEXT_MAX_ROWS = 49;
@@ -329,7 +349,25 @@ function findAgentRuntimeEngine(registryInfo, engineId) {
   const engines = Array.isArray(registryInfo && registryInfo.engines) ? registryInfo.engines : [];
   return engines.find((engine) => cleanEngineId(engine && engine.engine_id) === target) || null;
 }
-async function agentRuntimeTurnProjection(traceId, body) {
+function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
+  const event = row && typeof row === 'object' ? row : {};
+  return {
+    type: 'agent_activity_event',
+    activity_kind: cleanText(event.activity_kind || event.kind || event.type, 80) || 'activity',
+    provider_event_type: cleanText(event.provider_event_type || event.provider_type || event.event_type, 160),
+    source: cleanText(event.source || 'external_cli_stream', 120),
+    sequence_no: Number(event.sequence_no || index + 1) || index + 1,
+    item_id: cleanText(event.item_id || event.itemId || '', 200),
+    status: cleanText(event.status || '', 80),
+    text: cleanDisplayText(event.text || event.display_text || event.summary || '', 4000),
+    display_text: cleanDisplayText(event.display_text || event.text || event.summary || '', 4000),
+    engine_id: cleanEngineId(event.engine_id || defaults.engineId),
+    trace_id: cleanText(event.trace_id || defaults.traceId, 200),
+    session_id: cleanText(event.session_id || defaults.sessionId, 200),
+    turn_id: cleanText(event.turn_id || defaults.turnId, 200),
+  };
+}
+async function agentRuntimeTurnProjection(traceId, body, options = {}) {
   const rawEngineId = body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id);
   const engineId = cleanEngineId(rawEngineId || 'infring_native');
   if (!engineId || engineId === 'infring_native') {
@@ -367,18 +405,72 @@ async function agentRuntimeTurnProjection(traceId, body) {
   const agentId = cleanText(body && body.agent_id, 160) || 'default';
   const sessionId = cleanText(body && body.session_id, 200) || `shell_${agentId}`;
   const turnId = cleanText(body && body.turn_id, 200) || `turn_${Date.now().toString(36)}`;
-  await ingestAgentRuntimeContextProjection({
-    root: ROOT,
-    sessionId,
-    agentId,
-    traceId,
-    projection: body && body.context_projection,
-  }).catch(() => null);
+  const streamedActivityEvents = [];
+  const activityDefaults = { engineId, traceId, sessionId, turnId };
+  const onActivity = (event) => {
+    const normalized = sanitizeAgentRuntimeActivityEvent(event, streamedActivityEvents.length, activityDefaults);
+    if (!normalized.display_text && !normalized.provider_event_type) return;
+    streamedActivityEvents.push(normalized);
+    if (typeof options.onActivity === 'function') options.onActivity(normalized);
+  };
+  const emitSyntheticActivity = (activityKind, providerEventType, displayText, status = 'completed') => onActivity({
+    type: 'agent_activity_event',
+    activity_kind: activityKind,
+    provider_event_type: providerEventType,
+    source: 'infring_gateway_agent_runtime_socket',
+    status,
+    display_text: displayText,
+    text: displayText,
+    engine_id: engineId,
+    trace_id: traceId,
+    session_id: sessionId,
+    turn_id: turnId,
+  });
+  try {
+    appendAgentRuntimeTranscriptTurn({
+      sessionId,
+      agentId,
+      traceId,
+      turnId,
+      engineId,
+      userText: text,
+      assistantText: '',
+    });
+  } catch {}
+  try {
+    appendAgentRuntimeTurnAtoms({
+      root: ROOT,
+      sessionId,
+      agentId,
+      traceId,
+      turnId,
+      engineId,
+      userText: text,
+      assistantText: '',
+    });
+  } catch {}
+  emitSyntheticActivity('started', 'context.prepare', `Preparing ${engineId} with InfRing conversation context.`);
+  try {
+    ingestAgentRuntimeContextProjection({
+      root: ROOT,
+      sessionId,
+      agentId,
+      traceId,
+      projection: body && body.context_projection,
+    });
+  } catch {}
+  const fallbackContextRows = loadAgentRuntimeContextRows({ root: ROOT, sessionId, agentId });
+  emitSyntheticActivity(
+    'activity',
+    'context.loaded',
+    `Loaded ${fallbackContextRows.length} prior context row${fallbackContextRows.length === 1 ? '' : 's'} for ${engineId}.`,
+  );
   const kernelContext = await materializeKernelAgentRuntimeContextPack({
     root: ROOT,
     sessionId,
     agentId,
     traceId,
+    atoms: fallbackContextRows,
     timeoutMs: 8000,
   }).catch((error) => ({
     ok: false,
@@ -397,7 +489,9 @@ async function agentRuntimeTurnProjection(traceId, body) {
     sessionId,
     agentId,
     engineId,
+    permissionPolicy: body && body.permission_policy,
   });
+  emitSyntheticActivity('started', 'engine.health', `Checking ${engineId} availability.`);
   const health = await router.healthCheck({
     type: 'agent_runtime.health_check',
     trace_id: traceId,
@@ -414,6 +508,7 @@ async function agentRuntimeTurnProjection(traceId, body) {
       health,
     };
   }
+  emitSyntheticActivity('started', 'session.start', `Starting ${engineId} session ${sessionId}.`);
   await router.startSession({
     type: 'agent_runtime.session_start',
     trace_id: traceId,
@@ -421,7 +516,7 @@ async function agentRuntimeTurnProjection(traceId, body) {
     agent_id: agentId,
     session_id: sessionId,
   });
-  const turn = await router.submitTurn({
+  const turnMessage = {
     type: 'agent_runtime.turn_submit',
     trace_id: traceId,
     engine_id: engineId,
@@ -439,39 +534,103 @@ async function agentRuntimeTurnProjection(traceId, body) {
 	      universal_tool_grants_required: true,
 	      universal_tool_ids: contextPack.universal_tool_grants.tools.map((tool) => tool.tool_id),
 	    },
-	  });
+	  };
+  emitSyntheticActivity('started', 'turn.launch', `Launching ${engineId} turn with bounded context pack.`);
+  const turn = options && options.stream === true
+    ? await router.streamTurn(turnMessage, onActivity)
+    : await router.submitTurn(turnMessage);
+  emitSyntheticActivity('completed', 'turn.completed', `${engineId} returned ${cleanText(turn && turn.status, 80) || 'a result'}.`);
   const output = cleanDisplayText(
     turn && (turn.output_text || turn.display_text || turn.text || turn.response || turn.output_preview || turn.delta || turn.reason),
     24000,
   );
   const outputPreview = cleanText(turn && (turn.output_preview || output), 4000);
-  await appendAgentRuntimeTurnAtoms({
-    root: ROOT,
-    sessionId,
-    agentId,
-    traceId,
-    turnId,
-    engineId,
-    userText: text,
-    assistantText: output,
-    resultRef: turn && turn.result_ref,
-    receiptRef: turn && turn.receipt_ref,
-  }).catch(() => null);
+  const pendingPermissionRequest = turn && turn.permission_request && typeof turn.permission_request === 'object'
+    ? turn.permission_request
+    : null;
+  const finalActivityEvents = Array.isArray(turn && turn.activity_events)
+    ? turn.activity_events.map((event, index) => sanitizeAgentRuntimeActivityEvent(event, index, activityDefaults))
+    : [];
+  const activityDedupe = new Set();
+  const activityEvents = [...streamedActivityEvents, ...finalActivityEvents]
+    .filter((event) => event && (event.display_text || event.provider_event_type))
+    .filter((event) => {
+      const key = [
+        event.sequence_no,
+        event.activity_kind,
+        event.provider_event_type,
+        event.display_text,
+      ].join('|');
+      if (activityDedupe.has(key)) return false;
+      activityDedupe.add(key);
+      return true;
+    })
+    .slice(-80);
+  try {
+    appendAgentRuntimeTurnAtoms({
+      root: ROOT,
+      sessionId,
+      agentId,
+      traceId,
+      turnId,
+      engineId,
+      userText: text,
+      assistantText: output,
+      resultRef: turn && turn.result_ref,
+      receiptRef: turn && turn.receipt_ref,
+    });
+  } catch {}
+  try {
+    appendAgentRuntimeTranscriptTurn({
+      sessionId,
+      agentId,
+      traceId,
+      turnId,
+      engineId,
+      userText: text,
+      assistantText: output,
+      pendingPermissionRequest,
+    });
+  } catch {}
   return {
-    ok: !!(turn && turn.status === 'completed'),
+    ok: !!(pendingPermissionRequest || (turn && turn.status === 'completed')),
     type: 'agent_runtime_turn_projection',
     trace_id: traceId,
     engine_id: engineId,
     agent_id: agentId,
     session_id: sessionId,
     turn_id: turnId,
-    status: cleanText(turn && turn.status, 80) || 'unknown',
+    status: pendingPermissionRequest ? 'permission_required' : (cleanText(turn && turn.status, 80) || 'unknown'),
     text: output,
     display_text: output,
     output_text: output,
 	    output_preview: outputPreview,
+	    agent_activity_events: activityEvents,
+	    activity_event_count: Number(turn && turn.activity_event_count) || activityEvents.length,
+	    structured_activity: turn && turn.structured_activity === true,
 	    result_ref: cleanText(turn && turn.result_ref, 240),
 	    receipt_ref: cleanText(turn && turn.receipt_ref, 240),
+	    pending_permission_request: pendingPermissionRequest ? {
+	      type: 'permission.requested',
+	      approval_id: cleanApprovalId(pendingPermissionRequest.approval_id),
+	      trace_id: cleanText(pendingPermissionRequest.trace_id || traceId, 200),
+	      request_id: cleanText(pendingPermissionRequest.request_id, 200),
+	      engine_id: cleanEngineId(pendingPermissionRequest.engine_id || engineId),
+	      session_id: cleanText(pendingPermissionRequest.session_id || sessionId, 200),
+	      turn_id: cleanText(pendingPermissionRequest.turn_id || turnId, 200),
+	      tool_call_ref: cleanText(pendingPermissionRequest.tool_call_ref, 240),
+	      tool_id: cleanText(pendingPermissionRequest.tool_id, 120),
+	      capability: cleanText(pendingPermissionRequest.capability, 160),
+	      reason: cleanText(pendingPermissionRequest.reason, 1000),
+	      argument_keys: Array.isArray(pendingPermissionRequest.argument_keys)
+	        ? pendingPermissionRequest.argument_keys.map((key) => cleanText(key, 80)).filter(Boolean).slice(0, 24)
+	        : [],
+	      gatekeeper_kind: cleanText(pendingPermissionRequest.gatekeeper_kind || 'user', 80) || 'user',
+	      future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor'],
+	      decisions: ['allow_once', 'deny', 'always_allow_tool_call'],
+	      decision_scope: 'tool_call',
+	      approval_route: `/api/shell-socket/approvals/${encodeURIComponent(cleanApprovalId(pendingPermissionRequest.approval_id))}/decision`,
+	    } : null,
 	    context_pack: {
 	      type: 'agent_runtime_context_pack_projection',
 	      source_basis: contextPack.source_basis,
@@ -494,6 +653,36 @@ async function agentRuntimeTurnProjection(traceId, body) {
       version_preview: cleanText(health && health.version_preview, 200),
     },
   };
+}
+function agentRuntimeApprovalDecisionProjection(traceId, approvalId, body) {
+  const id = cleanApprovalId(approvalId);
+  const decision = cleanText(body && body.decision, 80);
+  const allowed = new Set(['allow_once', 'deny', 'always_allow_tool_call']);
+  if (!id) return { ok: false, status_code: 400, type: 'approval_decision_ack', trace_id: traceId, error: 'approval_id_required' };
+  if (!allowed.has(decision)) return { ok: false, status_code: 400, type: 'approval_decision_ack', trace_id: traceId, approval_id: id, error: 'approval_decision_invalid' };
+  const row = {
+    type: 'approval_decision_ack',
+    ok: true,
+    trace_id: traceId,
+    approval_id: id,
+    decision,
+    tool_id: cleanText(body && body.tool_id, 120),
+    tool_call_ref: cleanText(body && body.tool_call_ref, 240),
+    engine_id: cleanEngineId(body && body.engine_id),
+    session_id: cleanText(body && body.session_id, 200),
+    gatekeeper_kind: cleanText(body && body.gatekeeper_kind || 'user', 80) || 'user',
+    decided_at: nowIso(),
+    durable_effect_executed: false,
+    next_action: decision === 'deny'
+      ? 'tool_call_denied'
+      : 'tool_call_permission_recorded_for_next_agent_runtime_turn',
+  };
+  AGENT_RUNTIME_APPROVAL_DECISIONS.set(id, row);
+  if (AGENT_RUNTIME_APPROVAL_DECISIONS.size > 200) {
+    const firstKey = AGENT_RUNTIME_APPROVAL_DECISIONS.keys().next().value;
+    if (firstKey) AGENT_RUNTIME_APPROVAL_DECISIONS.delete(firstKey);
+  }
+  return row;
 }
 function isTransientSocketError(error) {
   const code = cleanText(error && error.code ? error.code : '', 40);
@@ -620,6 +809,7 @@ async function agentRuntimeEnginesProjection(traceId) {
   const info = loadAgentRuntimeEngineRegistry(ROOT);
   const engines = Array.isArray(info.engines) ? info.engines : [];
   const engineAdapters = createAgentRuntimeEngineAdapterMap({ liveDispatch: false });
+  const selection = loadAgentRuntimeSelection();
   const rows = [];
   for (const engine of engines) {
     const engineId = cleanEngineId(engine && engine.engine_id);
@@ -646,8 +836,26 @@ async function agentRuntimeEnginesProjection(traceId) {
     type: 'agent_runtime_engines_projection',
     trace_id: traceId,
     socket_route: '/ws/agent-runtime',
-    selected_default_engine_id: 'infring_native',
+    selected_default_engine_id: selection.engine_id || 'infring_native',
+    active_engine_id: selection.engine_id || 'infring_native',
+    active_engine_updated_at: selection.updated_at || '',
     engines: rows,
+  };
+}
+function agentRuntimeSelectionProjection(traceId, body) {
+  const engineId = cleanEngineId(body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id));
+  if (!engineId) return { ok: false, status_code: 400, type: 'agent_runtime_selection_projection', trace_id: traceId, error: 'engine_id_required' };
+  const info = loadAgentRuntimeEngineRegistry(ROOT);
+  const engine = findAgentRuntimeEngine(info, engineId);
+  if (!engine) return { ok: false, status_code: 404, type: 'agent_runtime_selection_projection', trace_id: traceId, engine_id: engineId, error: 'engine_not_registered' };
+  const saved = saveAgentRuntimeSelection(engineId, traceId);
+  return {
+    ok: true,
+    type: 'agent_runtime_selection_projection',
+    trace_id: traceId,
+    engine_id: saved.engine_id,
+    updated_at: saved.updated_at,
+    source: saved.source,
   };
 }
 async function agentRuntimeEngineInstallProjection(traceId, requestedEngineId) {
@@ -797,6 +1005,222 @@ function writeJsonIfMissing(filePath, value) {
 function appendJsonl(filePath, value) {
   ensureDir(path.dirname(filePath));
   fs.appendFileSync(filePath, `${JSON.stringify(value)}\n`, 'utf8');
+}
+function appendBoundedJsonl(filePath, value, maxRows) {
+  ensureDir(path.dirname(filePath));
+  let rows = [];
+  try {
+    rows = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  } catch {}
+  rows.push(JSON.stringify(value));
+  fs.writeFileSync(filePath, `${rows.slice(-Math.max(1, maxRows || 1)).join('\n')}\n`, 'utf8');
+}
+function readAgentRuntimeTranscriptRecords() {
+  let raw = '';
+  try { raw = fs.readFileSync(AGENT_RUNTIME_TRANSCRIPT_PATH, 'utf8'); } catch { return []; }
+  return raw.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-AGENT_RUNTIME_TRANSCRIPT_MAX_RECORDS)
+    .map((line) => {
+      try { return JSON.parse(line); } catch { return null; }
+    })
+    .filter((row) => row && row.type === 'agent_runtime_transcript_turn');
+}
+function loadAgentRuntimeSelection() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(AGENT_RUNTIME_SELECTION_PATH, 'utf8'));
+    return {
+      engine_id: cleanEngineId(parsed && parsed.engine_id) || 'infring_native',
+      updated_at: cleanText(parsed && parsed.updated_at, 80),
+      source: cleanText(parsed && parsed.source, 120),
+    };
+  } catch {
+    return { engine_id: 'infring_native', updated_at: '', source: 'default' };
+  }
+}
+function saveAgentRuntimeSelection(engineId, traceId) {
+  const cleanId = cleanEngineId(engineId || 'infring_native') || 'infring_native';
+  const row = {
+    type: 'agent_runtime_selection',
+    schema_version: 1,
+    engine_id: cleanId,
+    updated_at: nowIso(),
+    trace_id: cleanText(traceId, 200),
+    source: 'dashboard_gateway',
+  };
+  writeJson(AGENT_RUNTIME_SELECTION_PATH, row);
+  return row;
+}
+function agentRuntimeTranscriptMessageRow(input) {
+  const text = cleanDisplayText(input && input.text, 24000);
+  if (!text) return null;
+  const role = cleanText(input && input.role, 40) || 'assistant';
+  const turnId = cleanTranscriptComponent(input && input.turnId, 200);
+  const timestamp = cleanText(input && input.timestamp, 80) || nowIso();
+  return {
+    id: cleanText(input && input.id, 240) || `agent_runtime:${turnId}:${role}`,
+    role,
+    origin_kind: role === 'user' ? 'user' : 'assistant',
+    origin_display_name: role === 'user' ? 'You' : cleanText(input && input.engineId, 120),
+    text,
+    content: text,
+    content_preview: cleanText(text, 4000),
+    timestamp,
+    created_at: timestamp,
+    status: cleanText(input && input.status, 80) || 'completed',
+    detail_ref: cleanText(input && input.detailRef, 240) || `agent-runtime-turn:${turnId}:${role}`,
+    trace_id: cleanText(input && input.traceId, 200),
+    agent_runtime_engine_id: cleanEngineId(input && input.engineId),
+    source: 'agent_runtime_socket',
+    projection_owner: 'adapters.runtime.agent_runtime_transcript',
+  };
+}
+function appendAgentRuntimeTranscriptTurn(input) {
+  const agentId = cleanTranscriptComponent(input && input.agentId, 160);
+  const sessionId = cleanTranscriptComponent(input && input.sessionId, 200);
+  const engineId = cleanEngineId(input && input.engineId);
+  const turnId = cleanTranscriptComponent(input && input.turnId, 200);
+  const timestamp = nowIso();
+  const messages = [
+    agentRuntimeTranscriptMessageRow({
+      id: `agent_runtime:${turnId}:user`,
+      role: 'user',
+      text: input && input.userText,
+      timestamp,
+      turnId,
+      traceId: input && input.traceId,
+      engineId,
+    }),
+    agentRuntimeTranscriptMessageRow({
+      id: `agent_runtime:${turnId}:assistant`,
+      role: 'assistant',
+      text: input && input.assistantText,
+      timestamp,
+      turnId,
+      traceId: input && input.traceId,
+      engineId,
+      status: input && input.pendingPermissionRequest ? 'permission_required' : 'completed',
+    }),
+  ].filter(Boolean);
+  if (!messages.length) return;
+  appendBoundedJsonl(AGENT_RUNTIME_TRANSCRIPT_PATH, {
+    type: 'agent_runtime_transcript_turn',
+    schema_version: 1,
+    agent_id: agentId,
+    session_id: sessionId,
+    session_ref: agentRuntimeSessionRef(agentId, sessionId),
+    session_aliases: Array.from(new Set([
+      sessionId,
+      agentId,
+      `shell_${agentId}`,
+      agentRuntimeSessionRef(agentId, sessionId),
+      agentRuntimeSessionRef(agentId, agentId),
+      agentRuntimeSessionRef(agentId, `shell_${agentId}`),
+    ])).filter(Boolean),
+    trace_id: cleanText(input && input.traceId, 200),
+    turn_id: turnId,
+    engine_id: engineId,
+    created_at: timestamp,
+    messages,
+  }, AGENT_RUNTIME_TRANSCRIPT_MAX_RECORDS);
+}
+function agentRuntimeTranscriptSessionMatches(record, targetAgentId, targetSessionId, targetRef) {
+  const recordAgentId = cleanTranscriptComponent(record && record.agent_id, 160);
+  const recordSessionId = cleanTranscriptComponent(record && record.session_id, 200);
+  const recordRef = cleanText(record && record.session_ref, 420);
+  const aliases = Array.isArray(record && record.session_aliases)
+    ? record.session_aliases.map((item) => cleanText(item, 420)).filter(Boolean)
+    : [];
+  if (targetAgentId && recordAgentId !== targetAgentId) return false;
+  if (!targetSessionId) return true;
+  if (recordSessionId === targetSessionId || recordRef === targetRef) return true;
+  if (aliases.indexOf(targetSessionId) >= 0 || aliases.indexOf(targetRef) >= 0) return true;
+  if (targetSessionId === targetAgentId && (recordSessionId === targetAgentId || recordSessionId === `shell_${targetAgentId}`)) return true;
+  if (targetSessionId === `shell_${targetAgentId}` && (recordSessionId === targetAgentId || recordSessionId === `shell_${targetAgentId}`)) return true;
+  return false;
+}
+function loadAgentRuntimeTranscriptRows(filter) {
+  const targetAgentId = filter && filter.agentId ? cleanTranscriptComponent(filter.agentId, 160) : '';
+  const targetSessionId = filter && filter.sessionId ? cleanTranscriptComponent(filter.sessionId, 200) : '';
+  const targetRef = targetSessionId ? agentRuntimeSessionRef(targetAgentId, targetSessionId) : '';
+  const out = [];
+  for (const record of readAgentRuntimeTranscriptRecords()) {
+    if (!agentRuntimeTranscriptSessionMatches(record, targetAgentId, targetSessionId, targetRef)) {
+      const allowAgentFallback = filter && filter.allowAgentFallback === true;
+      const recordAgentId = cleanTranscriptComponent(record && record.agent_id, 160);
+      if (!allowAgentFallback || !targetAgentId || recordAgentId !== targetAgentId) continue;
+    }
+    if (!Array.isArray(record.messages)) continue;
+    for (const message of record.messages) {
+      if (message && typeof message === 'object') out.push(message);
+    }
+  }
+  return out;
+}
+function mergeAgentRuntimeMessageRows(baseRows, overlayRows, limit) {
+  const merged = new Map();
+  const order = [];
+  for (const row of [...(Array.isArray(baseRows) ? baseRows : []), ...(Array.isArray(overlayRows) ? overlayRows : [])]) {
+    if (!row || typeof row !== 'object') continue;
+    const key = cleanText(row.id || row.message_id || `${row.role || 'row'}:${row.timestamp || row.created_at || order.length}`, 260);
+    if (!merged.has(key)) order.push(key);
+    merged.set(key, row);
+  }
+  const rows = order.map((key, index) => ({ row: merged.get(key), index }));
+  rows.sort((a, b) => {
+    const at = cleanText(a.row && (a.row.timestamp || a.row.created_at || a.row.ts), 80);
+    const bt = cleanText(b.row && (b.row.timestamp || b.row.created_at || b.row.ts), 80);
+    if (at && bt && at !== bt) return at.localeCompare(bt, 'en');
+    if (at && !bt) return 1;
+    if (!at && bt) return -1;
+    return a.index - b.index;
+  });
+  return rows.map((entry) => entry.row).slice(-Math.max(1, Math.min(AGENT_RUNTIME_TRANSCRIPT_WINDOW_LIMIT, Number(limit) || AGENT_RUNTIME_TRANSCRIPT_WINDOW_LIMIT)));
+}
+function mergeAgentRuntimeTranscriptPayload(payload, options) {
+  const base = payload && typeof payload === 'object' ? { ...payload } : {};
+  const agentId = options && options.agentId ? cleanTranscriptComponent(options.agentId, 160) : '';
+  const sessionId = cleanTranscriptComponent(
+    (options && options.sessionId) ||
+      base.session_id ||
+      base.current_session_id ||
+      (base.session && base.session.id) ||
+      agentId,
+    200,
+  );
+  const limit = Math.max(1, Math.min(AGENT_RUNTIME_TRANSCRIPT_WINDOW_LIMIT, Number(options && options.limit) || AGENT_RUNTIME_TRANSCRIPT_WINDOW_LIMIT));
+  const overlayRows = loadAgentRuntimeTranscriptRows({ agentId, sessionId, allowAgentFallback: true });
+  if (!overlayRows.length) return base;
+  if (base.message_window && typeof base.message_window === 'object') {
+    const rows = mergeAgentRuntimeMessageRows(base.message_window.rows, overlayRows, limit);
+    base.message_window = {
+      ...base.message_window,
+      rows,
+      total_count: Math.max(Number(base.message_window.total_count) || 0, rows.length),
+      agent_runtime_transcript_overlay: true,
+    };
+  } else if (Array.isArray(base.messages)) {
+    base.messages = mergeAgentRuntimeMessageRows(base.messages, overlayRows, limit);
+    base.message_count = Math.max(Number(base.message_count) || 0, base.messages.length);
+  } else if (Array.isArray(base.turns)) {
+    base.turns = mergeAgentRuntimeMessageRows(base.turns, overlayRows, limit);
+  } else {
+    base.messages = mergeAgentRuntimeMessageRows([], overlayRows, limit);
+    base.message_count = base.messages.length;
+  }
+  base.agent_runtime_transcript_overlay = {
+    source: 'adapters.runtime.agent_runtime_transcript',
+    row_count: overlayRows.length,
+    bounded: true,
+    session_ref: agentRuntimeSessionRef(agentId, sessionId),
+  };
+  return base;
+}
+function agentRuntimeTranscriptFilterFromShellSocketPath(pathname) {
+  const match = String(pathname || '').match(/^\/api\/shell-socket\/sessions\/([^/]+)\/messages$/);
+  if (!match) return null;
+  return decodeAgentRuntimeSessionRef(match[1]);
 }
 function deterministicReceiptHash(value) {
   try {
@@ -1542,6 +1966,50 @@ async function runServe(flags) {
         }));
         return void sendJson(res, 200, payload);
       }
+      const legacyAgentSessionMatch = pathname.match(/^\/api\/agents\/([^/]+)\/session$/);
+      if (req.method === 'GET' && legacyAgentSessionMatch) {
+        const agentId = decodeURIComponent(legacyAgentSessionMatch[1] || '');
+        const upstreamPath = `${pathname}${requestUrl.search || ''}`;
+        const payload = await fetchBackendJson(flags, upstreamPath, 10000, traceId).catch((error) => ({
+          ok: false,
+          type: 'agent_session_projection_unavailable',
+          trace_id: traceId,
+          error: cleanText(error && error.message ? error.message : error, 240),
+        }));
+        const sessionId = payload && (payload.session_id || payload.current_session_id || (payload.session && payload.session.id));
+        const merged = mergeAgentRuntimeTranscriptPayload(payload, {
+          agentId,
+          sessionId,
+          limit: requestUrl.searchParams.get('limit'),
+        });
+        return void sendJson(res, merged.ok === false ? 502 : 200, merged);
+      }
+      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/turn/stream' || pathname === '/api/agent-runtime/turn/stream')) {
+        const body = await readJsonBody(req, 65536);
+        res.writeHead(200, {
+          'content-type': 'application/x-ndjson; charset=utf-8',
+          'cache-control': 'no-store',
+          'x-accel-buffering': 'no',
+        });
+        const writeEvent = (event) => {
+          if (res.writableEnded || res.destroyed) return;
+          try { res.write(`${JSON.stringify(event)}\n`); } catch {}
+        };
+        writeEvent({ type: 'start', trace_id: traceId, route: 'agent_runtime.turn.stream' });
+        const payload = await agentRuntimeTurnProjection(traceId, body, {
+          stream: true,
+          onActivity: (event) => writeEvent({ type: 'activity', trace_id: traceId, event }),
+        }).catch((error) => ({
+          ok: false,
+          status_code: 502,
+          type: 'agent_runtime_turn_stream_error',
+          trace_id: traceId,
+          error: cleanText(error && error.message ? error.message : error, 240),
+        }));
+        writeEvent({ type: 'final', trace_id: traceId, payload });
+        if (!res.writableEnded && !res.destroyed) res.end();
+        return;
+      }
       if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/turn' || pathname === '/api/agent-runtime/turn')) {
         const body = await readJsonBody(req, 65536);
         const payload = await agentRuntimeTurnProjection(traceId, body).catch((error) => ({
@@ -1552,6 +2020,13 @@ async function runServe(flags) {
           error: cleanText(error && error.message ? error.message : error, 240),
         }));
         return void sendJson(res, payload.status_code || (payload.ok === false ? 502 : 200), payload);
+      }
+      const approvalDecisionMatch = pathname.match(/^\/api\/shell-socket\/approvals\/([^/]+)\/decision$/);
+      if (req.method === 'POST' && approvalDecisionMatch) {
+        const body = await readJsonBody(req, 8192).catch(() => ({}));
+        const approvalId = decodeURIComponent(approvalDecisionMatch[1] || '');
+        const payload = agentRuntimeApprovalDecisionProjection(traceId, approvalId, body);
+        return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
       }
       const agentRuntimeInstallMatch = pathname.match(/^\/api\/(?:shell-socket\/)?agent-runtime\/engines\/([^/]+)\/install$/);
       if (req.method === 'POST' && agentRuntimeInstallMatch) {
@@ -1577,9 +2052,22 @@ async function runServe(flags) {
         }));
         return void sendJson(res, payload.ok === false ? 503 : 200, payload);
       }
+      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/selection' || pathname === '/api/agent-runtime/selection')) {
+        const body = await readJsonBody(req, 8192).catch(() => ({}));
+        const payload = agentRuntimeSelectionProjection(traceId, body);
+        return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
+      }
       if (req.method === 'GET' && isShellSocketChatProjectionPath(pathname)) {
         const result = await shellSocketChatProjection({ flags, requestUrl, traceId, fetchBackendJson });
-        return void sendJson(res, result.status, result.payload);
+        const filter = agentRuntimeTranscriptFilterFromShellSocketPath(pathname);
+        const payload = filter
+          ? mergeAgentRuntimeTranscriptPayload(result.payload, {
+            agentId: filter.agentId,
+            sessionId: filter.sessionId,
+            limit: requestUrl.searchParams.get('limit'),
+          })
+          : result.payload;
+        return void sendJson(res, result.status, payload);
       }
       if (req.method === 'GET' && isShellSocketStatusProjectionPath(pathname)) {
         const result = await shellSocketStatusProjection({ flags, traceId, fetchBackendJson, statusPayloadWithBootStage });

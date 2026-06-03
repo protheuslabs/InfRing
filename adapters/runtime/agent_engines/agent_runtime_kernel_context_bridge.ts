@@ -32,16 +32,31 @@ function candidateBinaryPaths(root) {
 
 function resolveKernelMaterializerCommand(root) {
   const workspaceRoot = root || process.cwd();
+  const cargoMode = cleanString(process.env.INFRING_AGENT_RUNTIME_CONTEXT_KERNEL_CARGO || 'auto', 20).toLowerCase();
+  const cargoExplicit = cargoMode === '1' || cargoMode === 'true' || cargoMode === 'on';
+  const manifestPath = path.join(workspaceRoot, 'core', 'layer2', 'memory', 'Cargo.toml');
+  const materializerSourcePath = path.join(workspaceRoot, 'core', 'layer2', 'memory', 'src', 'bin', 'agent_runtime_context_materializer.rs');
+  if (cargoExplicit) {
+    return {
+      mode: 'cargo',
+      command: 'cargo',
+      args: [
+        'run',
+        '--quiet',
+        '--manifest-path',
+        manifestPath,
+        '--bin',
+        'agent_runtime_context_materializer',
+      ],
+      auto: false,
+    };
+  }
   for (const candidate of candidateBinaryPaths(root)) {
     if (candidate && fs.existsSync(candidate)) {
       return { mode: 'binary', command: candidate, args: [] };
     }
   }
-  const cargoMode = cleanString(process.env.INFRING_AGENT_RUNTIME_CONTEXT_KERNEL_CARGO || 'auto', 20).toLowerCase();
-  const manifestPath = path.join(workspaceRoot, 'core', 'layer2', 'memory', 'Cargo.toml');
-  const materializerSourcePath = path.join(workspaceRoot, 'core', 'layer2', 'memory', 'src', 'bin', 'agent_runtime_context_materializer.rs');
   const cargoAllowed = cargoMode !== '0' && cargoMode !== 'false' && cargoMode !== 'off';
-  const cargoExplicit = cargoMode === '1' || cargoMode === 'true' || cargoMode === 'on';
   const cargoAuto = cargoMode === 'auto' && fs.existsSync(manifestPath) && fs.existsSync(materializerSourcePath);
   if (cargoAllowed && (cargoExplicit || cargoAuto)) {
     return {

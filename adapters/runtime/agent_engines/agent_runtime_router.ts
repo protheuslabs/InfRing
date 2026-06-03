@@ -150,7 +150,35 @@ function normalizeGatewayEvent(event, message, fallbackType) {
       engine_may_execute_directly: false,
       reason: cleanString(proposal.reason, 1000),
       argument_keys: Object.keys(proposal.arguments || {}).map((key) => cleanString(key, 80)).filter(Boolean).slice(0, 24),
+      permission_status: cleanString(proposal.permission_status, 120),
+      permission_requires_user_approval: proposal.permission_requires_user_approval === true,
+      permission_decision_key: cleanString(proposal.permission_decision_key, 200),
+      permission_gatekeeper_kind: cleanString(proposal.permission_gatekeeper_kind || 'user', 80) || 'user',
     };
+    if (normalizedProposal.permission_requires_user_approval) {
+      const approvalId = cleanString(`approval_${toolId}_${messageTraceId}_${normalizedProposal.turn_id}`, 260)
+        .replace(/[^a-zA-Z0-9_.:-]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      normalizedProposal.permission_request = {
+        type: 'permission.requested',
+        approval_id: approvalId,
+        trace_id: normalizedProposal.trace_id,
+        request_id: normalizedProposal.request_id,
+        engine_id: normalizedProposal.engine_id,
+        session_id: normalizedProposal.session_id,
+        turn_id: normalizedProposal.turn_id,
+        tool_call_ref: normalizedProposal.tool_call_ref,
+        tool_id: normalizedProposal.tool_id,
+        capability: normalizedProposal.capability,
+        reason: normalizedProposal.reason,
+        argument_keys: normalizedProposal.argument_keys,
+        gatekeeper_kind: normalizedProposal.permission_gatekeeper_kind,
+        future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor'],
+        decisions: ['allow_once', 'deny', 'always_allow_tool_call'],
+        decision_scope: 'tool_call',
+        approval_route: `/api/shell-socket/approvals/${encodeURIComponent(approvalId)}/decision`,
+      };
+    }
     if (hasForbiddenDefaultField(normalizedProposal) || payloadByteSize(normalizedProposal) > MAX_DEFAULT_EVENT_BYTES) {
       return makeErrorEvent(message, 'universal_tool_proposal_projection_invalid', 'Universal tool proposal projection failed Gateway payload policy.');
     }
@@ -246,6 +274,34 @@ function createAgentRuntimeRouter(options = {}) {
     }
   }
 
+  async function streamAdapter(message, onEvent) {
+    const dispatch = requireDispatch(message, 'submit_turn');
+    if (dispatch.error) return dispatch.error;
+    const method = dispatch.adapter && typeof dispatch.adapter.stream_turn === 'function' ? 'stream_turn' : 'submit_turn';
+    const emit = (event) => {
+      const normalized = normalizeGatewayEvent(event, dispatch.msg, 'agent_activity_event');
+      if (traceWriter && typeof traceWriter.write === 'function') traceWriter.write(normalized);
+      if (typeof onEvent === 'function') onEvent(normalized);
+      return normalized;
+    };
+    try {
+      const result = await dispatch.adapter[method]({
+        message: dispatch.msg,
+        engine: dispatch.engine,
+        registry: registryInfo.registry,
+        onActivity: emit,
+      });
+      const normalized = normalizeGatewayEvent(result, dispatch.msg, 'turn.complete');
+      if (traceWriter && typeof traceWriter.write === 'function') traceWriter.write(normalized);
+      return normalized;
+    } catch (err) {
+      const error = makeErrorEvent(dispatch.msg, 'agent_runtime_adapter_error', err && err.message ? err.message : String(err || 'adapter_error'));
+      if (traceWriter && typeof traceWriter.write === 'function') traceWriter.write(error);
+      if (typeof onEvent === 'function') onEvent(error);
+      return error;
+    }
+  }
+
   return {
     registry_path: registryInfo.path,
     listEngines,
@@ -259,6 +315,9 @@ function createAgentRuntimeRouter(options = {}) {
     },
     submitTurn(message) {
       return callAdapter(message, 'submit_turn', 'turn.complete');
+    },
+    streamTurn(message, onEvent) {
+      return streamAdapter(message, onEvent);
     },
     streamEvents(message) {
       return callAdapter(message, 'stream_events', 'heartbeat');

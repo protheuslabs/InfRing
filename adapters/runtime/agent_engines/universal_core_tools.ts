@@ -16,6 +16,18 @@ const UNIVERSAL_CORE_TOOL_IDS = Object.freeze([
   'permission.request',
 ]);
 
+const DEFAULT_ALLOWED_READ_TOOL_IDS = Object.freeze([
+  'conversation.read',
+  'memory.read',
+  'artifact.read',
+]);
+
+const APPROVAL_REQUIRED_TOOL_IDS = Object.freeze([
+  'memory.write_propose',
+  'artifact.create_propose',
+  'permission.request',
+]);
+
 const TOOL_DEFINITIONS = Object.freeze({
   'conversation.read': {
     capability: 'read_conversation_projection',
@@ -101,6 +113,60 @@ function grantRowsFor(toolIds) {
     }));
 }
 
+function cleanToolIdList(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((toolId) => cleanString(toolId, 120))
+    .filter((toolId) => UNIVERSAL_CORE_TOOL_IDS.includes(toolId));
+}
+
+function normalizePermissionPolicy(policy = {}) {
+  const source = policy && typeof policy === 'object' ? policy : {};
+  return {
+    gatekeeper_kind: cleanString(source.gatekeeper_kind || 'user', 80) || 'user',
+    future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor'],
+    default_allow_read_tools: true,
+    revoked_default_read_tools: cleanToolIdList(source.revoked_default_read_tools),
+    always_allowed_tool_calls: cleanToolIdList(source.always_allowed_tool_calls),
+    decision_scope: 'tool_call',
+  };
+}
+
+function permissionDecisionKey(toolId) {
+  return `agent-runtime-universal-tool:${cleanString(toolId, 120)}`;
+}
+
+function evaluateUniversalToolPermission(toolId, policy = {}) {
+  const normalized = normalizePermissionPolicy(policy);
+  const id = cleanString(toolId, 120);
+  const alwaysAllowed = new Set(normalized.always_allowed_tool_calls);
+  const revokedReads = new Set(normalized.revoked_default_read_tools);
+  if (alwaysAllowed.has(id)) {
+    return {
+      status: 'allowed_by_persistent_user_grant',
+      requires_user_approval: false,
+      decision_key: permissionDecisionKey(id),
+      gatekeeper_kind: normalized.gatekeeper_kind,
+      default_allow_read_policy: normalized.default_allow_read_tools,
+    };
+  }
+  if (DEFAULT_ALLOWED_READ_TOOL_IDS.includes(id) && normalized.default_allow_read_tools && !revokedReads.has(id)) {
+    return {
+      status: 'allowed_by_default_read_policy',
+      requires_user_approval: false,
+      decision_key: permissionDecisionKey(id),
+      gatekeeper_kind: normalized.gatekeeper_kind,
+      default_allow_read_policy: true,
+    };
+  }
+  return {
+    status: 'requires_user_approval',
+    requires_user_approval: true,
+    decision_key: permissionDecisionKey(id),
+    gatekeeper_kind: normalized.gatekeeper_kind,
+    default_allow_read_policy: normalized.default_allow_read_tools,
+  };
+}
+
 function buildUniversalToolGrants(options = {}) {
   const rows = grantRowsFor(options.toolIds);
   return {
@@ -114,6 +180,7 @@ function buildUniversalToolGrants(options = {}) {
     proposal_shape: 'infring_universal_tool_proposal',
     proposal_only: true,
     native_workflow_tools_exposed: false,
+    permission_policy: normalizePermissionPolicy(options.permissionPolicy),
     tools: rows,
   };
 }
@@ -126,6 +193,7 @@ function renderUniversalToolGrantPromptSection(grants) {
     'Universal InfRing core tools (proposal-only):',
     '- You may propose these tools when needed. Do not claim they executed.',
     '- Gateway validates proposals; Kernel/Memory/Artifact authority performs any durable effect and emits receipts.',
+    '- Read-only core tools may be default-allowed unless revoked; mutating/proposal tools require an approval gate.',
     '- Proposal JSON shape: {"type":"infring_universal_tool_proposal","tool_id":"memory.read","reason":"why needed","arguments":{}}',
   ];
   for (const tool of tools.slice(0, 12)) {
@@ -147,6 +215,7 @@ function normalizeUniversalToolProposal(value, grants) {
   if (hasForbiddenDefaultField(proposal)) {
     return { ok: false, error_code: 'universal_tool_forbidden_default_field', tool_id: toolId };
   }
+  const permission = evaluateUniversalToolPermission(toolId, grants && grants.permission_policy);
   return {
     ok: true,
     type: 'tool.proposed',
@@ -158,15 +227,24 @@ function normalizeUniversalToolProposal(value, grants) {
     arguments: proposal.arguments && typeof proposal.arguments === 'object' ? proposal.arguments : {},
     gateway_validation_required: true,
     engine_may_execute_directly: false,
+    permission_status: permission.status,
+    permission_requires_user_approval: permission.requires_user_approval,
+    permission_decision_key: permission.decision_key,
+    permission_gatekeeper_kind: permission.gatekeeper_kind,
   };
 }
 
 module.exports = {
   UNIVERSAL_CORE_TOOL_IDS,
+  DEFAULT_ALLOWED_READ_TOOL_IDS,
+  APPROVAL_REQUIRED_TOOL_IDS,
   TOOL_DEFINITIONS,
   FORBIDDEN_DEFAULT_FIELDS,
   buildUniversalToolGrants,
   renderUniversalToolGrantPromptSection,
   normalizeUniversalToolProposal,
+  normalizePermissionPolicy,
+  evaluateUniversalToolPermission,
+  permissionDecisionKey,
   hasForbiddenDefaultField,
 };

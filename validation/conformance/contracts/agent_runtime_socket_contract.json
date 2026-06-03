@@ -202,6 +202,27 @@
       ]
     },
     {
+      "type": "permission.requested",
+      "required_fields": [
+        "type",
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "turn_id",
+        "approval_id",
+        "tool_call_ref",
+        "tool_id",
+        "capability",
+        "gatekeeper_kind"
+      ],
+      "payload_rules": [
+        "permission requests are bounded projections attached to tool proposals",
+        "default-allowed read tools skip this event unless revoked by permission policy",
+        "mutating/proposal tools require allow_once, deny, or always_allow_tool_call",
+        "gatekeeper_kind defaults to user but may graduate to system_policy or agent_supervisor"
+      ]
+    },
+    {
       "type": "tool.started",
       "required_fields": [
         "type",
@@ -334,6 +355,7 @@
     "capability_budget_checks",
     "workspace_scope_checks",
     "mutation_approval_checks",
+    "runtime_neutral_permission_gate",
     "rate_limits",
     "timeouts",
     "cancellation",

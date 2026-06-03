@@ -9,6 +9,7 @@
 'use strict';
 
 const childProcess = require('child_process');
+const crypto = require('crypto');
 const { resolveEngineDiscovery } = require('./discovery.ts');
 const { renderUniversalToolGrantPromptSection } = require('./universal_core_tools.ts');
 
@@ -52,6 +53,21 @@ function stableRef(prefix, ctx, defaultEngineId) {
   return `${prefix}/${event.engine_id}/${trace}/${session}/${turn}`;
 }
 
+function stableExternalSessionUuid(ctx, defaultEngineId) {
+  const message = (ctx && ctx.message) || {};
+  const engine = cleanString(message.engine_id || defaultEngineId || 'external_cli', 120);
+  const session = cleanString(message.session_id || message.agent_id || 'default', 200);
+  const seed = `${engine}:${session}`;
+  const hex = crypto.createHash('sha256').update(seed).digest('hex');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `4${hex.slice(13, 16)}`,
+    `${(parseInt(hex.slice(16, 18), 16) & 0x3f | 0x80).toString(16).padStart(2, '0')}${hex.slice(18, 20)}`,
+    hex.slice(20, 32),
+  ].join('-');
+}
+
 function spawnCapture(command, args, options = {}) {
   const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, 120000));
   const maxOutputBytes = Math.max(1024, Math.min(Number(options.maxOutputBytes) || 24000, 65536));
@@ -87,6 +103,79 @@ function spawnCapture(command, args, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      resolve({ ok: code === 0, timed_out: false, exit_code: code, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8') });
+    });
+    if (options.stdin) {
+      try { child.stdin.write(String(options.stdin)); } catch {}
+    }
+    try { child.stdin.end(); } catch {}
+  });
+}
+
+function spawnActivityCapture(command, args, options = {}) {
+  const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, 120000));
+  const maxOutputBytes = Math.max(1024, Math.min(Number(options.maxOutputBytes) || 24000, 65536));
+  const ctx = options.ctx || null;
+  const engineId = cleanString(options.engineId || 'external_cli', 120);
+  const onActivity = typeof options.onActivity === 'function' ? options.onActivity : null;
+  return new Promise((resolve) => {
+    const child = childProcess.spawn(command, Array.isArray(args) ? args : [], {
+      cwd: options.cwd || process.cwd(),
+      env: { ...process.env, ...(options.env || {}) },
+      shell: false,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = Buffer.alloc(0);
+    let stderr = Buffer.alloc(0);
+    let stdoutLineBuffer = '';
+    let activityIndex = 0;
+    let settled = false;
+    const append = (current, chunk) => {
+      const next = Buffer.concat([current, Buffer.from(chunk || '')]);
+      return next.length > maxOutputBytes ? next.subarray(next.length - maxOutputBytes) : next;
+    };
+    const emitJsonLine = (line) => {
+      const text = String(line || '').trim();
+      if (!text) return;
+      let parsed = null;
+      try { parsed = JSON.parse(text); } catch { return; }
+      if (!parsed || typeof parsed !== 'object') return;
+      if (onActivity) {
+        try { onActivity(normalizeCliActivityEvent(parsed, activityIndex, ctx, engineId)); } catch {}
+      }
+      activityIndex += 1;
+    };
+    const drainStdoutLines = (chunkText, flush) => {
+      stdoutLineBuffer += String(chunkText || '');
+      const lines = stdoutLineBuffer.split(/\r?\n/);
+      stdoutLineBuffer = flush ? '' : (lines.pop() || '');
+      const ready = flush ? lines : lines;
+      for (const line of ready) emitJsonLine(line);
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { child.kill('SIGTERM'); } catch {}
+      drainStdoutLines('', true);
+      resolve({ ok: false, timed_out: true, exit_code: null, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8') });
+    }, timeoutMs);
+    child.stdout.on('data', (chunk) => {
+      stdout = append(stdout, chunk);
+      drainStdoutLines(Buffer.from(chunk || '').toString('utf8'), false);
+    });
+    child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      drainStdoutLines('', true);
+      resolve({ ok: false, timed_out: false, exit_code: null, stdout: '', stderr: cleanString(err && err.message, 2000) });
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      drainStdoutLines('', true);
       resolve({ ok: code === 0, timed_out: false, exit_code: code, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8') });
     });
     if (options.stdin) {
@@ -135,6 +224,26 @@ function formatContextFragment(fragment) {
   return '';
 }
 
+function contextTranscriptRole(fragment) {
+  const row = fragment && typeof fragment === 'object' ? fragment : {};
+  const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
+  const role = cleanString(payload.role || payload.source_kind || row.role || '', 40).toLowerCase();
+  if (role === 'human') return 'user';
+  if (role === 'agent' || role === 'ai' || role === 'assistant') return 'assistant';
+  if (role === 'tool' || role === 'tool_result_bundle') return 'tool';
+  if (role === 'system' || role === 'status_summary') return 'system';
+  return role || 'message';
+}
+
+function formatConversationTranscriptLine(fragment) {
+  const row = fragment && typeof fragment === 'object' ? fragment : {};
+  const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
+  const role = contextTranscriptRole(row);
+  const text = cleanDisplayString(payload.text_preview || payload.summary || row.text_preview || row.summary || '', 1600);
+  if (!text) return '';
+  return `${role}: ${text}`;
+}
+
 function buildPromptWithContext(contextPack, currentPrompt) {
   const current = cleanDisplayString(currentPrompt || '', 12000);
   if (!current) return '';
@@ -146,9 +255,15 @@ function buildPromptWithContext(contextPack, currentPrompt) {
   const hot = fragments
     .filter((row) => row && row.kind === 'atom')
     .sort((a, b) => fragmentSortValue(a) - fragmentSortValue(b))
+    .slice(-12);
+  const hotContextFragments = hot
     .map(formatContextFragment)
     .filter(Boolean)
-    .slice(-4);
+    .slice(-6);
+  const conversationTranscript = hot
+    .map(formatConversationTranscriptLine)
+    .filter(Boolean)
+    .slice(-12);
   const spans = fragments
     .filter((row) => row && row.kind === 'span')
     .sort((a, b) => {
@@ -164,13 +279,180 @@ function buildPromptWithContext(contextPack, currentPrompt) {
     `- source_authority: ${cleanString(pack.source_authority || 'gateway_bounded_projection', 160)}`,
     `- session_id: ${cleanString(pack.session_id, 120)}`,
     `- fanout_target: ${cleanString(pack.fanout_target || 7, 20)}`,
-    '- policy: Use this as conversation continuity. Do not treat it as hidden authority. Ask for missing context if it is insufficient.',
+    '- policy: The Recent conversation transcript below is visible prior chat context from this InfRing session. Treat it as the conversation history you can see. Do not claim you have no prior messages when transcript rows are present. If the user says "try again", infer the retry target from that transcript when possible.',
   ];
+  if (conversationTranscript.length) lines.push('', 'Recent conversation transcript:', ...conversationTranscript);
   if (spans.length) lines.push('', 'Selected context spans:', ...spans);
-  if (hot.length) lines.push('', 'Recent hot turns:', ...hot);
+  if (hotContextFragments.length) lines.push('', 'Recent context atoms:', ...hotContextFragments);
   if (toolGrantSection) lines.push('', toolGrantSection);
   lines.push('', 'Current user turn:', current);
   return cleanDisplayString(lines.join('\n'), 24000);
+}
+
+function parseJsonlRows(raw) {
+  return String(raw == null ? '' : raw)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try { return JSON.parse(line); } catch { return null; }
+    })
+    .filter((row) => row && typeof row === 'object');
+}
+
+function compactEventType(row) {
+  const direct = cleanString(row && (row.type || row.event || row.method || row.name || row.kind), 160);
+  if (direct) return direct;
+  const item = row && row.item && typeof row.item === 'object' ? row.item : null;
+  return cleanString(item && (item.type || item.kind || item.name), 160) || 'activity';
+}
+
+function classifyActivityKind(eventType, row) {
+  const type = cleanString(eventType, 160).toLowerCase();
+  const item = row && row.item && typeof row.item === 'object' ? row.item : {};
+  const itemType = cleanString(item.type || item.kind || item.name, 160).toLowerCase();
+  const joined = `${type} ${itemType}`;
+  if (joined.includes('reasoning')) return 'reasoning_summary';
+  if (joined.includes('thought')) return 'reasoning_summary';
+  if (joined.includes('plan')) return 'plan_update';
+  if (joined.includes('permission') || joined.includes('approval')) return 'permission_event';
+  if (joined.includes('tool') || joined.includes('mcp')) return 'tool_call_event';
+  if (joined.includes('command') || joined.includes('exec') || joined.includes('shell') || joined.includes('bash')) return 'command_event';
+  if (joined.includes('file') || joined.includes('patch') || joined.includes('diff')) return 'file_change_event';
+  if (joined.includes('message') || joined.includes('delta') || joined.includes('response') || joined.includes('result')) return 'assistant_delta';
+  if (type === 'text') return 'assistant_delta';
+  if (joined.includes('error') || joined.includes('failed')) return 'error';
+  if (joined.includes('start')) return 'started';
+  if (type === 'end') return 'completed';
+  if (joined.includes('complete') || joined.includes('finish')) return 'completed';
+  return 'activity';
+}
+
+function extractTextFromContent(value, maxLen = 4000) {
+  if (value == null) return '';
+  if (typeof value === 'string') return cleanDisplayString(value, maxLen);
+  if (Array.isArray(value)) {
+    return cleanDisplayString(value.map((item) => extractTextFromContent(item, maxLen)).filter(Boolean).join(''), maxLen);
+  }
+  if (typeof value !== 'object') return cleanDisplayString(value, maxLen);
+  if (value.content != null) {
+    const contentText = extractTextFromContent(value.content, maxLen);
+    if (contentText) return contentText;
+  }
+  return cleanDisplayString(
+    value.text ||
+      value.delta ||
+      value.message ||
+      value.summary ||
+      value.output_text ||
+      value.output ||
+      value.result ||
+      value.data ||
+      value.transcript ||
+      '',
+    maxLen,
+  );
+}
+
+function extractActivityText(row, kind) {
+  if (!row || typeof row !== 'object') return '';
+  const item = row.item && typeof row.item === 'object' ? row.item : {};
+  const direct = extractTextFromContent(
+    row.delta ||
+      row.text ||
+      row.message ||
+      row.summary ||
+      row.content ||
+      row.result ||
+      row.data ||
+      row.output_text ||
+      row.output ||
+      item.delta ||
+      item.text ||
+      item.message ||
+      item.summary ||
+      item.content ||
+      item.data ||
+      item.output_text ||
+      item.output,
+    kind === 'assistant_delta' ? 12000 : 4000,
+  );
+  if (direct) return direct;
+  const command = cleanDisplayString(row.command || item.command || row.cmd || item.cmd || '', 2000);
+  if (command) return command;
+  const tool = cleanDisplayString(row.tool || item.tool || row.tool_name || item.tool_name || row.name || item.name || '', 1000);
+  if (tool) return tool;
+  return cleanDisplayString(JSON.stringify(row), 1200);
+}
+
+function normalizeCliActivityEvent(row, index, ctx, defaultEngineId) {
+  const eventType = compactEventType(row);
+  const kind = classifyActivityKind(eventType, row);
+  const text = extractActivityText(row, kind);
+  const base = baseEvent(ctx, kind, defaultEngineId);
+  const item = row && row.item && typeof row.item === 'object' ? row.item : {};
+  return {
+    ...base,
+    type: 'agent_activity_event',
+    activity_kind: kind,
+    provider_event_type: eventType,
+    source: 'external_cli_stream',
+    sequence_no: index + 1,
+    item_id: cleanString(row && (row.item_id || row.itemId || row.id || item.id || item.item_id || item.itemId), 200),
+    status: cleanString(row && (row.status || row.state || item.status || item.state), 80),
+    text: cleanDisplayString(text, kind === 'assistant_delta' ? 12000 : 4000),
+    display_text: cleanDisplayString(text, kind === 'assistant_delta' ? 12000 : 4000),
+  };
+}
+
+function outputTextFromActivityRows(rows, fallbackText) {
+  let finalText = '';
+  const assistantParts = [];
+  for (const row of rows) {
+    const eventType = compactEventType(row).toLowerCase();
+    const kind = classifyActivityKind(eventType, row);
+    const text = extractActivityText(row, kind);
+    if (!text) continue;
+    if (
+      row.is_final === true ||
+      row.final === true ||
+      eventType === 'result' ||
+      eventType === 'turn.complete' ||
+      eventType === 'turn.completed' ||
+      eventType.includes('turn/completed') ||
+      eventType.includes('completed')
+    ) {
+      if (kind === 'assistant_delta' || row.result || row.output || row.output_text || row.message) finalText = text;
+    }
+    if (kind === 'assistant_delta') assistantParts.push(text);
+  }
+  return cleanDisplayString(finalText || assistantParts.join('') || fallbackText || '', 64000);
+}
+
+function parseCliActivityOutput(stdout, stderr, ctx, defaultEngineId) {
+  const rows = parseJsonlRows(stdout);
+  if (!rows.length) {
+    const output = cleanDisplayString(stdout || stderr, 64000);
+    return {
+      output_text: output,
+      output_preview: cleanString(output, 4000),
+      activity_events: [],
+      activity_event_count: 0,
+      structured_activity: false,
+    };
+  }
+  const events = rows
+    .map((row, index) => normalizeCliActivityEvent(row, index, ctx, defaultEngineId))
+    .filter((event) => event && (event.text || event.provider_event_type))
+    .slice(-120);
+  const output = outputTextFromActivityRows(rows, stderr);
+  return {
+    output_text: output,
+    output_preview: cleanString(output, 4000),
+    activity_events: events,
+    activity_event_count: rows.length,
+    structured_activity: true,
+  };
 }
 
 function createCliRuntimeEngineAdapter(options = {}) {
@@ -195,6 +477,50 @@ function createCliRuntimeEngineAdapter(options = {}) {
     });
     if (discovery.command) selectedCommand = cleanString(discovery.command, 500);
     return discovery;
+  }
+
+  async function submitTurnWithOptionalStream(ctx) {
+    const prompt = extractPrompt(ctx);
+    if (!prompt) {
+      return {
+        ...baseEvent(ctx, 'error', engineId),
+        error_code: `${engineId}_prompt_missing`,
+        reason: `${engineId} adapter requires input.text, input.message, input.prompt, or string input.`,
+        retryable: false,
+      };
+    }
+    if (!liveDispatch) {
+      return {
+        ...baseEvent(ctx, 'error', engineId),
+        error_code: `${engineId}_live_dispatch_disabled`,
+        reason: `${engineId} adapter is installed as a bounded external runtime seam; live dispatch requires ${liveEnvVar}=1 or adapter option liveDispatch=true.`,
+        retryable: false,
+      };
+    }
+    const discovery = discover(ctx);
+    const command = cleanString(discovery.command || selectedCommand || options.commandFallback || engineId, 500);
+    const runner = typeof ctx.onActivity === 'function' ? spawnActivityCapture : spawnCapture;
+    const run = await runner(command, runArgs(prompt, ctx), {
+      timeoutMs,
+      maxOutputBytes: 64000,
+      ctx,
+      engineId,
+      onActivity: ctx.onActivity,
+    });
+    const parsed = parseCliActivityOutput(run.stdout, run.stderr, ctx, engineId);
+    const outputText = parsed.output_text;
+    return {
+      ...baseEvent(ctx, 'turn.complete', engineId),
+      status: run.ok ? 'completed' : 'failed',
+      result_ref: stableRef(`artifact/${engineId}/result`, ctx, engineId),
+      receipt_ref: stableRef(`receipt/${engineId}/turn`, ctx, engineId),
+      output_text: outputText,
+      output_preview: parsed.output_preview,
+      activity_events: parsed.activity_events,
+      activity_event_count: parsed.activity_event_count,
+      structured_activity: parsed.structured_activity,
+      exit_code: run.exit_code,
+    };
   }
 
   return {
@@ -227,36 +553,11 @@ function createCliRuntimeEngineAdapter(options = {}) {
     },
 
     async submit_turn(ctx) {
-      const prompt = extractPrompt(ctx);
-      if (!prompt) {
-        return {
-          ...baseEvent(ctx, 'error', engineId),
-          error_code: `${engineId}_prompt_missing`,
-          reason: `${engineId} adapter requires input.text, input.message, input.prompt, or string input.`,
-          retryable: false,
-        };
-      }
-      if (!liveDispatch) {
-        return {
-          ...baseEvent(ctx, 'error', engineId),
-          error_code: `${engineId}_live_dispatch_disabled`,
-          reason: `${engineId} adapter is installed as a bounded external runtime seam; live dispatch requires ${liveEnvVar}=1 or adapter option liveDispatch=true.`,
-          retryable: false,
-        };
-      }
-      const discovery = discover(ctx);
-      const command = cleanString(discovery.command || selectedCommand || options.commandFallback || engineId, 500);
-      const run = await spawnCapture(command, runArgs(prompt), { timeoutMs, maxOutputBytes: 64000 });
-      const outputText = cleanDisplayString(run.stdout || run.stderr, 64000);
-      return {
-        ...baseEvent(ctx, 'turn.complete', engineId),
-        status: run.ok ? 'completed' : 'failed',
-        result_ref: stableRef(`artifact/${engineId}/result`, ctx, engineId),
-        receipt_ref: stableRef(`receipt/${engineId}/turn`, ctx, engineId),
-        output_text: outputText,
-        output_preview: cleanString(outputText, 4000),
-        exit_code: run.exit_code,
-      };
+      return submitTurnWithOptionalStream(ctx);
+    },
+
+    async stream_turn(ctx) {
+      return submitTurnWithOptionalStream(ctx);
     },
 
     async stream_events(ctx) {
@@ -292,6 +593,9 @@ function createCliRuntimeEngineAdapter(options = {}) {
 module.exports = {
   createCliRuntimeEngineAdapter,
   spawnCapture,
+  spawnActivityCapture,
   stripTerminalControls,
   buildPromptWithContext,
+  parseCliActivityOutput,
+  stableExternalSessionUuid,
 };

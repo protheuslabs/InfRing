@@ -15,7 +15,16 @@ function createGrokCodeEngineAdapter(options = {}) {
     artifactKind: 'grok_code_result_projection',
     receiptKind: 'grok_code_adapter_receipt',
     versionArgs: ['--version'],
-    runArgs: (prompt) => ['--disable-web-search', '--no-memory', '--no-subagents', '--no-plan', '--output-format', 'plain', '--verbatim', '--single', prompt],
+    runArgs: (prompt) => [
+      '--disable-web-search',
+      '--experimental-memory',
+      '--no-subagents',
+      '--output-format',
+      'streaming-json',
+      '--verbatim',
+      '--single',
+      prompt,
+    ],
     ...options,
   });
 }

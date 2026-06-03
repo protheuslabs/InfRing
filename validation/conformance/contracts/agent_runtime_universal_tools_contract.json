@@ -15,7 +15,9 @@
     "kernel_or_memory_executes_durable_effects": true,
     "receipts_required_for_durable_effects": true,
     "default_outputs_are_refs_or_bounded_projections": true,
-    "native_workflow_tools_are_not_universal_tools": true
+    "native_workflow_tools_are_not_universal_tools": true,
+    "permission_gatekeeper_is_runtime_neutral": true,
+    "engines_share_same_permission_policy_shape": true
   },
   "proposal_shape": {
     "type": "infring_universal_tool_proposal",
@@ -47,7 +49,34 @@
     "source_authority": "gateway_universal_core_tools_policy",
     "attached_to": "agent_runtime_context_pack.universal_tool_grants",
     "adapter_prompt_section_required": true,
-    "all_runtime_engines_receive_same_grant_shape": true
+    "all_runtime_engines_receive_same_grant_shape": true,
+    "permission_policy_attached": true
+  },
+  "permission_policy": {
+    "gatekeeper_kind_default": "user",
+    "future_gatekeeper_kinds": [
+      "user",
+      "system_policy",
+      "agent_supervisor"
+    ],
+    "default_allow_read_tools": [
+      "conversation.read",
+      "memory.read",
+      "artifact.read"
+    ],
+    "default_allow_can_be_revoked_in_settings": true,
+    "approval_required_tools": [
+      "memory.write_propose",
+      "artifact.create_propose",
+      "permission.request"
+    ],
+    "decisions": [
+      "allow_once",
+      "deny",
+      "always_allow_tool_call"
+    ],
+    "decision_scope": "tool_call",
+    "framework_independent": true
   },
   "tools": [
     {
