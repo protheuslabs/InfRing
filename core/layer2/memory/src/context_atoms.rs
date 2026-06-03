@@ -18,6 +18,7 @@ pub struct ContextAtom {
     pub sequence_no: u64,
     pub source_kind: ContextAtomSourceKind,
     pub source_ref: String,
+    pub text_preview: String,
     pub token_count: u32,
     pub timestamp_ms: u64,
     pub task_refs: Vec<String>,
@@ -32,6 +33,7 @@ impl ContextAtom {
         sequence_no: u64,
         source_kind: ContextAtomSourceKind,
         source_ref: &str,
+        text_preview: &str,
         token_count: u32,
         task_refs: Vec<String>,
         memory_version_refs: Vec<String>,
@@ -43,6 +45,7 @@ impl ContextAtom {
                 session_id.to_string(),
                 sequence_no,
                 source_ref.to_string(),
+                text_preview.to_string(),
                 token_count,
                 now_ms()
             ))[..24]
@@ -53,6 +56,7 @@ impl ContextAtom {
             sequence_no,
             source_kind,
             source_ref: source_ref.to_string(),
+            text_preview: text_preview.to_string(),
             token_count,
             timestamp_ms: now_ms(),
             task_refs,

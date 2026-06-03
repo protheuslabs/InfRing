@@ -10,6 +10,7 @@
 
 const childProcess = require('child_process');
 const { resolveEngineDiscovery } = require('./discovery.ts');
+const { buildPromptWithContext } = require('./cli_runtime_adapter.ts');
 
 function cleanString(value, max = 2000) {
   return stripTerminalControls(value).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -97,9 +98,10 @@ function spawnCapture(command, args, options = {}) {
 
 function extractPrompt(ctx) {
   const input = ctx && ctx.message && ctx.message.input;
-  if (typeof input === 'string') return cleanString(input, 12000);
-  if (input && typeof input === 'object') return cleanString(input.text || input.message || input.prompt || '', 12000);
-  return '';
+  let current = '';
+  if (typeof input === 'string') current = cleanString(input, 12000);
+  if (input && typeof input === 'object') current = cleanString(input.text || input.message || input.prompt || '', 12000);
+  return buildPromptWithContext(ctx && ctx.message && ctx.message.context_pack, current);
 }
 
 function createCodexCliEngineAdapter(options = {}) {
@@ -217,4 +219,5 @@ module.exports = {
   createCodexCliEngineAdapter,
   spawnCapture,
   stripTerminalControls,
+  extractPrompt,
 };

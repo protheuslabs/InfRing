@@ -169,6 +169,7 @@ pub fn materialize_topology_context(
                 payload: json!({
                     "source_kind": atom.source_kind,
                     "source_ref": atom.source_ref,
+                    "text_preview": atom.text_preview,
                     "task_refs": atom.task_refs,
                     "memory_version_refs": atom.memory_version_refs,
                     "sequence_no": atom.sequence_no,

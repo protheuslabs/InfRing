@@ -12,7 +12,11 @@
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-007",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-008",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-009",
-    "V13-AGENT-RUNTIME-ENGINE-SOCKET-010"
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-010",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-011",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-012",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-013",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-014"
   ],
   "policy_refs": [
     "docs/workspace/SRS.md",
@@ -93,7 +97,19 @@
         "scope",
         "capability_budget"
       ],
-      "purpose": "Submit a user turn to the selected runtime engine."
+      "purpose": "Submit a user turn to the selected runtime engine.",
+      "optional_fields": [
+        "context_pack",
+        "universal_tool_proposals"
+      ],
+      "payload_rules": [
+        "context_pack must follow validation/conformance/contracts/agent_runtime_context_pack_contract.json when present",
+        "context_pack is continuity context, not execution authority",
+        "raw conversation history is prohibited; use bounded fragments and refs",
+        "context_pack may include universal_tool_grants from validation/conformance/contracts/agent_runtime_universal_tools_contract.json",
+        "engines may propose universal tool calls only through Gateway-normalized proposal events",
+        "engines may not execute universal tools directly or claim durable effects without receipt refs"
+      ]
     },
     {
       "type": "turn.cancel",
@@ -179,7 +195,10 @@
       ],
       "payload_rules": [
         "tool inputs are redacted projections",
-        "raw tool input requires detail route and policy"
+        "raw tool input requires detail route and policy",
+        "universal tool proposals must match validation/conformance/contracts/agent_runtime_universal_tools_contract.json",
+        "proposal-only universal tools require Gateway validation before execution",
+        "native workflow tools are not exposed as universal tools"
       ]
     },
     {
@@ -290,6 +309,7 @@
       ]
     }
   ],
+  "context_pack_contract": "validation/conformance/contracts/agent_runtime_context_pack_contract.json",
   "forbidden_default_payload_fields": [
     "raw",
     "root",
@@ -361,5 +381,6 @@
     "gateway_reports_custom_location_allowed": true,
     "shell_may_not_infer_install_state": true,
     "shell_may_not_probe_user_filesystem_directly": true
-  }
+  },
+  "universal_tools_contract": "validation/conformance/contracts/agent_runtime_universal_tools_contract.json"
 }

@@ -1,0 +1,140 @@
+{
+  "type": "agent_runtime_universal_tools_contract",
+  "schema_version": 1,
+  "version": "2026-06-03",
+  "owner": "gateway.agent_runtime_router",
+  "status": "proposal_only_first_slice",
+  "srs_refs": [
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-014"
+  ],
+  "purpose": "Expose a tiny engine-agnostic core-tool surface to native and external runtime engines without giving engines direct Kernel, Memory, Artifact, or Shell authority.",
+  "authority_model": {
+    "engines_may_propose_tool_calls": true,
+    "engines_may_not_execute_universal_tools_directly": true,
+    "gateway_validates_tool_proposals": true,
+    "kernel_or_memory_executes_durable_effects": true,
+    "receipts_required_for_durable_effects": true,
+    "default_outputs_are_refs_or_bounded_projections": true,
+    "native_workflow_tools_are_not_universal_tools": true
+  },
+  "proposal_shape": {
+    "type": "infring_universal_tool_proposal",
+    "required_fields": [
+      "type",
+      "tool_id",
+      "reason",
+      "arguments"
+    ],
+    "forbidden_default_fields": [
+      "raw",
+      "root",
+      "all_messages",
+      "conversation_tree",
+      "raw_tool_input",
+      "raw_tool_result",
+      "trace_body",
+      "plan_graph",
+      "workflow_graph",
+      "execution_observation",
+      "authorization_state",
+      "policy_decision",
+      "external_framework_transcript",
+      "adapter_process_dump"
+    ]
+  },
+  "tool_grant_pack": {
+    "type": "agent_runtime_universal_tool_grants",
+    "source_authority": "gateway_universal_core_tools_policy",
+    "attached_to": "agent_runtime_context_pack.universal_tool_grants",
+    "adapter_prompt_section_required": true,
+    "all_runtime_engines_receive_same_grant_shape": true
+  },
+  "tools": [
+    {
+      "tool_id": "conversation.read",
+      "capability": "read_conversation_projection",
+      "mode": "gateway_read_projection",
+      "durable_effect": "none",
+      "allowed_arguments": [
+        "session_id",
+        "cursor",
+        "limit",
+        "detail_refs"
+      ],
+      "output_policy": "bounded_rows_and_refs_only"
+    },
+    {
+      "tool_id": "memory.read",
+      "capability": "read_memory_projection",
+      "mode": "gateway_to_kernel_memory_read",
+      "durable_effect": "none",
+      "allowed_arguments": [
+        "query",
+        "scope",
+        "limit",
+        "memory_refs"
+      ],
+      "output_policy": "bounded_summaries_and_memory_refs_only"
+    },
+    {
+      "tool_id": "memory.write_propose",
+      "capability": "propose_memory_write",
+      "mode": "proposal_only",
+      "durable_effect": "kernel_authorized_after_gateway_policy",
+      "allowed_arguments": [
+        "summary",
+        "evidence_refs",
+        "scope",
+        "reason"
+      ],
+      "output_policy": "proposal_ref_and_receipt_ref_only"
+    },
+    {
+      "tool_id": "artifact.read",
+      "capability": "read_artifact_projection",
+      "mode": "gateway_read_projection",
+      "durable_effect": "none",
+      "allowed_arguments": [
+        "artifact_ref",
+        "view",
+        "limit"
+      ],
+      "output_policy": "bounded_artifact_projection_only"
+    },
+    {
+      "tool_id": "artifact.create_propose",
+      "capability": "propose_artifact_create",
+      "mode": "proposal_only",
+      "durable_effect": "kernel_or_gateway_authorized_after_policy",
+      "allowed_arguments": [
+        "artifact_kind",
+        "summary",
+        "content_ref",
+        "reason"
+      ],
+      "output_policy": "proposal_ref_and_receipt_ref_only"
+    },
+    {
+      "tool_id": "permission.request",
+      "capability": "request_permission",
+      "mode": "proposal_only",
+      "durable_effect": "permission_gate_only",
+      "allowed_arguments": [
+        "permission",
+        "scope",
+        "reason",
+        "risk_summary"
+      ],
+      "output_policy": "permission_request_ref_only"
+    }
+  ],
+  "forbidden_universalization": [
+    "web_search",
+    "workflow_execution",
+    "native_research_tools",
+    "terminal_command_execution",
+    "direct_file_write",
+    "direct_kernel_mutation",
+    "direct_shell_socket_access"
+  ]
+}

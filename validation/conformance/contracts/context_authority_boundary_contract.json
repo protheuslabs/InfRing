@@ -1,0 +1,83 @@
+{
+  "type": "context_authority_boundary_contract",
+  "schema_version": 1,
+  "version": "2026-06-03",
+  "owner": "assurance.validation",
+  "status": "active",
+  "purpose": "Prevent context/memory authority from reappearing outside Kernel while agent-runtime engines receive bounded shared context.",
+  "canonical_authority": {
+    "owner": "kernel.layer2.memory",
+    "source_basis": "core.layer2.memory.context_topology",
+    "allowed_authority_paths": [
+      "core/layer2/memory/src/context_atoms.rs",
+      "core/layer2/memory/src/context_topology.rs",
+      "core/layer2/memory/src/context_materializer.rs",
+      "core/layer2/memory/src/context_budget.rs",
+      "core/layer2/memory/src/context_compaction.rs",
+      "core/layer2/memory/src/bin/agent_runtime_context_materializer.rs"
+    ],
+    "required_operations": [
+      "append_context_atom",
+      "materialize_context_topology"
+    ]
+  },
+  "allowed_non_authority_roles": {
+    "gateway_bridge": {
+      "allowed_paths": [
+        "adapters/runtime/agent_engines/agent_runtime_kernel_context_bridge.ts"
+      ],
+      "may_spawn_kernel_materializer": true,
+      "may_use_workspace_cargo_auto_when_binary_is_unavailable": true,
+      "may_return_bounded_pack_projection": true,
+      "may_define_context_semantics": false
+    },
+    "transitional_gateway_cache": {
+      "allowed_paths": [
+        "adapters/runtime/agent_engines/agent_runtime_context_store.ts"
+      ],
+      "canonical_authority": false,
+      "may_persist_bootstrap_projection_rows": true,
+      "may_materialize_only_when_kernel_unavailable": true,
+      "retirement_trigger": "kernel_materializer_packaged_for_runtime",
+      "deadline": "2026-07-15"
+    },
+    "shell_projection": {
+      "allowed_paths": [
+        "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/200-send-pipeline.part01.ts"
+      ],
+      "may_send_bounded_projection_rows": true,
+      "may_send_full_conversation": false,
+      "may_own_context_memory": false
+    },
+    "adapter_injection": {
+      "allowed_paths": [
+        "adapters/runtime/agent_engines/cli_runtime_adapter.ts"
+      ],
+      "may_prepend_context_pack_to_prompt": true,
+      "may_mutate_pack": false,
+      "may_treat_external_engine_memory_as_canonical": false
+    }
+  },
+  "legacy_context_systems": {
+    "core/layer0/ops/src/memory/stacks": {
+      "classification": "non_canonical_legacy_operator_cache",
+      "runtime_engine_context_authority_allowed": false,
+      "migration_target": "core/layer2/memory.context_topology",
+      "required_next_action": "Either retire, narrow to operator cache, or migrate callers to Layer-2 context topology."
+    }
+  },
+  "forbidden_patterns": [
+    "new context authority outside core/layer2/memory",
+    "Gateway context cache used when Kernel materializer is available",
+    "Shell sends full conversation as engine context",
+    "Adapter stores external-engine transcript as canonical InfRing memory",
+    "Legacy context-stacks selected as runtime-engine context source"
+  ],
+  "production_invariants": {
+    "kernel_materializer_is_required_for_production": true,
+    "workspace_dev_may_auto_run_cargo_materializer": true,
+    "fallback_must_emit_transitional_reason": true,
+    "fallback_must_have_retirement_trigger": true,
+    "all_engine_context_packs_share_one_shape": true
+  }
+}

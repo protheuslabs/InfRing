@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T20:01:41.207Z",
+  "updated_at": "2026-06-03T15:18:53.667Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -177,6 +177,90 @@
       "summary": "Live split-debt artifacts are classified, but decomposition is blocked until the outside-lane dashboard compat compile blocker is fixed so owner-scoped renames can be validated.",
       "work_gate": "simplification",
       "real_work_score": 3
+    },
+    {
+      "id": "AGENT-RUNTIME-CONTEXT-CONTRACT",
+      "title": "Define the shared AgentRuntimeTurnEnvelope contract",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-17",
+      "source_family": "Agent Runtime Context Bridge",
+      "summary": "Create the engine-agnostic context envelope contract so native Infring, Codex, Claude Code, Grok Code, and socket engines receive the same bounded conversation, memory, permission, artifact, and tool-grant shape.",
+      "work_gate": "reliability",
+      "real_work_score": 5,
+      "status": "in_progress",
+      "updated_at": "2026-06-03T18:37:16.449Z",
+      "progress_note": "In progress: added AgentRuntimeContextPack and context authority boundary contracts. Remaining: decide whether to preserve the AgentRuntimeTurnEnvelope name as wrapper around the pack or retire that wording in favor of the pack contract."
+    },
+    {
+      "id": "AGENT-RUNTIME-CONTEXT-BUILDER",
+      "title": "Build Gateway-owned runtime context assembly",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-17",
+      "source_family": "Agent Runtime Context Bridge",
+      "summary": "Have Gateway assemble bounded conversation windows, summaries, refs, session identity, and context budgets for every runtime turn instead of passing only the latest prompt.",
+      "work_gate": "real_work",
+      "real_work_score": 5,
+      "status": "in_progress",
+      "updated_at": "2026-06-03T18:37:16.449Z",
+      "progress_note": "In progress: Gateway now assembles bounded context projections, persists transitional rows, prefers the Kernel materializer bridge, and falls back only when Kernel materializer is unavailable. Remaining: package Kernel materializer binary for production runtime so fallback becomes rare."
+    },
+    {
+      "id": "AGENT-RUNTIME-MEMORY-BRIDGE",
+      "title": "Bridge unified memory into runtime context",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-17",
+      "source_family": "Agent Runtime Context Bridge",
+      "summary": "Attach bounded relevant memory projections and refs to the runtime envelope so engine switches preserve durable Infring context without exposing raw memory dumps.",
+      "work_gate": "real_work",
+      "real_work_score": 5,
+      "status": "in_progress",
+      "updated_at": "2026-06-03T18:37:16.449Z",
+      "progress_note": "In progress: Layer-2 context topology now carries bounded text previews through Kernel materialization. Remaining: retrieve relevant durable unified-memory projections by scope, not only session/conversation atoms."
+    },
+    {
+      "id": "AGENT-RUNTIME-ADAPTER-CONTEXT-INJECTION",
+      "title": "Inject shared context into CLI and socket adapters",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-17",
+      "source_family": "Agent Runtime Context Bridge",
+      "summary": "Render the shared envelope into a consistent bounded adapter preamble for Codex, Claude Code, Grok Code, custom socket engines, and native Infring without engine-specific prompt drift.",
+      "work_gate": "real_work",
+      "real_work_score": 5,
+      "status": "in_progress",
+      "updated_at": "2026-06-03T18:37:16.449Z",
+      "progress_note": "In progress: Codex, Claude Code, and Grok Code use the shared bounded context-preamble helper. Remaining: extend same helper to custom socket engines once implemented."
+    },
+    {
+      "id": "AGENT-RUNTIME-CORE-TOOLS",
+      "title": "Define universal core tools for swappable engines",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-17",
+      "source_family": "Agent Runtime Context Bridge",
+      "summary": "Separate universal tools like conversation read, memory read/write-propose, artifact refs, and permission requests from native-only workflow tools, with Gateway enforcement and receipts.",
+      "work_gate": "reliability",
+      "real_work_score": 5,
+      "status": "in_progress",
+      "updated_at": "2026-06-03T19:35:48.539Z",
+      "progress_note": "In progress: added universal core-tool contract, Gateway grant builder, adapter prompt section, context-pack grant attachment, and conformance checks. Remaining: implement actual Gateway execution/read routes for conversation.read, memory.read, memory.write_propose, artifact.read, artifact.create_propose, and permission.request after proposal normalization."
+    },
+    {
+      "id": "AGENT-RUNTIME-CONTEXT-EVAL",
+      "title": "Prove context continuity while switching engines",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-17",
+      "source_family": "Agent Runtime Context Bridge",
+      "summary": "Add live/context-continuity evals that establish conversation facts, switch among native, Codex, Claude Code, and Grok Code, and verify the new engine can code or reason using prior conversation and unified memory.",
+      "work_gate": "real_work",
+      "real_work_score": 5,
+      "status": "in_progress",
+      "updated_at": "2026-06-03T18:37:16.449Z",
+      "progress_note": "In progress: added deterministic no-provider context continuity eval across native, Codex, Claude Code, and Grok Code engine IDs. Remaining: add opt-in live provider continuity eval when engines are locally available."
     }
   ]
 }

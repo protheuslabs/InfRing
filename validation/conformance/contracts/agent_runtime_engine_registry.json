@@ -12,7 +12,8 @@
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-007",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-008",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-009",
-    "V13-AGENT-RUNTIME-ENGINE-SOCKET-010"
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-010",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-014"
   ],
   "socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
   "selection_rule": "Shell and external clients may select engine_id only through the Gateway socket. Engine-specific execution remains behind Gateway adapters.",
@@ -515,5 +516,7 @@
       "default_url_probe",
       "missing_installable"
     ]
-  }
+  },
+  "universal_tools_contract": "validation/conformance/contracts/agent_runtime_universal_tools_contract.json",
+  "universal_tools_selection_rule": "All selectable engines receive the same Gateway-owned universal core-tool grant shape; engines propose calls, Gateway validates, Kernel/Memory/Artifact authority executes durable effects."
 }

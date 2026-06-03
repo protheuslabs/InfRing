@@ -1,0 +1,136 @@
+{
+  "type": "agent_runtime_context_pack_contract",
+  "schema_version": 1,
+  "version": "2026-06-03",
+  "owner": "assurance.validation",
+  "status": "kernel_authority_with_transitional_gateway_fallback",
+  "srs_refs": [
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-010",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-011",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-012",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-013"
+  ],
+  "context_authority_boundary_contract": "validation/conformance/contracts/context_authority_boundary_contract.json",
+  "canonical_basis": {
+    "source": "core.layer2.memory.context_topology",
+    "authority_owner": "kernel.layer2.memory",
+    "atoms": "core/layer2/memory/src/context_atoms.rs",
+    "topology": "core/layer2/memory/src/context_topology.rs",
+    "materializer": "core/layer2/memory/src/context_materializer.rs",
+    "budget": "core/layer2/memory/src/context_budget.rs",
+    "compaction": "core/layer2/memory/src/context_compaction.rs",
+    "runtime_materializer_cli": "core/layer2/memory/src/bin/agent_runtime_context_materializer.rs"
+  },
+  "hierarchy": {
+    "fanout_target": 7,
+    "hot_tail_count": 4,
+    "level_0": "up to 7 interaction/tool/status atoms",
+    "level_1": "up to 7 sealed level-0 spans",
+    "level_2": "up to 7 sealed level-1 spans",
+    "higher_levels": "repeat 7-way rollup while fidelity and continuity hold"
+  },
+  "required_pack_fields": [
+    "schema_version",
+    "type",
+    "source_basis",
+    "source_authority",
+    "session_id",
+    "agent_id",
+    "fanout_target",
+    "hot_tail_count",
+    "frontier",
+    "fragments"
+  ],
+  "required_frontier_fields": [
+    "session_id",
+    "hot_atom_refs",
+    "warm_span_refs",
+    "cool_span_refs",
+    "cold_span_refs",
+    "pinned_anchor_refs",
+    "budget_tokens",
+    "used_tokens",
+    "pressure_state",
+    "fidelity_score"
+  ],
+  "allowed_fragment_kinds": [
+    "atom",
+    "span",
+    "memory_version",
+    "task_anchor"
+  ],
+  "default_payload_forbidden_fields": [
+    "raw",
+    "root",
+    "all_messages",
+    "conversation_tree",
+    "raw_tool_input",
+    "raw_tool_result",
+    "trace_body",
+    "plan_graph",
+    "workflow_graph",
+    "execution_observation",
+    "authorization_state",
+    "policy_decision",
+    "external_framework_transcript",
+    "adapter_process_dump"
+  ],
+  "authority_boundary": {
+    "kernel_owns_context_truth": true,
+    "gateway_may_bridge_and_project": true,
+    "gateway_may_cache_only_as_transitional_fallback": true,
+    "gateway_cache_is_authoritative": false,
+    "shell_may_only_send_display_projection_rows": true,
+    "adapters_may_inject_bounded_context_pack_only": true,
+    "external_engines_may_not_replace_infring_context_pack": true,
+    "old_context_stacks_are_not_runtime_engine_authority": true
+  },
+  "live_slice_policy": {
+    "kernel_materializer_cli_required": true,
+    "production_requires_kernel_materializer": true,
+    "workspace_dev_may_use_kernel_materializer_cargo_auto": true,
+    "kernel_materializer_auto_cargo_disable_env": "INFRING_AGENT_RUNTIME_CONTEXT_KERNEL_CARGO=0",
+    "gateway_must_prefer_kernel_materializer_when_available": true,
+    "gateway_store_fallback_allowed_when_kernel_materializer_unavailable": true,
+    "gateway_context_store_is_transitional": true,
+    "gateway_context_store_retirement_trigger": "kernel_materializer_packaged_for_runtime",
+    "gateway_context_store_required_until_kernel_materializer_route_live": true,
+    "gateway_must_build_or_normalize_pack": true,
+    "gateway_must_append_user_turn_atoms": true,
+    "gateway_must_append_assistant_turn_atoms": true,
+    "gateway_must_materialize_pack_from_stored_atoms_only_when_kernel_unavailable": true,
+    "shell_may_only_send_bounded_projection_rows": true,
+    "shell_may_not_send_full_conversation": true,
+    "adapter_must_inject_pack_before_current_turn": true,
+    "adapter_must_mark_pack_as_context_not_authority": true,
+    "kernel_materializer_route_is_target_source": true,
+    "gateway_projection_source_is_transitional_until_kernel_route_live": true
+  },
+  "engine_switch_continuity_rule": {
+    "same_session_same_pack_shape_for_all_engines": true,
+    "native_and_external_engines_receive_equivalent_context_contract": true,
+    "engine_specific_private_memory_may_not_replace_infring_context_pack": true,
+    "context_continuity_eval_required": true,
+    "continuity_eval_artifact": "core/local/artifacts/agent_runtime_context_continuity_eval_current.json"
+  },
+  "universal_tools_contract": "validation/conformance/contracts/agent_runtime_universal_tools_contract.json",
+  "universal_tool_policy": {
+    "attached_to_context_pack": true,
+    "source_authority": "gateway_universal_core_tools_policy",
+    "proposal_only": true,
+    "engines_may_not_execute_directly": true,
+    "gateway_validation_required": true,
+    "native_workflow_tools_exposed": false,
+    "allowed_tool_ids": [
+      "conversation.read",
+      "memory.read",
+      "memory.write_propose",
+      "artifact.read",
+      "artifact.create_propose",
+      "permission.request"
+    ]
+  },
+  "required_gateway_enriched_pack_fields": [
+    "universal_tool_grants"
+  ]
+}

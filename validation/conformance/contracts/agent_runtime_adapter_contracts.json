@@ -9,7 +9,8 @@
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-007",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-008",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-009",
-    "V13-AGENT-RUNTIME-ENGINE-SOCKET-010"
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-010",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-014"
   ],
   "policy_refs": [
     "docs/workspace/SRS.md",
@@ -91,6 +92,11 @@
         ],
         "install_state_source": "internal_native_engine",
         "notes": "Native orchestration is selected through Gateway; it does not require external path discovery."
+      },
+      "universal_tool_posture": {
+        "receives_gateway_grants": true,
+        "direct_execution_allowed": false,
+        "proposal_shape": "infring_universal_tool_proposal"
       }
     },
     {
@@ -133,6 +139,11 @@
           "default_location_probe",
           "missing_installable"
         ]
+      },
+      "universal_tool_posture": {
+        "receives_gateway_grants": true,
+        "direct_execution_allowed": false,
+        "proposal_shape": "infring_universal_tool_proposal"
       }
     },
     {
@@ -174,6 +185,11 @@
           "default_location_probe",
           "missing_installable"
         ]
+      },
+      "universal_tool_posture": {
+        "receives_gateway_grants": true,
+        "direct_execution_allowed": false,
+        "proposal_shape": "infring_universal_tool_proposal"
       }
     },
     {
@@ -215,6 +231,11 @@
           "default_location_probe",
           "missing_installable"
         ]
+      },
+      "universal_tool_posture": {
+        "receives_gateway_grants": true,
+        "direct_execution_allowed": false,
+        "proposal_shape": "infring_universal_tool_proposal"
       }
     },
     {
@@ -249,6 +270,11 @@
           "default_url_probe",
           "missing_installable"
         ]
+      },
+      "universal_tool_posture": {
+        "receives_gateway_grants": true,
+        "direct_execution_allowed": false,
+        "proposal_shape": "infring_universal_tool_proposal"
       }
     },
     {
@@ -282,6 +308,11 @@
           "default_url_probe",
           "missing_installable"
         ]
+      },
+      "universal_tool_posture": {
+        "receives_gateway_grants": true,
+        "direct_execution_allowed": false,
+        "proposal_shape": "infring_universal_tool_proposal"
       }
     },
     {
@@ -315,6 +346,11 @@
           "default_url_probe",
           "missing_installable"
         ]
+      },
+      "universal_tool_posture": {
+        "receives_gateway_grants": true,
+        "direct_execution_allowed": false,
+        "proposal_shape": "infring_universal_tool_proposal"
       }
     },
     {
@@ -345,6 +381,11 @@
           "environment_variable",
           "missing_installable"
         ]
+      },
+      "universal_tool_posture": {
+        "receives_gateway_grants": true,
+        "direct_execution_allowed": false,
+        "proposal_shape": "infring_universal_tool_proposal"
       }
     }
   ],
@@ -366,5 +407,12 @@
     "path_and_default_locations_are_lower_authority_probes": true,
     "socket_urls_must_be_health_checked_before_available": true,
     "missing_engines_project_download_or_config_action": true
+  },
+  "universal_tools_contract": "validation/conformance/contracts/agent_runtime_universal_tools_contract.json",
+  "universal_tools_invariant": {
+    "adapters_may_render_tool_grants": true,
+    "adapters_may_not_execute_universal_tools_directly": true,
+    "adapters_may_not_expose_native_workflow_tools_as_universal": true,
+    "universal_tool_proposals_must_be_gateway_normalized": true
   }
 }

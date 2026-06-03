@@ -194,12 +194,44 @@
       this.scheduleConversationPersist();
 
       try {
+        var contextRows = [];
+        var historyRows = Array.isArray(this.messages) ? this.messages : [];
+        var currentTextForContext = String(finalText || '').trim();
+        for (var ctxIdx = Math.max(0, historyRows.length - 64); ctxIdx < historyRows.length; ctxIdx++) {
+          var ctxMsg = historyRows[ctxIdx] || {};
+          if (ctxMsg.thinking) continue;
+          var ctxRole = String(ctxMsg.role || ctxMsg.origin_kind || '').trim() || 'message';
+          var ctxText = '';
+          if (typeof this.extractMessageVisibleText === 'function') {
+            ctxText = String(this.extractMessageVisibleText(ctxMsg) || '');
+          } else {
+            ctxText = String(ctxMsg.text || ctxMsg.message || ctxMsg.content || '');
+          }
+          ctxText = ctxText.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim();
+          if (!ctxText) continue;
+          if (ctxIdx === historyRows.length - 1 && ctxRole === 'user' && ctxText.trim() === currentTextForContext) continue;
+          contextRows.push({
+            id: String(ctxMsg.id || ('message-' + ctxIdx)).slice(0, 160),
+            role: ctxRole.slice(0, 40),
+            text_preview: ctxText.slice(0, 1200),
+            detail_ref: String(ctxMsg.detail_ref || ctxMsg.id || '').slice(0, 240),
+            timestamp: ctxMsg.ts || ctxMsg.timestamp || null,
+            source_kind: ctxMsg.tool_call_ref || ctxRole === 'tool' ? 'tool_result_bundle' : 'interaction_unit'
+          });
+        }
+        contextRows = contextRows.slice(-49);
         var res = await InfringAPI.post('/api/shell-socket/agent-runtime/turn', {
           engine_id: engineId,
           agent_id: targetAgentId,
           session_id: String((this.currentAgent && (this.currentAgent.session_id || this.currentAgent.id)) || targetAgentId || ''),
           message: String(finalText || ''),
-          attachments: Array.isArray(uploadedFiles) ? uploadedFiles.slice(0, 12) : []
+          attachments: Array.isArray(uploadedFiles) ? uploadedFiles.slice(0, 12) : [],
+          context_projection: {
+            schema_version: 1,
+            source: 'shell_bounded_message_projection',
+            fanout_target: 7,
+            rows: contextRows
+          }
         });
         typeof this.clearTransientThinkingRows === 'function'
           ? this.clearTransientThinkingRows({ force: true })

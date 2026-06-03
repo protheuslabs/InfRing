@@ -11,6 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createAgentRuntimeTraceWriter } = require('./agent_runtime_trace_writer.ts');
+const { normalizeUniversalToolProposal } = require('./universal_core_tools.ts');
 
 const DEFAULT_REGISTRY_PATH = path.join(
   'validation',
@@ -127,6 +128,33 @@ function normalizeGatewayEvent(event, message, fallbackType) {
       'agent_runtime_trace_id_replaced',
       'Agent runtime adapter attempted to replace the canonical trace_id.',
     );
+  }
+  if (source.type === 'infring_universal_tool_proposal') {
+    const proposal = normalizeUniversalToolProposal(source, message && message.context_pack && message.context_pack.universal_tool_grants);
+    if (!proposal.ok) {
+      return makeErrorEvent(message, proposal.error_code || 'universal_tool_proposal_invalid', 'Universal tool proposal was rejected by Gateway policy.');
+    }
+    const toolId = cleanString(proposal.tool_id, 120);
+    const normalizedProposal = {
+      type: 'tool.proposed',
+      trace_id: messageTraceId,
+      request_id: cleanString(source.request_id || (message && message.request_id), 200),
+      engine_id: cleanString(source.engine_id || (message && message.engine_id), 120),
+      session_id: cleanString(source.session_id || (message && message.session_id), 200),
+      turn_id: cleanString(source.turn_id || (message && message.turn_id), 200),
+      tool_call_ref: `tool-proposal/${toolId}/${messageTraceId}/${cleanString((message && message.turn_id) || source.turn_id || 'turn', 120)}`,
+      capability: cleanString(proposal.capability, 160),
+      tool_id: toolId,
+      proposal_only: true,
+      gateway_validation_required: true,
+      engine_may_execute_directly: false,
+      reason: cleanString(proposal.reason, 1000),
+      argument_keys: Object.keys(proposal.arguments || {}).map((key) => cleanString(key, 80)).filter(Boolean).slice(0, 24),
+    };
+    if (hasForbiddenDefaultField(normalizedProposal) || payloadByteSize(normalizedProposal) > MAX_DEFAULT_EVENT_BYTES) {
+      return makeErrorEvent(message, 'universal_tool_proposal_projection_invalid', 'Universal tool proposal projection failed Gateway payload policy.');
+    }
+    return normalizedProposal;
   }
   const normalized = {
     ...source,
