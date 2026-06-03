@@ -1,10 +1,10 @@
 #!/usr/bin/env tsx
 
-// Layer ownership: adapters/runtime::agent-engines::codex-cli.
+// Layer ownership: adapters/runtime::agent-engines::cli-runtime-adapter.
 //
-// Bounded first external engine adapter. Live process execution is opt-in through
-// options.liveDispatch so the Gateway can prove adapter shape and health without
-// accidentally launching a coding agent from a passive registry load.
+// Shared bounded adapter for CLI-based external agent runtimes. It keeps live
+// dispatch opt-in and uses Gateway-owned discovery so Shell never probes local
+// runtime installs directly.
 
 'use strict';
 
@@ -13,12 +13,6 @@ const { resolveEngineDiscovery } = require('./discovery.ts');
 
 function cleanString(value, max = 2000) {
   return stripTerminalControls(value).replace(/\s+/g, ' ').trim().slice(0, max);
-}
-
-function stripTerminalControls(value) {
-  return String(value == null ? '' : value)
-    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, '')
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 }
 
 function cleanDisplayString(value, max = 24000) {
@@ -30,21 +24,27 @@ function cleanDisplayString(value, max = 24000) {
     .slice(0, max);
 }
 
-function baseEvent(ctx, type) {
+function stripTerminalControls(value) {
+  return String(value == null ? '' : value)
+    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
+
+function baseEvent(ctx, type, defaultEngineId) {
   const message = (ctx && ctx.message) || {};
   const engine = (ctx && ctx.engine) || {};
   return {
     type,
     trace_id: cleanString(message.trace_id, 200),
     request_id: cleanString(message.request_id, 200),
-    engine_id: cleanString(message.engine_id || engine.engine_id || 'codex_cli', 120),
+    engine_id: cleanString(message.engine_id || engine.engine_id || defaultEngineId, 120),
     session_id: cleanString(message.session_id, 200),
     turn_id: cleanString(message.turn_id, 200),
   };
 }
 
-function stableRef(prefix, ctx) {
-  const event = baseEvent(ctx, 'ref');
+function stableRef(prefix, ctx, defaultEngineId) {
+  const event = baseEvent(ctx, 'ref', defaultEngineId);
   const trace = event.trace_id || 'missing-trace';
   const session = event.session_id || 'no-session';
   const turn = event.turn_id || event.request_id || 'no-turn';
@@ -102,13 +102,21 @@ function extractPrompt(ctx) {
   return '';
 }
 
-function createCodexCliEngineAdapter(options = {}) {
-  const liveDispatch = options.liveDispatch === true || process.env.INFRING_AGENT_RUNTIME_CODEX_LIVE === '1';
+function createCliRuntimeEngineAdapter(options = {}) {
+  const engineId = cleanString(options.engineId || 'external_cli', 120);
+  const engineKind = cleanString(options.engineKind || 'external_cli_adapter', 120);
+  const downloadActionRef = cleanString(options.downloadActionRef || `agent_runtime_download/${engineId}`, 500);
+  const artifactKind = cleanString(options.artifactKind || `${engineId}_result_projection`, 120);
+  const receiptKind = cleanString(options.receiptKind || 'external_cli_adapter_receipt', 120);
+  const liveEnvVar = cleanString(options.liveEnvVar || `INFRING_AGENT_RUNTIME_${engineId.toUpperCase()}_LIVE`, 120);
+  const liveDispatch = options.liveDispatch === true || process.env[liveEnvVar] === '1';
   const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 60000, 300000));
-  let selectedCommand = cleanString(options.command || process.env.INFRING_CODEX_CLI_BIN || process.env.INFRING_CODEX_CLI_PATH || 'codex', 500);
+  const versionArgs = Array.isArray(options.versionArgs) ? options.versionArgs : ['--version'];
+  const runArgs = typeof options.runArgs === 'function' ? options.runArgs : (prompt) => [prompt];
+  let selectedCommand = cleanString(options.command || options.commandFallback || engineId, 500);
 
   function discover(ctx) {
-    const engine = (ctx && ctx.engine) || { engine_id: 'codex_cli' };
+    const engine = (ctx && ctx.engine) || { engine_id: engineId };
     const discovery = resolveEngineDiscovery(engine, {
       command: options.command,
       config: options.config,
@@ -121,29 +129,29 @@ function createCodexCliEngineAdapter(options = {}) {
   return {
     async health_check(ctx) {
       const discovery = discover(ctx);
-      const command = cleanString(discovery.command || selectedCommand || 'codex', 500);
+      const command = cleanString(discovery.command || selectedCommand, 500);
       const probe = discovery.status === 'available'
-        ? await spawnCapture(command, ['--version'], { timeoutMs: 5000, maxOutputBytes: 4096 })
+        ? await spawnCapture(command, versionArgs, { timeoutMs: 5000, maxOutputBytes: 4096 })
         : { ok: false, stdout: '', stderr: discovery.reason || discovery.status };
       return {
-        ...baseEvent(ctx, 'engine.health.result'),
+        ...baseEvent(ctx, 'engine.health.result', engineId),
         status: probe.ok ? 'available' : discovery.status || 'not_downloaded',
-        engine_kind: 'external_cli_adapter',
+        engine_kind: engineKind,
         command,
         discovery_source: discovery.discovery_source,
         custom_location_allowed: discovery.custom_location_allowed,
         resolved_path: discovery.resolved_path || null,
-        download_available: true,
-        download_action_ref: 'agent_runtime_download/codex_cli',
+        download_available: Boolean(discovery.download_available || downloadActionRef),
+        download_action_ref: downloadActionRef,
         version_preview: cleanString(probe.stdout || probe.stderr, 500),
       };
     },
 
     async start_session(ctx) {
       return {
-        ...baseEvent(ctx, 'session.started'),
+        ...baseEvent(ctx, 'session.started', engineId),
         status: 'started',
-        receipt_ref: stableRef('receipt/codex-cli/session', ctx),
+        receipt_ref: stableRef(`receipt/${engineId}/session`, ctx, engineId),
       };
     },
 
@@ -151,29 +159,29 @@ function createCodexCliEngineAdapter(options = {}) {
       const prompt = extractPrompt(ctx);
       if (!prompt) {
         return {
-          ...baseEvent(ctx, 'error'),
-          error_code: 'codex_cli_prompt_missing',
-          reason: 'Codex CLI adapter requires input.text, input.message, input.prompt, or string input.',
+          ...baseEvent(ctx, 'error', engineId),
+          error_code: `${engineId}_prompt_missing`,
+          reason: `${engineId} adapter requires input.text, input.message, input.prompt, or string input.`,
           retryable: false,
         };
       }
       if (!liveDispatch) {
         return {
-          ...baseEvent(ctx, 'error'),
-          error_code: 'codex_cli_live_dispatch_disabled',
-          reason: 'Codex CLI adapter is installed as a bounded external runtime seam; live dispatch requires INFRING_AGENT_RUNTIME_CODEX_LIVE=1 or adapter option liveDispatch=true.',
+          ...baseEvent(ctx, 'error', engineId),
+          error_code: `${engineId}_live_dispatch_disabled`,
+          reason: `${engineId} adapter is installed as a bounded external runtime seam; live dispatch requires ${liveEnvVar}=1 or adapter option liveDispatch=true.`,
           retryable: false,
         };
       }
       const discovery = discover(ctx);
-      const command = cleanString(discovery.command || selectedCommand || 'codex', 500);
-      const run = await spawnCapture(command, ['exec', '--sandbox', 'read-only', '--ignore-rules', '--ephemeral', '--color', 'never', prompt], { timeoutMs, maxOutputBytes: 64000 });
+      const command = cleanString(discovery.command || selectedCommand || options.commandFallback || engineId, 500);
+      const run = await spawnCapture(command, runArgs(prompt), { timeoutMs, maxOutputBytes: 64000 });
       const outputText = cleanDisplayString(run.stdout || run.stderr, 64000);
       return {
-        ...baseEvent(ctx, 'turn.complete'),
+        ...baseEvent(ctx, 'turn.complete', engineId),
         status: run.ok ? 'completed' : 'failed',
-        result_ref: stableRef('artifact/codex-cli/result', ctx),
-        receipt_ref: stableRef('receipt/codex-cli/turn', ctx),
+        result_ref: stableRef(`artifact/${engineId}/result`, ctx, engineId),
+        receipt_ref: stableRef(`receipt/${engineId}/turn`, ctx, engineId),
         output_text: outputText,
         output_preview: cleanString(outputText, 4000),
         exit_code: run.exit_code,
@@ -181,40 +189,37 @@ function createCodexCliEngineAdapter(options = {}) {
     },
 
     async stream_events(ctx) {
-      return {
-        ...baseEvent(ctx, 'heartbeat'),
-        status: 'adapter_ready',
-      };
+      return { ...baseEvent(ctx, 'heartbeat', engineId), status: 'adapter_ready' };
     },
 
     async cancel_turn(ctx) {
       return {
-        ...baseEvent(ctx, 'turn.cancelled'),
+        ...baseEvent(ctx, 'turn.cancelled', engineId),
         status: 'cancel_requested',
-        receipt_ref: stableRef('receipt/codex-cli/cancel', ctx),
+        receipt_ref: stableRef(`receipt/${engineId}/cancel`, ctx, engineId),
       };
     },
 
     async collect_artifacts(ctx) {
       return {
-        ...baseEvent(ctx, 'artifact.created'),
-        artifact_ref: stableRef('artifact/codex-cli/result', ctx),
-        artifact_kind: 'codex_cli_result_projection',
+        ...baseEvent(ctx, 'artifact.created', engineId),
+        artifact_ref: stableRef(`artifact/${engineId}/result`, ctx, engineId),
+        artifact_kind: artifactKind,
       };
     },
 
     async emit_receipts(ctx) {
       return {
-        ...baseEvent(ctx, 'receipt.created'),
-        receipt_ref: stableRef('receipt/codex-cli/turn', ctx),
-        receipt_kind: 'external_cli_adapter_receipt',
+        ...baseEvent(ctx, 'receipt.created', engineId),
+        receipt_ref: stableRef(`receipt/${engineId}/turn`, ctx, engineId),
+        receipt_kind: receiptKind,
       };
     },
   };
 }
 
 module.exports = {
-  createCodexCliEngineAdapter,
+  createCliRuntimeEngineAdapter,
   spawnCapture,
   stripTerminalControls,
 };

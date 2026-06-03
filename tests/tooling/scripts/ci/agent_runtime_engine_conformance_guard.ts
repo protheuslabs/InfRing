@@ -96,9 +96,18 @@ for (const engine of engines) {
     if (!engine.install) violations.push({ kind: 'external_engine_install_metadata_missing', engine_id: id });
     if (engine.install && !engine.install.download_action_ref) violations.push({ kind: 'external_engine_download_action_ref_missing', engine_id: id });
   }
+  if (['codex_cli', 'claude_code', 'grok_code'].includes(id)) {
+    const install = engine.install || {};
+    const commandLineInstall = install.command_line_install || {};
+    if (install.preferred_install_method !== 'command_line') violations.push({ kind: 'engine_install_not_command_line', engine_id: id });
+    if (commandLineInstall.permission_mode !== 'allowed') violations.push({ kind: 'engine_install_permission_not_allowed', engine_id: id });
+    if (!Array.isArray(commandLineInstall.commands) || commandLineInstall.commands.length === 0) violations.push({ kind: 'engine_install_commands_missing', engine_id: id });
+  }
 }
 if (!ids.has('infring_native')) violations.push({ kind: 'infring_native_missing', path: registryPath });
 if (!ids.has('codex_cli')) violations.push({ kind: 'first_external_adapter_missing', path: registryPath });
+if (!ids.has('claude_code')) violations.push({ kind: 'claude_code_missing', path: registryPath });
+if (!ids.has('grok_code')) violations.push({ kind: 'grok_code_missing', path: registryPath });
 
 const adapterRows = Array.isArray(adapterContracts.adapter_contracts) ? adapterContracts.adapter_contracts : [];
 const adapterIds = new Set<string>();
@@ -125,7 +134,7 @@ for (const row of adapterRows) {
   if (id !== 'infring_native' && (!Array.isArray(row.discovery?.authority_order) || !row.discovery.authority_order.includes('user_override') || !row.discovery.authority_order.includes('missing_installable'))) {
     violations.push({ kind: 'adapter_discovery_authority_order_incomplete', engine_id: id });
   }
-  if (['codex_cli', 'claude_code'].includes(id) && (!Array.isArray(row.discovery?.path_commands) || row.discovery.path_commands.length === 0)) violations.push({ kind: 'adapter_cli_path_commands_missing', engine_id: id });
+  if (['codex_cli', 'claude_code', 'grok_code'].includes(id) && (!Array.isArray(row.discovery?.path_commands) || row.discovery.path_commands.length === 0)) violations.push({ kind: 'adapter_cli_path_commands_missing', engine_id: id });
   if (['openhands', 'openclaw', 'openfang'].includes(id) && (!Array.isArray(row.discovery?.default_urls) || row.discovery.default_urls.length === 0)) violations.push({ kind: 'adapter_socket_default_urls_missing', engine_id: id });
 }
 for (const engine of engines) {
@@ -151,12 +160,57 @@ for (const forbidden of ['raw_tool_result', 'trace_body', 'workflow_graph', 'ext
 const routerPath = 'adapters/runtime/agent_engines/agent_runtime_router.ts';
 const nativePath = 'adapters/runtime/agent_engines/infring_native.ts';
 const codexPath = 'adapters/runtime/agent_engines/codex_cli.ts';
+const cliRuntimePath = 'adapters/runtime/agent_engines/cli_runtime_adapter.ts';
+const claudePath = 'adapters/runtime/agent_engines/claude_code.ts';
+const grokPath = 'adapters/runtime/agent_engines/grok_code.ts';
+const liveTurnSmokePath = 'tests/tooling/scripts/ci/agent_runtime_cli_live_turn_smoke.ts';
 const tracePath = 'adapters/runtime/agent_engines/agent_runtime_trace_writer.ts';
 const discoveryPath = 'adapters/runtime/agent_engines/discovery.ts';
+const dashboardPath = 'adapters/runtime/infring_dashboard.ts';
+const chatSendPartPath = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/200-send-pipeline.part01.ts';
+const chatRuntimeSelectorPartPath = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/090-init-hooks-and-shortcuts.part02.ts';
 for (const rel of [routerPath, nativePath, codexPath, tracePath]) {
   if (!exists(rel)) violations.push({ kind: 'adapter_module_missing', path: rel });
 }
 if (!exists(discoveryPath)) violations.push({ kind: 'discovery_module_missing', path: discoveryPath });
+if (!exists(cliRuntimePath)) violations.push({ kind: 'cli_runtime_module_missing', path: cliRuntimePath });
+if (!exists(claudePath)) violations.push({ kind: 'claude_adapter_module_missing', path: claudePath });
+if (!exists(grokPath)) violations.push({ kind: 'grok_adapter_module_missing', path: grokPath });
+if (!exists(liveTurnSmokePath)) violations.push({ kind: 'live_turn_smoke_script_missing', path: liveTurnSmokePath });
+
+if (exists(dashboardPath)) {
+  const dashboardSource = fs.readFileSync(path.join(ROOT, dashboardPath), 'utf8');
+  if (!dashboardSource.includes('/api/shell-socket/agent-runtime/turn')) violations.push({ kind: 'dashboard_agent_runtime_turn_route_missing', path: dashboardPath });
+  if (!dashboardSource.includes('agentRuntimeEngineInstallProjection')) violations.push({ kind: 'dashboard_agent_runtime_install_projection_missing', path: dashboardPath });
+  if (!dashboardSource.includes('agentRuntimeInstallMatch') || !dashboardSource.includes('/install')) violations.push({ kind: 'dashboard_agent_runtime_install_route_missing', path: dashboardPath });
+  if (!dashboardSource.includes('output_text') || !dashboardSource.includes('display_text')) violations.push({ kind: 'dashboard_agent_runtime_formatted_output_projection_missing', path: dashboardPath });
+  for (const factory of ['createCodexCliEngineAdapter', 'createClaudeCodeEngineAdapter', 'createGrokCodeEngineAdapter']) {
+    if (!dashboardSource.includes(factory)) violations.push({ kind: 'dashboard_agent_runtime_factory_missing', factory, path: dashboardPath });
+  }
+}
+if (!exists(chatSendPartPath)) {
+  violations.push({ kind: 'chat_send_part_missing', path: chatSendPartPath });
+} else {
+  const chatSendSource = fs.readFileSync(path.join(ROOT, chatSendPartPath), 'utf8');
+  if (!chatSendSource.includes('/api/shell-socket/agent-runtime/turn')) violations.push({ kind: 'chat_send_runtime_turn_route_missing', path: chatSendPartPath });
+  if (!chatSendSource.includes('isExternalAgentRuntimeEngineSelected')) violations.push({ kind: 'chat_send_external_runtime_guard_missing', path: chatSendPartPath });
+  if (!chatSendSource.includes('!usesExternalRuntime')) violations.push({ kind: 'chat_send_native_model_preflight_not_bypassed_for_external_runtime', path: chatSendPartPath });
+  if (!chatSendSource.includes('_sendAgentRuntimeSocketPayload')) violations.push({ kind: 'chat_send_runtime_socket_dispatch_missing', path: chatSendPartPath });
+  if (!chatSendSource.includes('display_text || res.output_text')) violations.push({ kind: 'chat_send_prefers_formatted_runtime_output_missing', path: chatSendPartPath });
+  const runtimeDispatchBody = (chatSendSource.match(/async _sendAgentRuntimeSocketPayload[\s\S]+?\n    async _sendTerminalPayload/) || [''])[0];
+  if (!runtimeDispatchBody.includes('isHtml: false') || !runtimeDispatchBody.includes('_typingVisual: false')) violations.push({ kind: 'chat_send_runtime_output_not_standard_markdown_message', path: chatSendPartPath });
+  if (runtimeDispatchBody.includes('_queueFinalWordTypingRender')) violations.push({ kind: 'chat_send_runtime_output_uses_typewriter_renderer', path: chatSendPartPath });
+}
+if (!exists(chatRuntimeSelectorPartPath)) {
+  violations.push({ kind: 'chat_runtime_selector_part_missing', path: chatRuntimeSelectorPartPath });
+} else {
+  const selectorSource = fs.readFileSync(path.join(ROOT, chatRuntimeSelectorPartPath), 'utf8');
+  if (!selectorSource.includes("preferred === 'command_line'")) violations.push({ kind: 'chat_runtime_selector_cli_install_hint_not_terminal', path: chatRuntimeSelectorPartPath });
+  if (!selectorSource.includes("url && preferred !== 'command_line'")) violations.push({ kind: 'chat_runtime_selector_browser_fallback_not_last_resort', path: chatRuntimeSelectorPartPath });
+  if (!selectorSource.includes("['not_downloaded', 'not_configured', 'planned_adapter']")) violations.push({ kind: 'chat_runtime_selector_unavailable_statuses_not_explicit', path: chatRuntimeSelectorPartPath });
+  if (!selectorSource.includes('installRuntimeEngine: function(row)')) violations.push({ kind: 'chat_runtime_selector_install_action_missing', path: chatRuntimeSelectorPartPath });
+  if (!selectorSource.includes('/api/shell-socket/agent-runtime/engines/')) violations.push({ kind: 'chat_runtime_selector_install_route_missing', path: chatRuntimeSelectorPartPath });
+}
 
 if (exists(routerPath)) {
   const router = require(path.join(ROOT, routerPath));
@@ -195,6 +249,28 @@ if (exists(nativePath)) {
 if (exists(codexPath)) {
   const codex = require(path.join(ROOT, codexPath));
   if (typeof codex.createCodexCliEngineAdapter !== 'function') violations.push({ kind: 'codex_adapter_factory_missing' });
+  if (typeof codex.stripTerminalControls !== 'function') violations.push({ kind: 'codex_adapter_terminal_control_stripper_missing' });
+  const codexSource = fs.readFileSync(path.join(ROOT, codexPath), 'utf8');
+  if (!codexSource.includes('cleanDisplayString') || !codexSource.includes('output_text')) violations.push({ kind: 'codex_adapter_formatted_output_missing', path: codexPath });
+}
+if (exists(cliRuntimePath)) {
+  const cliRuntime = require(path.join(ROOT, cliRuntimePath));
+  if (typeof cliRuntime.createCliRuntimeEngineAdapter !== 'function') violations.push({ kind: 'cli_runtime_factory_missing' });
+  if (typeof cliRuntime.stripTerminalControls !== 'function') violations.push({ kind: 'cli_runtime_terminal_control_stripper_missing' });
+  const cliSource = fs.readFileSync(path.join(ROOT, cliRuntimePath), 'utf8');
+  if (!cliSource.includes('cleanDisplayString') || !cliSource.includes('output_text') || !cliSource.includes('stripTerminalControls')) violations.push({ kind: 'cli_runtime_formatted_output_missing', path: cliRuntimePath });
+  if (typeof cliRuntime.stripTerminalControls === 'function') {
+    const stripped = cliRuntime.stripTerminalControls('\u001b[32m```js\nconst x = 1;\n```\u001b[0m');
+    if (stripped.includes('\u001b') || !stripped.includes('```js\nconst x = 1;\n```')) violations.push({ kind: 'cli_runtime_terminal_control_stripper_broken' });
+  }
+}
+if (exists(claudePath)) {
+  const claude = require(path.join(ROOT, claudePath));
+  if (typeof claude.createClaudeCodeEngineAdapter !== 'function') violations.push({ kind: 'claude_adapter_factory_missing' });
+}
+if (exists(grokPath)) {
+  const grok = require(path.join(ROOT, grokPath));
+  if (typeof grok.createGrokCodeEngineAdapter !== 'function') violations.push({ kind: 'grok_adapter_factory_missing' });
 }
 if (exists(discoveryPath)) {
   const discovery = require(path.join(ROOT, discoveryPath));

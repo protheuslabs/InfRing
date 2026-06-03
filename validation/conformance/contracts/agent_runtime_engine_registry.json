@@ -101,7 +101,26 @@
         "preferred_install_method": "command_line",
         "command_line_hint": "Install the Codex CLI using the current official OpenAI/Codex installer for this machine.",
         "browser_fallback_url": "https://developers.openai.com/codex",
-        "display_when_missing": "download_icon"
+        "display_when_missing": "download_icon",
+        "command_line_install": {
+          "permission_mode": "allowed",
+          "commands": [
+            {
+              "platforms": [
+                "darwin",
+                "linux",
+                "win32"
+              ],
+              "command": "npm",
+              "args": [
+                "install",
+                "-g",
+                "@openai/codex"
+              ],
+              "timeout_ms": 240000
+            }
+          ]
+        }
       },
       "discovery": {
         "custom_location_allowed": true,
@@ -115,6 +134,7 @@
         ],
         "default_paths": [
           "~/.local/bin/codex",
+          "/Applications/Codex.app/Contents/Resources/codex",
           "/opt/homebrew/bin/codex",
           "/usr/local/bin/codex",
           "%USERPROFILE%\\.local\\bin\\codex.cmd"
@@ -133,9 +153,9 @@
       "engine_id": "claude_code",
       "display_name": "Claude Code",
       "engine_kind": "external_cli_adapter",
-      "implementation_path": "adapters/runtime/agent_engines/claude_code/**",
+      "implementation_path": "adapters/runtime/agent_engines/claude_code.ts",
       "transport_kind": "local_process_or_socket",
-      "status": "planned_adapter",
+      "status": "adapter_seam_ready",
       "capabilities": [
         "coding_agent_loop",
         "workspace_read",
@@ -158,7 +178,26 @@
         "preferred_install_method": "command_line",
         "command_line_hint": "Install Claude Code with Anthropic's current command-line installer.",
         "browser_fallback_url": "https://docs.anthropic.com/en/docs/claude-code",
-        "display_when_missing": "download_icon"
+        "display_when_missing": "download_icon",
+        "command_line_install": {
+          "permission_mode": "allowed",
+          "commands": [
+            {
+              "platforms": [
+                "darwin",
+                "linux",
+                "win32"
+              ],
+              "command": "npm",
+              "args": [
+                "install",
+                "-g",
+                "@anthropic-ai/claude-code"
+              ],
+              "timeout_ms": 240000
+            }
+          ]
+        }
       },
       "discovery": {
         "custom_location_allowed": true,
@@ -175,6 +214,76 @@
           "/opt/homebrew/bin/claude",
           "/usr/local/bin/claude",
           "%USERPROFILE%\\.local\\bin\\claude.cmd"
+        ],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "path_discovery",
+          "default_location_probe",
+          "missing_installable"
+        ]
+      }
+    },
+    {
+      "engine_id": "grok_code",
+      "display_name": "Grok Code",
+      "engine_kind": "external_cli_adapter",
+      "implementation_path": "adapters/runtime/agent_engines/grok_code.ts",
+      "transport_kind": "local_process_or_socket",
+      "status": "adapter_seam_ready",
+      "capabilities": [
+        "coding_agent_loop",
+        "workspace_read",
+        "workspace_edit_proposal",
+        "command_proposal",
+        "artifact_collection"
+      ],
+      "health_contract": "adapter resolves command availability and startup readiness without leaking process internals",
+      "adapter_boundary": "Gateway launches or connects to the adapter and normalizes stdout/socket events into the agent runtime event stream.",
+      "authority_constraints": [
+        "no_direct_kernel_write",
+        "no_direct_shell_socket",
+        "workspace_scope_required",
+        "mutation_approval_required"
+      ],
+      "install": {
+        "install_state_source": "adapter_health_check",
+        "download_available": true,
+        "download_action_ref": "agent_runtime_download/grok_code",
+        "preferred_install_method": "command_line",
+        "command_line_hint": "Install Grok Code using the current official xAI/Grok command-line installer for this machine.",
+        "browser_fallback_url": "https://grok.com",
+        "display_when_missing": "download_icon",
+        "command_line_install": {
+          "permission_mode": "allowed",
+          "commands": [
+            {
+              "platforms": [
+                "darwin",
+                "linux"
+              ],
+              "shell_command": "curl -fsSL https://x.ai/cli/install.sh | bash",
+              "timeout_ms": 240000
+            }
+          ]
+        }
+      },
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_config_key": "agent_runtimes.grok_code.command",
+        "env_vars": [
+          "INFRING_GROK_CODE_PATH",
+          "INFRING_GROK_CODE_BIN"
+        ],
+        "path_commands": [
+          "grok"
+        ],
+        "default_paths": [
+          "~/.grok/bin/grok",
+          "/opt/homebrew/bin/grok",
+          "/usr/local/bin/grok",
+          "%USERPROFILE%\\.grok\\bin\\grok.cmd"
         ],
         "authority_order": [
           "user_override",
@@ -378,7 +487,7 @@
   ],
   "first_adapter_recommendation": {
     "engine_id": "codex_cli",
-    "reason": "Local process adapter is the smallest useful external-engine slice and can prove the Gateway normalization contract before heavier framework/container adapters."
+    "reason": "Codex CLI remains the smallest useful external-engine slice; Claude Code and Grok Code now share the same bounded CLI adapter discovery path for local availability checks."
   },
   "private_adapter_contracts": "validation/conformance/contracts/agent_runtime_adapter_contracts.json",
   "engine_selection_model": {

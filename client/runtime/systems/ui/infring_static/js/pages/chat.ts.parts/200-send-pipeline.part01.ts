@@ -90,13 +90,19 @@
           return;
         }
       }
-      var availableModels = typeof this.ensureUsableModelsForChatSend === 'function'
-        ? await this.ensureUsableModelsForChatSend('chat_send')
-        : (typeof this.currentAvailableModelCount === 'function' ? this.currentAvailableModelCount() : 0);
-      if (availableModels <= 0) {
-        if (typeof this.injectNoModelsGuidance === 'function') this.injectNoModelsGuidance('chat_send');
-        if (typeof this.addNoModelsRecoveryNotice === 'function') this.addNoModelsRecoveryNotice('chat_send', 'model_discover');
-        return;
+      var selectedRuntimeEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var usesExternalRuntime = typeof this.isExternalAgentRuntimeEngineSelected === 'function'
+        ? this.isExternalAgentRuntimeEngineSelected(selectedRuntimeEngineId)
+        : selectedRuntimeEngineId !== 'infring_native';
+      if (!usesExternalRuntime) {
+        var availableModels = typeof this.ensureUsableModelsForChatSend === 'function'
+          ? await this.ensureUsableModelsForChatSend('chat_send')
+          : (typeof this.currentAvailableModelCount === 'function' ? this.currentAvailableModelCount() : 0);
+        if (availableModels <= 0) {
+          if (typeof this.injectNoModelsGuidance === 'function') this.injectNoModelsGuidance('chat_send');
+          if (typeof this.addNoModelsRecoveryNotice === 'function') this.addNoModelsRecoveryNotice('chat_send', 'model_discover');
+          return;
+        }
       }
       this.inputText = '';
       var ta = document.getElementById('msg-input');
@@ -139,7 +145,7 @@
           text: finalText,
           files: uploadedFiles,
           images: msgImages,
-          agent_runtime_engine_id: String(this.selectedAgentRuntimeEngineId || 'infring_native')
+          agent_runtime_engine_id: selectedRuntimeEngineId
         });
         this.scheduleConversationPersist();
         return;
@@ -160,8 +166,94 @@
       this.scheduleConversationPersist();
       this._sendPayload(finalText, uploadedFiles, msgImages, {
         agent_id: activeAgent.id,
-        agent_runtime_engine_id: String(this.selectedAgentRuntimeEngineId || 'infring_native')
+        agent_runtime_engine_id: selectedRuntimeEngineId
       });
+    },
+
+    isExternalAgentRuntimeEngineSelected: function(engineId) {
+      var id = String(engineId || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      return !!id && id !== 'infring_native';
+    },
+
+    async _sendAgentRuntimeSocketPayload(targetAgentId, finalText, uploadedFiles, msgImages, runtimeEngineId) {
+      var engineId = String(runtimeEngineId || this.selectedAgentRuntimeEngineId || '').trim();
+      if (!engineId || engineId === 'infring_native') return;
+      var startedAt = Date.now();
+      this._responseStartedAt = startedAt;
+      this.messages.push({
+        id: ++msgId,
+        role: 'agent',
+        text: '',
+        meta: 'Agent runtime: ' + engineId,
+        thinking: true,
+        tools: [],
+        ts: Date.now(),
+        agent_runtime_engine_id: engineId
+      });
+      this.scrollToBottom();
+      this.scheduleConversationPersist();
+
+      try {
+        var res = await InfringAPI.post('/api/shell-socket/agent-runtime/turn', {
+          engine_id: engineId,
+          agent_id: targetAgentId,
+          session_id: String((this.currentAgent && (this.currentAgent.session_id || this.currentAgent.id)) || targetAgentId || ''),
+          message: String(finalText || ''),
+          attachments: Array.isArray(uploadedFiles) ? uploadedFiles.slice(0, 12) : []
+        });
+        typeof this.clearTransientThinkingRows === 'function'
+          ? this.clearTransientThinkingRows({ force: true })
+          : (this.messages = this.messages.filter(function(m) { return !m.thinking; }));
+        var runtimePayloadText = String((res && (res.display_text || res.output_text || res.text || res.response || res.output_preview)) || '').trim();
+        var runtimeText = this.stripModelPrefix(this.sanitizeToolText(runtimePayloadText || ''));
+        var runtimeDurationMs = Math.max(0, Date.now() - startedAt);
+        var runtimeDuration = this.formatResponseDuration(runtimeDurationMs);
+        var runtimeMeta = 'runtime ' + engineId;
+        if (res && res.status) runtimeMeta += ' | ' + String(res.status);
+        if (runtimeDuration) runtimeMeta += ' | ' + runtimeDuration;
+        if (res && res.result_ref) runtimeMeta += ' | result';
+        if (!String(runtimeText || '').trim()) {
+          InfringToast.info('Agent runtime returned no display text.');
+          this._clearPendingWsRequest(targetAgentId);
+          this._inflightPayload = null;
+          this.sending = false;
+          this._responseStartedAt = 0;
+          this.tokenCount = 0;
+          this._clearTypingTimeout();
+          this.setAgentLiveActivity(targetAgentId, 'idle', { optimistic: true, source: 'agent_runtime_socket' });
+          this.scheduleConversationPersist();
+          return;
+        }
+        var runtimeMessage = {
+          id: ++msgId,
+          role: 'agent',
+          text: runtimeText,
+          meta: runtimeMeta,
+          tools: [],
+          ts: Date.now(),
+          agent_id: targetAgentId,
+          agent_name: this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '',
+          isHtml: false,
+          _typingVisual: false,
+          agent_runtime_engine_id: engineId
+        };
+        var pushedRuntimeMessage = this.pushAgentMessageDeduped(runtimeMessage, { dedupe_window_ms: 90000 }) || runtimeMessage;
+        this.markAgentMessageComplete(pushedRuntimeMessage);
+        this._clearPendingWsRequest(targetAgentId);
+        this._inflightPayload = null;
+        this.scheduleConversationPersist();
+      } catch (e) {
+        typeof this.clearTransientThinkingRows === 'function'
+          ? this.clearTransientThinkingRows({ force: true })
+          : (this.messages = this.messages.filter(function(m) { return !m.thinking; }));
+        InfringToast.error(e && e.message ? e.message : 'agent runtime failed');
+      } finally {
+        this.sending = false;
+        this._responseStartedAt = 0;
+        this.tokenCount = 0;
+        this._clearTypingTimeout();
+        this.setAgentLiveActivity(targetAgentId, 'idle', { optimistic: true, source: 'agent_runtime_socket' });
+      }
     },
 
     async _sendTerminalPayload(command, agentIdOverride) {
@@ -265,6 +357,10 @@
         this._inflightPayload.retry_started_at = Date.now();
       }
       this._pendingAutoModelSwitchBaseline = '';
+      if (typeof this.isExternalAgentRuntimeEngineSelected === 'function' && this.isExternalAgentRuntimeEngineSelected(runtimeEngineId)) {
+        await this._sendAgentRuntimeSocketPayload(targetAgentId, finalText, safeFiles, safeImages, runtimeEngineId);
+        return;
+      }
       var preflightRoute = null;
       var preflightMeta = '';
       if (!InfringAPI.isWsConnected() || String(this._wsAgent || '') !== targetAgentId) {

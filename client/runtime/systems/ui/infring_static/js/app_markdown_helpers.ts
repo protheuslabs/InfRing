@@ -21,10 +21,50 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+
+function normalizeChatMarkdownFenceBreaks(text) {
+  var source = String(text || '').replace(/\r\n/g, '\n');
+  if (source.indexOf('```') < 0) return source;
+  var out = '';
+  var i = 0;
+  var inFence = false;
+  while (i < source.length) {
+    var fenceIdx = source.indexOf('```', i);
+    if (fenceIdx < 0) {
+      out += source.slice(i);
+      break;
+    }
+    var before = source.slice(i, fenceIdx);
+    if (!inFence) {
+      out += before.replace(/[ \t]+$/g, '');
+      if (out && out.charAt(out.length - 1) !== '\n') out += '\n';
+      out += '```';
+      i = fenceIdx + 3;
+      var tail = source.slice(i);
+      var langMatch = tail.match(/^[ \t]*([A-Za-z0-9_+.#-]{1,32})(?=\s|$)/);
+      if (langMatch) {
+        out += langMatch[1];
+        i += langMatch[0].length;
+      }
+      while (i < source.length && /[ \t]/.test(source.charAt(i))) i += 1;
+      if (source.charAt(i) !== '\n') out += '\n';
+      inFence = true;
+    } else {
+      out += before.replace(/[ \t]+$/g, '');
+      if (out && out.charAt(out.length - 1) !== '\n') out += '\n';
+      out += '```';
+      i = fenceIdx + 3;
+      while (i < source.length && /[ \t]/.test(source.charAt(i))) i += 1;
+      if (i < source.length && source.charAt(i) !== '\n') out += '\n';
+      inFence = false;
+    }
+  }
+  return out;
+}
 function normalizeChatMarkdownListBreaks(text) {
   var source = String(text || '');
   if (!source) return '';
-  var normalized = source.replace(/\r\n/g, '\n');
+  var normalized = normalizeChatMarkdownFenceBreaks(source);
   normalized = normalized.replace(/[ \t]+•[ \t]+/g, '\n- ');
   normalized = normalized.replace(/(:\s+)(\*\*[^*\n]{1,120}\*\*:)/g, function(_match, prefix, marker) {
     return prefix.replace(/\s+$/, '') + '\n' + marker;

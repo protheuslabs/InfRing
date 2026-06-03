@@ -120,6 +120,7 @@
         ],
         "default_paths": [
           "~/.local/bin/codex",
+          "/Applications/Codex.app/Contents/Resources/codex",
           "/opt/homebrew/bin/codex",
           "/usr/local/bin/codex",
           "%USERPROFILE%\\.local\\bin\\codex.cmd"
@@ -137,9 +138,9 @@
     {
       "engine_id": "claude_code",
       "private_contract_kind": "process_stdout_parser",
-      "adapter_path": "adapters/runtime/agent_engines/claude_code/**",
+      "adapter_path": "adapters/runtime/agent_engines/claude_code.ts",
       "transport_binding": "local_process_or_socket",
-      "status": "planned_adapter",
+      "status": "adapter_seam_ready",
       "public_socket_schema_fork_allowed": false,
       "raw_payload_default_allowed": false,
       "kernel_direct_access_allowed": false,
@@ -164,6 +165,47 @@
           "/opt/homebrew/bin/claude",
           "/usr/local/bin/claude",
           "%USERPROFILE%\\.local\\bin\\claude.cmd"
+        ],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "path_discovery",
+          "default_location_probe",
+          "missing_installable"
+        ]
+      }
+    },
+    {
+      "engine_id": "grok_code",
+      "private_contract_kind": "process_stdout_parser",
+      "adapter_path": "adapters/runtime/agent_engines/grok_code.ts",
+      "transport_binding": "local_process_or_socket",
+      "status": "adapter_seam_ready",
+      "public_socket_schema_fork_allowed": false,
+      "raw_payload_default_allowed": false,
+      "kernel_direct_access_allowed": false,
+      "shell_direct_access_allowed": false,
+      "adapter_specific_schema_scope": "private_adapter_only",
+      "canonical_event_mapping_required": true,
+      "health_projection_required": true,
+      "download_or_config_projection_required": true,
+      "notes": "Grok Code can have a private command/process contract, but public events stay in the universal socket shape.",
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_config_key": "agent_runtimes.grok_code.command",
+        "env_vars": [
+          "INFRING_GROK_CODE_PATH",
+          "INFRING_GROK_CODE_BIN"
+        ],
+        "path_commands": [
+          "grok"
+        ],
+        "default_paths": [
+          "~/.grok/bin/grok",
+          "/opt/homebrew/bin/grok",
+          "/usr/local/bin/grok",
+          "%USERPROFILE%\\.grok\\bin\\grok.cmd"
         ],
         "authority_order": [
           "user_override",

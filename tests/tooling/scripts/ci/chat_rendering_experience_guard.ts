@@ -225,6 +225,8 @@ const CONTRACTS: SourceContract[] = [
   {
     path: 'client/runtime/systems/ui/infring_static/js/app.ts.parts/010-core-state.part01.ts',
     tokens: [
+      'function normalizeChatMarkdownFenceBreaks',
+      'normalizeChatMarkdownFenceBreaks(source)',
       'function renderMarkdown',
       'dashboardWrapMarkdownCodeBlocks(html)',
       'dashboardWrapMarkdownTables(html)',

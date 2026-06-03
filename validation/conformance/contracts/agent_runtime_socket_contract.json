@@ -343,7 +343,8 @@
     "tool/artifact/receipt data is represented by refs",
     "private adapter contracts declare every selectable engine",
     "no runtime-specific public socket schemas are allowed",
-    "Kernel/Core remains engine-neutral while receipts may record engine_id"
+    "Kernel/Core remains engine-neutral while receipts may record engine_id",
+    "Codex CLI, Claude Code, and Grok Code can be health-checked through the Gateway runtime router with local discovery metadata"
   ],
   "private_adapter_contracts": "validation/conformance/contracts/agent_runtime_adapter_contracts.json",
   "canonical_public_socket_invariant": {

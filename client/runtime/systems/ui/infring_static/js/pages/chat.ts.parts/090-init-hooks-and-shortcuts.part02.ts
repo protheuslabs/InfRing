@@ -202,9 +202,12 @@
           engine_kind: String(row.engine_kind || '').trim(),
           transport_kind: String(row.transport_kind || '').trim(),
           status: String(row.status || 'unknown').trim(),
-          selectable: row.selectable !== false && String(row.status || '').trim() !== 'not_downloaded',
+          selectable: row.selectable !== false && ['not_downloaded', 'not_configured', 'planned_adapter'].indexOf(String(row.status || '').trim()) < 0,
           capabilities: Array.isArray(row.capabilities) ? row.capabilities : [],
           download_available: row.download_available === true,
+          install_action_available: row.install_action_available === true || row.command_line_install_available === true,
+          command_line_install_available: row.command_line_install_available === true,
+          install_permission_state: String(row.install_permission_state || '').trim(),
           download_action_ref: String(row.download_action_ref || '').trim(),
           preferred_install_method: String(row.preferred_install_method || '').trim(),
           command_line_hint: String(row.command_line_hint || '').trim(),
@@ -289,7 +292,8 @@
 
     runtimeEngineActionIcon: function(row) {
       if (this.isRuntimeEngineActive(row)) return '✓';
-      if (row && row.download_available) return '⇩';
+      var status = String(row && row.status || '').trim();
+      if (row && row.download_available && ['available', 'adapter_ready'].indexOf(status) < 0) return '⇩';
       if (row && String(row.status || '') === 'not_connected') return '!';
       return '';
     },
@@ -298,6 +302,10 @@
       var engineId = String(row && row.engine_id || '').trim();
       if (!engineId) return;
       if (row && row.selectable === false) {
+        if (row.install_action_available || row.command_line_install_available || row.preferred_install_method === 'command_line') {
+          this.installRuntimeEngine(row);
+          return;
+        }
         this.openRuntimeEngineInstall(row);
         return;
       }
@@ -307,11 +315,49 @@
       InfringToast.success('Agent runtime: ' + String((row && row.display_name) || engineId));
     },
 
+    installRuntimeEngine: function(row) {
+      var engineId = String(row && row.engine_id || '').trim();
+      if (!engineId) return Promise.resolve(null);
+      var self = this;
+      var label = String((row && row.display_name) || engineId);
+      this.showRuntimeSwitcher = false;
+      InfringToast.info('Installing agent runtime: ' + label);
+      return InfringAPI.post('/api/shell-socket/agent-runtime/engines/' + encodeURIComponent(engineId) + '/install', {
+        engine_id: engineId
+      }).then(function(payload) {
+        var status = String(payload && payload.status || '').trim();
+        if (payload && payload.ok && (status === 'installed_available' || status === 'already_available')) {
+          self.selectedAgentRuntimeEngineId = engineId;
+          try { window.localStorage.setItem(self.agentRuntimeEngineStorageKey, engineId); } catch (_e) {}
+          InfringToast.success('Agent runtime ready: ' + label);
+          return self.loadRuntimeEnginesSafely({ force: true });
+        }
+        if (status === 'permission_required') {
+          InfringToast.error('Install permission is required for ' + label);
+          return payload;
+        }
+        if (payload && payload.command_line_hint) InfringToast.info(String(payload.command_line_hint));
+        if (payload && payload.browser_fallback_url && status !== 'command_line_installer_unavailable_for_platform') {
+          try { window.open(String(payload.browser_fallback_url), '_blank', 'noopener,noreferrer'); } catch (_e) {}
+        } else {
+          InfringToast.error('Runtime install did not complete: ' + (status || 'unknown'));
+        }
+        return payload;
+      }).catch(function(e) {
+        InfringToast.error(e && e.message ? String(e.message) : 'runtime install failed');
+        return null;
+      });
+    },
+
     openRuntimeEngineInstall: function(row) {
       var hint = String(row && row.command_line_hint || '').trim();
+      var preferred = String(row && row.preferred_install_method || '').trim();
       var url = String(row && row.browser_fallback_url || '').trim();
-      if (hint) InfringToast.info(hint);
-      if (url) {
+      if (hint) {
+        InfringToast.info(hint);
+        if (preferred === 'command_line') return;
+      }
+      if (url && preferred !== 'command_line') {
         try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (_e) {}
       } else if (!hint) {
         InfringToast.info('Runtime install path is not configured yet.');

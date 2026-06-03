@@ -14,8 +14,10 @@ const {
 } = require('./run_infring_ops.ts');
 const { buildPrimaryDashboardHtml, hasPrimaryDashboardUi, readBuildVersionInfo, readPrimaryDashboardAsset } = require('./dashboard_asset_router.ts');
 const { createAgentWsBridge } = require('./agent_ws_bridge.ts');
-const { loadAgentRuntimeEngineRegistry } = require('./agent_engines/agent_runtime_router.ts');
+const { loadAgentRuntimeEngineRegistry, createAgentRuntimeRouter } = require('./agent_engines/agent_runtime_router.ts');
 const { createCodexCliEngineAdapter } = require('./agent_engines/codex_cli.ts');
+const { createClaudeCodeEngineAdapter } = require('./agent_engines/claude_code.ts');
+const { createGrokCodeEngineAdapter } = require('./agent_engines/grok_code.ts');
 const {
   isShellSocketChatProjectionPath,
   shellSocketChatProjection,
@@ -86,7 +88,134 @@ const HOP_BY_HOP = new Set(['connection', 'host', 'keep-alive', 'proxy-authentic
 
 function nowIso() { return new Date().toISOString(); }
 function cleanText(value, maxLen = 200) { return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen); }
+function stripTerminalControls(value) {
+  return String(value == null ? '' : value)
+    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
+function cleanDisplayText(value, maxLen = 24000) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim().slice(0, maxLen); }
 function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
+function createAgentRuntimeEngineAdapterMap(options = {}) {
+  const liveDispatch = options.liveDispatch === true;
+  return {
+    codex_cli: createCodexCliEngineAdapter({ liveDispatch }),
+    claude_code: createClaudeCodeEngineAdapter({ liveDispatch }),
+    grok_code: createGrokCodeEngineAdapter({ liveDispatch }),
+  };
+}
+function createDashboardAgentRuntimeRouter(options = {}) {
+  const router = createAgentRuntimeRouter({ root: ROOT, disableTraceWriter: options.disableTraceWriter === true });
+  const adapters = createAgentRuntimeEngineAdapterMap({ liveDispatch: options.liveDispatch === true });
+  for (const [engineId, adapter] of Object.entries(adapters)) router.registerAdapter(engineId, adapter);
+  return router;
+}
+function findAgentRuntimeEngine(registryInfo, engineId) {
+  const target = cleanEngineId(engineId);
+  const engines = Array.isArray(registryInfo && registryInfo.engines) ? registryInfo.engines : [];
+  return engines.find((engine) => cleanEngineId(engine && engine.engine_id) === target) || null;
+}
+async function agentRuntimeTurnProjection(traceId, body) {
+  const rawEngineId = body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id);
+  const engineId = cleanEngineId(rawEngineId || 'infring_native');
+  if (!engineId || engineId === 'infring_native') {
+    return {
+      ok: false,
+      status_code: 400,
+      error: 'native_runtime_uses_default_agent_message_path',
+      trace_id: traceId,
+      engine_id: engineId || 'infring_native',
+    };
+  }
+  const inputPayload = body && body.input && typeof body.input === 'object' ? body.input.text : (body && body.input);
+  const text = cleanText(body && (body.message || body.text || inputPayload), 24000);
+  if (!text) {
+    return {
+      ok: false,
+      status_code: 400,
+      error: 'agent_runtime_turn_missing_input',
+      trace_id: traceId,
+      engine_id: engineId,
+    };
+  }
+  const registry = loadAgentRuntimeEngineRegistry(ROOT);
+  const engine = findAgentRuntimeEngine(registry, engineId);
+  if (!engine) {
+    return {
+      ok: false,
+      status_code: 404,
+      error: 'agent_runtime_engine_unknown',
+      trace_id: traceId,
+      engine_id: engineId,
+    };
+  }
+  const router = createDashboardAgentRuntimeRouter({ liveDispatch: true });
+  const agentId = cleanText(body && body.agent_id, 160) || 'default';
+  const sessionId = cleanText(body && body.session_id, 200) || `shell_${agentId}`;
+  const turnId = cleanText(body && body.turn_id, 200) || `turn_${Date.now().toString(36)}`;
+  const health = await router.healthCheck({
+    type: 'agent_runtime.health_check',
+    trace_id: traceId,
+    engine_id: engineId,
+    session_id: sessionId,
+  });
+  if (!health || (health.status !== 'available' && health.status !== 'adapter_ready')) {
+    return {
+      ok: false,
+      status_code: 503,
+      error: 'agent_runtime_engine_unavailable',
+      trace_id: traceId,
+      engine_id: engineId,
+      health,
+    };
+  }
+  await router.startSession({
+    type: 'agent_runtime.session_start',
+    trace_id: traceId,
+    engine_id: engineId,
+    agent_id: agentId,
+    session_id: sessionId,
+  });
+  const turn = await router.submitTurn({
+    type: 'agent_runtime.turn_submit',
+    trace_id: traceId,
+    engine_id: engineId,
+    agent_id: agentId,
+    session_id: sessionId,
+    turn_id: turnId,
+    input: { text },
+    capability_budget: {
+      max_default_response_bytes: 65536,
+      max_turn_seconds: 180,
+      shell_projection_only: true,
+    },
+  });
+  const output = cleanDisplayText(
+    turn && (turn.output_text || turn.display_text || turn.text || turn.response || turn.output_preview || turn.delta || turn.reason),
+    24000,
+  );
+  const outputPreview = cleanText(turn && (turn.output_preview || output), 4000);
+  return {
+    ok: !!(turn && turn.status === 'completed'),
+    type: 'agent_runtime_turn_projection',
+    trace_id: traceId,
+    engine_id: engineId,
+    agent_id: agentId,
+    session_id: sessionId,
+    turn_id: turnId,
+    status: cleanText(turn && turn.status, 80) || 'unknown',
+    text: output,
+    display_text: output,
+    output_text: output,
+    output_preview: outputPreview,
+    result_ref: cleanText(turn && turn.result_ref, 240),
+    receipt_ref: cleanText(turn && turn.receipt_ref, 240),
+    health: {
+      status: cleanText(health && health.status, 80),
+      discovery_source: cleanText(health && health.discovery_source, 120),
+      version_preview: cleanText(health && health.version_preview, 200),
+    },
+  };
+}
 function isTransientSocketError(error) {
   const code = cleanText(error && error.code ? error.code : '', 40);
   return code === 'ECONNRESET' || code === 'EPIPE' || code === 'ERR_STREAM_PREMATURE_CLOSE';
@@ -102,6 +231,78 @@ function parsePositiveInt(value, fallback, min = 1, max = 65535) {
   if (!Number.isFinite(num)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(num)));
 }
+function agentRuntimeInstallPlatformAliases() {
+  const platform = process.platform;
+  const aliases = new Set(['all', platform]);
+  if (platform === 'darwin') aliases.add('macos');
+  if (platform === 'win32') aliases.add('windows');
+  return aliases;
+}
+function agentRuntimeInstallAllowed() {
+  const raw = cleanText(process.env.INFRING_AGENT_RUNTIME_INSTALL_ALLOWED, 40).toLowerCase();
+  return raw !== '0' && raw !== 'false' && raw !== 'no' && raw !== 'deny';
+}
+function selectAgentRuntimeInstallCommand(install) {
+  const spec = install && install.command_line_install && typeof install.command_line_install === 'object'
+    ? install.command_line_install
+    : {};
+  const commands = Array.isArray(spec.commands) ? spec.commands : [];
+  const aliases = agentRuntimeInstallPlatformAliases();
+  for (const candidate of commands) {
+    const row = candidate && typeof candidate === 'object' ? candidate : {};
+    const platforms = Array.isArray(row.platforms) && row.platforms.length ? row.platforms : ['all'];
+    if (platforms.some((item) => aliases.has(cleanText(item, 40).toLowerCase()))) return row;
+  }
+  return null;
+}
+function captureAgentRuntimeInstall(commandSpec) {
+  const row = commandSpec && typeof commandSpec === 'object' ? commandSpec : {};
+  const shellCommand = cleanDisplayText(row.shell_command || '', 4000);
+  const command = shellCommand
+    ? (process.platform === 'win32' ? 'powershell.exe' : '/bin/sh')
+    : cleanText(row.command || '', 500);
+  const args = shellCommand
+    ? (process.platform === 'win32' ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', shellCommand] : ['-lc', shellCommand])
+    : (Array.isArray(row.args) ? row.args.map((item) => cleanText(item, 1000)) : []);
+  if (!command) return Promise.resolve({ ok: false, exit_code: null, stdout: '', stderr: 'agent_runtime_install_command_missing' });
+  const timeoutMs = parsePositiveInt(row.timeout_ms, 240000, 5000, 600000);
+  const maxOutputBytes = parsePositiveInt(row.max_output_bytes, 24000, 1024, 65536);
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: ROOT,
+      env: { ...process.env },
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = Buffer.alloc(0);
+    let stderr = Buffer.alloc(0);
+    let settled = false;
+    const append = (current, chunk) => {
+      const next = Buffer.concat([current, Buffer.from(chunk || '')]);
+      return next.length > maxOutputBytes ? next.subarray(next.length - maxOutputBytes) : next;
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { child.kill('SIGTERM'); } catch {}
+      resolve({ ok: false, timed_out: true, exit_code: null, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8') });
+    }, timeoutMs);
+    child.stdout.on('data', (chunk) => { stdout = append(stdout, chunk); });
+    child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok: false, timed_out: false, exit_code: null, stdout: '', stderr: cleanText(error && error.message ? error.message : error, 2000) });
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok: code === 0, timed_out: false, exit_code: code, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8') });
+    });
+  });
+}
 
 function projectAgentRuntimeEngineRow(engine, health) {
   const row = engine && typeof engine === 'object' ? engine : {};
@@ -113,6 +314,8 @@ function projectAgentRuntimeEngineRow(engine, health) {
   const status = healthStatus || (nativeReady ? 'available' : (registryStatus || 'unknown'));
   const selectable = status === 'available' || status === 'adapter_ready' || nativeReady;
   const downloadAvailable = install.download_available === true || (health && health.download_available === true);
+  const commandLineInstall = selectAgentRuntimeInstallCommand(install);
+  const installActionAvailable = cleanText(install.preferred_install_method || '', 80) === 'command_line' && !!commandLineInstall;
   return {
     engine_id: engineId,
     display_name: cleanText(row.display_name || engineId, 120),
@@ -122,6 +325,9 @@ function projectAgentRuntimeEngineRow(engine, health) {
     selectable,
     capabilities: Array.isArray(row.capabilities) ? row.capabilities.map((item) => cleanText(item, 120)).filter(Boolean).slice(0, 12) : [],
     download_available: !!downloadAvailable,
+    install_action_available: !!installActionAvailable,
+    command_line_install_available: !!commandLineInstall,
+    install_permission_state: agentRuntimeInstallAllowed() ? 'allowed' : 'permission_required',
     download_action_ref: cleanText(install.download_action_ref || (health && health.download_action_ref) || '', 240),
     preferred_install_method: cleanText(install.preferred_install_method || '', 80),
     command_line_hint: cleanText(install.command_line_hint || '', 500),
@@ -134,17 +340,17 @@ function projectAgentRuntimeEngineRow(engine, health) {
 async function agentRuntimeEnginesProjection(traceId) {
   const info = loadAgentRuntimeEngineRegistry(ROOT);
   const engines = Array.isArray(info.engines) ? info.engines : [];
-  const codexAdapter = createCodexCliEngineAdapter({ liveDispatch: false });
+  const engineAdapters = createAgentRuntimeEngineAdapterMap({ liveDispatch: false });
   const rows = [];
   for (const engine of engines) {
     const engineId = cleanEngineId(engine && engine.engine_id);
     let health = null;
-    if (engineId === 'codex_cli') {
-      health = await codexAdapter.health_check({
+    if (engineAdapters[engineId] && typeof engineAdapters[engineId].health_check === 'function') {
+      health = await engineAdapters[engineId].health_check({
         message: {
           trace_id: traceId,
           request_id: `agent-runtime-menu:${Date.now()}`,
-          engine_id: 'codex_cli',
+          engine_id: engineId,
           session_id: 'dashboard-menu',
         },
         engine,
@@ -163,6 +369,92 @@ async function agentRuntimeEnginesProjection(traceId) {
     socket_route: '/ws/agent-runtime',
     selected_default_engine_id: 'infring_native',
     engines: rows,
+  };
+}
+async function agentRuntimeEngineInstallProjection(traceId, requestedEngineId) {
+  const engineId = cleanEngineId(requestedEngineId);
+  if (!engineId) return { ok: false, status_code: 400, type: 'agent_runtime_engine_install_projection', trace_id: traceId, status: 'engine_id_required' };
+  const info = loadAgentRuntimeEngineRegistry(ROOT);
+  const engine = findAgentRuntimeEngine(info, engineId);
+  if (!engine) return { ok: false, status_code: 404, type: 'agent_runtime_engine_install_projection', trace_id: traceId, engine_id: engineId, status: 'engine_not_registered' };
+  const install = engine.install && typeof engine.install === 'object' ? engine.install : {};
+  const adapter = createAgentRuntimeEngineAdapterMap({ liveDispatch: false })[engineId];
+  const healthMessage = { trace_id: traceId, request_id: `agent-runtime-install:${Date.now()}`, engine_id: engineId, session_id: 'dashboard-install' };
+  const beforeHealth = adapter && typeof adapter.health_check === 'function'
+    ? await adapter.health_check({ message: healthMessage, engine }).catch((error) => ({ status: 'health_check_failed', reason: cleanText(error && error.message ? error.message : error, 240) }))
+    : null;
+  if (beforeHealth && beforeHealth.status === 'available') {
+    return {
+      ok: true,
+      type: 'agent_runtime_engine_install_projection',
+      trace_id: traceId,
+      engine_id: engineId,
+      status: 'already_available',
+      health: {
+        status: 'available',
+        discovery_source: cleanText(beforeHealth.discovery_source, 120),
+        version_preview: cleanText(beforeHealth.version_preview, 240),
+      },
+    };
+  }
+  if (cleanText(install.preferred_install_method || '', 80) !== 'command_line') {
+    return {
+      ok: false,
+      status_code: 409,
+      type: 'agent_runtime_engine_install_projection',
+      trace_id: traceId,
+      engine_id: engineId,
+      status: 'no_command_line_installer',
+      browser_fallback_url: cleanText(install.browser_fallback_url || '', 500),
+      command_line_hint: cleanText(install.command_line_hint || '', 500),
+    };
+  }
+  const commandSpec = selectAgentRuntimeInstallCommand(install);
+  if (!commandSpec) {
+    return {
+      ok: false,
+      status_code: 409,
+      type: 'agent_runtime_engine_install_projection',
+      trace_id: traceId,
+      engine_id: engineId,
+      status: 'command_line_installer_unavailable_for_platform',
+      browser_fallback_url: cleanText(install.browser_fallback_url || '', 500),
+      command_line_hint: cleanText(install.command_line_hint || '', 500),
+    };
+  }
+  if (!agentRuntimeInstallAllowed()) {
+    return {
+      ok: false,
+      status_code: 403,
+      type: 'agent_runtime_engine_install_projection',
+      trace_id: traceId,
+      engine_id: engineId,
+      status: 'permission_required',
+      command_line_hint: cleanText(install.command_line_hint || '', 500),
+    };
+  }
+  const run = await captureAgentRuntimeInstall(commandSpec);
+  const afterHealth = adapter && typeof adapter.health_check === 'function'
+    ? await adapter.health_check({ message: healthMessage, engine }).catch((error) => ({ status: 'health_check_failed', reason: cleanText(error && error.message ? error.message : error, 240) }))
+    : null;
+  const available = afterHealth && afterHealth.status === 'available';
+  return {
+    ok: !!(run.ok && available),
+    status_code: run.ok && available ? 200 : 502,
+    type: 'agent_runtime_engine_install_projection',
+    trace_id: traceId,
+    engine_id: engineId,
+    status: available ? 'installed_available' : (run.ok ? 'install_completed_but_not_available' : 'install_failed'),
+    exit_code: run.exit_code,
+    timed_out: !!run.timed_out,
+    stdout_preview: cleanDisplayText(run.stdout, 2000),
+    stderr_preview: cleanDisplayText(run.stderr, 2000),
+    health: afterHealth ? {
+      status: cleanText(afterHealth.status, 80),
+      discovery_source: cleanText(afterHealth.discovery_source, 120),
+      version_preview: cleanText(afterHealth.version_preview, 240),
+      reason: cleanText(afterHealth.reason, 240),
+    } : null,
   };
 }
 function normalizeShutdownExitDelayMs(value) {
@@ -970,6 +1262,31 @@ async function runServe(flags) {
           update_available: false,
         }));
         return void sendJson(res, 200, payload);
+      }
+      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/turn' || pathname === '/api/agent-runtime/turn')) {
+        const body = await readJsonBody(req, 65536);
+        const payload = await agentRuntimeTurnProjection(traceId, body).catch((error) => ({
+          ok: false,
+          status_code: 502,
+          type: 'agent_runtime_turn_projection_error',
+          trace_id: traceId,
+          error: cleanText(error && error.message ? error.message : error, 240),
+        }));
+        return void sendJson(res, payload.status_code || (payload.ok === false ? 502 : 200), payload);
+      }
+      const agentRuntimeInstallMatch = pathname.match(/^\/api\/(?:shell-socket\/)?agent-runtime\/engines\/([^/]+)\/install$/);
+      if (req.method === 'POST' && agentRuntimeInstallMatch) {
+        await readJsonBody(req, 8192).catch(() => ({}));
+        const engineId = decodeURIComponent(agentRuntimeInstallMatch[1] || '');
+        const payload = await agentRuntimeEngineInstallProjection(traceId, engineId).catch((error) => ({
+          ok: false,
+          status_code: 502,
+          type: 'agent_runtime_engine_install_projection_error',
+          trace_id: traceId,
+          engine_id: cleanEngineId(engineId),
+          error: cleanText(error && error.message ? error.message : error, 240),
+        }));
+        return void sendJson(res, payload.status_code || (payload.ok === false ? 502 : 200), payload);
       }
       if (req.method === 'GET' && (pathname === '/api/shell-socket/agent-runtime/engines' || pathname === '/api/agent-runtime/engines')) {
         const payload = await agentRuntimeEnginesProjection(traceId).catch((error) => ({
