@@ -82,6 +82,9 @@ function createInfringNativeEngineAdapter(options = {}) {
           readiness: 'adapter_seam_ready',
           engine_kind: 'native_orchestration',
           implementation_path: 'orchestration/**',
+          context_transport_mode: 'native_session_bridge',
+          structured_transport_target: 'native_session_bridge',
+          transport_migration_status: 'native_target',
           reason: 'orchestration_client_not_attached',
         };
       }
@@ -94,6 +97,9 @@ function createInfringNativeEngineAdapter(options = {}) {
         status: 'available',
         engine_kind: 'native_orchestration',
         implementation_path: 'orchestration/**',
+        context_transport_mode: 'native_session_bridge',
+        structured_transport_target: 'native_session_bridge',
+        transport_migration_status: 'native_target',
         ...(result && typeof result === 'object' ? result : {}),
       };
     },

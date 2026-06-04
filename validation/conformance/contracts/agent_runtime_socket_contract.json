@@ -26,6 +26,7 @@
     "docs/workspace/shell_ui_projection_policy.md",
     "docs/workspace/nexus_conduit_checkpoint_policy.md"
   ],
+  "turn_outcome_contract": "validation/conformance/contracts/agent_runtime_turn_outcome_contract.json",
   "canonical_endpoint": {
     "route_id": "agent_runtime.socket",
     "transport": "websocket",

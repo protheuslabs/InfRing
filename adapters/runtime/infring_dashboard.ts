@@ -467,6 +467,110 @@ function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
     turn_id: cleanText(event.turn_id || defaults.turnId, 200),
   };
 }
+function classifyAgentRuntimePreTurnFailureCode(engineId, source, fallback = 'agent_runtime_engine_unavailable') {
+  const cleanEngine = cleanEngineId(engineId) || 'agent_runtime';
+  const text = cleanDisplayText([
+    source && source.error,
+    source && source.error_code,
+    source && source.reason,
+    source && source.status,
+    source && source.version_preview,
+    source && source.stderr_preview,
+    source && source.message,
+  ].filter(Boolean).join('\n'), 12000).toLowerCase();
+  if (
+    text.includes('quota') ||
+    text.includes('credit') ||
+    text.includes('billing') ||
+    text.includes('subscription') ||
+    text.includes('payment required') ||
+    text.includes('insufficient balance')
+  ) {
+    return `${cleanEngine}_provider_quota_or_subscription_unavailable`;
+  }
+  if (
+    text.includes('unauthorized') ||
+    text.includes('not authorized') ||
+    text.includes('authentication') ||
+    text.includes('auth required') ||
+    text.includes('login required') ||
+    text.includes('please login') ||
+    text.includes('please log in') ||
+    text.includes('api key') ||
+    text.includes('invalid token') ||
+    text.includes('token expired')
+  ) {
+    return `${cleanEngine}_provider_auth_required`;
+  }
+  if (
+    text.includes('rate limit') ||
+    text.includes('rate-limit') ||
+    text.includes('too many requests') ||
+    text.includes('429')
+  ) {
+    return `${cleanEngine}_provider_rate_limited`;
+  }
+  if (
+    text.includes('not found') ||
+    text.includes('missing') ||
+    text.includes('not installed') ||
+    text.includes('command not found') ||
+    text.includes('enoent')
+  ) {
+    return `${cleanEngine}_runtime_not_available`;
+  }
+  return cleanText(source && (source.error_code || source.error), 120) || fallback;
+}
+function agentRuntimePreTurnFailureProjection(traceId, engineId, agentId, sessionId, turnId, reason, source = {}) {
+  const cleanEngine = cleanEngineId(engineId) || 'agent_runtime';
+  const errorCode = classifyAgentRuntimePreTurnFailureCode(cleanEngine, { ...source, reason });
+  const displayText = cleanDisplayText(
+    reason || `${cleanEngine} is not available for this turn.`,
+    1200,
+  );
+  return {
+    ok: false,
+    status_code: 200,
+    type: 'agent_runtime_turn_projection',
+    trace_id: traceId,
+    engine_id: cleanEngine,
+    agent_id: cleanText(agentId, 160),
+    session_id: cleanText(sessionId, 200),
+    turn_id: cleanText(turnId, 200),
+    status: 'failed_with_reason',
+    error_code: errorCode,
+    reason: displayText,
+    retryable: !/quota|subscription|auth|login|api_key|billing/i.test(errorCode),
+    timed_out: false,
+    timeout_ms: 0,
+    text: displayText,
+    display_text: displayText,
+    output_text: displayText,
+    output_preview: cleanText(displayText, 4000),
+    agent_activity_events: [
+      {
+        type: 'agent_activity_event',
+        activity_kind: 'error',
+        provider_event_type: 'pre_turn.failure',
+        source: 'infring_gateway_agent_runtime_socket',
+        sequence_no: 1,
+        status: 'failed',
+        text: displayText,
+        display_text: displayText,
+        engine_id: cleanEngine,
+        trace_id: traceId,
+        session_id: cleanText(sessionId, 200),
+        turn_id: cleanText(turnId, 200),
+      },
+    ],
+    activity_event_count: 1,
+    raw_activity_event_count: 1,
+    structured_activity: true,
+    result_ref: '',
+    receipt_ref: '',
+    pending_permission_request: null,
+  };
+}
 async function agentRuntimeTurnProjection(traceId, body, options = {}) {
   const rawEngineId = body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id);
   const engineId = cleanEngineId(rawEngineId || 'infring_native');
@@ -603,14 +707,13 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
     session_id: sessionId,
   });
   if (!health || (health.status !== 'available' && health.status !== 'adapter_ready')) {
-    return {
-      ok: false,
-      status_code: 503,
-      error: 'agent_runtime_engine_unavailable',
-      trace_id: traceId,
-      engine_id: engineId,
-      health,
-    };
+    const reason = cleanDisplayText(
+      health && (health.reason || health.error || health.version_preview || health.status)
+        ? `${engineId} is unavailable: ${health.reason || health.error || health.version_preview || health.status}`
+        : `${engineId} is unavailable for this turn.`,
+      1200,
+    );
+    return agentRuntimePreTurnFailureProjection(traceId, engineId, agentId, sessionId, turnId, reason, health || {});
   }
   emitSyntheticActivity('started', 'session.start', `Starting ${engineId} session ${sessionId}.`);
   await router.startSession({
@@ -654,6 +757,17 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
   const pendingPermissionRequest = turn && turn.permission_request && typeof turn.permission_request === 'object'
     ? turn.permission_request
     : null;
+  const rawTurnStatus = cleanText(turn && turn.status, 80);
+  const terminalOutcomeStatus = pendingPermissionRequest
+    ? 'permission_required'
+    : rawTurnStatus === 'completed'
+      ? 'completed'
+      : turn && turn.timed_out
+        ? 'timed_out_with_reason'
+        : rawTurnStatus === 'failed' || (turn && turn.error_code)
+          ? 'failed_with_reason'
+          : (rawTurnStatus || 'unknown');
+  const terminalOutcomeOk = terminalOutcomeStatus === 'completed' || terminalOutcomeStatus === 'permission_required';
   const finalActivityEvents = Array.isArray(turn && turn.activity_events)
     ? turn.activity_events.map((event, index) => sanitizeAgentRuntimeActivityEvent(event, index, activityDefaults))
     : [];
@@ -705,14 +819,20 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
     });
   } catch {}
   return {
-    ok: !!(pendingPermissionRequest || (turn && turn.status === 'completed')),
+    ok: terminalOutcomeOk,
+    status_code: 200,
     type: 'agent_runtime_turn_projection',
     trace_id: traceId,
     engine_id: engineId,
     agent_id: agentId,
     session_id: sessionId,
     turn_id: turnId,
-    status: pendingPermissionRequest ? 'permission_required' : (cleanText(turn && turn.status, 80) || 'unknown'),
+    status: terminalOutcomeStatus,
+    error_code: cleanText(turn && turn.error_code, 120),
+    reason: cleanDisplayText(turn && turn.reason, 1200),
+    retryable: turn && turn.retryable === true,
+    timed_out: turn && turn.timed_out === true,
+    timeout_ms: Number(turn && turn.timeout_ms) || 0,
     text: pendingPermissionRequest ? '' : output,
     display_text: pendingPermissionRequest ? '' : output,
     output_text: pendingPermissionRequest ? '' : output,

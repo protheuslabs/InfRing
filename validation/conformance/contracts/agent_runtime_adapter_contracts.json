@@ -51,7 +51,11 @@
       "shell_direct_access_allowed",
       "canonical_event_mapping_required",
       "health_projection_required",
-      "discovery"
+      "discovery",
+      "context_transport_mode",
+      "transport_migration_status",
+      "transitional_prompt_text_allowed",
+      "structured_transport_target"
     ],
     "allowed_private_schema_roles": [
       "process_stdout_parser",
@@ -66,6 +70,11 @@
       "kernel_receipt_body_shape",
       "shell_default_message_row_shape",
       "canonical_memory_record_shape"
+    ],
+    "allowed_context_transport_modes": [
+      "prompt_text_compat",
+      "structured_json",
+      "native_session_bridge"
     ]
   },
   "adapter_contracts": [
@@ -97,7 +106,11 @@
         "receives_gateway_grants": true,
         "direct_execution_allowed": false,
         "proposal_shape": "infring_universal_tool_proposal"
-      }
+      },
+      "context_transport_mode": "native_session_bridge",
+      "transport_migration_status": "native_target",
+      "transitional_prompt_text_allowed": false,
+      "structured_transport_target": "native_session_bridge"
     },
     {
       "engine_id": "codex_cli",
@@ -144,7 +157,13 @@
         "receives_gateway_grants": true,
         "direct_execution_allowed": false,
         "proposal_shape": "infring_universal_tool_proposal"
-      }
+      },
+      "context_transport_mode": "prompt_text_compat",
+      "transport_migration_status": "transitional_bootstrap",
+      "transitional_prompt_text_allowed": true,
+      "structured_transport_target": "structured_json",
+      "prompt_text_compat_retirement_signal": "provider exposes stable structured turn/session API or InfRing ships provider-specific structured bridge",
+      "prompt_text_compat_risk": "Prompt preambles and text-parsed proposals can become load-bearing if not guarded."
     },
     {
       "engine_id": "claude_code",
@@ -190,7 +209,13 @@
         "receives_gateway_grants": true,
         "direct_execution_allowed": false,
         "proposal_shape": "infring_universal_tool_proposal"
-      }
+      },
+      "context_transport_mode": "prompt_text_compat",
+      "transport_migration_status": "transitional_bootstrap",
+      "transitional_prompt_text_allowed": true,
+      "structured_transport_target": "structured_json",
+      "prompt_text_compat_retirement_signal": "provider exposes stable structured turn/session API or InfRing ships provider-specific structured bridge",
+      "prompt_text_compat_risk": "Prompt preambles and text-parsed proposals can become load-bearing if not guarded."
     },
     {
       "engine_id": "grok_code",
@@ -236,7 +261,13 @@
         "receives_gateway_grants": true,
         "direct_execution_allowed": false,
         "proposal_shape": "infring_universal_tool_proposal"
-      }
+      },
+      "context_transport_mode": "prompt_text_compat",
+      "transport_migration_status": "transitional_bootstrap",
+      "transitional_prompt_text_allowed": true,
+      "structured_transport_target": "structured_json",
+      "prompt_text_compat_retirement_signal": "provider exposes stable structured turn/session API or InfRing ships provider-specific structured bridge",
+      "prompt_text_compat_risk": "Prompt preambles and text-parsed proposals can become load-bearing if not guarded."
     },
     {
       "engine_id": "openhands",
@@ -275,7 +306,11 @@
         "receives_gateway_grants": true,
         "direct_execution_allowed": false,
         "proposal_shape": "infring_universal_tool_proposal"
-      }
+      },
+      "context_transport_mode": "structured_json",
+      "transport_migration_status": "planned_structured_target",
+      "transitional_prompt_text_allowed": false,
+      "structured_transport_target": "structured_json"
     },
     {
       "engine_id": "openclaw",
@@ -313,7 +348,11 @@
         "receives_gateway_grants": true,
         "direct_execution_allowed": false,
         "proposal_shape": "infring_universal_tool_proposal"
-      }
+      },
+      "context_transport_mode": "structured_json",
+      "transport_migration_status": "planned_structured_target",
+      "transitional_prompt_text_allowed": false,
+      "structured_transport_target": "structured_json"
     },
     {
       "engine_id": "openfang",
@@ -351,7 +390,11 @@
         "receives_gateway_grants": true,
         "direct_execution_allowed": false,
         "proposal_shape": "infring_universal_tool_proposal"
-      }
+      },
+      "context_transport_mode": "structured_json",
+      "transport_migration_status": "planned_structured_target",
+      "transitional_prompt_text_allowed": false,
+      "structured_transport_target": "structured_json"
     },
     {
       "engine_id": "custom_socket_engine",
@@ -386,7 +429,11 @@
         "receives_gateway_grants": true,
         "direct_execution_allowed": false,
         "proposal_shape": "infring_universal_tool_proposal"
-      }
+      },
+      "context_transport_mode": "structured_json",
+      "transport_migration_status": "planned_structured_target",
+      "transitional_prompt_text_allowed": false,
+      "structured_transport_target": "structured_json"
     }
   ],
   "discovery_policy": {
@@ -414,5 +461,18 @@
     "adapters_may_not_execute_universal_tools_directly": true,
     "adapters_may_not_expose_native_workflow_tools_as_universal": true,
     "universal_tool_proposals_must_be_gateway_normalized": true
+  },
+  "structured_transport_contract": "validation/conformance/contracts/agent_runtime_structured_transport_contract.json",
+  "transport_mode_policy": {
+    "allowed_modes": [
+      "prompt_text_compat",
+      "structured_json",
+      "native_session_bridge"
+    ],
+    "preferred_external_mode": "structured_json",
+    "prompt_text_compat_allowed_only_when_marked_transitional": true,
+    "prompt_text_compat_retirement_target": "structured_json",
+    "new_adapters_must_not_default_to_prompt_text_compat": true,
+    "migration_report_required": true
   }
 }

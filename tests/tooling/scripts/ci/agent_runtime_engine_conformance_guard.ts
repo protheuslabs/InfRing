@@ -6,6 +6,8 @@ const ROOT = process.cwd();
 const registryPath = 'validation/conformance/contracts/agent_runtime_engine_registry.json';
 const socketPath = 'validation/conformance/contracts/agent_runtime_socket_contract.json';
 const adapterContractsPath = 'validation/conformance/contracts/agent_runtime_adapter_contracts.json';
+const structuredTransportContractPath = 'validation/conformance/contracts/agent_runtime_structured_transport_contract.json';
+const turnOutcomeContractPath = 'validation/conformance/contracts/agent_runtime_turn_outcome_contract.json';
 const contextPackContractPath = 'validation/conformance/contracts/agent_runtime_context_pack_contract.json';
 const contextAuthorityBoundaryContractPath = 'validation/conformance/contracts/context_authority_boundary_contract.json';
 const universalToolsContractPath = 'validation/conformance/contracts/agent_runtime_universal_tools_contract.json';
@@ -23,23 +25,67 @@ function exists(rel: string): boolean {
 const registry = readJson(registryPath);
 const socket = readJson(socketPath);
 const adapterContracts = readJson(adapterContractsPath);
+const structuredTransportContract = readJson(structuredTransportContractPath);
+const turnOutcomeContract = readJson(turnOutcomeContractPath);
 const contextPackContract = readJson(contextPackContractPath);
 const contextAuthorityBoundaryContract = readJson(contextAuthorityBoundaryContractPath);
 const universalToolsContract = readJson(universalToolsContractPath);
 
 if (registry.socket_contract !== socketPath) violations.push({ kind: 'registry_socket_contract_mismatch', path: registryPath });
+if (registry.turn_outcome_contract !== turnOutcomeContractPath) violations.push({ kind: 'registry_turn_outcome_contract_mismatch', path: registryPath });
 if (registry.universal_tools_contract !== universalToolsContractPath) violations.push({ kind: 'registry_universal_tools_contract_mismatch', path: registryPath });
 if (socket.canonical_endpoint?.canonical_route_pattern !== '/ws/agent-runtime') violations.push({ kind: 'socket_route_not_canonical', path: socketPath });
 if (!socket.trace_identity_rule?.trace_id_required_on_every_message) violations.push({ kind: 'trace_id_not_required', path: socketPath });
 if (!socket.trace_identity_rule?.gateway_router_rejects_adapter_trace_id_replacement) violations.push({ kind: 'trace_replacement_rejection_not_required', path: socketPath });
 if (!socket.kernel_authority_invariant?.durable_effects_require_kernel_or_gateway_policy) violations.push({ kind: 'kernel_authority_not_invariant', path: socketPath });
 if (registry.private_adapter_contracts !== adapterContractsPath) violations.push({ kind: 'registry_private_adapter_contracts_mismatch', path: registryPath });
+if (registry.structured_transport_contract !== structuredTransportContractPath) violations.push({ kind: 'registry_structured_transport_contract_mismatch', path: registryPath });
 if (socket.private_adapter_contracts !== adapterContractsPath) violations.push({ kind: 'socket_private_adapter_contracts_mismatch', path: socketPath });
+if (socket.turn_outcome_contract !== turnOutcomeContractPath) violations.push({ kind: 'socket_turn_outcome_contract_mismatch', path: socketPath });
 if (socket.context_pack_contract !== contextPackContractPath) violations.push({ kind: 'socket_context_pack_contract_mismatch', path: socketPath });
 if (socket.universal_tools_contract !== universalToolsContractPath) violations.push({ kind: 'socket_universal_tools_contract_mismatch', path: socketPath });
 if (contextPackContract.context_authority_boundary_contract !== contextAuthorityBoundaryContractPath) violations.push({ kind: 'context_pack_boundary_contract_mismatch', path: contextPackContractPath });
 if (contextPackContract.universal_tools_contract !== universalToolsContractPath) violations.push({ kind: 'context_pack_universal_tools_contract_mismatch', path: contextPackContractPath });
 if (adapterContracts.universal_tools_contract !== universalToolsContractPath) violations.push({ kind: 'adapter_universal_tools_contract_mismatch', path: adapterContractsPath });
+if (adapterContracts.structured_transport_contract !== structuredTransportContractPath) violations.push({ kind: 'adapter_structured_transport_contract_mismatch', path: adapterContractsPath });
+if (structuredTransportContract.type !== 'agent_runtime_structured_transport_contract') violations.push({ kind: 'structured_transport_contract_type_wrong', path: structuredTransportContractPath });
+if (structuredTransportContract.public_socket_contract !== socketPath) violations.push({ kind: 'structured_transport_public_socket_contract_mismatch', path: structuredTransportContractPath });
+if (structuredTransportContract.context_pack_contract !== contextPackContractPath) violations.push({ kind: 'structured_transport_context_pack_contract_mismatch', path: structuredTransportContractPath });
+if (structuredTransportContract.universal_tools_contract !== universalToolsContractPath) violations.push({ kind: 'structured_transport_universal_tools_contract_mismatch', path: structuredTransportContractPath });
+if (turnOutcomeContract.type !== 'agent_runtime_turn_outcome_contract') violations.push({ kind: 'turn_outcome_contract_type_wrong', path: turnOutcomeContractPath });
+if (turnOutcomeContract.public_socket_contract !== socketPath) violations.push({ kind: 'turn_outcome_public_socket_contract_mismatch', path: turnOutcomeContractPath });
+if (turnOutcomeContract.engine_registry !== registryPath) violations.push({ kind: 'turn_outcome_engine_registry_mismatch', path: turnOutcomeContractPath });
+for (const status of ['completed', 'permission_required', 'failed_with_reason', 'timed_out_with_reason']) {
+  if (!Array.isArray(turnOutcomeContract.required_terminal_outcomes) || !turnOutcomeContract.required_terminal_outcomes.some((row: any) => row && row.status === status)) {
+    violations.push({ kind: 'turn_outcome_status_missing', status, path: turnOutcomeContractPath });
+  }
+}
+for (const forbidden of ['silent_failure', 'worked_timer_without_final_status', 'missing_error_code_on_failure']) {
+  if (!Array.isArray(turnOutcomeContract.forbidden_turn_outcomes) || !turnOutcomeContract.forbidden_turn_outcomes.includes(forbidden)) {
+    violations.push({ kind: 'turn_outcome_forbidden_case_missing', forbidden, path: turnOutcomeContractPath });
+  }
+}
+if (turnOutcomeContract.pre_turn_failure_rule?.engine_unavailable_must_project_chat_visible_failure !== true) {
+  violations.push({ kind: 'turn_outcome_pre_turn_failure_projection_missing', path: turnOutcomeContractPath });
+}
+for (const failureClass of ['provider_quota_or_subscription_unavailable', 'provider_auth_required', 'provider_rate_limited', 'runtime_not_available']) {
+  if (!Array.isArray(turnOutcomeContract.provider_failure_reason_classes) || !turnOutcomeContract.provider_failure_reason_classes.includes(failureClass)) {
+    violations.push({ kind: 'turn_outcome_provider_failure_class_missing', failure_class: failureClass, path: turnOutcomeContractPath });
+  }
+}
+for (const mode of ['prompt_text_compat', 'structured_json', 'native_session_bridge']) {
+  if (!Array.isArray(structuredTransportContract.allowed_transport_modes) || !structuredTransportContract.allowed_transport_modes.includes(mode)) {
+    violations.push({ kind: 'structured_transport_mode_missing', mode, path: structuredTransportContractPath });
+  }
+  if (!structuredTransportContract.mode_definitions || !structuredTransportContract.mode_definitions[mode]) {
+    violations.push({ kind: 'structured_transport_mode_definition_missing', mode, path: structuredTransportContractPath });
+  }
+}
+for (const section of ['context_pack', 'user_message', 'tool_grants', 'approval_requests', 'activity_events', 'assistant_output', 'receipts']) {
+  if (!Array.isArray(structuredTransportContract.canonical_turn_schema?.required_fields) || !structuredTransportContract.canonical_turn_schema.required_fields.includes(section)) {
+    violations.push({ kind: 'structured_transport_required_section_missing', section, path: structuredTransportContractPath });
+  }
+}
 if (contextAuthorityBoundaryContract.canonical_authority?.owner !== 'kernel.layer2.memory') violations.push({ kind: 'context_authority_owner_not_kernel', path: contextAuthorityBoundaryContractPath });
 if (contextAuthorityBoundaryContract.allowed_non_authority_roles?.transitional_gateway_cache?.canonical_authority !== false) violations.push({ kind: 'context_gateway_cache_not_non_authority', path: contextAuthorityBoundaryContractPath });
 if (contextAuthorityBoundaryContract.legacy_context_systems?.['core/layer0/ops/src/memory/stacks']?.runtime_engine_context_authority_allowed !== false) violations.push({ kind: 'legacy_context_stacks_not_denied_for_runtime_engine_context', path: contextAuthorityBoundaryContractPath });
@@ -121,6 +167,11 @@ for (const method of ['health_check', 'start_session', 'submit_turn', 'stream_ev
 
 const engines = Array.isArray(registry.engines) ? registry.engines : [];
 const ids = new Set<string>();
+const allowedTransportModes = new Set<string>(
+  Array.isArray(structuredTransportContract.allowed_transport_modes)
+    ? structuredTransportContract.allowed_transport_modes.map((mode) => String(mode))
+    : [],
+);
 for (const engine of engines) {
   const id = String(engine.engine_id || '');
   if (!id) violations.push({ kind: 'engine_id_missing', engine });
@@ -130,6 +181,10 @@ for (const engine of engines) {
     if (!engine[field]) violations.push({ kind: 'engine_field_missing', engine_id: id, field });
   }
   if (!Array.isArray(engine.capabilities) || engine.capabilities.length === 0) violations.push({ kind: 'engine_capabilities_missing', engine_id: id });
+  const engineMode = String(engine.context_transport_mode || '');
+  const engineTarget = String(engine.structured_transport_target || '');
+  if (!allowedTransportModes.has(engineMode)) violations.push({ kind: 'engine_context_transport_mode_invalid', engine_id: id, mode: engineMode });
+  if (engineTarget && !allowedTransportModes.has(engineTarget)) violations.push({ kind: 'engine_structured_transport_target_invalid', engine_id: id, target: engineTarget });
   if (!Array.isArray(engine.authority_constraints) || engine.authority_constraints.length === 0) violations.push({ kind: 'engine_authority_constraints_missing', engine_id: id });
   if (!engine.discovery || typeof engine.discovery !== 'object') violations.push({ kind: 'engine_discovery_missing', engine_id: id });
   if (id !== 'infring_native' && engine.discovery?.custom_location_allowed !== true) violations.push({ kind: 'engine_custom_location_not_allowed', engine_id: id });
@@ -156,6 +211,10 @@ const adapterIds = new Set<string>();
 const requiredAdapterFields = Array.isArray(adapterContracts.private_adapter_shape?.required_fields)
   ? adapterContracts.private_adapter_shape.required_fields
   : [];
+for (const field of ['context_transport_mode', 'transport_migration_status', 'transitional_prompt_text_allowed', 'structured_transport_target']) {
+  if (!requiredAdapterFields.includes(field)) violations.push({ kind: 'adapter_transport_required_field_missing', field, path: adapterContractsPath });
+}
+const transportMigrationRows: any[] = [];
 for (const row of adapterRows) {
   const id = String(row.engine_id || '');
   if (!id) violations.push({ kind: 'adapter_contract_engine_id_missing', row });
@@ -170,6 +229,25 @@ for (const row of adapterRows) {
   if (row.shell_direct_access_allowed !== false) violations.push({ kind: 'adapter_shell_direct_access_allowed', engine_id: id });
   if (row.canonical_event_mapping_required !== true) violations.push({ kind: 'adapter_canonical_event_mapping_not_required', engine_id: id });
   if (row.health_projection_required !== true) violations.push({ kind: 'adapter_health_projection_not_required', engine_id: id });
+  const mode = String(row.context_transport_mode || '');
+  const target = String(row.structured_transport_target || '');
+  transportMigrationRows.push({
+    engine_id: id,
+    context_transport_mode: mode,
+    structured_transport_target: target,
+    transport_migration_status: row.transport_migration_status || '',
+    prompt_text_dependent: mode === 'prompt_text_compat',
+    transitional_prompt_text_allowed: row.transitional_prompt_text_allowed === true,
+  });
+  if (!allowedTransportModes.has(mode)) violations.push({ kind: 'adapter_context_transport_mode_invalid', engine_id: id, mode });
+  if (target && !allowedTransportModes.has(target)) violations.push({ kind: 'adapter_structured_transport_target_invalid', engine_id: id, target });
+  if (mode === 'prompt_text_compat') {
+    if (row.transitional_prompt_text_allowed !== true) violations.push({ kind: 'adapter_prompt_text_not_marked_transitional', engine_id: id });
+    if (target !== 'structured_json') violations.push({ kind: 'adapter_prompt_text_target_not_structured_json', engine_id: id, target });
+    if (!row.prompt_text_compat_retirement_signal) violations.push({ kind: 'adapter_prompt_text_retirement_signal_missing', engine_id: id });
+  } else if (row.transitional_prompt_text_allowed === true) {
+    violations.push({ kind: 'adapter_prompt_text_allowed_without_prompt_text_mode', engine_id: id, mode });
+  }
   if (id === 'infring_native' && row.engine_runtime_path !== 'orchestration/**') violations.push({ kind: 'native_engine_runtime_path_wrong', engine_id: id, actual: row.engine_runtime_path });
   if (!row.discovery || typeof row.discovery !== 'object') violations.push({ kind: 'adapter_discovery_missing', engine_id: id });
   if (id !== 'infring_native' && row.discovery?.custom_location_allowed !== true) violations.push({ kind: 'adapter_custom_location_not_allowed', engine_id: id });
@@ -258,6 +336,18 @@ if (exists(cliRuntimePath)) {
   if (!cliSource.includes('buildPromptWithContext') || !cliSource.includes('message.context_pack')) violations.push({ kind: 'cli_runtime_context_pack_injection_missing', path: cliRuntimePath });
   if (!cliSource.includes('renderUniversalToolGrantPromptSection') || !cliSource.includes('toolGrantSection')) violations.push({ kind: 'cli_runtime_universal_tool_prompt_missing', path: cliRuntimePath });
   if (!cliSource.includes('stableExternalSessionUuid')) violations.push({ kind: 'cli_runtime_stable_session_helper_missing', path: cliRuntimePath });
+  for (const marker of structuredTransportContract.migration_policy?.prompt_text_compat_source_markers_required || []) {
+    if (!cliSource.includes(marker)) violations.push({ kind: 'cli_runtime_prompt_text_transition_marker_missing', marker, path: cliRuntimePath });
+  }
+  if (!cliSource.includes('contextTransportMode') || !cliSource.includes('transportMigrationStatus')) {
+    violations.push({ kind: 'cli_runtime_transport_mode_declaration_missing', path: cliRuntimePath });
+  }
+  for (const marker of ['resolveTurnTimeoutMs', 'cliRuntimeFailureText', 'timed_out', 'timeout_ms']) {
+    if (!cliSource.includes(marker)) violations.push({ kind: 'cli_runtime_turn_outcome_marker_missing', marker, path: cliRuntimePath });
+  }
+  for (const marker of ['classifyCliRuntimeFailureCode', 'provider_quota_or_subscription_unavailable', 'provider_auth_required', 'provider_rate_limited']) {
+    if (!cliSource.includes(marker)) violations.push({ kind: 'cli_runtime_provider_failure_classifier_missing', marker, path: cliRuntimePath });
+  }
 }
 if (exists(codexPath)) {
   const codexSource = fs.readFileSync(path.join(ROOT, codexPath), 'utf8');
@@ -300,9 +390,21 @@ if (exists(dashboardPath)) {
 	  if (!dashboardSource.includes('context_pack: contextPack')) violations.push({ kind: 'dashboard_agent_runtime_context_pack_not_submitted', path: dashboardPath });
 	  if (!dashboardSource.includes('ingestAgentRuntimeContextProjection') || !dashboardSource.includes('materializeAgentRuntimeContextPack') || !dashboardSource.includes('appendAgentRuntimeTurnAtoms')) violations.push({ kind: 'dashboard_agent_runtime_context_store_not_wired', path: dashboardPath });
 	  if (!dashboardSource.includes('materializeKernelAgentRuntimeContextPack') || !dashboardSource.includes('kernel_materializer_used')) violations.push({ kind: 'dashboard_agent_runtime_kernel_context_bridge_not_wired', path: dashboardPath });
+	  for (const marker of ['failed_with_reason', 'timed_out_with_reason', 'status_code: 200']) {
+	    if (!dashboardSource.includes(marker)) violations.push({ kind: 'dashboard_turn_outcome_projection_marker_missing', marker, path: dashboardPath });
+	  }
+	  for (const marker of ['agentRuntimePreTurnFailureProjection', 'classifyAgentRuntimePreTurnFailureCode', 'provider_quota_or_subscription_unavailable', 'provider_auth_required']) {
+	    if (!dashboardSource.includes(marker)) violations.push({ kind: 'dashboard_pre_turn_failure_projection_marker_missing', marker, path: dashboardPath });
+	  }
 	  for (const factory of ['createCodexCliEngineAdapter', 'createClaudeCodeEngineAdapter', 'createGrokCodeEngineAdapter']) {
 	    if (!dashboardSource.includes(factory)) violations.push({ kind: 'dashboard_agent_runtime_factory_missing', factory, path: dashboardPath });
 	  }
+}
+if (exists(liveTurnSmokePath)) {
+  const liveSmokeSource = fs.readFileSync(path.join(ROOT, liveTurnSmokePath), 'utf8');
+  for (const marker of ['classifyTurnOutcome', 'timed_out_with_reason', 'failed_with_reason', 'silent_or_invalid', 'max_turn_seconds']) {
+    if (!liveSmokeSource.includes(marker)) violations.push({ kind: 'live_turn_smoke_outcome_marker_missing', marker, path: liveTurnSmokePath });
+  }
 }
 if (!exists(chatSendPartPath)) {
   violations.push({ kind: 'chat_send_part_missing', path: chatSendPartPath });
@@ -433,6 +535,7 @@ if (exists(cliRuntimePath)) {
   if (typeof cliRuntime.stripTerminalControls !== 'function') violations.push({ kind: 'cli_runtime_terminal_control_stripper_missing' });
 		  const cliSource = fs.readFileSync(path.join(ROOT, cliRuntimePath), 'utf8');
   if (!cliSource.includes('cleanDisplayString') || !cliSource.includes('output_text')) violations.push({ kind: 'cli_runtime_formatted_output_missing', path: cliRuntimePath });
+  if (!cliSource.includes('permission_denials') || !cliSource.includes('external_cli_permission_denial_normalizer')) violations.push({ kind: 'cli_runtime_permission_denial_normalizer_missing', path: cliRuntimePath });
 	  if (!cliSource.includes('cleanDisplayString') || !cliSource.includes('output_text') || !cliSource.includes('stripTerminalControls')) violations.push({ kind: 'cli_runtime_formatted_output_missing', path: cliRuntimePath });
 	  if (typeof cliRuntime.buildPromptWithContext !== 'function') violations.push({ kind: 'cli_runtime_context_prompt_builder_missing', path: cliRuntimePath });
 	  if (typeof cliRuntime.buildPromptWithContext === 'function') {
@@ -568,8 +671,16 @@ const payload = {
   socket_contract_path: socketPath,
   adapter_contracts_path: adapterContractsPath,
   context_pack_contract_path: contextPackContractPath,
+  structured_transport_contract_path: structuredTransportContractPath,
   engine_count: engines.length,
   adapter_contract_count: Array.isArray(adapterContracts.adapter_contracts) ? adapterContracts.adapter_contracts.length : 0,
+  transport_migration_report: {
+    preferred_external_mode: 'structured_json',
+    prompt_text_dependent_count: transportMigrationRows.filter((row) => row.prompt_text_dependent).length,
+    structured_target_count: transportMigrationRows.filter((row) => row.context_transport_mode === 'structured_json').length,
+    native_bridge_count: transportMigrationRows.filter((row) => row.context_transport_mode === 'native_session_bridge').length,
+    rows: transportMigrationRows,
+  },
   violations,
 };
 

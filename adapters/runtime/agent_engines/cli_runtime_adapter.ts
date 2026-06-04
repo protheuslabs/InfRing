@@ -5,6 +5,13 @@
 // Shared bounded adapter for CLI-based external agent runtimes. It keeps live
 // dispatch opt-in and uses Gateway-owned discovery so Shell never probes local
 // runtime installs directly.
+//
+// PROMPT_TEXT_COMPATIBILITY_LAYER: this file renders the canonical Gateway
+// context pack into bounded prompt text only because Codex/Claude/Grok CLI
+// transports currently expose text-first turn APIs.
+// STRUCTURED_JSON_TRANSPORT_TARGET: migrate provider adapters to structured
+// JSON/native session bridges as soon as each engine exposes a stable typed
+// context/tool/approval/output channel. Prompt text must not become authority.
 
 'use strict';
 
@@ -88,7 +95,7 @@ function stableExternalSessionUuid(ctx, defaultEngineId) {
 }
 
 function spawnCapture(command, args, options = {}) {
-  const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, 120000));
+  const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, 300000));
   const maxOutputBytes = Math.max(1024, Math.min(Number(options.maxOutputBytes) || 24000, 65536));
   return new Promise((resolve) => {
     const child = childProcess.spawn(command, Array.isArray(args) ? args : [], {
@@ -132,7 +139,7 @@ function spawnCapture(command, args, options = {}) {
 }
 
 function spawnActivityCapture(command, args, options = {}) {
-  const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, 120000));
+  const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, 300000));
   const maxOutputBytes = Math.max(1024, Math.min(Number(options.maxOutputBytes) || 24000, 65536));
   const ctx = options.ctx || null;
   const engineId = cleanString(options.engineId || 'external_cli', 120);
@@ -329,6 +336,106 @@ function buildPromptWithContext(contextPack, currentPrompt) {
   if (toolGrantSection) lines.push('', toolGrantSection);
   lines.push('', 'Current user turn:', current);
   return cleanDisplayString(lines.join('\n'), 24000);
+}
+
+function resolveTurnTimeoutMs(ctx, fallbackTimeoutMs) {
+  const message = ctx && ctx.message && typeof ctx.message === 'object' ? ctx.message : {};
+  const budget = message.capability_budget && typeof message.capability_budget === 'object'
+    ? message.capability_budget
+    : {};
+  const budgetSeconds = Number(budget.max_turn_seconds || 0);
+  const budgetTimeoutMs = Number.isFinite(budgetSeconds) && budgetSeconds > 0
+    ? budgetSeconds * 1000
+    : 0;
+  const fallback = Number(fallbackTimeoutMs || 0);
+  const selected = budgetTimeoutMs || (Number.isFinite(fallback) && fallback > 0 ? fallback : 60000);
+  return Math.max(1000, Math.min(selected, 300000));
+}
+
+function cliRuntimeFailureText(engineId, run, timeoutMs) {
+  const cleanEngine = cleanString(engineId || 'external_cli', 120);
+  const timeoutSeconds = Math.max(1, Math.round(Number(timeoutMs || 0) / 1000));
+  if (run && run.timed_out) {
+    return `${cleanEngine} did not finish within ${timeoutSeconds}s. The external runtime process was stopped by the InfRing Gateway turn timeout.`;
+  }
+  const stderr = cleanDisplayString(run && run.stderr, 4000);
+  if (stderr) return stderr;
+  const stdout = cleanDisplayString(run && run.stdout, 4000);
+  if (stdout) return stdout;
+  const exitCode = run && run.exit_code != null ? String(run.exit_code) : 'unknown';
+  return `${cleanEngine} exited without a usable assistant response (exit_code=${exitCode}).`;
+}
+
+function classifyCliRuntimeFailureCode(engineId, run, failureText) {
+  const cleanEngine = cleanString(engineId || 'external_cli', 120);
+  if (run && run.timed_out) return `${cleanEngine}_turn_timeout`;
+  const text = cleanDisplayString([
+    failureText,
+    run && run.stderr,
+    run && run.stdout,
+  ].filter(Boolean).join('\n'), 12000).toLowerCase();
+  if (
+    text.includes('quota') ||
+    text.includes('credit') ||
+    text.includes('billing') ||
+    text.includes('subscription') ||
+    text.includes('payment required') ||
+    text.includes('insufficient balance')
+  ) {
+    return `${cleanEngine}_provider_quota_or_subscription_unavailable`;
+  }
+  if (
+    text.includes('unauthorized') ||
+    text.includes('not authorized') ||
+    text.includes('authentication') ||
+    text.includes('auth required') ||
+    text.includes('login required') ||
+    text.includes('please login') ||
+    text.includes('please log in') ||
+    text.includes('api key') ||
+    text.includes('invalid token') ||
+    text.includes('token expired')
+  ) {
+    return `${cleanEngine}_provider_auth_required`;
+  }
+  if (
+    text.includes('rate limit') ||
+    text.includes('rate-limit') ||
+    text.includes('too many requests') ||
+    text.includes('429')
+  ) {
+    return `${cleanEngine}_provider_rate_limited`;
+  }
+  if (
+    text.includes('network') ||
+    text.includes('econnreset') ||
+    text.includes('etimedout') ||
+    text.includes('enotfound') ||
+    text.includes('connection refused') ||
+    text.includes('connection reset')
+  ) {
+    return `${cleanEngine}_provider_network_unavailable`;
+  }
+  return `${cleanEngine}_turn_failed`;
+}
+
+function appendCliRuntimeFailureEvent(events, ctx, engineId, run, timeoutMs) {
+  const rows = Array.isArray(events) ? events.slice() : [];
+  if (run && run.ok) return rows;
+  const text = cliRuntimeFailureText(engineId, run, timeoutMs);
+  rows.push({
+    ...baseEvent(ctx, 'agent_activity_event', engineId),
+    type: 'agent_activity_event',
+    activity_kind: 'error',
+    provider_event_type: run && run.timed_out ? 'turn.timeout' : 'turn.failed',
+    source: 'external_cli_process_lifecycle',
+    sequence_no: rows.length + 1,
+    item_id: run && run.timed_out ? 'external-cli-timeout' : 'external-cli-failure',
+    status: 'failed',
+    text,
+    display_text: text,
+  });
+  return rows.slice(-80);
 }
 
 function parseJsonlRows(raw) {
@@ -1085,6 +1192,9 @@ function parseCliActivityOutput(stdout, stderr, ctx, defaultEngineId) {
 function createCliRuntimeEngineAdapter(options = {}) {
   const engineId = cleanString(options.engineId || 'external_cli', 120);
   const engineKind = cleanString(options.engineKind || 'external_cli_adapter', 120);
+  const contextTransportMode = cleanString(options.contextTransportMode || 'prompt_text_compat', 80);
+  const structuredTransportTarget = cleanString(options.structuredTransportTarget || 'structured_json', 80);
+  const transportMigrationStatus = cleanString(options.transportMigrationStatus || 'transitional_bootstrap', 120);
   const downloadActionRef = cleanString(options.downloadActionRef || `agent_runtime_download/${engineId}`, 500);
   const artifactKind = cleanString(options.artifactKind || `${engineId}_result_projection`, 120);
   const receiptKind = cleanString(options.receiptKind || 'external_cli_adapter_receipt', 120);
@@ -1127,28 +1237,37 @@ function createCliRuntimeEngineAdapter(options = {}) {
     const discovery = discover(ctx);
     const command = cleanString(discovery.command || selectedCommand || options.commandFallback || engineId, 500);
     const runner = typeof ctx.onActivity === 'function' ? spawnActivityCapture : spawnCapture;
+    const turnTimeoutMs = resolveTurnTimeoutMs(ctx, timeoutMs);
     const run = await runner(command, runArgs(prompt, ctx), {
-      timeoutMs,
+      timeoutMs: turnTimeoutMs,
       maxOutputBytes: 64000,
       ctx,
       engineId,
       onActivity: ctx.onActivity,
     });
     const parsed = parseCliActivityOutput(run.stdout, run.stderr, ctx, engineId);
-    const outputText = parsed.output_text;
+    const failureText = run.ok ? '' : cliRuntimeFailureText(engineId, run, turnTimeoutMs);
+    const outputText = parsed.output_text || failureText;
+    const errorCode = run.ok ? '' : classifyCliRuntimeFailureCode(engineId, run, failureText);
     return {
       ...baseEvent(ctx, 'turn.complete', engineId),
-      status: run.ok ? 'completed' : 'failed',
+      status: run.ok ? 'completed' : run.timed_out ? 'timed_out' : 'failed',
+      error_code: errorCode,
+      reason: failureText,
+      retryable: run.timed_out === true,
       result_ref: stableRef(`artifact/${engineId}/result`, ctx, engineId),
       receipt_ref: stableRef(`receipt/${engineId}/turn`, ctx, engineId),
       output_text: outputText,
-      output_preview: parsed.output_preview,
-      activity_events: parsed.activity_events,
+      output_preview: cleanString(outputText || parsed.output_preview, 4000),
+      activity_events: appendCliRuntimeFailureEvent(parsed.activity_events, ctx, engineId, run, turnTimeoutMs),
       activity_event_count: parsed.activity_event_count,
       structured_activity: parsed.structured_activity,
       permission_denials: parsed.permission_denials,
       permission_request: parsed.permission_request,
       exit_code: run.exit_code,
+      timed_out: run.timed_out === true,
+      timeout_ms: turnTimeoutMs,
+      stderr_preview: cleanString(run.stderr, 2000),
     };
   }
 
@@ -1169,6 +1288,9 @@ function createCliRuntimeEngineAdapter(options = {}) {
         resolved_path: discovery.resolved_path || null,
         download_available: Boolean(discovery.download_available || downloadActionRef),
         download_action_ref: downloadActionRef,
+        context_transport_mode: contextTransportMode,
+        structured_transport_target: structuredTransportTarget,
+        transport_migration_status: transportMigrationStatus,
         version_preview: cleanString(probe.stdout || probe.stderr, 500),
       };
     },

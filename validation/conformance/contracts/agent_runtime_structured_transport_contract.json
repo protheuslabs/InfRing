@@ -1,0 +1,94 @@
+{
+  "type": "agent_runtime_structured_transport_contract",
+  "schema_version": 1,
+  "version": "2026-06-04",
+  "owner": "validation.agent_runtime",
+  "status": "active_transition_contract",
+  "purpose": "Define the structured transport target that replaces prompt-text compatibility for swappable native and external agent runtime engines.",
+  "operating_rule": "Use prompt-text to bootstrap external framework usefulness; do not let prompt-text become the architecture.",
+  "public_socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
+  "context_pack_contract": "validation/conformance/contracts/agent_runtime_context_pack_contract.json",
+  "universal_tools_contract": "validation/conformance/contracts/agent_runtime_universal_tools_contract.json",
+  "allowed_transport_modes": [
+    "prompt_text_compat",
+    "structured_json",
+    "native_session_bridge"
+  ],
+  "mode_definitions": {
+    "prompt_text_compat": {
+      "authority": "transitional_bootstrap_only",
+      "allowed_for_new_adapters": false,
+      "allowed_only_when_marked_transitional": true,
+      "migration_target": "structured_json",
+      "description": "Gateway renders the canonical context envelope into bounded prompt text for runtimes that only expose text CLI/session APIs.",
+      "constraints": [
+        "must preserve the canonical AgentRuntimeTurnEnvelope as source of truth",
+        "must not add engine-specific context semantics outside Gateway adapter code",
+        "must emit normalized activity, proposal, approval, output, and receipt projections",
+        "must not expose raw private framework transcripts by default"
+      ]
+    },
+    "structured_json": {
+      "authority": "preferred_external_transport",
+      "allowed_for_new_adapters": true,
+      "description": "Gateway sends the canonical structured turn envelope and receives structured activity/proposal/output/receipt events without prompt preamble parsing.",
+      "required_sections": [
+        "context_pack",
+        "user_message",
+        "tool_grants",
+        "approval_requests",
+        "activity_events",
+        "assistant_output",
+        "receipts"
+      ]
+    },
+    "native_session_bridge": {
+      "authority": "native_runtime_bridge",
+      "allowed_for_new_adapters": true,
+      "description": "Gateway maps the canonical turn envelope into an InfRing-native runtime session/client without prompt-text compatibility."
+    }
+  },
+  "canonical_turn_schema": {
+    "type": "AgentRuntimeStructuredTurn",
+    "required_fields": [
+      "schema_version",
+      "trace_id",
+      "engine_id",
+      "agent_id",
+      "session_id",
+      "turn_id",
+      "user_message",
+      "context_pack",
+      "tool_grants",
+      "approval_requests",
+      "activity_events",
+      "assistant_output",
+      "receipts"
+    ],
+    "fields": {
+      "schema_version": "integer monotonically versioned by Validation contract",
+      "trace_id": "single unified trace_id propagated from initial user request",
+      "engine_id": "selected runtime engine id from registry",
+      "agent_id": "InfRing agent/persona id",
+      "session_id": "stable InfRing session id shared across engine switches",
+      "turn_id": "Gateway-generated turn id",
+      "user_message": "bounded typed user input plus attachment refs",
+      "context_pack": "Gateway-owned bounded context pack; Kernel memory remains authority",
+      "tool_grants": "universal tool grant projection, never native-only workflow tools by default",
+      "approval_requests": "runtime-neutral pending approval requests and decisions",
+      "activity_events": "normalized user-facing progress/status events",
+      "assistant_output": "final assistant answer projection with result refs",
+      "receipts": "receipt refs for durable effects and policy decisions"
+    }
+  },
+  "migration_policy": {
+    "prompt_text_compat_must_have_explicit_adapter_field": true,
+    "prompt_text_compat_must_have_retirement_target": "structured_json",
+    "prompt_text_compat_source_markers_required": [
+      "PROMPT_TEXT_COMPATIBILITY_LAYER",
+      "STRUCTURED_JSON_TRANSPORT_TARGET"
+    ],
+    "guard_must_emit_transport_migration_report": true,
+    "new_prompt_text_hacks_require_transition_marker": true
+  }
+}

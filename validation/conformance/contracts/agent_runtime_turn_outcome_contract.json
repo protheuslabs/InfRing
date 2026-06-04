@@ -1,0 +1,123 @@
+{
+  "type": "agent_runtime_turn_outcome_contract",
+  "schema_version": 1,
+  "version": "2026-06-04",
+  "owner": "assurance.validation",
+  "status": "contracted",
+  "purpose": "Every external or native agent-runtime turn must end in one explicit user-visible outcome so engines cannot appear to silently die.",
+  "public_socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
+  "engine_registry": "validation/conformance/contracts/agent_runtime_engine_registry.json",
+  "required_terminal_outcomes": [
+    {
+      "status": "completed",
+      "meaning": "The engine completed the turn and returned displayable assistant output.",
+      "required_fields": [
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "turn_id",
+        "status",
+        "display_text"
+      ],
+      "http_projection_status": 200
+    },
+    {
+      "status": "permission_required",
+      "meaning": "The engine reached a gated operation and the turn is paused pending a gatekeeper decision.",
+      "required_fields": [
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "turn_id",
+        "status",
+        "pending_permission_request"
+      ],
+      "http_projection_status": 200
+    },
+    {
+      "status": "failed_with_reason",
+      "meaning": "The engine failed, but Gateway returned a bounded human-readable reason and retained trace/evidence refs.",
+      "required_fields": [
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "turn_id",
+        "status",
+        "error_code",
+        "reason",
+        "display_text"
+      ],
+      "http_projection_status": 200
+    },
+    {
+      "status": "timed_out_with_reason",
+      "meaning": "The engine exceeded the Gateway turn budget and Gateway returned a bounded timeout reason.",
+      "required_fields": [
+        "trace_id",
+        "engine_id",
+        "session_id",
+        "turn_id",
+        "status",
+        "error_code",
+        "reason",
+        "timeout_ms",
+        "display_text"
+      ],
+      "http_projection_status": 200
+    }
+  ],
+  "forbidden_turn_outcomes": [
+    "silent_failure",
+    "empty_failed_projection",
+    "http_502_for_adapter_timeout",
+    "worked_timer_without_final_status",
+    "missing_error_code_on_failure",
+    "missing_display_text_on_failure"
+  ],
+  "timeout_budget_rule": {
+    "gateway_capability_budget_field": "capability_budget.max_turn_seconds",
+    "adapter_must_respect_gateway_budget": true,
+    "adapter_may_cap_at_seconds": 300,
+    "adapter_may_not_default_below_gateway_declared_budget": true,
+    "timeout_must_emit_user_visible_activity": true,
+    "timeout_must_set_retryable_true": true
+  },
+  "pre_turn_failure_rule": {
+    "engine_unavailable_must_project_chat_visible_failure": true,
+    "health_failure_must_not_be_empty_toast_only": true,
+    "gateway_projection_status": "failed_with_reason",
+    "http_projection_status": 200,
+    "required_fields": [
+      "trace_id",
+      "engine_id",
+      "session_id",
+      "turn_id",
+      "status",
+      "error_code",
+      "reason",
+      "display_text"
+    ]
+  },
+  "provider_failure_reason_classes": [
+    "provider_quota_or_subscription_unavailable",
+    "provider_auth_required",
+    "provider_rate_limited",
+    "provider_network_unavailable",
+    "runtime_not_available",
+    "turn_failed",
+    "turn_timeout"
+  ],
+  "live_smoke_requirements": {
+    "script": "tests/tooling/scripts/ci/agent_runtime_cli_live_turn_smoke.ts",
+    "engines": [
+      "codex_cli",
+      "claude_code",
+      "grok_code"
+    ],
+    "must_check_health": true,
+    "must_submit_real_turn": true,
+    "must_record_turn_outcome": true,
+    "must_fail_on_silent_outcome": true,
+    "must_write_artifact": "core/local/artifacts/agent_runtime_cli_live_turn_smoke_current.json"
+  }
+}

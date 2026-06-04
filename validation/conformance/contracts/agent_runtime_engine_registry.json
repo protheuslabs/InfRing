@@ -16,6 +16,7 @@
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-014"
   ],
   "socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
+  "turn_outcome_contract": "validation/conformance/contracts/agent_runtime_turn_outcome_contract.json",
   "selection_rule": "Shell and external clients may select engine_id only through the Gateway socket. Engine-specific execution remains behind Gateway adapters.",
   "required_engine_interface": [
     "health_check",
@@ -71,7 +72,10 @@
         ],
         "install_state_source": "internal_native_engine",
         "notes": "Native orchestration is selected through Gateway; it does not require external path discovery."
-      }
+      },
+      "context_transport_mode": "native_session_bridge",
+      "structured_transport_target": "native_session_bridge",
+      "transport_migration_status": "native_target"
     },
     {
       "engine_id": "codex_cli",
@@ -148,7 +152,10 @@
           "default_location_probe",
           "missing_installable"
         ]
-      }
+      },
+      "context_transport_mode": "prompt_text_compat",
+      "structured_transport_target": "structured_json",
+      "transport_migration_status": "transitional_bootstrap"
     },
     {
       "engine_id": "claude_code",
@@ -224,7 +231,10 @@
           "default_location_probe",
           "missing_installable"
         ]
-      }
+      },
+      "context_transport_mode": "prompt_text_compat",
+      "structured_transport_target": "structured_json",
+      "transport_migration_status": "transitional_bootstrap"
     },
     {
       "engine_id": "grok_code",
@@ -294,7 +304,10 @@
           "default_location_probe",
           "missing_installable"
         ]
-      }
+      },
+      "context_transport_mode": "prompt_text_compat",
+      "structured_transport_target": "structured_json",
+      "transport_migration_status": "transitional_bootstrap"
     },
     {
       "engine_id": "openhands",
@@ -343,7 +356,10 @@
           "default_url_probe",
           "missing_installable"
         ]
-      }
+      },
+      "context_transport_mode": "structured_json",
+      "structured_transport_target": "structured_json",
+      "transport_migration_status": "planned_structured_target"
     },
     {
       "engine_id": "openclaw",
@@ -391,7 +407,10 @@
           "default_url_probe",
           "missing_installable"
         ]
-      }
+      },
+      "context_transport_mode": "structured_json",
+      "structured_transport_target": "structured_json",
+      "transport_migration_status": "planned_structured_target"
     },
     {
       "engine_id": "openfang",
@@ -439,7 +458,10 @@
           "default_url_probe",
           "missing_installable"
         ]
-      }
+      },
+      "context_transport_mode": "structured_json",
+      "structured_transport_target": "structured_json",
+      "transport_migration_status": "planned_structured_target"
     },
     {
       "engine_id": "custom_socket_engine",
@@ -483,7 +505,10 @@
           "environment_variable",
           "missing_installable"
         ]
-      }
+      },
+      "context_transport_mode": "structured_json",
+      "structured_transport_target": "structured_json",
+      "transport_migration_status": "planned_structured_target"
     }
   ],
   "first_adapter_recommendation": {
@@ -518,5 +543,17 @@
     ]
   },
   "universal_tools_contract": "validation/conformance/contracts/agent_runtime_universal_tools_contract.json",
-  "universal_tools_selection_rule": "All selectable engines receive the same Gateway-owned universal core-tool grant shape; engines propose calls, Gateway validates, Kernel/Memory/Artifact authority executes durable effects."
+  "universal_tools_selection_rule": "All selectable engines receive the same Gateway-owned universal core-tool grant shape; engines propose calls, Gateway validates, Kernel/Memory/Artifact authority executes durable effects.",
+  "structured_transport_contract": "validation/conformance/contracts/agent_runtime_structured_transport_contract.json",
+  "transport_selection_rule": {
+    "public_socket_schema": "single_gateway_socket_schema",
+    "adapter_transport_modes": [
+      "prompt_text_compat",
+      "structured_json",
+      "native_session_bridge"
+    ],
+    "preferred_external_mode": "structured_json",
+    "prompt_text_compat_is_transitional": true,
+    "kernel_selection_role": "none; Kernel executes authorized effects and records receipts without selecting runtime engines"
+  }
 }

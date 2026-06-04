@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-02T20:01:41.207Z
+Updated: 2026-06-03T15:18:53.667Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-02T20:01:41.207Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 15
+- active_items: 21
 - red: 3
-- yellow: 4
+- yellow: 10
 - white: 8
 
 ## Red Section (Do Immediately)
@@ -71,7 +71,70 @@ Updated: 2026-06-02T20:01:41.207Z
   work_gate: `real_work`
   real_work_score: `5`
   summary: Build the workflow utility spine so the system is useful for real work after Shell de-authority.
+- `AGENT-RUNTIME-ADAPTER-CONTEXT-INJECTION` — Inject shared context into CLI and socket adapters
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Agent Runtime Context Bridge`
+  work_gate: `real_work`
+  real_work_score: `5`
+  summary: Render the shared envelope into a consistent bounded adapter preamble for Codex, Claude Code, Grok Code, custom socket engines, and native Infring without engine-specific prompt drift.
+- `AGENT-RUNTIME-CONTEXT-BUILDER` — Build Gateway-owned runtime context assembly
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Agent Runtime Context Bridge`
+  work_gate: `real_work`
+  real_work_score: `5`
+  summary: Have Gateway assemble bounded conversation windows, summaries, refs, session identity, and context budgets for every runtime turn instead of passing only the latest prompt.
+- `AGENT-RUNTIME-CONTEXT-CONTRACT` — Define the shared AgentRuntimeTurnEnvelope contract
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Agent Runtime Context Bridge`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Create the engine-agnostic context envelope contract so native Infring, Codex, Claude Code, Grok Code, and socket engines receive the same bounded conversation, memory, permission, artifact, and tool-grant shape.
+- `AGENT-RUNTIME-CONTEXT-EVAL` — Prove context continuity while switching engines
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Agent Runtime Context Bridge`
+  work_gate: `real_work`
+  real_work_score: `5`
+  summary: Add live/context-continuity evals that establish conversation facts, switch among native, Codex, Claude Code, and Grok Code, and verify the new engine can code or reason using prior conversation and unified memory.
+- `AGENT-RUNTIME-CORE-TOOLS` — Define universal core tools for swappable engines
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Agent Runtime Context Bridge`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Separate universal tools like conversation read, memory read/write-propose, artifact refs, and permission requests from native-only workflow tools, with Gateway enforcement and receipts.
+- `AGENT-RUNTIME-MEMORY-BRIDGE` — Bridge unified memory into runtime context
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Agent Runtime Context Bridge`
+  work_gate: `real_work`
+  real_work_score: `5`
+  summary: Attach bounded relevant memory projections and refs to the runtime envelope so engine switches preserve durable Infring context without exposing raw memory dumps.
 
+- `AGENT-RUNTIME-STRUCTURED-TRANSPORT` — Define structured runtime transport modes
+  owner: `codex`
+  deadline: `2026-06-24`
+  source_family: `Agent Runtime Structured Transport Migration`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Define prompt_text_compat, structured_json, and native_session_bridge modes so prompt-text remains bootstrap-only and every adapter declares its migration target.
+- `AGENT-RUNTIME-PROMPT-TEXT-GUARD` — Guard prompt-text compatibility as transitional
+  owner: `codex`
+  deadline: `2026-06-24`
+  source_family: `Agent Runtime Structured Transport Migration`
+  work_gate: `simplification`
+  real_work_score: `4`
+  summary: Extend conformance so prompt-text hacks require explicit transitional markers, structured targets, and migration reporting.
+- `AGENT-RUNTIME-TRANSPORT-MIGRATION-REPORT` — Track engines still using prompt text
+  owner: `codex`
+  deadline: `2026-06-24`
+  source_family: `Agent Runtime Structured Transport Migration`
+  work_gate: `reliability`
+  real_work_score: `4`
+  summary: Publish an adapter migration report showing current transport mode, target mode, and whether each engine is prompt-text-dependent.
 ## White Section (Do At Leisure)
 - `TRACE-IMPL` — Implement end-to-end unified trace_id propagation
   owner: `unassigned`

@@ -33,11 +33,22 @@ const requestedEngines = cleanString(argValue('--engines') || process.env.INFRIN
   .map((entry) => cleanString(entry, 120))
   .filter(Boolean);
 const expected = cleanString(argValue('--expected') || 'INFRING_RUNTIME_TURN_OK', 200);
+const timeoutSeconds = Math.max(10, Math.min(Number(argValue('--timeout-seconds') || process.env.INFRING_AGENT_RUNTIME_LIVE_TURN_TIMEOUT_SECONDS || 180) || 180, 300));
 const prompt = [
   'This is an InfRing Gateway runtime adapter live-turn smoke test.',
   'Do not inspect files. Do not run tools. Do not modify anything. Do not use web search.',
   `Reply with exactly: ${expected}`,
 ].join(' ');
+
+function classifyTurnOutcome(turn, output) {
+  const status = cleanString(turn && turn.status, 120);
+  if (status === 'completed' && output) return 'completed';
+  if (turn && turn.permission_request) return 'permission_required';
+  if (turn && turn.timed_out) return 'timed_out_with_reason';
+  if (status === 'timed_out') return 'timed_out_with_reason';
+  if (status === 'failed' && (turn.error_code || turn.reason || output)) return 'failed_with_reason';
+  return 'silent_or_invalid';
+}
 
 async function main() {
   if (!live) {
@@ -88,13 +99,24 @@ async function main() {
         ...base,
         input: { text: prompt },
         scope: { workspace: 'none', mutation_allowed: false, tools_allowed: false },
-        capability_budget: { tool_calls: 0, file_reads: 0, file_writes: 0, command_runs: 0 },
+        capability_budget: {
+          tool_calls: 0,
+          file_reads: 0,
+          file_writes: 0,
+          command_runs: 0,
+          max_turn_seconds: timeoutSeconds,
+          shell_projection_only: true,
+        },
       });
     }
-    const output = cleanString(turn && (turn.output_preview || turn.delta || turn.reason), 4000);
+    const output = cleanString(turn && (turn.output_preview || turn.output_text || turn.delta || turn.reason), 4000);
+    const turnOutcome = classifyTurnOutcome(turn, output);
+    const silentOutcome = turnOutcome === 'silent_or_invalid';
     results.push({
       engine_id: engineId,
-      ok: health.status === 'available' && turn && turn.type === 'turn.complete' && turn.status === 'completed' && output.includes(expected),
+      ok: health.status === 'available' && turn && turn.type === 'turn.complete' && turnOutcome === 'completed' && output.includes(expected),
+      turn_outcome: turnOutcome,
+      silent_outcome: silentOutcome,
       health_status: health.status,
       discovery_source: health.discovery_source,
       command: health.command,
@@ -103,6 +125,9 @@ async function main() {
       turn_type: turn && turn.type,
       turn_status: turn && turn.status,
       error_code: (turn && turn.error_code) || (health && health.error_code) || null,
+      reason: cleanString(turn && turn.reason, 1000),
+      timed_out: turn && turn.timed_out === true,
+      timeout_ms: Number(turn && turn.timeout_ms) || timeoutSeconds * 1000,
       output_preview: output,
     });
   }
@@ -112,6 +137,8 @@ async function main() {
     type: 'agent_runtime_cli_live_turn_smoke',
     mode: 'live',
     expected,
+    timeout_seconds: timeoutSeconds,
+    turn_outcome_contract: 'validation/conformance/contracts/agent_runtime_turn_outcome_contract.json',
     results,
   };
   fs.mkdirSync(path.dirname(path.join(ROOT, outPath)), { recursive: true });
