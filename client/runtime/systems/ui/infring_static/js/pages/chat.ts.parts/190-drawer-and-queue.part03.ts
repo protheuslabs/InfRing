@@ -41,6 +41,17 @@
     },
 
     thoughtToolLabel: function(tool) {
+      if (tool && (tool.agent_decision_dialog || tool.agent_runtime_decision_dialog || tool.agent_runtime_activity_trace)) {
+        var seconds = this.thoughtToolDurationSeconds(tool);
+        var hours = Math.floor(seconds / 3600);
+        var minutes = Math.floor((seconds % 3600) / 60);
+        var remaining = seconds % 60;
+        var parts = [];
+        if (hours > 0) parts.push(hours + 'h');
+        if (hours > 0 || minutes > 0) parts.push(minutes + 'm');
+        parts.push(remaining + 's');
+        return 'Worked for ' + parts.join(' ');
+      }
       return 'Thought for ' + this.thoughtToolDurationSeconds(tool) + ' seconds';
     },
 
@@ -127,6 +138,49 @@
       var preview = allLines.slice(0, maxLines).join('\n');
       if (preview.length > maxChars) return preview.slice(0, maxChars).trimEnd() + '…';
       return allLines.length > maxLines ? preview.trimEnd() + '…' : preview;
+    },
+
+    toolProjectionSections: function(tool) {
+      var row = tool && typeof tool === 'object' ? tool : {};
+      var sections = [];
+      if (row._detail_loading) {
+        sections.push({ id: 'loading', label: 'Detail', text: 'Loading detail…' });
+        return sections;
+      }
+      if (row._detail_error) {
+        sections.push({ id: 'error', label: 'Detail', text: String(row._detail_error || 'Unable to load detail right now.') });
+        return sections;
+      }
+      if (row.agent_decision_dialog || row.agent_runtime_decision_dialog || row.agent_runtime_activity_trace) {
+        var dialog = String(
+          row.agent_decision_dialog_text ||
+          row.input ||
+          row.input_preview ||
+          row.result ||
+          row.result_preview ||
+          row.summary ||
+          row.display_text ||
+          ''
+        ).trim();
+        if (dialog) {
+          sections.push({
+            id: 'agent-decision-dialog',
+            label: 'Agent decision dialog',
+            text: this.formatToolOutputForClipboard(dialog) || dialog
+          });
+        }
+        return sections;
+      }
+      var summary = String(row.summary || row.display_text || '').trim();
+      if (summary) sections.push({ id: 'summary', label: 'Summary', text: summary });
+      var input = String(row._detail_loaded ? (row.input || row.input_preview || '') : (row.input_preview || '')).trim();
+      if (input) sections.push({ id: 'input', label: 'Input', text: this.formatToolOutputForClipboard(input) || input });
+      var result = String(this.toolProjectionPreviewText(row) || '').trim();
+      if (result) sections.push({ id: 'result', label: 'Result', text: this.formatToolOutputForClipboard(result) || result });
+      if (!sections.length && this.shellDetailRefForTool(row)) {
+        sections.push({ id: 'detail-ref', label: 'Detail', text: 'Open the tool to load detail from the gateway.' });
+      }
+      return sections;
     },
 
     messageCopyMarkdown: function(msg) {

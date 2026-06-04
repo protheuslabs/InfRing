@@ -176,6 +176,11 @@
       return !!id && id !== 'infring_native';
     },
 
+    shouldUseAgentRuntimeSocketPath: function(engineId) {
+      var id = String(engineId || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      return !!id;
+    },
+
     loadAgentRuntimePermissionPolicy: function() {
       if (this.agentRuntimePermissionPolicy && typeof this.agentRuntimePermissionPolicy === 'object') return this.agentRuntimePermissionPolicy;
       var policy = { always_allowed_tool_calls: [], revoked_default_read_tools: [], default_allow_read_tools: true, gatekeeper_kind: 'user' };
@@ -208,6 +213,33 @@
         revoked_default_read_tools: Array.isArray(policy.revoked_default_read_tools) ? policy.revoked_default_read_tools.slice(0, 24) : [],
         always_allowed_tool_calls: Array.isArray(policy.always_allowed_tool_calls) ? policy.always_allowed_tool_calls.slice(0, 48) : []
       };
+    },
+
+    appendAgentRuntimeApprovalExecutionMessage: function(request, result) {
+      var row = result && typeof result === 'object' ? result : {};
+      if (!row.ok) return false;
+      var engineId = String((request && request.engine_id) || this.selectedAgentRuntimeEngineId || '').trim();
+      var text = String(row.display_text || '').trim();
+      if (!text) text = row.path ? 'Created ' + String(row.path) + '.' : 'Approved action completed.';
+      var message = {
+        id: ++msgId,
+        role: 'agent',
+        text: text,
+        meta: 'runtime ' + (engineId || 'agent_runtime') + ' | approval executed',
+        tools: [],
+        ts: Date.now(),
+        result_ref: String(row.result_ref || '').slice(0, 240),
+        receipt_ref: String(row.receipt_ref || '').slice(0, 240),
+        agent_id: String((request && request.agent_id) || (this.currentAgent && (this.currentAgent.id || this.currentAgent.session_id)) || '').slice(0, 160),
+        agent_name: this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '',
+        isHtml: false,
+        _typingVisual: false,
+        agent_runtime_engine_id: engineId
+      };
+      var pushed = this.pushAgentMessageDeduped(message, { dedupe_window_ms: 90000 }) || message;
+      this.markAgentMessageComplete(pushed);
+      this.scheduleConversationPersist();
+      return true;
     },
 
     permissionRequestPreview: function(row) {
@@ -254,12 +286,61 @@
         tool_call_ref: String(request.tool_call_ref || ''),
         engine_id: String(request.engine_id || this.selectedAgentRuntimeEngineId || ''),
         session_id: String(request.session_id || (this.currentAgent && (this.currentAgent.session_id || this.currentAgent.id)) || ''),
+        proposal_arguments: request.proposal_arguments && typeof request.proposal_arguments === 'object' ? request.proposal_arguments : null,
+        capability: String(request.capability || ''),
+        reason: String(request.reason || ''),
         gatekeeper_kind: 'user'
       }).then(function(payload) {
         self.pendingAgentRuntimePermissionRequests = (Array.isArray(self.pendingAgentRuntimePermissionRequests) ? self.pendingAgentRuntimePermissionRequests : [])
           .filter(function(item) { return String(item && item.approval_id || '') !== approvalId; });
-        if (choice === 'deny') InfringToast.info('Permission denied for ' + self.permissionRequestPreview(request));
-        else InfringToast.success(choice === 'always_allow_tool_call' ? 'Always allowed: ' + String(request.tool_id || 'tool call') : 'Permission allowed once');
+        if (choice === 'deny') {
+          if (typeof self.addNoticeEvent === 'function') {
+            self.addNoticeEvent({
+              notice_label: 'Denied ' + self.permissionRequestPreview(request),
+              notice_type: 'warning',
+              ts: Date.now()
+            });
+          }
+          InfringToast.info('Permission denied for ' + self.permissionRequestPreview(request));
+        }
+        else {
+          InfringToast.success(choice === 'always_allow_tool_call' ? 'Always allowed: ' + String(request.tool_id || 'tool call') : 'Permission allowed once');
+          if (payload && payload.execution_result && payload.execution_result.ok) {
+            if (typeof self.addNoticeEvent === 'function') {
+              self.addNoticeEvent({
+                notice_label: 'Approved ' + self.permissionRequestPreview(request) + '; executed approved action.',
+                notice_type: 'info',
+                ts: Date.now()
+              });
+            }
+            self.appendAgentRuntimeApprovalExecutionMessage(request, payload.execution_result);
+            return payload;
+          }
+          var resume = request.resume_payload && typeof request.resume_payload === 'object' ? request.resume_payload : null;
+          if (resume && typeof self._sendAgentRuntimeSocketPayload === 'function') {
+            var resumeAgentId = String(resume.agent_id || request.agent_id || (self.currentAgent && (self.currentAgent.id || self.currentAgent.session_id)) || '').trim();
+            var resumeText = String(resume.final_text || resume.message || resume.text || '').trim();
+            var resumeEngineId = String(resume.agent_runtime_engine_id || request.engine_id || self.selectedAgentRuntimeEngineId || '').trim();
+            var resumeFiles = Array.isArray(resume.uploaded_files) ? resume.uploaded_files.slice(0, 12) : [];
+            var resumeImages = Array.isArray(resume.msg_images) ? resume.msg_images.slice(0, 12) : [];
+            if (resumeAgentId && resumeText && resumeEngineId) {
+              if (typeof self.addNoticeEvent === 'function') {
+                self.addNoticeEvent({
+                  notice_label: 'Approved ' + self.permissionRequestPreview(request) + '; resuming ' + resumeEngineId + '.',
+                  notice_type: 'info',
+                  ts: Date.now()
+                });
+              }
+              self.sending = true;
+              if (typeof self.setAgentLiveActivity === 'function') {
+                self.setAgentLiveActivity(resumeAgentId, 'working', { optimistic: true, source: 'agent_runtime_permission_resume' });
+              }
+              setTimeout(function() {
+                self._sendAgentRuntimeSocketPayload(resumeAgentId, resumeText, resumeFiles, resumeImages, resumeEngineId);
+              }, 0);
+            }
+          }
+        }
         return payload;
       }).catch(function(e) {
         InfringToast.error(e && e.message ? String(e.message) : 'permission decision failed');
@@ -282,6 +363,21 @@
       return value ? value.replace(/_/g, ' ') : 'Activity';
     },
 
+    agentRuntimeProviderEventLabel: function(providerType) {
+      var value = String(providerType || '').trim();
+      if (!value) return '';
+      var lower = value.toLowerCase();
+      if (lower.indexOf('tool') >= 0 && lower.indexOf('call') >= 0) return 'Tool call';
+      if (lower.indexOf('tool') >= 0 && (lower.indexOf('result') >= 0 || lower.indexOf('output') >= 0)) return 'Tool result';
+      if (lower.indexOf('command') >= 0 || lower.indexOf('exec') >= 0 || lower.indexOf('shell') >= 0) return 'Command';
+      if (lower.indexOf('permission') >= 0 || lower.indexOf('approval') >= 0) return 'Permission';
+      if (lower.indexOf('assistant') >= 0 || lower.indexOf('message') >= 0 || lower.indexOf('response') >= 0 || lower.indexOf('delta') >= 0) return 'Assistant draft';
+      if (lower.indexOf('error') >= 0 || lower.indexOf('fail') >= 0) return 'Runtime error';
+      if (lower.indexOf('start') >= 0) return 'Started';
+      if (lower.indexOf('complete') >= 0 || lower.indexOf('finish') >= 0 || lower.indexOf('done') >= 0) return 'Completed';
+      return value.replace(/[._:/-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    },
+
     agentRuntimeActivityEventsToTools: function(events, engineId) {
       var rows = Array.isArray(events) ? events : [];
       var out = [];
@@ -292,14 +388,22 @@
         var providerType = String(event.provider_event_type || event.event_type || '').trim();
         if (!text && !providerType) continue;
         if (kind === 'assistant_delta' && text.length > 900) continue;
-        var label = this.agentRuntimeActivityKindLabel(kind);
+        var providerLabel = this.agentRuntimeProviderEventLabel(providerType);
+        var label = (!kind || kind === 'activity') && providerLabel
+          ? providerLabel
+          : this.agentRuntimeActivityKindLabel(kind);
+        var visibleName = text
+          ? text.split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 140)
+          : label;
         out.push({
-          name: label,
+          name: visibleName || label,
           status: String(event.status || 'completed').trim() || 'completed',
-          input: providerType ? ('event: ' + providerType) : '',
+          input: providerType ? ((label && label !== visibleName ? label + ' | ' : '') + 'event: ' + providerType) : '',
           result: text || providerType,
           output: text || providerType,
           summary: text || providerType,
+          receipt_ref: String(event.receipt_ref || '').slice(0, 240),
+          result_ref: String(event.result_ref || '').slice(0, 240),
           tool_call_ref: String(event.item_id || event.sequence_no || ('activity-' + i)).slice(0, 160),
           agent_runtime_engine_id: String(event.engine_id || engineId || '').trim(),
           agent_activity_event: true,
@@ -308,6 +412,62 @@
         });
       }
       return out;
+    },
+
+    agentRuntimeActivityEventsToDecisionDialog: function(events) {
+      var rows = Array.isArray(events) ? events : [];
+      var lines = [];
+      var seen = Object.create(null);
+      for (var i = 0; i < rows.length && lines.length < 160; i += 1) {
+        var event = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        var text = String(event.display_text || event.text || event.summary || '').replace(/\r\n/g, '\n').trim();
+        var providerType = String(event.provider_event_type || event.event_type || '').trim();
+        if (!text && providerType) text = this.agentRuntimeProviderEventLabel(providerType);
+        if (!text) continue;
+        var status = String(event.status || '').trim();
+        var line = text.split('\n').map(function(part) {
+          return String(part || '').replace(/\s+/g, ' ').trim();
+        }).filter(Boolean).join('\n');
+        if (!line) continue;
+        if (status && status !== 'completed' && line.toLowerCase().indexOf(status.toLowerCase()) < 0) {
+          line += ' [' + status + ']';
+        }
+        var key = line.toLowerCase();
+        if (seen[key]) continue;
+        seen[key] = true;
+        lines.push(line);
+      }
+      return lines.join('\n');
+    },
+
+    agentRuntimeActivityEventsToDecisionTool: function(events, engineId, durationMs) {
+      var dialog = this.agentRuntimeActivityEventsToDecisionDialog(events);
+      if (!dialog) return null;
+      var tool = typeof this.makeThoughtToolCard === 'function'
+        ? this.makeThoughtToolCard(dialog, durationMs)
+        : {
+            id: 'agent-decision-' + Date.now(),
+            name: 'thought_process',
+            running: false,
+            expanded: false,
+            input: dialog,
+            result: '',
+            is_error: false,
+            duration_ms: Math.max(0, Number(durationMs || 0))
+          };
+      tool.agent_decision_dialog = true;
+      tool.agent_runtime_decision_dialog = true;
+      tool.agent_runtime_activity_trace = true;
+      tool.agent_decision_dialog_text = dialog;
+      tool.agent_runtime_engine_id = String(engineId || '').trim();
+      tool.status = 'completed';
+      tool.input = dialog;
+      tool.input_preview = dialog;
+      tool.result_preview = dialog;
+      tool.summary = 'External runtime activity dialog';
+      tool.display_text = dialog;
+      tool.expanded = false;
+      return tool;
     },
 
     appendAgentRuntimeActivityToThinkingRow: function(event, engineId) {
@@ -379,7 +539,7 @@
 
     async _sendAgentRuntimeSocketPayload(targetAgentId, finalText, uploadedFiles, msgImages, runtimeEngineId) {
       var engineId = String(runtimeEngineId || this.selectedAgentRuntimeEngineId || '').trim();
-      if (!engineId || engineId === 'infring_native') return;
+      if (!engineId) return;
       var startedAt = Date.now();
       this._responseStartedAt = startedAt;
       var thinkingMessage = {
@@ -415,13 +575,27 @@
           if (ctxIdx === historyRows.length - 1 && ctxRole === 'user' && ctxText.trim() === currentTextForContext) continue;
           if (ctxRole === 'agent' || ctxRole === 'ai') ctxRole = 'assistant';
           if (ctxRole === 'human') ctxRole = 'user';
+          var ctxSourceKind = ctxRole === 'user'
+            ? 'user_message'
+            : ctxRole === 'assistant'
+              ? 'assistant_message'
+              : (ctxMsg.tool_call_ref || ctxRole === 'tool')
+                ? 'tool_receipt'
+                : ctxRole === 'system'
+                  ? 'system_event'
+                  : 'message_event';
           contextRows.push({
             id: String(ctxMsg.id || ('message-' + ctxIdx)).slice(0, 160),
             role: ctxRole.slice(0, 40),
             text_preview: ctxText.slice(0, 2400),
             detail_ref: String(ctxMsg.detail_ref || ctxMsg.id || '').slice(0, 240),
             timestamp: ctxMsg.ts || ctxMsg.timestamp || null,
-            source_kind: ctxMsg.tool_call_ref || ctxRole === 'tool' ? 'tool_result_bundle' : 'interaction_unit'
+            source_kind: ctxSourceKind,
+            record_type: ctxSourceKind,
+            source_authority: 'shell_bounded_message_projection',
+            speaker_label: String(ctxMsg.agent_name || ctxMsg.origin_display_name || ctxMsg.name || ctxRole).slice(0, 120),
+            receipt_ref: String(ctxMsg.receipt_ref || '').slice(0, 240),
+            result_ref: String(ctxMsg.result_ref || '').slice(0, 240)
           });
         }
         contextRows = contextRows.slice(-49);
@@ -451,7 +625,27 @@
           ? this.clearTransientThinkingRows({ force: true })
           : (this.messages = this.messages.filter(function(m) { return !m.thinking; }));
         if (res && res.pending_permission_request) {
-          this.enqueueAgentRuntimePermissionRequest(res.pending_permission_request);
+          var pendingPermissionRequest = res.pending_permission_request;
+          pendingPermissionRequest.resume_payload = {
+            agent_id: targetAgentId,
+            final_text: String(finalText || ''),
+            uploaded_files: Array.isArray(uploadedFiles) ? uploadedFiles.slice(0, 12) : [],
+            msg_images: Array.isArray(msgImages) ? msgImages.slice(0, 12) : [],
+            agent_runtime_engine_id: engineId,
+            session_id: String(turnRequest.session_id || ''),
+            paused_reason: 'waiting_for_permission_decision'
+          };
+          pendingPermissionRequest.status = 'paused_pending_approval';
+          this.enqueueAgentRuntimePermissionRequest(pendingPermissionRequest);
+          this._clearPendingWsRequest(targetAgentId);
+          this._inflightPayload = null;
+          this.sending = false;
+          this._responseStartedAt = 0;
+          this.tokenCount = 0;
+          this._clearTypingTimeout();
+          this.setAgentLiveActivity(targetAgentId, 'idle', { optimistic: true, source: 'agent_runtime_permission_wait' });
+          this.scheduleConversationPersist();
+          return;
         }
         var runtimePayloadText = String((res && (res.display_text || res.output_text || res.text || res.response || res.output_preview)) || '').trim();
         var runtimeText = this.stripModelPrefix(this.sanitizeToolText(runtimePayloadText || ''));
@@ -463,7 +657,16 @@
         if (res && res.result_ref) runtimeMeta += ' | result';
         var responseActivityEvents = Array.isArray(res && res.agent_activity_events) ? res.agent_activity_events : [];
         var finalActivityEvents = responseActivityEvents.length ? responseActivityEvents : streamedActivityEvents;
-        var runtimeActivityTools = this.agentRuntimeActivityEventsToTools(finalActivityEvents, engineId);
+        var runtimeDecisionTool = this.agentRuntimeActivityEventsToDecisionTool(finalActivityEvents, engineId, runtimeDurationMs);
+        var runtimeActivityTools = runtimeDecisionTool ? [runtimeDecisionTool] : [];
+        if (runtimeActivityTools.length && (res && (res.receipt_ref || res.result_ref))) {
+          runtimeActivityTools = runtimeActivityTools.map(function(row) {
+            return Object.assign({}, row, {
+              receipt_ref: String(res.receipt_ref || row.receipt_ref || '').slice(0, 240),
+              result_ref: String(res.result_ref || row.result_ref || '').slice(0, 240)
+            });
+          });
+        }
         if (!String(runtimeText || '').trim()) {
           if (!(res && res.pending_permission_request)) InfringToast.info('Agent runtime returned no display text.');
           this._clearPendingWsRequest(targetAgentId);
@@ -485,6 +688,8 @@
           agent_activity_events: finalActivityEvents.slice(-80),
           agent_activity_event_count: Number(res && res.activity_event_count) || runtimeActivityTools.length,
           ts: Date.now(),
+          result_ref: String(res && res.result_ref || '').slice(0, 240),
+          receipt_ref: String(res && res.receipt_ref || '').slice(0, 240),
           agent_id: targetAgentId,
           agent_name: this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '',
           isHtml: false,
@@ -611,7 +816,10 @@
         this._inflightPayload.retry_started_at = Date.now();
       }
       this._pendingAutoModelSwitchBaseline = '';
-      if (typeof this.isExternalAgentRuntimeEngineSelected === 'function' && this.isExternalAgentRuntimeEngineSelected(runtimeEngineId)) {
+      var useRuntimeSocketPath = typeof this.shouldUseAgentRuntimeSocketPath === 'function'
+        ? this.shouldUseAgentRuntimeSocketPath(runtimeEngineId)
+        : (typeof this.isExternalAgentRuntimeEngineSelected === 'function' && this.isExternalAgentRuntimeEngineSelected(runtimeEngineId));
+      if (useRuntimeSocketPath) {
         await this._sendAgentRuntimeSocketPayload(targetAgentId, finalText, safeFiles, safeImages, runtimeEngineId);
         return;
       }

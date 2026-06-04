@@ -23,6 +23,7 @@ const {
 } = require('./agent_engines/agent_runtime_context_store.ts');
 const { materializeKernelAgentRuntimeContextPack } = require('./agent_engines/agent_runtime_kernel_context_bridge.ts');
 const { buildUniversalToolGrants } = require('./agent_engines/universal_core_tools.ts');
+const { createInfringNativeEngineAdapter } = require('./agent_engines/infring_native.ts');
 const { createCodexCliEngineAdapter } = require('./agent_engines/codex_cli.ts');
 const { createClaudeCodeEngineAdapter } = require('./agent_engines/claude_code.ts');
 const { createGrokCodeEngineAdapter } = require('./agent_engines/grok_code.ts');
@@ -122,6 +123,59 @@ function decodeAgentRuntimeSessionRef(value) {
   }
   return { agentId: '', sessionId: cleanTranscriptComponent(raw, 200) };
 }
+
+function sanitizeAgentRuntimeProposalArguments(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const out = {};
+  const rawPath = cleanText(source.path || source.file || source.filename || source.relative_path, 500);
+  if (rawPath) out.path = rawPath;
+  const mimeType = cleanText(source.mime_type || source.content_type || 'text/plain', 120);
+  if (mimeType) out.mime_type = mimeType;
+  if (source.content != null) out.content = cleanDisplayText(source.content, 262144);
+  else if (source.text != null) out.content = cleanDisplayText(source.text, 262144);
+  else if (source.body != null) out.content = cleanDisplayText(source.body, 262144);
+  return out;
+}
+
+function resolveAgentRuntimeArtifactPath(rawPath) {
+  const value = String(rawPath == null ? '' : rawPath).replace(/\\/g, '/').trim();
+  if (!value) throw new Error('artifact_path_required');
+  if (path.isAbsolute(value) || value.startsWith('~') || value.includes('\0')) throw new Error('artifact_path_must_be_repo_relative');
+  const normalized = path.posix.normalize(value).replace(/^\/+/, '');
+  if (!normalized || normalized === '.' || normalized.startsWith('../') || normalized.includes('/../')) throw new Error('artifact_path_escapes_repo');
+  const target = path.resolve(ROOT, normalized);
+  const rootWithSep = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
+  if (target !== ROOT && !target.startsWith(rootWithSep)) throw new Error('artifact_path_escapes_repo');
+  if (target === ROOT) throw new Error('artifact_path_must_name_file');
+  return { target, relativePath: path.relative(ROOT, target).replace(/\\/g, '/') };
+}
+
+function executeAgentRuntimeApprovedProposal(traceId, approvalId, body) {
+  const toolId = cleanText(body && body.tool_id, 120);
+  if (toolId !== 'artifact.create_propose') return null;
+  const args = sanitizeAgentRuntimeProposalArguments(body && (body.proposal_arguments || body.arguments));
+  const resolved = resolveAgentRuntimeArtifactPath(args.path);
+  const content = cleanDisplayText(args.content || '', 262144);
+  ensureDir(path.dirname(resolved.target));
+  fs.writeFileSync(resolved.target, content, 'utf8');
+  const digest = createHash('sha256').update(content).digest('hex');
+  const bytes = Buffer.byteLength(content, 'utf8');
+  return {
+    ok: true,
+    type: 'agent_runtime_approval_effect_receipt',
+    approval_id: cleanApprovalId(approvalId),
+    trace_id: cleanText(traceId, 200),
+    tool_id: toolId,
+    effect: 'artifact_written',
+    path: resolved.relativePath,
+    bytes,
+    sha256: digest,
+    mime_type: cleanText(args.mime_type || 'text/plain', 120),
+    result_ref: `artifact/${resolved.relativePath}`,
+    receipt_ref: `receipt/agent-runtime-approval/${cleanApprovalId(approvalId)}`,
+    display_text: `Created ${resolved.relativePath} (${bytes} bytes).`,
+  };
+}
 const AGENT_RUNTIME_CONTEXT_FANOUT_TARGET = 7;
 const AGENT_RUNTIME_CONTEXT_HOT_TAIL_COUNT = 4;
 const AGENT_RUNTIME_CONTEXT_MAX_ROWS = 49;
@@ -208,20 +262,48 @@ function buildAgentRuntimeContextPack(options = {}) {
   const agentId = cleanText(options.agentId || body.agent_id, 160) || 'default';
   const projection = body.context_projection && typeof body.context_projection === 'object' ? body.context_projection : {};
   const sourceRows = Array.isArray(projection.rows) ? projection.rows : [];
-  const rows = sourceRows.slice(-AGENT_RUNTIME_CONTEXT_MAX_ROWS);
+  const rawRows = sourceRows.slice(-(AGENT_RUNTIME_CONTEXT_MAX_ROWS * 2));
+  const rows = [];
+  const seenRows = new Set();
+  for (const row of rawRows.slice().reverse()) {
+    const text = contextRowText(row)
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .replace(/[^\p{L}\p{N}\s._:/-]/gu, '')
+      .trim();
+    if (!text) continue;
+    const role = cleanContextRole(row.role || row.origin_kind || row.actor);
+    const key = `${role}:${text}`;
+    if (seenRows.has(key)) continue;
+    seenRows.add(key);
+    rows.push(row);
+  }
+  rows.reverse();
+  if (rows.length > AGENT_RUNTIME_CONTEXT_MAX_ROWS) rows.splice(0, rows.length - AGENT_RUNTIME_CONTEXT_MAX_ROWS);
   const atoms = [];
   rows.forEach((row, idx) => {
     const text = contextRowText(row);
     if (!text) return;
     const sequenceNo = idx + 1;
     const role = cleanContextRole(row.role || row.origin_kind || row.actor);
-    const sourceKind = row.source_kind || (role === 'tool' ? 'tool_result_bundle' : (role === 'system' ? 'status_summary' : 'interaction_unit'));
+    const sourceKind = row.source_kind || (role === 'user'
+      ? 'user_message'
+      : role === 'assistant'
+        ? 'assistant_message'
+        : role === 'tool'
+          ? 'tool_receipt'
+          : role === 'system'
+            ? 'system_event'
+            : 'message_event');
     atoms.push({
       atom_id: cleanText(row.atom_id || row.id, 160) || contextRef('ctx_atom_projection', sessionId, 0, sequenceNo, sequenceNo),
       session_id: sessionId,
       sequence_no: sequenceNo,
       source_kind: sourceKind,
+      record_type: sourceKind,
       source_ref: cleanText(row.detail_ref || row.id || `message-${sequenceNo}`, 240),
+      source_authority: cleanText(row.source_authority || projection.source || 'shell_bounded_message_projection', 160),
+      speaker_label: cleanText(row.speaker_label || row.origin_display_name || row.agent_name || role, 120),
       role,
       text_preview: text,
       token_count: Math.min(Number(row.token_count) || estimateContextTokens(text), 4000),
@@ -272,7 +354,10 @@ function buildAgentRuntimeContextPack(options = {}) {
       token_count: atom.token_count,
       payload: {
         source_kind: atom.source_kind,
+        record_type: atom.record_type || atom.source_kind,
         source_ref: atom.source_ref,
+        source_authority: atom.source_authority,
+        speaker_label: atom.speaker_label,
         role: atom.role,
         text_preview: atom.text_preview,
         sequence_no: atom.sequence_no,
@@ -315,6 +400,12 @@ function buildAgentRuntimeContextPack(options = {}) {
     fanout_target: AGENT_RUNTIME_CONTEXT_FANOUT_TARGET,
     hot_tail_count: AGENT_RUNTIME_CONTEXT_HOT_TAIL_COUNT,
     row_count: atoms.length,
+    raw_row_count: sourceRows.length,
+    dedupe_policy: {
+      type: 'gateway_projection_tail_window',
+      key_basis: 'source_projection_rows',
+      preserves_latest_duplicate: true,
+    },
     frontier: {
       session_id: sessionId,
       hot_atom_refs: hotAtoms.map((row) => row.atom_id),
@@ -333,6 +424,10 @@ function buildAgentRuntimeContextPack(options = {}) {
 function createAgentRuntimeEngineAdapterMap(options = {}) {
   const liveDispatch = options.liveDispatch === true;
   return {
+    infring_native: createInfringNativeEngineAdapter({
+      liveDispatch,
+      orchestrationClient: options.nativeOrchestrationClient || options.orchestrationClient,
+    }),
     codex_cli: createCodexCliEngineAdapter({ liveDispatch }),
     claude_code: createClaudeCodeEngineAdapter({ liveDispatch }),
     grok_code: createGrokCodeEngineAdapter({ liveDispatch }),
@@ -340,7 +435,10 @@ function createAgentRuntimeEngineAdapterMap(options = {}) {
 }
 function createDashboardAgentRuntimeRouter(options = {}) {
   const router = createAgentRuntimeRouter({ root: ROOT, disableTraceWriter: options.disableTraceWriter === true });
-  const adapters = createAgentRuntimeEngineAdapterMap({ liveDispatch: options.liveDispatch === true });
+  const adapters = createAgentRuntimeEngineAdapterMap({
+    liveDispatch: options.liveDispatch === true,
+    nativeOrchestrationClient: options.nativeOrchestrationClient,
+  });
   for (const [engineId, adapter] of Object.entries(adapters)) router.registerAdapter(engineId, adapter);
   return router;
 }
@@ -361,6 +459,8 @@ function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
     status: cleanText(event.status || '', 80),
     text: cleanDisplayText(event.text || event.display_text || event.summary || '', 4000),
     display_text: cleanDisplayText(event.display_text || event.text || event.summary || '', 4000),
+    receipt_ref: cleanText(event.receipt_ref || '', 240),
+    result_ref: cleanText(event.result_ref || '', 240),
     engine_id: cleanEngineId(event.engine_id || defaults.engineId),
     trace_id: cleanText(event.trace_id || defaults.traceId, 200),
     session_id: cleanText(event.session_id || defaults.sessionId, 200),
@@ -370,13 +470,13 @@ function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
 async function agentRuntimeTurnProjection(traceId, body, options = {}) {
   const rawEngineId = body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id);
   const engineId = cleanEngineId(rawEngineId || 'infring_native');
-  if (!engineId || engineId === 'infring_native') {
+  if (!engineId) {
     return {
       ok: false,
       status_code: 400,
-      error: 'native_runtime_uses_default_agent_message_path',
+      error: 'agent_runtime_engine_id_required',
       trace_id: traceId,
-      engine_id: engineId || 'infring_native',
+      engine_id: 'infring_native',
     };
   }
   const inputPayload = body && body.input && typeof body.input === 'object' ? body.input.text : (body && body.input);
@@ -401,7 +501,10 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
       engine_id: engineId,
     };
   }
-  const router = createDashboardAgentRuntimeRouter({ liveDispatch: true });
+  const router = createDashboardAgentRuntimeRouter({
+    liveDispatch: true,
+    nativeOrchestrationClient: options.nativeOrchestrationClient,
+  });
   const agentId = cleanText(body && body.agent_id, 160) || 'default';
   const sessionId = cleanText(body && body.session_id, 200) || `shell_${agentId}`;
   const turnId = cleanText(body && body.turn_id, 200) || `turn_${Date.now().toString(36)}`;
@@ -484,12 +587,13 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
       agentId,
       traceId,
     })).catch(() => buildAgentRuntimeContextPack({ body, agentId, sessionId, traceId }));
+  const permissionPolicy = mergeAgentRuntimeApprovalPermissionPolicy(body && body.permission_policy, sessionId, engineId);
   contextPack.universal_tool_grants = buildUniversalToolGrants({
     traceId,
     sessionId,
     agentId,
     engineId,
-    permissionPolicy: body && body.permission_policy,
+    permissionPolicy,
   });
   emitSyntheticActivity('started', 'engine.health', `Checking ${engineId} availability.`);
   const health = await router.healthCheck({
@@ -539,7 +643,9 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
   const turn = options && options.stream === true
     ? await router.streamTurn(turnMessage, onActivity)
     : await router.submitTurn(turnMessage);
-  emitSyntheticActivity('completed', 'turn.completed', `${engineId} returned ${cleanText(turn && turn.status, 80) || 'a result'}.`);
+  if (!(turn && Array.isArray(turn.activity_events) && turn.activity_events.length)) {
+    emitSyntheticActivity('completed', 'turn.completed', `${engineId} returned ${cleanText(turn && turn.status, 80) || 'a result'}.`);
+  }
   const output = cleanDisplayText(
     turn && (turn.output_text || turn.display_text || turn.text || turn.response || turn.output_preview || turn.delta || turn.reason),
     24000,
@@ -555,17 +661,23 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
   const activityEvents = [...streamedActivityEvents, ...finalActivityEvents]
     .filter((event) => event && (event.display_text || event.provider_event_type))
     .filter((event) => {
-      const key = [
-        event.sequence_no,
-        event.activity_kind,
-        event.provider_event_type,
-        event.display_text,
-      ].join('|');
+      const key = cleanDisplayText(event.display_text, 1000)
+        ? [
+            event.activity_kind,
+            event.provider_event_type,
+            cleanDisplayText(event.display_text, 1000),
+          ].join('|')
+        : [
+            event.sequence_no,
+            event.activity_kind,
+            event.provider_event_type,
+          ].join('|');
       if (activityDedupe.has(key)) return false;
       activityDedupe.add(key);
       return true;
     })
     .slice(-80);
+  const persistedAssistantOutput = pendingPermissionRequest ? '' : output;
   try {
     appendAgentRuntimeTurnAtoms({
       root: ROOT,
@@ -575,7 +687,7 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
       turnId,
       engineId,
       userText: text,
-      assistantText: output,
+      assistantText: persistedAssistantOutput,
       resultRef: turn && turn.result_ref,
       receiptRef: turn && turn.receipt_ref,
     });
@@ -588,7 +700,7 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
       turnId,
       engineId,
       userText: text,
-      assistantText: output,
+      assistantText: persistedAssistantOutput,
       pendingPermissionRequest,
     });
   } catch {}
@@ -601,12 +713,13 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
     session_id: sessionId,
     turn_id: turnId,
     status: pendingPermissionRequest ? 'permission_required' : (cleanText(turn && turn.status, 80) || 'unknown'),
-    text: output,
-    display_text: output,
-    output_text: output,
-	    output_preview: outputPreview,
+    text: pendingPermissionRequest ? '' : output,
+    display_text: pendingPermissionRequest ? '' : output,
+    output_text: pendingPermissionRequest ? '' : output,
+    output_preview: pendingPermissionRequest ? '' : outputPreview,
 	    agent_activity_events: activityEvents,
-	    activity_event_count: Number(turn && turn.activity_event_count) || activityEvents.length,
+	    activity_event_count: activityEvents.length,
+	    raw_activity_event_count: Number(turn && turn.activity_event_count) || activityEvents.length,
 	    structured_activity: turn && turn.structured_activity === true,
 	    result_ref: cleanText(turn && turn.result_ref, 240),
 	    receipt_ref: cleanText(turn && turn.receipt_ref, 240),
@@ -625,7 +738,9 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
 	      argument_keys: Array.isArray(pendingPermissionRequest.argument_keys)
 	        ? pendingPermissionRequest.argument_keys.map((key) => cleanText(key, 80)).filter(Boolean).slice(0, 24)
 	        : [],
+	      proposal_arguments: sanitizeAgentRuntimeProposalArguments(pendingPermissionRequest.proposal_arguments),
 	      gatekeeper_kind: cleanText(pendingPermissionRequest.gatekeeper_kind || 'user', 80) || 'user',
+	      status: 'paused_pending_approval',
 	      future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor'],
 	      decisions: ['allow_once', 'deny', 'always_allow_tool_call'],
 	      decision_scope: 'tool_call',
@@ -654,12 +769,100 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
     },
   };
 }
+async function agentRuntimeContextPackPreviewProjection(traceId, body) {
+  const rawEngineId = body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id);
+  const engineId = cleanEngineId(rawEngineId || 'infring_native');
+  const agentId = cleanText(body && body.agent_id, 160) || 'default';
+  const sessionId = cleanText(body && body.session_id, 200) || `shell_${agentId}`;
+  const fallbackContextRows = loadAgentRuntimeContextRows({ root: ROOT, sessionId, agentId });
+  const kernelContext = await materializeKernelAgentRuntimeContextPack({
+    root: ROOT,
+    sessionId,
+    agentId,
+    traceId,
+    atoms: fallbackContextRows,
+    timeoutMs: 8000,
+  }).catch((error) => ({
+    ok: false,
+    reason: cleanText(error && error.message ? error.message : error, 240),
+  }));
+  const contextPack = kernelContext && kernelContext.ok && kernelContext.context_pack
+    ? kernelContext.context_pack
+    : await Promise.resolve(materializeAgentRuntimeContextPack({
+      root: ROOT,
+      sessionId,
+      agentId,
+      traceId,
+    })).catch(() => buildAgentRuntimeContextPack({ body, agentId, sessionId, traceId }));
+  contextPack.universal_tool_grants = buildUniversalToolGrants({
+    traceId,
+    sessionId,
+    agentId,
+    engineId,
+    permissionPolicy: body && body.permission_policy,
+  });
+  const fragments = Array.isArray(contextPack.fragments) ? contextPack.fragments : [];
+  return {
+    ok: true,
+    type: 'agent_runtime_context_pack_preview',
+    trace_id: traceId,
+    engine_id: engineId,
+    agent_id: agentId,
+    session_id: sessionId,
+    source_basis: cleanText(contextPack.source_basis, 160),
+    source_authority: cleanText(contextPack.source_authority, 200),
+    row_count: Number(contextPack.row_count) || 0,
+    raw_row_count: Number(contextPack.raw_row_count) || Number(contextPack.row_count) || 0,
+    dedupe_policy: contextPack.dedupe_policy || null,
+    kernel_materializer_used: !!(kernelContext && kernelContext.ok),
+    kernel_materializer_mode: cleanText(kernelContext && kernelContext.command_mode, 40),
+    frontier: {
+      hot_atom_count: Array.isArray(contextPack.frontier && contextPack.frontier.hot_atom_refs) ? contextPack.frontier.hot_atom_refs.length : 0,
+      warm_span_count: Array.isArray(contextPack.frontier && contextPack.frontier.warm_span_refs) ? contextPack.frontier.warm_span_refs.length : 0,
+      cool_span_count: Array.isArray(contextPack.frontier && contextPack.frontier.cool_span_refs) ? contextPack.frontier.cool_span_refs.length : 0,
+      cold_span_count: Array.isArray(contextPack.frontier && contextPack.frontier.cold_span_refs) ? contextPack.frontier.cold_span_refs.length : 0,
+      pressure_state: cleanText(contextPack.frontier && contextPack.frontier.pressure_state, 80),
+    },
+    fragments: fragments.slice(-24).map((fragment) => {
+      const payload = fragment && fragment.payload && typeof fragment.payload === 'object' ? fragment.payload : {};
+      return {
+        fragment_id: cleanText(fragment && fragment.fragment_id, 200),
+        kind: cleanText(fragment && fragment.kind, 40),
+        ref_id: cleanText(fragment && fragment.ref_id, 200),
+        level: Number(fragment && fragment.level) || 0,
+        source_kind: cleanText(payload.source_kind || payload.record_type, 120),
+        speaker_label: cleanText(payload.speaker_label || payload.role, 120),
+        role: cleanText(payload.role, 40),
+        source_ref: cleanText(payload.source_ref, 240),
+        summary: cleanDisplayText(payload.text_preview || payload.summary || '', 800),
+      };
+    }),
+    universal_tool_count: Array.isArray(contextPack.universal_tool_grants && contextPack.universal_tool_grants.tools)
+      ? contextPack.universal_tool_grants.tools.length
+      : 0,
+  };
+}
 function agentRuntimeApprovalDecisionProjection(traceId, approvalId, body) {
   const id = cleanApprovalId(approvalId);
   const decision = cleanText(body && body.decision, 80);
   const allowed = new Set(['allow_once', 'deny', 'always_allow_tool_call']);
   if (!id) return { ok: false, status_code: 400, type: 'approval_decision_ack', trace_id: traceId, error: 'approval_id_required' };
   if (!allowed.has(decision)) return { ok: false, status_code: 400, type: 'approval_decision_ack', trace_id: traceId, approval_id: id, error: 'approval_decision_invalid' };
+  let executionResult = null;
+  if (decision !== 'deny') {
+    try {
+      executionResult = executeAgentRuntimeApprovedProposal(traceId, id, body);
+    } catch (error) {
+      executionResult = {
+        ok: false,
+        type: 'agent_runtime_approval_effect_error',
+        approval_id: id,
+        trace_id: traceId,
+        tool_id: cleanText(body && body.tool_id, 120),
+        error: cleanText(error && error.message ? error.message : error, 240),
+      };
+    }
+  }
   const row = {
     type: 'approval_decision_ack',
     ok: true,
@@ -672,10 +875,13 @@ function agentRuntimeApprovalDecisionProjection(traceId, approvalId, body) {
     session_id: cleanText(body && body.session_id, 200),
     gatekeeper_kind: cleanText(body && body.gatekeeper_kind || 'user', 80) || 'user',
     decided_at: nowIso(),
-    durable_effect_executed: false,
+    durable_effect_executed: !!(executionResult && executionResult.ok),
+    execution_result: executionResult,
     next_action: decision === 'deny'
       ? 'tool_call_denied'
-      : 'tool_call_permission_recorded_for_next_agent_runtime_turn',
+      : executionResult && executionResult.ok
+        ? 'tool_call_executed'
+        : 'tool_call_permission_recorded_for_next_agent_runtime_turn',
   };
   AGENT_RUNTIME_APPROVAL_DECISIONS.set(id, row);
   if (AGENT_RUNTIME_APPROVAL_DECISIONS.size > 200) {
@@ -683,6 +889,33 @@ function agentRuntimeApprovalDecisionProjection(traceId, approvalId, body) {
     if (firstKey) AGENT_RUNTIME_APPROVAL_DECISIONS.delete(firstKey);
   }
   return row;
+}
+function mergeAgentRuntimeApprovalPermissionPolicy(source, sessionId, engineId) {
+  const base = source && typeof source === 'object' ? source : {};
+  const alwaysAllowed = new Set(
+    Array.isArray(base.always_allowed_tool_calls)
+      ? base.always_allowed_tool_calls.map((toolId) => cleanText(toolId, 120)).filter(Boolean)
+      : [],
+  );
+  const session = cleanText(sessionId, 200);
+  const engine = cleanEngineId(engineId);
+  for (const [approvalId, row] of Array.from(AGENT_RUNTIME_APPROVAL_DECISIONS.entries())) {
+    if (!row || typeof row !== 'object') continue;
+    const decision = cleanText(row.decision, 80);
+    if (decision !== 'allow_once' && decision !== 'always_allow_tool_call') continue;
+    const toolId = cleanText(row.tool_id, 120);
+    if (!toolId) continue;
+    const rowSession = cleanText(row.session_id, 200);
+    const rowEngine = cleanEngineId(row.engine_id);
+    if (rowSession && session && rowSession !== session) continue;
+    if (rowEngine && engine && rowEngine !== engine) continue;
+    alwaysAllowed.add(toolId);
+    if (decision === 'allow_once') AGENT_RUNTIME_APPROVAL_DECISIONS.delete(approvalId);
+  }
+  return {
+    ...base,
+    always_allowed_tool_calls: Array.from(alwaysAllowed).slice(0, 64),
+  };
 }
 function isTransientSocketError(error) {
   const code = cleanText(error && error.code ? error.code : '', 40);
@@ -1192,8 +1425,10 @@ function mergeAgentRuntimeTranscriptPayload(payload, options) {
   const limit = Math.max(1, Math.min(AGENT_RUNTIME_TRANSCRIPT_WINDOW_LIMIT, Number(options && options.limit) || AGENT_RUNTIME_TRANSCRIPT_WINDOW_LIMIT));
   const overlayRows = loadAgentRuntimeTranscriptRows({ agentId, sessionId, allowAgentFallback: true });
   if (!overlayRows.length) return base;
+  let projectedRows = [];
   if (base.message_window && typeof base.message_window === 'object') {
     const rows = mergeAgentRuntimeMessageRows(base.message_window.rows, overlayRows, limit);
+    projectedRows = rows;
     base.message_window = {
       ...base.message_window,
       rows,
@@ -1202,12 +1437,45 @@ function mergeAgentRuntimeTranscriptPayload(payload, options) {
     };
   } else if (Array.isArray(base.messages)) {
     base.messages = mergeAgentRuntimeMessageRows(base.messages, overlayRows, limit);
+    projectedRows = base.messages;
     base.message_count = Math.max(Number(base.message_count) || 0, base.messages.length);
   } else if (Array.isArray(base.turns)) {
     base.turns = mergeAgentRuntimeMessageRows(base.turns, overlayRows, limit);
+    projectedRows = base.turns;
   } else {
     base.messages = mergeAgentRuntimeMessageRows([], overlayRows, limit);
+    projectedRows = base.messages;
     base.message_count = base.messages.length;
+  }
+  if (projectedRows.length) {
+    if (!Array.isArray(base.messages)) {
+      base.messages = mergeAgentRuntimeMessageRows([], projectedRows, limit);
+      base.message_count = Math.max(Number(base.message_count) || 0, base.messages.length);
+    }
+    if (base.session && typeof base.session === 'object') {
+      base.session = { ...base.session };
+      if (!Array.isArray(base.session.messages) || !base.session.messages.length) {
+        base.session.messages = mergeAgentRuntimeMessageRows([], projectedRows, limit);
+      }
+      if (Array.isArray(base.session.sessions)) {
+        const normalizedSessionId = cleanTranscriptComponent(sessionId, 200);
+        let attached = false;
+        base.session.sessions = base.session.sessions.map((row) => {
+          if (!row || typeof row !== 'object') return row;
+          const rowId = cleanTranscriptComponent(row.id || row.session_id || row.scope_token || '', 200);
+          const rowActive = row.active === true;
+          if (!attached && (rowActive || rowId === normalizedSessionId || !rowId)) {
+            attached = true;
+            return {
+              ...row,
+              messages: mergeAgentRuntimeMessageRows(row.messages, projectedRows, limit),
+              agent_runtime_transcript_overlay: true,
+            };
+          }
+          return row;
+        });
+      }
+    }
   }
   base.agent_runtime_transcript_overlay = {
     source: 'adapters.runtime.agent_runtime_transcript',
@@ -1487,6 +1755,117 @@ async function fetchBackendJson(flags, pathname, timeoutMs = 15000, traceId = ''
   const res = await fetchBackend(flags, pathname, init, timeoutMs);
   if (!res.ok) throw new Error(`backend_http_${pathname}_${res.status}`);
   return res.json();
+}
+async function postBackendJson(flags, pathname, body, timeoutMs = 15000, traceId = '') {
+  const cleanTraceId = sanitizeTraceId(traceId);
+  const headers = { 'content-type': 'application/json' };
+  if (cleanTraceId) headers['x-infring-trace-id'] = cleanTraceId;
+  const res = await fetchBackend(flags, pathname, {
+    method: 'POST',
+    cache: 'no-store',
+    headers,
+    body: JSON.stringify(body || {}),
+  }, timeoutMs);
+  if (!res.ok) throw new Error(`backend_http_${pathname}_${res.status}`);
+  return res.json();
+}
+function createGatewayNativeOrchestrationClient(flags) {
+  return {
+    async healthCheck(ctx) {
+      const traceId = cleanText(ctx && ctx.trace_id, 200);
+      const ready = await backendHealth(flags, 1500);
+      return {
+        status: ready ? 'available' : 'not_connected',
+        readiness: ready ? 'backend_message_path_ready' : 'backend_unreachable',
+        engine_kind: 'native_orchestration',
+        implementation_path: 'orchestration/**',
+        bridge_kind: 'gateway_native_runtime_turn_adapter',
+        trace_id: traceId,
+      };
+    },
+    async startSession(ctx) {
+      return {
+        status: 'completed',
+        session_id: cleanText(ctx && ctx.session_id, 200),
+        bridge_kind: 'gateway_native_runtime_turn_adapter',
+      };
+    },
+    async submitTurn(ctx) {
+      const message = ctx && ctx.message && typeof ctx.message === 'object' ? ctx.message : {};
+      const traceId = cleanText(message.trace_id, 200);
+      const agentId = cleanText(message.agent_id, 160) || 'default';
+      const sessionId = cleanText(message.session_id, 200) || `shell_${agentId}`;
+      const turnId = cleanText(message.turn_id, 200) || `turn_${Date.now().toString(36)}`;
+      const text = cleanDisplayText(message.input && message.input.text, 24000);
+      if (!text) {
+        return {
+          type: 'turn.complete',
+          trace_id: traceId,
+          engine_id: 'infring_native',
+          agent_id: agentId,
+          session_id: sessionId,
+          turn_id: turnId,
+          status: 'failed',
+          reason: 'native_runtime_turn_missing_input',
+        };
+      }
+      const upstream = await postBackendJson(flags, `/api/shell-socket/agents/${encodeURIComponent(agentId)}/message`, {
+        message: text,
+        agent_runtime_engine_id: 'infring_native',
+        runtime_turn_envelope: {
+          trace_id: traceId,
+          session_id: sessionId,
+          turn_id: turnId,
+          source: 'gateway_agent_runtime_turn',
+          context_pack_ref: `agent-runtime-context/${traceId}/${sessionId}/${turnId}`,
+        },
+      }, 180000, traceId);
+      const output = cleanDisplayText(
+        upstream && (upstream.response || upstream.display_text || upstream.output_text || upstream.text || upstream.message),
+        24000,
+      );
+      return {
+        type: 'turn.complete',
+        trace_id: traceId,
+        engine_id: 'infring_native',
+        agent_id: agentId,
+        session_id: sessionId,
+        turn_id: turnId,
+        status: output ? 'completed' : 'failed',
+        output_text: output,
+        output_preview: cleanText(output, 4000),
+        result_ref: cleanText(upstream && (upstream.result_ref || upstream.trace_ref), 240) || `native-runtime-result/${traceId}/${sessionId}/${turnId}`,
+        receipt_ref: cleanText(upstream && (upstream.receipt_ref || upstream.receipt), 240),
+      };
+    },
+    async streamEvents(ctx) {
+      return {
+        status: 'completed',
+        heartbeat: true,
+        session_id: cleanText(ctx && ctx.session_id, 200),
+      };
+    },
+    async cancelTurn(ctx) {
+      return {
+        status: 'cancelled',
+        turn_id: cleanText(ctx && ctx.turn_id, 200),
+      };
+    },
+    async collectArtifacts(ctx) {
+      return {
+        status: 'completed',
+        artifact_ref: `artifact/native/${cleanText(ctx && ctx.trace_id, 200) || 'missing-trace'}`,
+        artifact_kind: 'native_runtime_projection',
+      };
+    },
+    async emitReceipts(ctx) {
+      return {
+        status: 'completed',
+        receipt_ref: `receipt/native/${cleanText(ctx && ctx.trace_id, 200) || 'missing-trace'}`,
+        receipt_kind: 'gateway_native_runtime_turn_adapter',
+      };
+    },
+  };
 }
 async function backendHealth(flags, timeoutMs = 5000) {
   try { return (await fetchBackend(flags, '/healthz', {}, timeoutMs)).ok; } catch { return false; }
@@ -1998,6 +2377,7 @@ async function runServe(flags) {
         writeEvent({ type: 'start', trace_id: traceId, route: 'agent_runtime.turn.stream' });
         const payload = await agentRuntimeTurnProjection(traceId, body, {
           stream: true,
+          nativeOrchestrationClient: createGatewayNativeOrchestrationClient(flags),
           onActivity: (event) => writeEvent({ type: 'activity', trace_id: traceId, event }),
         }).catch((error) => ({
           ok: false,
@@ -2012,7 +2392,9 @@ async function runServe(flags) {
       }
       if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/turn' || pathname === '/api/agent-runtime/turn')) {
         const body = await readJsonBody(req, 65536);
-        const payload = await agentRuntimeTurnProjection(traceId, body).catch((error) => ({
+        const payload = await agentRuntimeTurnProjection(traceId, body, {
+          nativeOrchestrationClient: createGatewayNativeOrchestrationClient(flags),
+        }).catch((error) => ({
           ok: false,
           status_code: 502,
           type: 'agent_runtime_turn_projection_error',
@@ -2021,9 +2403,20 @@ async function runServe(flags) {
         }));
         return void sendJson(res, payload.status_code || (payload.ok === false ? 502 : 200), payload);
       }
+      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/context-pack/preview' || pathname === '/api/agent-runtime/context-pack/preview')) {
+        const body = await readJsonBody(req, 65536).catch(() => ({}));
+        const payload = await agentRuntimeContextPackPreviewProjection(traceId, body).catch((error) => ({
+          ok: false,
+          status_code: 502,
+          type: 'agent_runtime_context_pack_preview_error',
+          trace_id: traceId,
+          error: cleanText(error && error.message ? error.message : error, 240),
+        }));
+        return void sendJson(res, payload.status_code || (payload.ok === false ? 502 : 200), payload);
+      }
       const approvalDecisionMatch = pathname.match(/^\/api\/shell-socket\/approvals\/([^/]+)\/decision$/);
       if (req.method === 'POST' && approvalDecisionMatch) {
-        const body = await readJsonBody(req, 8192).catch(() => ({}));
+        const body = await readJsonBody(req, 327680).catch(() => ({}));
         const approvalId = decodeURIComponent(approvalDecisionMatch[1] || '');
         const payload = agentRuntimeApprovalDecisionProjection(traceId, approvalId, body);
         return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);

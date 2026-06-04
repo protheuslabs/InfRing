@@ -14327,6 +14327,17 @@ function chatPage() {
     },
 
     thoughtToolLabel: function(tool) {
+      if (tool && (tool.agent_decision_dialog || tool.agent_runtime_decision_dialog || tool.agent_runtime_activity_trace)) {
+        var seconds = this.thoughtToolDurationSeconds(tool);
+        var hours = Math.floor(seconds / 3600);
+        var minutes = Math.floor((seconds % 3600) / 60);
+        var remaining = seconds % 60;
+        var parts = [];
+        if (hours > 0) parts.push(hours + 'h');
+        if (hours > 0 || minutes > 0) parts.push(minutes + 'm');
+        parts.push(remaining + 's');
+        return 'Worked for ' + parts.join(' ');
+      }
       return 'Thought for ' + this.thoughtToolDurationSeconds(tool) + ' seconds';
     },
 
@@ -14424,6 +14435,26 @@ function chatPage() {
       }
       if (row._detail_error) {
         sections.push({ id: 'error', label: 'Detail', text: String(row._detail_error || 'Unable to load detail right now.') });
+        return sections;
+      }
+      if (row.agent_decision_dialog || row.agent_runtime_decision_dialog || row.agent_runtime_activity_trace) {
+        var dialog = String(
+          row.agent_decision_dialog_text ||
+          row.input ||
+          row.input_preview ||
+          row.result ||
+          row.result_preview ||
+          row.summary ||
+          row.display_text ||
+          ''
+        ).trim();
+        if (dialog) {
+          sections.push({
+            id: 'agent-decision-dialog',
+            label: 'Agent decision dialog',
+            text: this.formatToolOutputForClipboard(dialog) || dialog
+          });
+        }
         return sections;
       }
       var summary = String(row.summary || row.display_text || '').trim();
