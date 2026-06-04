@@ -4,6 +4,11 @@
 // Gateway-owned proposal contract for the tiny tool surface shared by native and
 // external runtime engines. Engines may propose these calls; they may not execute
 // them directly or treat tool proposals as Kernel authority.
+//
+// UNIVERSAL_CORE_TOOL_SCOPE_CONTRACT:
+// - Keep this surface tiny, engine-agnostic, and proposal-first.
+// - Do not add workflow execution, research tools, provider-specific tool calls,
+//   terminal execution, direct file writes, or Kernel/Shell authority here.
 
 'use strict';
 
@@ -27,6 +32,17 @@ const APPROVAL_REQUIRED_TOOL_IDS = Object.freeze([
   'artifact.create_propose',
   'permission.request',
 ]);
+
+const UNIVERSAL_CORE_TOOL_SCOPE_CONTRACT = Object.freeze({
+  max_tool_count: 6,
+  engine_agnostic_only: true,
+  workflow_tools_allowed: false,
+  research_tools_allowed: false,
+  provider_specific_tools_allowed: false,
+  terminal_execution_allowed: false,
+  direct_file_write_allowed: false,
+  mutating_tools_must_be_proposal_only: true,
+});
 
 const TOOL_DEFINITIONS = Object.freeze({
   'conversation.read': {
@@ -238,6 +254,7 @@ module.exports = {
   UNIVERSAL_CORE_TOOL_IDS,
   DEFAULT_ALLOWED_READ_TOOL_IDS,
   APPROVAL_REQUIRED_TOOL_IDS,
+  UNIVERSAL_CORE_TOOL_SCOPE_CONTRACT,
   TOOL_DEFINITIONS,
   FORBIDDEN_DEFAULT_FIELDS,
   buildUniversalToolGrants,

@@ -1,0 +1,75 @@
+{
+  "type": "agent_runtime_router_scope_contract",
+  "schema_version": 1,
+  "version": "2026-06-04",
+  "owner": "assurance.validation",
+  "status": "contracted",
+  "purpose": "Prevent the Agent Runtime router from becoming orchestration, workflow execution, provider business logic, or a universal tool dumping ground.",
+  "router_path": "adapters/runtime/agent_engines/agent_runtime_router.ts",
+  "universal_tools_path": "adapters/runtime/agent_engines/universal_core_tools.ts",
+  "public_socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
+  "allowed_router_responsibilities": [
+    "load_engine_registry",
+    "register_adapter",
+    "select_adapter_by_engine_id",
+    "validate_adapter_shape",
+    "normalize_public_gateway_events",
+    "reject_trace_id_replacement",
+    "reject_forbidden_default_payload_fields",
+    "compact_oversized_gateway_events",
+    "write_compact_trace_events",
+    "dispatch_adapter_method"
+  ],
+  "forbidden_router_responsibilities": [
+    "plan_workflows",
+    "execute_workflows",
+    "own_conversation_memory",
+    "own_kernel_authority",
+    "own_shell_state",
+    "implement_provider_business_logic",
+    "implement_research_tools",
+    "execute_terminal_commands",
+    "perform_direct_file_mutations",
+    "make_policy_approval_decisions",
+    "score_eval_results",
+    "interpret_sentinel_findings"
+  ],
+  "allowed_router_imports": [
+    "node:fs",
+    "node:path",
+    "./agent_runtime_trace_writer.ts",
+    "./universal_core_tools.ts"
+  ],
+  "universal_core_tool_scope": {
+    "max_tool_count": 6,
+    "allowed_tool_ids": [
+      "conversation.read",
+      "memory.read",
+      "memory.write_propose",
+      "artifact.read",
+      "artifact.create_propose",
+      "permission.request"
+    ],
+    "native_workflow_tools_exposed": false,
+    "tool_surface_must_remain_engine_agnostic": true,
+    "mutating_tools_must_be_proposal_only": true,
+    "durable_effects_require_gateway_or_kernel_receipts": true,
+    "forbidden_tool_families": [
+      "web_search",
+      "workflow_execution",
+      "native_research_tools",
+      "terminal_command_execution",
+      "direct_file_write",
+      "direct_kernel_mutation",
+      "direct_shell_socket_access",
+      "provider_specific_tooling"
+    ]
+  },
+  "growth_guard": {
+    "router_should_remain_thin": true,
+    "router_growth_requires_contract_update": true,
+    "new_universal_tools_require_contract_update": true,
+    "provider_specific_logic_belongs_in_adapter": true,
+    "coordination_logic_belongs_outside_router": true
+  }
+}

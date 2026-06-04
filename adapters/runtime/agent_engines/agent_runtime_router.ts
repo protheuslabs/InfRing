@@ -5,6 +5,14 @@
 // This module is intentionally a seam, not live dashboard wiring. It gives the
 // Gateway one normalized place to select an agent runtime engine and dispatch
 // through the contract in validation/conformance/contracts.
+//
+// ROUTER_SCOPE_CONTRACT:
+// - The router routes, normalizes, compacts, traces, and dispatches.
+// - It must not plan workflows, execute workflow logic, own memory authority,
+//   own Shell state, decide approvals, run terminal/file mutations, or contain
+//   provider-specific business logic.
+// - Provider-specific behavior belongs in adapters; coordination belongs outside
+//   this router seam.
 
 'use strict';
 
@@ -48,6 +56,13 @@ const REQUIRED_ADAPTER_METHODS = [
   'collect_artifacts',
   'emit_receipts',
 ];
+
+const ROUTER_SCOPE_CONTRACT = Object.freeze({
+  router_routes_only: true,
+  provider_specific_logic_belongs_in_adapter: true,
+  coordination_logic_belongs_outside_router: true,
+  approval_decisions_belong_to_gateway_policy_or_gatekeeper: true,
+});
 
 function cleanString(value, max = 2000) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -338,6 +353,7 @@ module.exports = {
   DEFAULT_REGISTRY_PATH,
   FORBIDDEN_DEFAULT_PAYLOAD_FIELDS,
   REQUIRED_ADAPTER_METHODS,
+  ROUTER_SCOPE_CONTRACT,
   loadAgentRuntimeEngineRegistry,
   createAgentRuntimeRouter,
   normalizeGatewayEvent,

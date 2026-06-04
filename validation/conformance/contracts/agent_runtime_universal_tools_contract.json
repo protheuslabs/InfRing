@@ -8,6 +8,17 @@
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-014"
   ],
   "purpose": "Expose a tiny engine-agnostic core-tool surface to native and external runtime engines without giving engines direct Kernel, Memory, Artifact, or Shell authority.",
+  "router_scope_contract": "validation/conformance/contracts/agent_runtime_router_scope_contract.json",
+  "tool_surface_scope": {
+    "max_tool_count": 6,
+    "engine_agnostic_only": true,
+    "workflow_tools_allowed": false,
+    "research_tools_allowed": false,
+    "provider_specific_tools_allowed": false,
+    "terminal_execution_allowed": false,
+    "direct_file_write_allowed": false,
+    "mutating_tools_must_be_proposal_only": true
+  },
   "authority_model": {
     "engines_may_propose_tool_calls": true,
     "engines_may_not_execute_universal_tools_directly": true,

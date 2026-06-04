@@ -8,6 +8,7 @@ const socketPath = 'validation/conformance/contracts/agent_runtime_socket_contra
 const adapterContractsPath = 'validation/conformance/contracts/agent_runtime_adapter_contracts.json';
 const structuredTransportContractPath = 'validation/conformance/contracts/agent_runtime_structured_transport_contract.json';
 const turnOutcomeContractPath = 'validation/conformance/contracts/agent_runtime_turn_outcome_contract.json';
+const routerScopeContractPath = 'validation/conformance/contracts/agent_runtime_router_scope_contract.json';
 const contextPackContractPath = 'validation/conformance/contracts/agent_runtime_context_pack_contract.json';
 const contextAuthorityBoundaryContractPath = 'validation/conformance/contracts/context_authority_boundary_contract.json';
 const universalToolsContractPath = 'validation/conformance/contracts/agent_runtime_universal_tools_contract.json';
@@ -27,12 +28,14 @@ const socket = readJson(socketPath);
 const adapterContracts = readJson(adapterContractsPath);
 const structuredTransportContract = readJson(structuredTransportContractPath);
 const turnOutcomeContract = readJson(turnOutcomeContractPath);
+const routerScopeContract = readJson(routerScopeContractPath);
 const contextPackContract = readJson(contextPackContractPath);
 const contextAuthorityBoundaryContract = readJson(contextAuthorityBoundaryContractPath);
 const universalToolsContract = readJson(universalToolsContractPath);
 
 if (registry.socket_contract !== socketPath) violations.push({ kind: 'registry_socket_contract_mismatch', path: registryPath });
 if (registry.turn_outcome_contract !== turnOutcomeContractPath) violations.push({ kind: 'registry_turn_outcome_contract_mismatch', path: registryPath });
+if (registry.router_scope_contract !== routerScopeContractPath) violations.push({ kind: 'registry_router_scope_contract_mismatch', path: registryPath });
 if (registry.universal_tools_contract !== universalToolsContractPath) violations.push({ kind: 'registry_universal_tools_contract_mismatch', path: registryPath });
 if (socket.canonical_endpoint?.canonical_route_pattern !== '/ws/agent-runtime') violations.push({ kind: 'socket_route_not_canonical', path: socketPath });
 if (!socket.trace_identity_rule?.trace_id_required_on_every_message) violations.push({ kind: 'trace_id_not_required', path: socketPath });
@@ -42,6 +45,7 @@ if (registry.private_adapter_contracts !== adapterContractsPath) violations.push
 if (registry.structured_transport_contract !== structuredTransportContractPath) violations.push({ kind: 'registry_structured_transport_contract_mismatch', path: registryPath });
 if (socket.private_adapter_contracts !== adapterContractsPath) violations.push({ kind: 'socket_private_adapter_contracts_mismatch', path: socketPath });
 if (socket.turn_outcome_contract !== turnOutcomeContractPath) violations.push({ kind: 'socket_turn_outcome_contract_mismatch', path: socketPath });
+if (socket.router_scope_contract !== routerScopeContractPath) violations.push({ kind: 'socket_router_scope_contract_mismatch', path: socketPath });
 if (socket.context_pack_contract !== contextPackContractPath) violations.push({ kind: 'socket_context_pack_contract_mismatch', path: socketPath });
 if (socket.universal_tools_contract !== universalToolsContractPath) violations.push({ kind: 'socket_universal_tools_contract_mismatch', path: socketPath });
 if (contextPackContract.context_authority_boundary_contract !== contextAuthorityBoundaryContractPath) violations.push({ kind: 'context_pack_boundary_contract_mismatch', path: contextPackContractPath });
@@ -55,6 +59,28 @@ if (structuredTransportContract.universal_tools_contract !== universalToolsContr
 if (turnOutcomeContract.type !== 'agent_runtime_turn_outcome_contract') violations.push({ kind: 'turn_outcome_contract_type_wrong', path: turnOutcomeContractPath });
 if (turnOutcomeContract.public_socket_contract !== socketPath) violations.push({ kind: 'turn_outcome_public_socket_contract_mismatch', path: turnOutcomeContractPath });
 if (turnOutcomeContract.engine_registry !== registryPath) violations.push({ kind: 'turn_outcome_engine_registry_mismatch', path: turnOutcomeContractPath });
+if (routerScopeContract.type !== 'agent_runtime_router_scope_contract') violations.push({ kind: 'router_scope_contract_type_wrong', path: routerScopeContractPath });
+if (routerScopeContract.router_path !== 'adapters/runtime/agent_engines/agent_runtime_router.ts') violations.push({ kind: 'router_scope_router_path_wrong', path: routerScopeContractPath });
+if (routerScopeContract.universal_tools_path !== 'adapters/runtime/agent_engines/universal_core_tools.ts') violations.push({ kind: 'router_scope_universal_tools_path_wrong', path: routerScopeContractPath });
+if (routerScopeContract.public_socket_contract !== socketPath) violations.push({ kind: 'router_scope_socket_contract_mismatch', path: routerScopeContractPath });
+for (const forbidden of ['plan_workflows', 'execute_workflows', 'own_kernel_authority', 'own_shell_state', 'implement_provider_business_logic', 'execute_terminal_commands', 'perform_direct_file_mutations', 'make_policy_approval_decisions']) {
+  if (!Array.isArray(routerScopeContract.forbidden_router_responsibilities) || !routerScopeContract.forbidden_router_responsibilities.includes(forbidden)) {
+    violations.push({ kind: 'router_scope_forbidden_responsibility_missing', forbidden, path: routerScopeContractPath });
+  }
+}
+if (routerScopeContract.universal_core_tool_scope?.max_tool_count !== 6) violations.push({ kind: 'router_scope_universal_tool_count_wrong', path: routerScopeContractPath });
+for (const toolId of ['conversation.read', 'memory.read', 'memory.write_propose', 'artifact.read', 'artifact.create_propose', 'permission.request']) {
+  if (!Array.isArray(routerScopeContract.universal_core_tool_scope?.allowed_tool_ids) || !routerScopeContract.universal_core_tool_scope.allowed_tool_ids.includes(toolId)) {
+    violations.push({ kind: 'router_scope_universal_tool_missing', tool_id: toolId, path: routerScopeContractPath });
+  }
+}
+if (routerScopeContract.universal_core_tool_scope?.native_workflow_tools_exposed !== false) violations.push({ kind: 'router_scope_native_workflow_tools_not_forbidden', path: routerScopeContractPath });
+if (routerScopeContract.growth_guard?.provider_specific_logic_belongs_in_adapter !== true) violations.push({ kind: 'router_scope_provider_logic_guard_missing', path: routerScopeContractPath });
+if (universalToolsContract.router_scope_contract !== routerScopeContractPath) violations.push({ kind: 'universal_tools_router_scope_contract_mismatch', path: universalToolsContractPath });
+if (universalToolsContract.tool_surface_scope?.max_tool_count !== 6) violations.push({ kind: 'universal_tools_scope_tool_count_wrong', path: universalToolsContractPath });
+if (universalToolsContract.tool_surface_scope?.workflow_tools_allowed !== false || universalToolsContract.tool_surface_scope?.provider_specific_tools_allowed !== false) {
+  violations.push({ kind: 'universal_tools_scope_allows_non_core_tools', path: universalToolsContractPath });
+}
 for (const status of ['completed', 'permission_required', 'failed_with_reason', 'timed_out_with_reason']) {
   if (!Array.isArray(turnOutcomeContract.required_terminal_outcomes) || !turnOutcomeContract.required_terminal_outcomes.some((row: any) => row && row.status === status)) {
     violations.push({ kind: 'turn_outcome_status_missing', status, path: turnOutcomeContractPath });
@@ -356,6 +382,16 @@ if (exists(codexPath)) {
 }
 if (exists(universalCoreToolsPath)) {
   const tools = require(path.join(ROOT, universalCoreToolsPath));
+  if (!tools.UNIVERSAL_CORE_TOOL_SCOPE_CONTRACT || tools.UNIVERSAL_CORE_TOOL_SCOPE_CONTRACT.max_tool_count !== 6) {
+    violations.push({ kind: 'universal_core_tool_scope_contract_missing_or_wrong', path: universalCoreToolsPath });
+  }
+  if (tools.UNIVERSAL_CORE_TOOL_SCOPE_CONTRACT?.workflow_tools_allowed !== false || tools.UNIVERSAL_CORE_TOOL_SCOPE_CONTRACT?.provider_specific_tools_allowed !== false) {
+    violations.push({ kind: 'universal_core_tool_scope_allows_non_core_tools', path: universalCoreToolsPath });
+  }
+  const universalToolsSource = fs.readFileSync(path.join(ROOT, universalCoreToolsPath), 'utf8');
+  for (const marker of ['UNIVERSAL_CORE_TOOL_SCOPE_CONTRACT', 'Keep this surface tiny, engine-agnostic, and proposal-first', 'Do not add workflow execution']) {
+    if (!universalToolsSource.includes(marker)) violations.push({ kind: 'universal_core_tool_scope_marker_missing', marker, path: universalCoreToolsPath });
+  }
   for (const exported of ['buildUniversalToolGrants', 'renderUniversalToolGrantPromptSection', 'normalizeUniversalToolProposal', 'evaluateUniversalToolPermission']) {
     if (typeof tools[exported] !== 'function') violations.push({ kind: 'universal_core_tools_export_missing', exported });
   }
@@ -435,6 +471,16 @@ if (exists(routerPath)) {
   const router = require(path.join(ROOT, routerPath));
   for (const exported of ['createAgentRuntimeRouter', 'loadAgentRuntimeEngineRegistry', 'normalizeGatewayEvent', 'hasForbiddenDefaultField']) {
     if (typeof router[exported] !== 'function') violations.push({ kind: 'router_export_missing', exported });
+  }
+  if (!router.ROUTER_SCOPE_CONTRACT || router.ROUTER_SCOPE_CONTRACT.router_routes_only !== true) {
+    violations.push({ kind: 'router_scope_contract_export_missing_or_wrong', path: routerPath });
+  }
+  if (router.ROUTER_SCOPE_CONTRACT?.provider_specific_logic_belongs_in_adapter !== true || router.ROUTER_SCOPE_CONTRACT?.coordination_logic_belongs_outside_router !== true) {
+    violations.push({ kind: 'router_scope_contract_boundary_missing', path: routerPath });
+  }
+  const routerSource = fs.readFileSync(path.join(ROOT, routerPath), 'utf8');
+  for (const marker of ['ROUTER_SCOPE_CONTRACT', 'The router routes, normalizes, compacts, traces, and dispatches', 'Provider-specific behavior belongs in adapters']) {
+    if (!routerSource.includes(marker)) violations.push({ kind: 'router_scope_marker_missing', marker, path: routerPath });
   }
   if (typeof router.normalizeGatewayEvent === 'function') {
     const replacement = router.normalizeGatewayEvent(
