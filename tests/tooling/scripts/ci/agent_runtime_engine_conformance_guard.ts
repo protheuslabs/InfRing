@@ -60,8 +60,8 @@ if (turnOutcomeContract.type !== 'agent_runtime_turn_outcome_contract') violatio
 if (turnOutcomeContract.public_socket_contract !== socketPath) violations.push({ kind: 'turn_outcome_public_socket_contract_mismatch', path: turnOutcomeContractPath });
 if (turnOutcomeContract.engine_registry !== registryPath) violations.push({ kind: 'turn_outcome_engine_registry_mismatch', path: turnOutcomeContractPath });
 if (routerScopeContract.type !== 'agent_runtime_router_scope_contract') violations.push({ kind: 'router_scope_contract_type_wrong', path: routerScopeContractPath });
-if (routerScopeContract.router_path !== 'adapters/runtime/agent_engines/agent_runtime_router.ts') violations.push({ kind: 'router_scope_router_path_wrong', path: routerScopeContractPath });
-if (routerScopeContract.universal_tools_path !== 'adapters/runtime/agent_engines/universal_core_tools.ts') violations.push({ kind: 'router_scope_universal_tools_path_wrong', path: routerScopeContractPath });
+if (routerScopeContract.router_path !== 'gateway/runtime/agent_runtime/agent_runtime_router.ts') violations.push({ kind: 'router_scope_router_path_wrong', path: routerScopeContractPath });
+if (routerScopeContract.universal_tools_path !== 'gateway/runtime/agent_runtime/universal_core_tools.ts') violations.push({ kind: 'router_scope_universal_tools_path_wrong', path: routerScopeContractPath });
 if (routerScopeContract.public_socket_contract !== socketPath) violations.push({ kind: 'router_scope_socket_contract_mismatch', path: routerScopeContractPath });
 for (const forbidden of ['plan_workflows', 'execute_workflows', 'own_kernel_authority', 'own_shell_state', 'implement_provider_business_logic', 'execute_terminal_commands', 'perform_direct_file_mutations', 'make_policy_approval_decisions']) {
   if (!Array.isArray(routerScopeContract.forbidden_router_responsibilities) || !routerScopeContract.forbidden_router_responsibilities.includes(forbidden)) {
@@ -306,7 +306,7 @@ for (const forbidden of ['raw_tool_result', 'trace_body', 'workflow_graph', 'ext
   }
 }
 
-const routerPath = 'adapters/runtime/agent_engines/agent_runtime_router.ts';
+const routerPath = 'gateway/runtime/agent_runtime/agent_runtime_router.ts';
 const nativePath = 'adapters/runtime/agent_engines/infring_native.ts';
 const codexPath = 'adapters/runtime/agent_engines/codex_cli.ts';
 const cliRuntimePath = 'adapters/runtime/agent_engines/cli_runtime_adapter.ts';
@@ -314,11 +314,11 @@ const claudePath = 'adapters/runtime/agent_engines/claude_code.ts';
 const grokPath = 'adapters/runtime/agent_engines/grok_code.ts';
 const liveTurnSmokePath = 'tests/tooling/scripts/ci/agent_runtime_cli_live_turn_smoke.ts';
 const contextContinuityEvalPath = 'tests/tooling/scripts/ci/agent_runtime_context_continuity_eval.ts';
-const tracePath = 'adapters/runtime/agent_engines/agent_runtime_trace_writer.ts';
+const tracePath = 'gateway/runtime/agent_runtime/agent_runtime_trace_writer.ts';
 const discoveryPath = 'adapters/runtime/agent_engines/discovery.ts';
 const contextStorePath = 'adapters/runtime/agent_engines/agent_runtime_context_store.ts';
 const kernelContextBridgePath = 'adapters/runtime/agent_engines/agent_runtime_kernel_context_bridge.ts';
-const universalCoreToolsPath = 'adapters/runtime/agent_engines/universal_core_tools.ts';
+const universalCoreToolsPath = 'gateway/runtime/agent_runtime/universal_core_tools.ts';
 const kernelContextMaterializerPath = 'core/layer2/memory/src/bin/agent_runtime_context_materializer.rs';
 const dashboardPath = 'adapters/runtime/infring_dashboard.ts';
 const chatSendPartPath = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/200-send-pipeline.part01.ts';

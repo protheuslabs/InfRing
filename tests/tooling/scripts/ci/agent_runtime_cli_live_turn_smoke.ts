@@ -65,7 +65,7 @@ async function main() {
     return;
   }
 
-  const { createAgentRuntimeRouter } = load('adapters/runtime/agent_engines/agent_runtime_router.ts');
+  const { createAgentRuntimeRouter } = load('gateway/runtime/agent_runtime/agent_runtime_router.ts');
   const { createCodexCliEngineAdapter } = load('adapters/runtime/agent_engines/codex_cli.ts');
   const { createClaudeCodeEngineAdapter } = load('adapters/runtime/agent_engines/claude_code.ts');
   const { createGrokCodeEngineAdapter } = load('adapters/runtime/agent_engines/grok_code.ts');

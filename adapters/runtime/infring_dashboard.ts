@@ -14,7 +14,7 @@ const {
 } = require('./run_infring_ops.ts');
 const { buildPrimaryDashboardHtml, hasPrimaryDashboardUi, readBuildVersionInfo, readPrimaryDashboardAsset } = require('./dashboard_asset_router.ts');
 const { createAgentWsBridge } = require('../../gateway/runtime/sockets/agent_ws/agent_ws_bridge.ts');
-const { loadAgentRuntimeEngineRegistry, createAgentRuntimeRouter } = require('./agent_engines/agent_runtime_router.ts');
+const { loadAgentRuntimeEngineRegistry, createAgentRuntimeRouter } = require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts');
 const {
   ingestAgentRuntimeContextProjection,
   appendAgentRuntimeTurnAtoms,
@@ -22,7 +22,7 @@ const {
   loadAgentRuntimeContextRows,
 } = require('./agent_engines/agent_runtime_context_store.ts');
 const { materializeKernelAgentRuntimeContextPack } = require('./agent_engines/agent_runtime_kernel_context_bridge.ts');
-const { buildUniversalToolGrants } = require('./agent_engines/universal_core_tools.ts');
+const { buildUniversalToolGrants } = require('../../gateway/runtime/agent_runtime/universal_core_tools.ts');
 const { createInfringNativeEngineAdapter } = require('./agent_engines/infring_native.ts');
 const { createCodexCliEngineAdapter } = require('./agent_engines/codex_cli.ts');
 const { createClaudeCodeEngineAdapter } = require('./agent_engines/claude_code.ts');

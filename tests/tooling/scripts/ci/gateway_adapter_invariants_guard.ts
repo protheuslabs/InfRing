@@ -127,6 +127,15 @@ for (const rel of canonicalSocketModules) {
     push('canonical_gateway_socket_module_outside_gateway', policyPath, `${rel} must live under gateway/**.`);
   }
 }
+const canonicalAgentRuntimeModules = Array.isArray(policy.canonical_gateway_agent_runtime_modules)
+  ? policy.canonical_gateway_agent_runtime_modules
+  : [];
+for (const rel of canonicalAgentRuntimeModules) {
+  if (!exists(rel)) push('canonical_gateway_agent_runtime_module_missing', rel, 'Declared Gateway Agent Runtime module is missing.');
+  if (!String(rel).startsWith('gateway/')) {
+    push('canonical_gateway_agent_runtime_module_outside_gateway', policyPath, `${rel} must live under gateway/**.`);
+  }
+}
 
 const declaredLegacyHosts = Array.isArray(policy.declared_legacy_compatibility_hosts)
   ? policy.declared_legacy_compatibility_hosts
@@ -173,6 +182,12 @@ if (exists(dashboardPath)) {
   const dashboard = read(dashboardPath);
   if (!dashboard.includes("require('../../gateway/runtime/sockets/agent_ws/agent_ws_bridge.ts')")) {
     push('dashboard_not_using_gateway_agent_ws_bridge', dashboardPath, 'Legacy dashboard host must delegate Agent WebSocket bridge behavior to gateway/**.');
+  }
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts')")) {
+    push('dashboard_not_using_gateway_agent_runtime_router', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime routing to gateway/**.');
+  }
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/universal_core_tools.ts')")) {
+    push('dashboard_not_using_gateway_universal_tools', dashboardPath, 'Legacy dashboard host must delegate universal tool grant policy to gateway/**.');
   }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime_input_normalizer.ts')")) {
     push('dashboard_not_using_gateway_normalizer', dashboardPath, 'Legacy dashboard host must delegate input normalization to gateway/**.');

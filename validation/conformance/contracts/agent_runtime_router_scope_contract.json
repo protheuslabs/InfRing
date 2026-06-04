@@ -5,8 +5,8 @@
   "owner": "assurance.validation",
   "status": "contracted",
   "purpose": "Prevent the Agent Runtime router from becoming orchestration, workflow execution, provider business logic, or a universal tool dumping ground.",
-  "router_path": "adapters/runtime/agent_engines/agent_runtime_router.ts",
-  "universal_tools_path": "adapters/runtime/agent_engines/universal_core_tools.ts",
+  "router_path": "gateway/runtime/agent_runtime/agent_runtime_router.ts",
+  "universal_tools_path": "gateway/runtime/agent_runtime/universal_core_tools.ts",
   "public_socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
   "allowed_router_responsibilities": [
     "load_engine_registry",

@@ -20,14 +20,16 @@
   ],
   "engine_registry": "validation/conformance/contracts/agent_runtime_engine_registry.json",
   "public_socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
-  "purpose": "Keep one universal public Agent Runtime Socket while allowing each runtime engine to use private adapter-specific schemas behind the Gateway boundary.",
+  "purpose": "Keep one universal public Agent Runtime Socket under gateway/** while allowing each runtime engine to use private adapter-specific schemas behind the Gateway boundary.",
   "canonical_public_socket_invariant": {
     "single_gateway_socket_schema": true,
     "runtime_specific_public_schemas_allowed": false,
     "public_events_are_runtime_neutral": true,
     "engine_specific_payloads_private_to_adapter": true,
     "adapter_must_normalize_to_public_events": true,
-    "shell_sees_engine_projection_not_private_schema": true
+    "shell_sees_engine_projection_not_private_schema": true,
+    "gateway_router_path": "gateway/runtime/agent_runtime/agent_runtime_router.ts",
+    "adapters_are_translator_only": true
   },
   "kernel_decoupling_invariant": {
     "kernel_core_never_imports_engine_adapters": true,

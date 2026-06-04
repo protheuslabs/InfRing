@@ -21,6 +21,11 @@
     "gateway/runtime/sockets/shell_socket/shell_socket_eval_issue_ingress.ts",
     "gateway/runtime/sockets/shell_socket/shell_socket_lifecycle_ingress.ts"
   ],
+  "canonical_gateway_agent_runtime_modules": [
+    "gateway/runtime/agent_runtime/agent_runtime_router.ts",
+    "gateway/runtime/agent_runtime/universal_core_tools.ts",
+    "gateway/runtime/agent_runtime/agent_runtime_trace_writer.ts"
+  ],
   "invariants": [
     "gateway_policy_lives_under_gateway_domain",
     "adapters_are_translation_only",
