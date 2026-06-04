@@ -3,6 +3,7 @@
 InfRing is built as a Rust-first deterministic Kernel runtime with an explicit split between:
 - Authoritative Kernel (`core/**` path compatibility)
 - Orchestration Control Plane (`orchestration/**`)
+- Gateway boundary membrane (`gateway/**`)
 - Presentation Shell (`client/**` path compatibility)
 
 Canonical architecture contract:
@@ -27,7 +28,8 @@ Canonical ownership vocabulary:
 | Kernel | `core/**`, historical `Core` | Use Kernel for authority/truth. Use `core/**` only for filesystem paths. |
 | Orchestration Control Plane | `orchestration/**`, rejected metaphor `Tower` | Use Orchestration Control Plane for coordination ownership. Do not use Tower as a subsystem name. |
 | Shell | `client/**`, historical `Client` | Use Shell for presentation ownership. Use `client/**` only for filesystem paths. |
-| Gateways | `adapters/**`, historical `Adapters` | Use Gateways for external membrane ownership. Use `adapters/**` only for filesystem paths. |
+| Gateways | `gateway/**`, historical compatibility hosts under `adapters/runtime/**` | Use Gateways for external membrane ownership. `adapters/**` is translator-only and must not be used as the canonical Gateway implementation path. |
+| Adapters | `adapters/**` | Use Adapters for provider/framework/runtime translation behind Gateway sockets only. Adapters do not own ingress policy, route authority, permission policy, payload budgets, or Shell-facing sockets. |
 | Assurance | `validation/**`, `observability/**`, governance registries | Validation judges controlled behavior; Observability watches live behavior; Governance derives gates/verdicts. |
 
 ## InfRing Direction
@@ -38,6 +40,7 @@ InfRing is the target operating model: a portable autonomous substrate that runs
 - Conduit is the only TS <-> Rust bridge.
 - TS is reserved for flexible surfaces (UI, marketplace, extensions, experimentation).
 - Orchestration Control Plane authority is Rust-first (`orchestration/src/**`); `orchestration/**` must remain at least `95%` Rust by tracked source lines, and TypeScript under `orchestration/scripts/**` is adapter-only and must stay minimal.
+- The dashboard, CLI, SDK, and future shells must connect to the system through Gateway sockets. A Shell must never directly host Gateway policy, route authority, runtime engine routing, or adapter dispatch.
 
 ## Three-Plane Metakernel
 
@@ -52,11 +55,12 @@ InfRing is explicitly modeled as a substrate-independent metakernel with three p
 2. Cognition plane (`planes/cognition`, historical broad plane label implemented across `orchestration/` and `client/`):
    - Orchestration Control Plane: decomposition, coordination, sequencing, recovery, and result shaping/packaging (among other things in non-canonical coordination).
    - Presentation Shell: rendering, input, UX shells, and presentation-local state. `client/**` remains a path name, not a conceptual owner.
+   - Gateway boundary membrane: external ambiguity firewall and socket host under `gateway/**`. Gateway is not a Shell and not an Adapter.
 3. Substrate plane (`planes/substrate`): runtime/backend descriptors for CPU/MCU/GPU/NPU/QPU/neural channels with explicit degradation contracts and fallback declarations.
 
 Hard boundary:
 - AI can propose; Kernel authority decides.
-- Shell <-> Kernel communication is conduit + scrambler only.
+- Shell <-> system communication enters through Gateway sockets, then Nexus/Conduit/Scrambler to the correct owner. Shell <-> Kernel direct communication is forbidden.
 - Every substrate must declare fallback/degradation behavior.
 
 Formal contract surfaces:
@@ -80,6 +84,8 @@ Driver analogy:
 - `core/` is the drivetrain, brakes, and stability control.
 - `orchestration/` is the driving control plane (decomposition + pacing + recovery + packaging).
 - `client/` is the Shell path compatibility surface (steering wheel, dashboard, and infotainment).
+- `gateway/` is the skin/boundary membrane. It owns Shell/CLI/SDK/external-agent sockets, ingress normalization, payload budgets, permission gate entrypoints, trace propagation at the boundary, and bounded egress projections.
+- `adapters/` are translators behind Gateway sockets. They may understand provider/framework-specific protocols, but they may not own Gateway policy or become the Shell's path into a runtime.
 - Conduit is the harness between orchestration and Kernel boundaries.
 
 REQ-27 authority implementation:
@@ -106,7 +112,7 @@ Migration note:
 | Plane | Contract Location | Implementation Location | Mutable Runtime Location |
 |---|---|---|---|
 | Safety | `planes/safety/` | `core/layer_minus_one/`, `core/layer0/`, `core/layer1/`, `core/layer2/`, `core/layer3/` | `core/local/` |
-| Cognition | `planes/cognition/` | `orchestration/` (Orchestration Control Plane coordination) + `client/` (Shell runtime path compatibility: `systems`, `lib`, `config`, `packages`, `tools`, `tests`, `observability`, `apps`, `developer`) | `client/runtime/local/` + `core/local/` (receipted orchestration artifacts) |
+| Cognition | `planes/cognition/` | `orchestration/` (Orchestration Control Plane coordination) + `gateway/` (external boundary membrane and sockets) + `client/` (Shell runtime path compatibility: `systems`, `lib`, `config`, `packages`, `tools`, `tests`, `observability`, `apps`, `developer`) + `adapters/` (translator-only integration bridges behind Gateway sockets) | `client/runtime/local/` + `core/local/` (receipted orchestration artifacts) |
 | Substrate | `planes/substrate/` | Template gateways in `core/layer_minus_one/` + capability descriptors under `planes/substrate/` | `core/local/` + `client/runtime/local/` |
 
 Additional split rules:
@@ -216,6 +222,7 @@ flowchart TB
     L3["Layer 3: OS Personality Template"]
     CONDUIT["Conduit + Scrambler"]
     ORCH["Orchestration Control Plane"]
+    GATEWAY["Gateway Boundary Socket"]
     UI["Presentation Shell Surface"]
     CLI["Operator Surface (infring/infringctl/infringd)"]
     RECEIPTS["Deterministic Receipts + State Artifacts"]
@@ -227,8 +234,10 @@ flowchart TB
     L2 --> L3
     L3 --> CONDUIT
     ORCH --> CONDUIT
-    UI --> ORCH
-    CLI --> CONDUIT
+    UI --> GATEWAY
+    CLI --> GATEWAY
+    GATEWAY --> ORCH
+    GATEWAY --> CONDUIT
     L0 --> RECEIPTS
     L1 --> RECEIPTS
     L2 --> RECEIPTS
@@ -243,8 +252,9 @@ Runtime subsystem ownership, interfaces, failure modes, and lane links are track
 ## Runtime Flow
 
 1. A command enters from CLI or the Presentation Shell.
-2. Orchestration Control Plane decomposes, coordinates, sequences, recovers, and shapes/packages results through explicit contracts.
-3. Conduit normalizes the Kernel-bound request into a typed envelope.
+2. Gateway socket ingress classifies, bounds, normalizes, traces, and admits or rejects the request.
+3. Orchestration Control Plane decomposes, coordinates, sequences, recovers, and shapes/packages results through explicit contracts when coordination is required.
+4. Conduit normalizes the Kernel-bound request into a typed envelope.
 4. Layer 3 maps envelope into deterministic execution intents.
 5. Layer 2 schedules execution; Layer 1 enforces policy/receipts.
 6. Layer 0 evaluates constitution/safety gates and binds receipts to safety state.

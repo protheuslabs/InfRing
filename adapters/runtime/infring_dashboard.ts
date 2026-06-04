@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const { createHash } = require('node:crypto');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const {
   ROOT,
   invokeInfringOpsViaBridge,
@@ -30,28 +30,31 @@ const { createGrokCodeEngineAdapter } = require('./agent_engines/grok_code.ts');
 const {
   isShellSocketChatProjectionPath,
   shellSocketChatProjection,
-} = require('./shell_socket_chat_projection.ts');
+} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_chat_projection.ts');
 const {
   isShellSocketCommandIngressPath,
   shellSocketCommandIngress,
-} = require('./shell_socket_command_ingress.ts');
+} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_command_ingress.ts');
 const {
   isShellSocketStatusProjectionPath,
   shellSocketStatusProjection,
-} = require('./shell_socket_status_projection.ts');
+} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_status_projection.ts');
 const {
   isShellSocketEvalIssueIngressPath,
   shellSocketEvalIssueIngress,
-} = require('./shell_socket_eval_issue_ingress.ts');
+} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_eval_issue_ingress.ts');
 const {
   isShellSocketLifecycleIngressPath,
   shellSocketLifecycleIngress,
-} = require('./shell_socket_lifecycle_ingress.ts');
+} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_lifecycle_ingress.ts');
 const {
   backendFreshnessSnapshot: backendFreshnessSnapshotFromProcess,
   backendSpawnEnv: backendSpawnEnvForRoot,
   shouldRestartStaleBackend,
 } = require('./dashboard_backend_freshness.ts');
+const {
+  normalizeAgentRuntimeTurnInput,
+} = require('../../gateway/runtime/agent_runtime_input_normalizer.ts');
 
 const DASHBOARD_DIR = path.resolve(ROOT, 'client', 'runtime', 'systems', 'ui');
 const CANONICAL_STATIC_DIR = path.resolve(DASHBOARD_DIR, 'infring_static');
@@ -97,8 +100,11 @@ const HOP_BY_HOP = new Set(['connection', 'host', 'keep-alive', 'proxy-authentic
 const AGENT_RUNTIME_APPROVAL_DECISIONS = new Map();
 const AGENT_RUNTIME_TRANSCRIPT_PATH = path.resolve(STATUS_DIR, 'agent_runtime_transcripts.jsonl');
 const AGENT_RUNTIME_SELECTION_PATH = path.resolve(STATUS_DIR, 'agent_runtime_selection.json');
+const AGENT_RUNTIME_WORKSPACE_PATH = path.resolve(STATUS_DIR, 'agent_runtime_workspace.json');
+const AGENT_RUNTIME_STEERING_PATH = path.resolve(STATUS_DIR, 'agent_runtime_steering.jsonl');
 const AGENT_RUNTIME_TRANSCRIPT_MAX_RECORDS = 2000;
 const AGENT_RUNTIME_TRANSCRIPT_WINDOW_LIMIT = 80;
+const AGENT_RUNTIME_STEERING_MAX_RECORDS = 240;
 
 function nowIso() { return new Date().toISOString(); }
 function cleanText(value, maxLen = 200) { return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen); }
@@ -110,6 +116,7 @@ function stripTerminalControls(value) {
 function cleanDisplayText(value, maxLen = 24000) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim().slice(0, maxLen); }
 function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanApprovalId(value) { return cleanText(value, 260).replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, ''); }
+function cleanPathText(value, maxLen = 1200) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/\n+/g, ' ').trim().slice(0, maxLen); }
 function cleanTranscriptComponent(value, maxLen = 200) { return cleanText(value, maxLen).replace(/[^A-Za-z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '') || 'default'; }
 function agentRuntimeSessionRef(agentId, sessionId) { return `${cleanTranscriptComponent(agentId, 160)}::${cleanTranscriptComponent(sessionId, 200)}`; }
 function decodeAgentRuntimeSessionRef(value) {
@@ -423,14 +430,15 @@ function buildAgentRuntimeContextPack(options = {}) {
 }
 function createAgentRuntimeEngineAdapterMap(options = {}) {
   const liveDispatch = options.liveDispatch === true;
+  const cwd = normalizeAgentRuntimeWorkspacePath(options.cwd || ROOT);
   return {
     infring_native: createInfringNativeEngineAdapter({
       liveDispatch,
       orchestrationClient: options.nativeOrchestrationClient || options.orchestrationClient,
     }),
-    codex_cli: createCodexCliEngineAdapter({ liveDispatch }),
-    claude_code: createClaudeCodeEngineAdapter({ liveDispatch }),
-    grok_code: createGrokCodeEngineAdapter({ liveDispatch }),
+    codex_cli: createCodexCliEngineAdapter({ liveDispatch, cwd }),
+    claude_code: createClaudeCodeEngineAdapter({ liveDispatch, cwd }),
+    grok_code: createGrokCodeEngineAdapter({ liveDispatch, cwd }),
   };
 }
 function createDashboardAgentRuntimeRouter(options = {}) {
@@ -438,6 +446,7 @@ function createDashboardAgentRuntimeRouter(options = {}) {
   const adapters = createAgentRuntimeEngineAdapterMap({
     liveDispatch: options.liveDispatch === true,
     nativeOrchestrationClient: options.nativeOrchestrationClient,
+    cwd: options.cwd,
   });
   for (const [engineId, adapter] of Object.entries(adapters)) router.registerAdapter(engineId, adapter);
   return router;
@@ -583,9 +592,20 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
       engine_id: 'infring_native',
     };
   }
-  const inputPayload = body && body.input && typeof body.input === 'object' ? body.input.text : (body && body.input);
-  const text = cleanDisplayText(body && (body.message || body.text || inputPayload), 24000);
-  if (!text) {
+  const agentId = cleanText(body && body.agent_id, 160) || 'default';
+  const sessionId = cleanText(body && body.session_id, 200) || `shell_${agentId}`;
+  const turnId = cleanText(body && body.turn_id, 200) || `turn_${Date.now().toString(36)}`;
+  const inputNormalization = normalizeAgentRuntimeTurnInput({
+    body,
+    traceId,
+    engineId,
+    agentId,
+    sessionId,
+    turnId,
+  });
+  const text = inputNormalization.text;
+  const attachmentRefs = inputNormalization.attachmentRefs;
+  if (!text && !attachmentRefs.length) {
     return {
       ok: false,
       status_code: 400,
@@ -605,13 +625,13 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
       engine_id: engineId,
     };
   }
+  const workspace = loadAgentRuntimeWorkspace(traceId);
+  const activeWorkspaceDir = workspace.workspace_dir || workspace.active_workspace || ROOT;
   const router = createDashboardAgentRuntimeRouter({
     liveDispatch: true,
     nativeOrchestrationClient: options.nativeOrchestrationClient,
+    cwd: activeWorkspaceDir,
   });
-  const agentId = cleanText(body && body.agent_id, 160) || 'default';
-  const sessionId = cleanText(body && body.session_id, 200) || `shell_${agentId}`;
-  const turnId = cleanText(body && body.turn_id, 200) || `turn_${Date.now().toString(36)}`;
   const streamedActivityEvents = [];
   const activityDefaults = { engineId, traceId, sessionId, turnId };
   const onActivity = (event) => {
@@ -633,6 +653,13 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
     session_id: sessionId,
     turn_id: turnId,
   });
+  if (inputNormalization.largeTextAttachment) {
+    emitSyntheticActivity(
+      'activity',
+      'context.attachment.materialized',
+      `Moved oversized user text into ${inputNormalization.largeTextAttachment.filename} before runtime dispatch.`,
+    );
+  }
   try {
     appendAgentRuntimeTranscriptTurn({
       sessionId,
@@ -691,6 +718,23 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
       agentId,
       traceId,
     })).catch(() => buildAgentRuntimeContextPack({ body, agentId, sessionId, traceId }));
+  contextPack.active_workspace = {
+    workspace_dir: workspace.workspace_dir,
+    active_workspace: workspace.active_workspace,
+    display_label: workspace.display_label,
+    git_root: workspace.git_root,
+    git_root_label: workspace.git_root_label,
+    permission_boundary: workspace.permission_boundary,
+    source_authority: 'gateway_agent_runtime_workspace_selection',
+  };
+  if (attachmentRefs.length) {
+    contextPack.runtime_attachment_refs = {
+      type: 'agent_runtime_attachment_refs',
+      source_authority: 'gateway_agent_runtime_attachment_normalization',
+      attachment_count: attachmentRefs.length,
+      attachments: attachmentRefs,
+    };
+  }
   const permissionPolicy = mergeAgentRuntimeApprovalPermissionPolicy(body && body.permission_policy, sessionId, engineId);
   contextPack.universal_tool_grants = buildUniversalToolGrants({
     traceId,
@@ -705,6 +749,9 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
     trace_id: traceId,
     engine_id: engineId,
     session_id: sessionId,
+    cwd: activeWorkspaceDir,
+    workspace_dir: activeWorkspaceDir,
+    active_workspace: workspace,
   });
   if (!health || (health.status !== 'available' && health.status !== 'adapter_ready')) {
     const reason = cleanDisplayText(
@@ -722,7 +769,31 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
     engine_id: engineId,
     agent_id: agentId,
     session_id: sessionId,
+    cwd: activeWorkspaceDir,
+    workspace_dir: activeWorkspaceDir,
+    active_workspace: workspace,
   });
+  const steeringInterventions = drainAgentRuntimeSteeringInterventions({
+    agentId,
+    sessionId,
+    engineId,
+    traceId,
+    turnId,
+  });
+  if (steeringInterventions.length) {
+    contextPack.runtime_steering = {
+      type: 'agent_runtime_steering_context',
+      mode: 'next_turn_interventions',
+      source_authority: 'gateway_agent_runtime_steer_route',
+      intervention_count: steeringInterventions.length,
+      interventions: steeringInterventions,
+    };
+    emitSyntheticActivity(
+      'activity',
+      'steering.loaded',
+      `Loaded ${steeringInterventions.length} queued steering intervention${steeringInterventions.length === 1 ? '' : 's'} for this turn.`,
+    );
+  }
   const turnMessage = {
     type: 'agent_runtime.turn_submit',
     trace_id: traceId,
@@ -730,7 +801,10 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
     agent_id: agentId,
     session_id: sessionId,
 	    turn_id: turnId,
-	    input: { text },
+	    cwd: activeWorkspaceDir,
+	    workspace_dir: activeWorkspaceDir,
+	    active_workspace: workspace,
+	    input: { text, attachments: attachmentRefs },
 	    context_pack: contextPack,
 	    capability_budget: {
 	      max_default_response_bytes: 65536,
@@ -878,6 +952,7 @@ async function agentRuntimeTurnProjection(traceId, body, options = {}) {
 	      cool_span_count: contextPack.frontier.cool_span_refs.length,
 	      cold_span_count: contextPack.frontier.cold_span_refs.length,
 	      universal_tool_count: contextPack.universal_tool_grants.tools.length,
+	      steering_intervention_count: contextPack.runtime_steering ? contextPack.runtime_steering.intervention_count : 0,
 	      universal_tool_source_authority: contextPack.universal_tool_grants.source_authority,
 	      kernel_materializer_used: !!(kernelContext && kernelContext.ok),
 	      kernel_materializer_mode: cleanText(kernelContext && kernelContext.command_mode, 40),
@@ -1137,6 +1212,13 @@ function projectAgentRuntimeEngineRow(engine, health) {
   const downloadAvailable = install.download_available === true || (health && health.download_available === true);
   const commandLineInstall = selectAgentRuntimeInstallCommand(install);
   const installActionAvailable = cleanText(install.preferred_install_method || '', 80) === 'command_line' && !!commandLineInstall;
+  const registryCapabilities = Array.isArray(row.capabilities) ? row.capabilities.map((item) => cleanText(item, 120)).filter(Boolean).slice(0, 12) : [];
+  const supportsLiveSteering = (health && health.supports_live_steering === true) || row.supports_live_steering === true;
+  const supportsNextTurnSteering = (health && health.supports_next_turn_steering === true) || row.supports_next_turn_steering === true || engineId !== 'infring_native';
+  const steeringMode = supportsLiveSteering ? 'live' : supportsNextTurnSteering ? 'next_turn' : 'unsupported';
+  const capabilities = registryCapabilities.slice();
+  if (supportsLiveSteering && !capabilities.includes('live_steering')) capabilities.push('live_steering');
+  if (supportsNextTurnSteering && !capabilities.includes('next_turn_steering')) capabilities.push('next_turn_steering');
   return {
     engine_id: engineId,
     display_name: cleanText(row.display_name || engineId, 120),
@@ -1144,7 +1226,11 @@ function projectAgentRuntimeEngineRow(engine, health) {
     transport_kind: cleanText(row.transport_kind || '', 120),
     status,
     selectable,
-    capabilities: Array.isArray(row.capabilities) ? row.capabilities.map((item) => cleanText(item, 120)).filter(Boolean).slice(0, 12) : [],
+    capabilities: capabilities.slice(0, 14),
+    supports_live_steering: supportsLiveSteering,
+    supports_next_turn_steering: supportsNextTurnSteering,
+    steering_mode: steeringMode,
+    steering_transport: cleanText((health && health.steering_transport) || (steeringMode === 'next_turn' ? 'gateway_next_turn_intervention' : steeringMode), 120),
     download_available: !!downloadAvailable,
     install_action_available: !!installActionAvailable,
     command_line_install_available: !!commandLineInstall,
@@ -1209,6 +1295,140 @@ function agentRuntimeSelectionProjection(traceId, body) {
     engine_id: saved.engine_id,
     updated_at: saved.updated_at,
     source: saved.source,
+  };
+}
+function readAgentRuntimeSteeringRecords() {
+  let raw = '';
+  try { raw = fs.readFileSync(AGENT_RUNTIME_STEERING_PATH, 'utf8'); } catch { return []; }
+  return raw.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-AGENT_RUNTIME_STEERING_MAX_RECORDS)
+    .map((line) => {
+      try { return JSON.parse(line); } catch { return null; }
+    })
+    .filter((row) => row && typeof row === 'object');
+}
+function writeAgentRuntimeSteeringRecords(rows) {
+  ensureDir(path.dirname(AGENT_RUNTIME_STEERING_PATH));
+  const serialized = (Array.isArray(rows) ? rows : [])
+    .slice(-AGENT_RUNTIME_STEERING_MAX_RECORDS)
+    .map((row) => JSON.stringify(row))
+    .join('\n');
+  fs.writeFileSync(AGENT_RUNTIME_STEERING_PATH, serialized ? `${serialized}\n` : '', 'utf8');
+}
+function agentRuntimeSteerProjection(traceId, body) {
+  const engineId = cleanEngineId(body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id)) || 'infring_native';
+  const agentId = cleanText(body && body.agent_id, 160) || 'default';
+  const sessionId = cleanText(body && body.session_id, 200) || `shell_${agentId}`;
+  const text = cleanDisplayText(body && (body.text || body.message || body.content), 12000);
+  if (!text) return { ok: false, status_code: 400, type: 'agent_runtime_steer_projection', trace_id: traceId, engine_id: engineId, error: 'steer_text_required' };
+  const registry = loadAgentRuntimeEngineRegistry(ROOT);
+  const engine = findAgentRuntimeEngine(registry, engineId);
+  if (!engine) return { ok: false, status_code: 404, type: 'agent_runtime_steer_projection', trace_id: traceId, engine_id: engineId, error: 'agent_runtime_engine_unknown' };
+  const record = {
+    steering_id: `steer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    type: 'agent_runtime_steering_intervention',
+    trace_id: cleanText(traceId, 200),
+    engine_id: engineId,
+    agent_id: agentId,
+    session_id: sessionId,
+    text,
+    text_preview: cleanText(text, 4000),
+    priority: cleanText(body && body.priority, 40) || 'steer',
+    requested_mode: cleanText(body && body.mode, 40) || 'auto',
+    steering_mode: 'next_turn',
+    status: 'queued_next_turn',
+    created_at: nowIso(),
+    source_authority: 'gateway_agent_runtime_steer_route',
+    attachments: Array.isArray(body && body.attachments)
+      ? body.attachments.map((item) => cleanText(item && (item.name || item.filename || item.path || item.id || item), 240)).filter(Boolean).slice(0, 12)
+      : [],
+  };
+  appendBoundedJsonl(AGENT_RUNTIME_STEERING_PATH, record, AGENT_RUNTIME_STEERING_MAX_RECORDS);
+  return {
+    ok: true,
+    status_code: 200,
+    type: 'agent_runtime_steer_projection',
+    trace_id: traceId,
+    engine_id: engineId,
+    agent_id: agentId,
+    session_id: sessionId,
+    steering_id: record.steering_id,
+    steering_mode: record.steering_mode,
+    status: record.status,
+    live_injected: false,
+    applies_to: 'next_turn',
+    display_text: 'Steering recorded for the next runtime turn.',
+  };
+}
+function drainAgentRuntimeSteeringInterventions(options = {}) {
+  const agentId = cleanText(options.agentId, 160) || 'default';
+  const sessionId = cleanText(options.sessionId, 200) || `shell_${agentId}`;
+  const engineId = cleanEngineId(options.engineId) || 'infring_native';
+  const records = readAgentRuntimeSteeringRecords();
+  const applied = [];
+  const kept = [];
+  const appliedAt = nowIso();
+  for (const row of records) {
+    if (!row || row.applied_at || cleanText(row.status, 80) !== 'queued_next_turn') {
+      kept.push(row);
+      continue;
+    }
+    const rowEngine = cleanEngineId(row.engine_id);
+    const rowAgent = cleanText(row.agent_id, 160);
+    const rowSession = cleanText(row.session_id, 200);
+    const matches = rowEngine === engineId && (rowSession === sessionId || rowAgent === agentId);
+    if (!matches || applied.length >= 7) {
+      kept.push(row);
+      continue;
+    }
+    const updated = {
+      ...row,
+      status: 'applied_to_next_turn',
+      applied_at: appliedAt,
+      applied_trace_id: cleanText(options.traceId, 200),
+      applied_turn_id: cleanText(options.turnId, 200),
+    };
+    kept.push(updated);
+    applied.push({
+      steering_id: cleanText(row.steering_id, 200),
+      text: cleanDisplayText(row.text, 12000),
+      text_preview: cleanText(row.text_preview || row.text, 1000),
+      created_at: cleanText(row.created_at, 80),
+      priority: cleanText(row.priority || 'steer', 40),
+      source_authority: cleanText(row.source_authority || 'gateway_agent_runtime_steer_route', 160),
+    });
+  }
+  if (applied.length) writeAgentRuntimeSteeringRecords(kept);
+  return applied;
+}
+function agentRuntimeWorkspaceProjection(traceId, body) {
+  const requested = body && (body.workspace_dir || body.active_workspace || body.cwd || body.path);
+  if (requested) {
+    const saved = saveAgentRuntimeWorkspace(requested, traceId, body && body.scope);
+    return saved;
+  }
+  return loadAgentRuntimeWorkspace(traceId);
+}
+function agentRuntimeWorkspacePickerProjection(traceId, body) {
+  const picked = pickAgentRuntimeWorkspaceDirectory();
+  if (!picked.ok) {
+    const current = loadAgentRuntimeWorkspace(traceId);
+    return {
+      ...current,
+      ok: false,
+      status_code: picked.cancelled ? 409 : 502,
+      type: 'agent_runtime_workspace_picker_projection',
+      error: picked.cancelled ? 'workspace_picker_cancelled' : 'workspace_picker_failed',
+      reason: cleanText(picked.reason, 240),
+    };
+  }
+  const saved = saveAgentRuntimeWorkspace(picked.path, traceId, body && body.scope);
+  return {
+    ...saved,
+    type: 'agent_runtime_workspace_picker_projection',
+    picker: 'native_os_folder_dialog',
   };
 }
 async function agentRuntimeEngineInstallProjection(traceId, requestedEngineId) {
@@ -1404,6 +1624,125 @@ function saveAgentRuntimeSelection(engineId, traceId) {
   };
   writeJson(AGENT_RUNTIME_SELECTION_PATH, row);
   return row;
+}
+function normalizeAgentRuntimeWorkspacePath(value) {
+  const raw = cleanPathText(value, 1200);
+  if (!raw) return ROOT;
+  const expanded = raw === '~' || raw.startsWith('~/')
+    ? path.join(process.env.HOME || ROOT, raw.slice(2))
+    : raw;
+  const resolved = path.resolve(expanded);
+  try {
+    const stat = fs.statSync(resolved);
+    if (!stat.isDirectory()) return ROOT;
+    return fs.realpathSync(resolved);
+  } catch {
+    return ROOT;
+  }
+}
+function deriveGitRootForWorkspace(workspaceDir) {
+  let cursor = normalizeAgentRuntimeWorkspacePath(workspaceDir);
+  const seen = new Set();
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    try {
+      if (fs.existsSync(path.join(cursor, '.git'))) return cursor;
+    } catch {}
+    const next = path.dirname(cursor);
+    if (!next || next === cursor) break;
+    cursor = next;
+  }
+  return '';
+}
+function agentRuntimeWorkspaceLabel(workspaceDir) {
+  const dir = normalizeAgentRuntimeWorkspacePath(workspaceDir);
+  const base = path.basename(dir) || dir;
+  return `.../${base}`;
+}
+function projectAgentRuntimeWorkspace(traceId, row) {
+  const workspaceDir = normalizeAgentRuntimeWorkspacePath(row && (row.workspace_dir || row.active_workspace));
+  const gitRoot = cleanPathText((row && row.git_root) || deriveGitRootForWorkspace(workspaceDir), 1200);
+  return {
+    ok: true,
+    type: 'agent_runtime_workspace_projection',
+    schema_version: 1,
+    trace_id: cleanText(traceId, 200),
+    active_workspace: workspaceDir,
+    workspace_dir: workspaceDir,
+    display_label: agentRuntimeWorkspaceLabel(workspaceDir),
+    basename: path.basename(workspaceDir) || workspaceDir,
+    git_root: gitRoot,
+    git_root_label: gitRoot ? agentRuntimeWorkspaceLabel(gitRoot) : '',
+    scope: cleanText(row && row.scope, 80) || 'global_default',
+    source: cleanText(row && row.source, 120) || 'dashboard_gateway',
+    updated_at: cleanText(row && row.updated_at, 80),
+    permission_boundary: {
+      home_base: workspaceDir,
+      derived_git_root: gitRoot,
+      write_outside_workspace_requires_approval: true,
+      write_outside_git_root_requires_approval: true,
+    },
+  };
+}
+function loadAgentRuntimeWorkspace(traceId = '') {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(AGENT_RUNTIME_WORKSPACE_PATH, 'utf8'));
+    return projectAgentRuntimeWorkspace(traceId, parsed);
+  } catch {
+    return projectAgentRuntimeWorkspace(traceId, {
+      workspace_dir: ROOT,
+      git_root: deriveGitRootForWorkspace(ROOT),
+      scope: 'global_default',
+      source: 'default_repo_root',
+      updated_at: '',
+    });
+  }
+}
+function saveAgentRuntimeWorkspace(workspaceDir, traceId, scope = 'global_default') {
+  const activeWorkspace = normalizeAgentRuntimeWorkspacePath(workspaceDir);
+  const row = {
+    type: 'agent_runtime_workspace_selection',
+    schema_version: 1,
+    workspace_dir: activeWorkspace,
+    active_workspace: activeWorkspace,
+    display_label: agentRuntimeWorkspaceLabel(activeWorkspace),
+    git_root: deriveGitRootForWorkspace(activeWorkspace),
+    scope: cleanText(scope, 80) || 'global_default',
+    updated_at: nowIso(),
+    trace_id: cleanText(traceId, 200),
+    source: 'dashboard_gateway',
+  };
+  writeJson(AGENT_RUNTIME_WORKSPACE_PATH, row);
+  return projectAgentRuntimeWorkspace(traceId, row);
+}
+function pickAgentRuntimeWorkspaceDirectory() {
+  if (process.platform === 'darwin') {
+    const result = spawnSync('osascript', ['-e', 'POSIX path of (choose folder with prompt "Select InfRing working directory")'], {
+      encoding: 'utf8',
+      timeout: 120000,
+    });
+    const out = cleanPathText(result.stdout, 1200);
+    if (result.status === 0 && out) return { ok: true, path: out };
+    return { ok: false, cancelled: true, reason: cleanText(result.stderr || 'folder_picker_cancelled', 240) };
+  }
+  if (process.platform === 'win32') {
+    const script = '[void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms");$d=New-Object System.Windows.Forms.FolderBrowserDialog;$d.Description="Select InfRing working directory";if($d.ShowDialog() -eq "OK"){[Console]::WriteLine($d.SelectedPath)}';
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+      encoding: 'utf8',
+      timeout: 120000,
+      windowsHide: true,
+    });
+    const out = cleanPathText(result.stdout, 1200);
+    if (result.status === 0 && out) return { ok: true, path: out };
+    return { ok: false, cancelled: true, reason: cleanText(result.stderr || 'folder_picker_cancelled', 240) };
+  }
+  const result = spawnSync('zenity', ['--file-selection', '--directory', '--title=Select InfRing working directory'], {
+    encoding: 'utf8',
+    timeout: 120000,
+  });
+  const out = cleanPathText(result.stdout, 1200);
+  if (result.status === 0 && out) return { ok: true, path: out };
+  return { ok: false, cancelled: true, reason: cleanText(result.stderr || 'folder_picker_unavailable', 240) };
 }
 function agentRuntimeTranscriptMessageRow(input) {
   const text = cleanDisplayText(input && input.text, 24000);
@@ -2523,6 +2862,11 @@ async function runServe(flags) {
         }));
         return void sendJson(res, payload.status_code || (payload.ok === false ? 502 : 200), payload);
       }
+      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/steer' || pathname === '/api/agent-runtime/steer')) {
+        const body = await readJsonBody(req, 65536).catch(() => ({}));
+        const payload = agentRuntimeSteerProjection(traceId, body);
+        return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
+      }
       if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/context-pack/preview' || pathname === '/api/agent-runtime/context-pack/preview')) {
         const body = await readJsonBody(req, 65536).catch(() => ({}));
         const payload = await agentRuntimeContextPackPreviewProjection(traceId, body).catch((error) => ({
@@ -2569,6 +2913,20 @@ async function runServe(flags) {
         const body = await readJsonBody(req, 8192).catch(() => ({}));
         const payload = agentRuntimeSelectionProjection(traceId, body);
         return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
+      }
+      if (req.method === 'GET' && (pathname === '/api/shell-socket/agent-runtime/workspace' || pathname === '/api/agent-runtime/workspace')) {
+        const payload = agentRuntimeWorkspaceProjection(traceId, {});
+        return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
+      }
+      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/workspace' || pathname === '/api/agent-runtime/workspace')) {
+        const body = await readJsonBody(req, 8192).catch(() => ({}));
+        const payload = agentRuntimeWorkspaceProjection(traceId, body);
+        return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
+      }
+      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/workspace/pick' || pathname === '/api/agent-runtime/workspace/pick')) {
+        const body = await readJsonBody(req, 8192).catch(() => ({}));
+        const payload = agentRuntimeWorkspacePickerProjection(traceId, body);
+        return void sendJson(res, payload.status_code || (payload.ok === false ? 409 : 200), payload);
       }
       if (req.method === 'GET' && isShellSocketChatProjectionPath(pathname)) {
         const result = await shellSocketChatProjection({ flags, requestUrl, traceId, fetchBackendJson });

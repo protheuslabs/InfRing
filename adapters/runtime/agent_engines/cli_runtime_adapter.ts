@@ -292,14 +292,63 @@ function dedupePromptLines(lines) {
   return out;
 }
 
+function renderRuntimeSteeringPromptSection(runtimeSteering) {
+  const source = runtimeSteering && typeof runtimeSteering === 'object' ? runtimeSteering : null;
+  const interventions = source && Array.isArray(source.interventions) ? source.interventions : [];
+  const lines = [];
+  for (const row of interventions.slice(-7)) {
+    const item = row && typeof row === 'object' ? row : {};
+    const text = cleanDisplayString(item.text || item.text_preview || '', 1200);
+    if (!text) continue;
+    const stamp = cleanString(item.created_at, 80);
+    const priority = cleanString(item.priority || 'steer', 40);
+    lines.push(`- ${stamp ? `${stamp} ` : ''}[${priority}] ${text}`);
+  }
+  const deduped = dedupePromptLines(lines).slice(-7);
+  if (!deduped.length) return '';
+  return [
+    'Queued steering interventions:',
+    '- policy: These are user steering instructions submitted while a prior runtime turn was active. Treat them as high-priority direction for this turn, but do not claim they were live-injected into the previous completed turn.',
+    ...deduped,
+  ].join('\n');
+}
+
+function renderRuntimeAttachmentPromptSection(runtimeAttachmentRefs) {
+  const refs = runtimeAttachmentRefs && typeof runtimeAttachmentRefs === 'object' ? runtimeAttachmentRefs : null;
+  const rows = refs && Array.isArray(refs.attachments) ? refs.attachments : [];
+  const lines = [];
+  for (const row of rows.slice(0, 12)) {
+    const item = row && typeof row === 'object' ? row : {};
+    const filename = cleanString(item.filename || item.name || item.file_id || 'attachment', 240);
+    const fileId = cleanString(item.file_id || item.attachment_id || '', 200);
+    const sourceKind = cleanString(item.source_kind || 'file_attachment', 80);
+    const contentType = cleanString(item.content_type || item.mime_type || 'application/octet-stream', 120);
+    const sizeBytes = Number(item.size_bytes || item.size || 0) || 0;
+    const localReadPath = cleanString(item.local_read_path || item.read_path || '', 1000);
+    const preview = cleanDisplayString(item.content_preview || item.text_preview || '', 3000);
+    if (!filename && !preview) continue;
+    lines.push(`- ${filename}${fileId ? ` [ref=${fileId}]` : ''} kind=${sourceKind} type=${contentType}${sizeBytes ? ` bytes=${sizeBytes}` : ''}`);
+    if (localReadPath) lines.push(`  read_path: ${localReadPath}`);
+    if (preview) lines.push(`  preview: ${preview}`);
+  }
+  if (!lines.length) return '';
+  return [
+    'Runtime attachment refs:',
+    '- policy: Large pasted text and uploaded files are represented as attachment refs, not raw chat transcript. Treat pasted text attachments as supplemental user-provided context and do not ask the user to paste them again. If a read_path is present, read that file to access the full attachment body.',
+    ...lines,
+  ].join('\n');
+}
+
 function buildPromptWithContext(contextPack, currentPrompt) {
   const current = cleanDisplayString(currentPrompt || '', 12000);
   if (!current) return '';
   const pack = contextPack && typeof contextPack === 'object' ? contextPack : null;
   const fragments = pack && Array.isArray(pack.fragments) ? pack.fragments.slice() : [];
   const toolGrantSection = renderUniversalToolGrantPromptSection(pack && pack.universal_tool_grants);
+  const steeringSection = renderRuntimeSteeringPromptSection(pack && pack.runtime_steering);
+  const attachmentSection = renderRuntimeAttachmentPromptSection(pack && pack.runtime_attachment_refs);
   if (!pack) return current;
-  if (fragments.length === 0 && !toolGrantSection) return current;
+  if (fragments.length === 0 && !toolGrantSection && !steeringSection && !attachmentSection) return current;
   const hot = fragments
     .filter((row) => row && row.kind === 'atom')
     .sort((a, b) => fragmentSortValue(a) - fragmentSortValue(b))
@@ -333,6 +382,8 @@ function buildPromptWithContext(contextPack, currentPrompt) {
   if (conversationTranscript.length) lines.push('', 'Recent conversation transcript:', ...conversationTranscript);
   if (spans.length) lines.push('', 'Selected context spans:', ...spans);
   if (hotContextFragments.length) lines.push('', 'Recent context atoms:', ...hotContextFragments);
+  if (attachmentSection) lines.push('', attachmentSection);
+  if (steeringSection) lines.push('', steeringSection);
   if (toolGrantSection) lines.push('', toolGrantSection);
   lines.push('', 'Current user turn:', current);
   return cleanDisplayString(lines.join('\n'), 24000);
@@ -1241,6 +1292,7 @@ function createCliRuntimeEngineAdapter(options = {}) {
     const run = await runner(command, runArgs(prompt, ctx), {
       timeoutMs: turnTimeoutMs,
       maxOutputBytes: 64000,
+      cwd: options.cwd || (ctx && ctx.message && (ctx.message.cwd || ctx.message.workspace_dir)) || process.cwd(),
       ctx,
       engineId,
       onActivity: ctx.onActivity,
@@ -1276,7 +1328,7 @@ function createCliRuntimeEngineAdapter(options = {}) {
       const discovery = discover(ctx);
       const command = cleanString(discovery.command || selectedCommand, 500);
       const probe = discovery.status === 'available'
-        ? await spawnCapture(command, versionArgs, { timeoutMs: 5000, maxOutputBytes: 4096 })
+      ? await spawnCapture(command, versionArgs, { timeoutMs: 5000, maxOutputBytes: 4096, cwd: options.cwd || process.cwd() })
         : { ok: false, stdout: '', stderr: discovery.reason || discovery.status };
       return {
         ...baseEvent(ctx, 'engine.health.result', engineId),
@@ -1291,6 +1343,9 @@ function createCliRuntimeEngineAdapter(options = {}) {
         context_transport_mode: contextTransportMode,
         structured_transport_target: structuredTransportTarget,
         transport_migration_status: transportMigrationStatus,
+        supports_live_steering: false,
+        supports_next_turn_steering: true,
+        steering_transport: 'gateway_next_turn_intervention',
         version_preview: cleanString(probe.stdout || probe.stderr, 500),
       };
     },

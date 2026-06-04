@@ -3310,7 +3310,7 @@
       "owner": "gateways.validation",
       "source_domain": "validation",
       "lifecycle": "executable_guard",
-      "description": "Gateway Adapter Invariants Guard registered by guard-of-guards ownership cleanup.",
+      "description": "Gateway Physical Domain Invariants Guard: Gateway boundary policy belongs under gateway/**, while adapters/** stays translator-only with declared legacy debt only.",
       "timeout_sec": 60,
       "canonical_definition_paths": [
         "tests/tooling/scripts/ci/gateway_adapter_invariants_guard.ts"

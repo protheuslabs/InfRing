@@ -61,31 +61,31 @@
   "bridge_modules": [
     {
       "id": "chat_projection",
-      "path": "adapters/runtime/shell_socket_chat_projection.ts",
+      "path": "gateway/runtime/sockets/shell_socket/shell_socket_chat_projection.ts",
       "kind": "projection",
       "expected_metadata_envelope": "gateway_projection"
     },
     {
       "id": "status_projection",
-      "path": "adapters/runtime/shell_socket_status_projection.ts",
+      "path": "gateway/runtime/sockets/shell_socket/shell_socket_status_projection.ts",
       "kind": "projection",
       "expected_metadata_envelope": "gateway_projection"
     },
     {
       "id": "command_ingress",
-      "path": "adapters/runtime/shell_socket_command_ingress.ts",
+      "path": "gateway/runtime/sockets/shell_socket/shell_socket_command_ingress.ts",
       "kind": "ingress",
       "expected_metadata_envelope": "gateway_ingress"
     },
     {
       "id": "eval_issue_ingress",
-      "path": "adapters/runtime/shell_socket_eval_issue_ingress.ts",
+      "path": "gateway/runtime/sockets/shell_socket/shell_socket_eval_issue_ingress.ts",
       "kind": "ingress",
       "expected_metadata_envelope": "gateway_ingress"
     },
     {
       "id": "lifecycle_ingress",
-      "path": "adapters/runtime/shell_socket_lifecycle_ingress.ts",
+      "path": "gateway/runtime/sockets/shell_socket/shell_socket_lifecycle_ingress.ts",
       "kind": "ingress",
       "expected_metadata_envelope": "gateway_ingress"
     }

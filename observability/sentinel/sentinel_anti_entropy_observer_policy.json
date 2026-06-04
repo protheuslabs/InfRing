@@ -18,7 +18,8 @@
     "install_health",
     "command_surface_entropy",
     "real_work_proof_health",
-    "repo_blob_pressure"
+    "repo_blob_pressure",
+    "gateway_shell_adapter_boundary_drift"
   ],
   "freshness_budgets_hours": {
     "kernel_sentinel_worktree_danger_current.json": 24,
@@ -37,6 +38,24 @@
     "minimum_architecture_anchor_count": 4,
     "minimum_real_work_ready_operator_journeys": 2
   },
+  "structural_decay_watchlist": [
+    {
+      "id": "gateway_adapter_physical_inversion",
+      "description": "Gateway boundary membrane behavior is implemented or documented as adapter-owned instead of gateway-owned.",
+      "evidence_patterns": [
+        "Gateway policy modules under adapters/** without declared legacy debt",
+        "Shell/dashboard code dispatching directly to runtime adapters instead of Gateway sockets",
+        "Contracts mapping Gateway implementation ownership to adapters/**",
+        "Adapter files owning payload budgets, permission policy, route admission, or Shell-facing socket authority"
+      ],
+      "violated_laws": [
+        "reliability",
+        "simplicity"
+      ],
+      "suggested_owner": "gateway.validation",
+      "promotion_requirement": "Current policy/guard evidence plus a concrete re-root or quarantine next action."
+    }
+  ],
   "canonical_architecture_anchors": [
     "README.md",
     "ARCHITECTURE.md",

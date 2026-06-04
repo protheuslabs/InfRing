@@ -37,7 +37,9 @@
         "compatibility_tail_without_expiry",
         "large_file_or_subsystem_with_mixed_ownership",
         "policy_wording_removed_but_behavior_shape_survives",
-        "new_subsystem_without_simpler_alternative_recorded"
+        "new_subsystem_without_simpler_alternative_recorded",
+        "gateway_adapter_physical_inversion",
+        "shell_hosting_gateway_policy_or_adapter_dispatch"
       ]
     }
   ],

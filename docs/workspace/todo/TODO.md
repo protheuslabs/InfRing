@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-03T15:18:53.667Z
+Updated: 2026-06-04T21:46:09.374Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-03T15:18:53.667Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 21
-- red: 3
-- yellow: 10
+- active_items: 24
+- red: 4
+- yellow: 12
 - white: 8
 
 ## Red Section (Do Immediately)
@@ -41,6 +41,13 @@ Updated: 2026-06-03T15:18:53.667Z
   work_gate: `reliability`
   real_work_score: `5`
   summary: Remove the remaining Alpine boot/runtime dependency once the retirement guard is green.
+- `GATEWAY-PHYSICAL-REROOT` — Re-root Gateway boundary code out of adapters
+  owner: `codex`
+  deadline: `2026-06-10`
+  source_family: `Gateway Physical Domain Cleanup`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Move Gateway socket hosts, ingress normalization, payload budgets, permission entrypoints, and runtime route authority into gateway/** while leaving adapters/** as translator-only provider/framework bridges behind Gateway sockets.
 
 ## Yellow Section (Do Soon)
 - `HYGIENE-RUST-UNUSED-IMPORTS` — Remove unused Rust imports in narrow batches
@@ -71,6 +78,13 @@ Updated: 2026-06-03T15:18:53.667Z
   work_gate: `real_work`
   real_work_score: `5`
   summary: Build the workflow utility spine so the system is useful for real work after Shell de-authority.
+- `ADAPTER-TRANSLATOR-ONLY-GUARD` — Enforce adapters as translator-only
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Gateway Physical Domain Cleanup`
+  work_gate: `simplification`
+  real_work_score: `5`
+  summary: Strengthen conformance so adapters/** may parse private provider/framework protocols but cannot own Gateway policy, Shell-facing sockets, permission policy, payload budgets, route admission, or runtime authority.
 - `AGENT-RUNTIME-ADAPTER-CONTEXT-INJECTION` — Inject shared context into CLI and socket adapters
   owner: `codex`
   deadline: `2026-06-17`
@@ -113,28 +127,14 @@ Updated: 2026-06-03T15:18:53.667Z
   work_gate: `real_work`
   real_work_score: `5`
   summary: Attach bounded relevant memory projections and refs to the runtime envelope so engine switches preserve durable Infring context without exposing raw memory dumps.
-
-- `AGENT-RUNTIME-STRUCTURED-TRANSPORT` — Define structured runtime transport modes
+- `AGENT-RUNTIME-SOCKET-LIVE` — Make the Agent Runtime Gateway socket live
   owner: `codex`
-  deadline: `2026-06-24`
-  source_family: `Agent Runtime Structured Transport Migration`
+  deadline: `2026-06-17`
+  source_family: `Gateway Physical Domain Cleanup`
   work_gate: `reliability`
   real_work_score: `5`
-  summary: Define prompt_text_compat, structured_json, and native_session_bridge modes so prompt-text remains bootstrap-only and every adapter declares its migration target.
-- `AGENT-RUNTIME-PROMPT-TEXT-GUARD` — Guard prompt-text compatibility as transitional
-  owner: `codex`
-  deadline: `2026-06-24`
-  source_family: `Agent Runtime Structured Transport Migration`
-  work_gate: `simplification`
-  real_work_score: `4`
-  summary: Extend conformance so prompt-text hacks require explicit transitional markers, structured targets, and migration reporting.
-- `AGENT-RUNTIME-TRANSPORT-MIGRATION-REPORT` — Track engines still using prompt text
-  owner: `codex`
-  deadline: `2026-06-24`
-  source_family: `Agent Runtime Structured Transport Migration`
-  work_gate: `reliability`
-  real_work_score: `4`
-  summary: Publish an adapter migration report showing current transport mode, target mode, and whether each engine is prompt-text-dependent.
+  summary: Graduate /ws/agent-runtime from contracted_not_live to a live Gateway socket so dashboard, CLI, SDK, and future shells submit turns through the same UI-agnostic boundary instead of adapter-hosted HTTP shims.
+
 ## White Section (Do At Leisure)
 - `TRACE-IMPL` — Implement end-to-end unified trace_id propagation
   owner: `unassigned`

@@ -1,9 +1,36 @@
 {
-  "type": "gateway_adapter_invariants_policy",
+  "type": "gateway_physical_domain_invariants_policy",
   "schema_version": 1,
   "owner_domain": "validation.conformance",
-  "scope": "adapters/runtime/**",
+  "scope": "gateway/** canonical boundary modules plus declared legacy compatibility hosts",
+  "canonical_gateway_domain": "gateway/**",
+  "adapter_domain_rule": "adapters/** is translator-only behind Gateway sockets and must not own Gateway ingress policy, Shell-facing sockets, permission policy, payload budgets, or route authority.",
+  "declared_legacy_compatibility_hosts": [
+    {
+      "path": "adapters/runtime/infring_dashboard.ts",
+      "reason": "Legacy dashboard host currently serves Gateway routes while physical Gateway re-root is pending.",
+      "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/agent_ws_bridge.ts",
+      "reason": "Legacy WebSocket bridge remains in adapter path until Gateway sockets are physically re-rooted.",
+      "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
+      "allowed_until": "2026-07-01"
+    }
+  ],
+  "canonical_gateway_socket_modules": [
+    "gateway/runtime/sockets/shell_socket/shell_socket_chat_projection.ts",
+    "gateway/runtime/sockets/shell_socket/shell_socket_command_ingress.ts",
+    "gateway/runtime/sockets/shell_socket/shell_socket_status_projection.ts",
+    "gateway/runtime/sockets/shell_socket/shell_socket_eval_issue_ingress.ts",
+    "gateway/runtime/sockets/shell_socket/shell_socket_lifecycle_ingress.ts"
+  ],
   "invariants": [
+    "gateway_policy_lives_under_gateway_domain",
+    "adapters_are_translation_only",
+    "dashboard_connects_to_gateway_socket_not_adapter_runtime",
+    "declared_legacy_gateway_hosts_have_retirement_todo",
     "gateway_start_is_idempotent_when_already_running",
     "gateway_status_is_non_mutating",
     "gateway_default_payloads_are_bounded",
@@ -14,6 +41,8 @@
   "max_shutdown_wait_ms": 120000,
   "policy": {
     "shell_independent": true,
-    "no_shell_mutation_required": true
+    "no_shell_mutation_required": true,
+    "new_gateway_policy_under_adapters_forbidden": true,
+    "legacy_adapter_gateway_hosts_are_debt_not_canonical": true
   }
 }

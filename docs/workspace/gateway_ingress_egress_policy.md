@@ -13,6 +13,23 @@ This policy separates Gateway traffic into explicit route classes so the Shell c
 
 The Gateway is the external ambiguity firewall. It is where ambiguous, untrusted, user-facing, Shell-facing, CLI-facing, SDK-facing, app-facing, package-facing, plugin-facing, and external-agent-facing traffic becomes typed, bounded, leased, auditable traffic before it can touch Core or Orchestration.
 
+## Physical Domain Rule
+
+Gateway is InfRing's skin. The canonical implementation domain for Gateway boundary behavior is `gateway/**`.
+
+Adapters are not the skin. `adapters/**` may contain provider, framework, local process, HTTP, WebSocket, CLI, and protocol translators that sit behind Gateway sockets, but adapters must not own:
+
+- Shell-facing sockets;
+- CLI-facing or SDK-facing route authority;
+- Gateway ingress classification;
+- payload budget policy;
+- permission gate policy;
+- trace identity policy at the boundary;
+- route admission;
+- bounded egress projection policy.
+
+Compatibility hosts that still live under `adapters/runtime/**` are transitional debt only. They must be declared in a validation contract with a retirement TODO and must route policy decisions to Gateway-owned modules. New Gateway policy under `adapters/**` is forbidden.
+
 ## Core Axiom
 
 Ingress asks for work.
@@ -196,6 +213,8 @@ Gateway routes that carry sensitive detail fetches, authority-bearing request in
 ## Gateway And Shell Relationship
 
 The Shell may call Gateway routes. The Shell must not own Gateway policy.
+
+The dashboard is a Shell. It must connect through Gateway sockets and receive bounded projections. It must not become the Gateway host, the runtime router, or an adapter dispatcher. Dashboard code may render, collect input, and display refs; it may not own Gateway ingress normalization, permission policy, runtime-engine selection authority, or payload-budget enforcement.
 
 The Shell may keep refs, cursors, previews, and display-local state. It must not cache Gateway full responses as durable runtime state, infer missing health, or make hidden retry/admission decisions from Gateway transport behavior.
 

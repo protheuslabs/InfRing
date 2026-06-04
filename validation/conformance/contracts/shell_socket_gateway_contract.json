@@ -16,11 +16,15 @@
   ],
   "gateway_only_invariant": {
     "shell_plug_to_gateway_only": true,
+    "no_shell_plug_to_adapter_direct": true,
     "no_shell_plug_to_kernel_direct": true,
     "no_shell_plug_to_orchestration_direct": true,
     "no_shell_plug_to_assurance_direct": true,
     "no_stateful_shell_socket_runtime": true,
-    "gateway_remains_external_ambiguity_firewall": true
+    "gateway_remains_external_ambiguity_firewall": true,
+    "dashboard_is_shell_not_gateway_host": true,
+    "gateway_physical_domain": "gateway/**",
+    "adapters_are_translator_only": true
   },
   "allowed_route_classes": [
     "request_ingress",
@@ -1522,6 +1526,7 @@
     "missing_route_is_not_shell_workaround_permission": true,
     "missing_route_must_create_gateway_backed_task": true,
     "shell_plug_must_not_call_backend_owner_directly": true,
+    "shell_plug_must_not_call_adapter_directly": true,
     "legacy_dashboard_compatibility_does_not_satisfy_socket_parity": true
   },
   "future_guard_requirements": [

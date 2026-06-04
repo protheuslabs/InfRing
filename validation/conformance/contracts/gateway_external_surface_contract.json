@@ -27,6 +27,9 @@
   "global_rules": {
     "gateway_only_external_ingress": true,
     "no_first_party_shell_exception": true,
+    "no_shell_to_adapter_direct_surface": true,
+    "gateway_physical_domain": "gateway/**",
+    "adapters_are_translator_only": true,
     "issue_eval_submission_gateway_only": true,
     "bounded_default_payloads": true,
     "nexus_checkpoint_required": true,
@@ -141,6 +144,7 @@
       "forbidden_bypass": [
         "direct_kernel_or_core_authority_call",
         "direct_orchestration_internal_import",
+        "direct_adapter_runtime_call",
         "first_party_shell_exception",
         "raw_runtime_state_upload",
         "full_state_mirror",
@@ -169,6 +173,7 @@
       "forbidden_bypass": [
         "direct_kernel_or_core_authority_call",
         "direct_orchestration_internal_import",
+        "direct_adapter_runtime_call",
         "first_party_shell_exception",
         "raw_runtime_state_upload",
         "full_state_mirror"
@@ -194,6 +199,7 @@
       "forbidden_bypass": [
         "direct_kernel_or_core_authority_call",
         "direct_orchestration_internal_import",
+        "direct_adapter_runtime_call",
         "first_party_shell_exception",
         "raw_runtime_state_upload",
         "full_state_mirror"
@@ -216,6 +222,7 @@
       "forbidden_bypass": [
         "direct_kernel_or_core_authority_call",
         "direct_orchestration_internal_import",
+        "direct_adapter_runtime_call",
         "first_party_shell_exception",
         "raw_runtime_state_upload",
         "full_state_mirror",
@@ -240,6 +247,7 @@
       "forbidden_bypass": [
         "direct_kernel_or_core_authority_call",
         "direct_orchestration_internal_import",
+        "direct_adapter_runtime_call",
         "first_party_shell_exception",
         "raw_runtime_state_upload",
         "full_state_mirror",
@@ -267,6 +275,7 @@
       "forbidden_bypass": [
         "direct_kernel_or_core_authority_call",
         "direct_orchestration_internal_import",
+        "direct_adapter_runtime_call",
         "first_party_shell_exception",
         "raw_runtime_state_upload",
         "full_state_mirror"
@@ -294,6 +303,7 @@
       "forbidden_bypass": [
         "direct_kernel_or_core_authority_call",
         "direct_orchestration_internal_import",
+        "direct_adapter_runtime_call",
         "first_party_shell_exception",
         "raw_runtime_state_upload",
         "full_state_mirror"

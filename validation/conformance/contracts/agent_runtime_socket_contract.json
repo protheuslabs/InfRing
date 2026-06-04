@@ -40,11 +40,15 @@
   },
   "gateway_only_invariant": {
     "shell_to_gateway_only": true,
+    "no_shell_to_adapter_direct_socket": true,
     "no_shell_to_engine_direct_socket": true,
     "no_shell_to_orchestration_direct_agent_turn": true,
     "no_shell_to_kernel_direct_agent_turn": true,
     "external_engines_enter_gateway_only": true,
-    "gateway_remains_external_ambiguity_firewall": true
+    "gateway_remains_external_ambiguity_firewall": true,
+    "dashboard_is_shell_not_gateway_host": true,
+    "gateway_physical_domain": "gateway/**",
+    "adapters_are_translator_only": true
   },
   "trace_identity_rule": {
     "trace_id_required_on_every_message": true,
@@ -353,6 +357,7 @@
     "authentication",
     "authorization",
     "payload_limits",
+    "ingress_normalization",
     "engine_registry_lookup",
     "capability_budget_checks",
     "workspace_scope_checks",
@@ -397,7 +402,9 @@
     "public_events_are_runtime_neutral": true,
     "engine_specific_payloads_private_to_adapter": true,
     "adapter_must_normalize_to_public_events": true,
-    "shell_sees_engine_projection_not_private_schema": true
+    "shell_sees_engine_projection_not_private_schema": true,
+    "adapter_must_not_own_gateway_policy": true,
+    "adapter_must_not_host_shell_facing_socket": true
   },
   "engine_discovery_projection": {
     "defaults_are_probes_not_truth": true,

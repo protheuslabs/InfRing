@@ -17,7 +17,8 @@ Shell/runtime surfaces remain thin presentation wrappers around policy-governed 
 
 - **Kernel** is the authority layer. `core/**` is the repository path for Kernel implementation and compatibility wording only; `Core` is not a second authority.
 - **Orchestration Control Plane** is the coordination layer. `orchestration/**` is its repository path. `Tower` is not a canonical architecture term.
-- **Gateways** are the external boundary layer. `adapters/**` is the implementation path and `Adapters` is compatibility wording only.
+- **Gateways** are the external boundary layer, the system skin, and the socket membrane. `gateway/**` is the canonical implementation path.
+- **Adapters** are translator-only integration bridges behind Gateway sockets. `adapters/**` is not a Gateway implementation domain and must not own Shell-facing sockets, ingress policy, payload budgets, permission policy, or runtime route authority.
 - **Shell** is the presentation layer. `client/**` is the repository path for Shell implementation and compatibility wording only; `Client` is not a conceptual owner.
 - **Validation**, **Observability**, and **Governance** are Assurance domains, not Kernel, Orchestration, or Shell subfeatures.
 - When a document refers to a filesystem path, use the path form (`core/**`, `client/**`, `adapters/**`). When it refers to ownership, use the concept form (**Kernel**, **Shell**, **Gateways**).
@@ -45,8 +46,9 @@ Runtime split inside cognition:
 
 - Authoritative Kernel: `core/**` path compatibility
 - Orchestration Control Plane: `orchestration/**`
+- Gateway Layer: `gateway/**`
 - Presentation Shell: `client/**` path compatibility
-- Gateway Layer: `adapters/**` path compatibility
+- Adapter Layer: `adapters/**` translator compatibility path
 
 See [planes/README.md](planes/README.md) for the canonical architecture contract.
 See [docs/client/PUBLIC_OPERATOR_PROFILE.md](docs/client/PUBLIC_OPERATOR_PROFILE.md) for the public operator-facing surface and support expectations.
@@ -56,7 +58,7 @@ See [docs/client/PUBLIC_OPERATOR_PROFILE.md](docs/client/PUBLIC_OPERATOR_PROFILE
 What is true in this repository today:
 
 - Primary operator entrypoint is `infring` (with `infringctl` and `infringd` wrappers).
-- Main dashboard is served by the gateway at `http://127.0.0.1:4173/dashboard#chat`.
+- Main dashboard is served through the gateway at `http://127.0.0.1:4173/dashboard#chat`; the dashboard must remain a Shell surface that connects to Gateway sockets rather than hosting Gateway policy itself.
 - Gateway health endpoint is `http://127.0.0.1:4173/healthz`.
 - Gateway persistence is enabled by default (auto-restart + reboot supervision unless disabled).
 - Pure profiles (`--pure`, `--tiny-max`) are Rust-only and intentionally do not expose the rich `gateway` UI surface.
@@ -560,9 +562,10 @@ Operator caveats:
 | Path | Responsibility |
 |---|---|
 | `core/` | Rust authority layers and runtime Kernel |
+| `gateway/` | External boundary membrane, sockets, ingress normalization, payload budgets, and bounded egress projections |
 | `client/runtime/systems/` | Shell runtime wrappers and operator surfaces |
 | `client/runtime/config/` | Policy manifests, registries, and guardrails |
-| `adapters/` | Integration bridges |
+| `adapters/` | Translator-only integration bridges behind Gateway sockets |
 | `apps/` | Runnable app surfaces and examples |
 | `tests/` | Regression, governance, and toolchain validation |
 | `docs/` | Runbooks, architecture, onboarding, and policies |
