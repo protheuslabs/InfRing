@@ -7497,6 +7497,13 @@ function chatPage() {
         var stableHtml = String(liveMessage._typingVisualHtmlStable || '') + String(liveMessage._typingVisualHtmlActiveStable || '');
         var activeHtml = '';
         var activeStable = '';
+        var hasFutureMarkdownDelimiter = function(sourceText, delimiter, absoluteIndex) {
+          var source = String(sourceText || '');
+          var marker = String(delimiter || '');
+          if (!marker) return false;
+          var startAt = Math.max(0, Number(absoluteIndex || 0) + marker.length);
+          return source.indexOf(marker, startAt) >= 0;
+        };
         while (index < segments.length && emitted < maxTokensPerTick) {
           now = Date.now();
           if (now < nextTickAt) break;
@@ -7537,18 +7544,27 @@ function chatPage() {
           };
           var cursor = 0;
           while (cursor < token.length) {
+            var absoluteCursor = Number(segment.index || 0) + cursor;
             if (token.charAt(cursor) === '\\' && (cursor + 1) < token.length && token.charAt(cursor + 1) === '*') {
               appendChunk('*', true);
               cursor += 2;
               continue;
             }
             if ((cursor + 1) < token.length && token.charAt(cursor) === '*' && token.charAt(cursor + 1) === '*') {
-              tokenState.bold = !tokenState.bold;
+              if (tokenState.bold || hasFutureMarkdownDelimiter(typingRenderText, '**', absoluteCursor)) {
+                tokenState.bold = !tokenState.bold;
+              } else {
+                appendChunk('**', true);
+              }
               cursor += 2;
               continue;
             }
             if (token.charAt(cursor) === '*') {
-              tokenState.italic = !tokenState.italic;
+              if (tokenState.italic || hasFutureMarkdownDelimiter(typingRenderText, '*', absoluteCursor)) {
+                tokenState.italic = !tokenState.italic;
+              } else {
+                appendChunk('*', true);
+              }
               cursor += 1;
               continue;
             }

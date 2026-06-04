@@ -120,6 +120,45 @@ function normalizeChatMarkdownListBreaks(text) {
   return out.replace(/\n{3,}/g, '\n\n');
 }
 
+function renderMarkdownInlineFallback(text) {
+  var inlineCodeBlocks = [];
+  var protected_ = String(text || '').replace(/`([^`\n]+?)`/g, function(_match, code) {
+    var idx = inlineCodeBlocks.length;
+    inlineCodeBlocks.push('<code>' + escapeHtml(code) + '</code>');
+    return '\x00INLINECODE' + idx + '\x00';
+  });
+  var html = escapeHtml(protected_);
+  html = html.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/(^|[^\*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
+  for (var i = 0; i < inlineCodeBlocks.length; i++) {
+    html = html.replace('\x00INLINECODE' + i + '\x00', inlineCodeBlocks[i]);
+  }
+  return html;
+}
+
+function renderMarkdownFallback(text) {
+  var source = normalizeChatMarkdownListBreaks(text);
+  var codeBlocks = [];
+  var protected_ = source.replace(/```([A-Za-z0-9_+.#-]{0,32})?[ \t]*\n?([\s\S]*?)```/g, function(_match, lang, code) {
+    var idx = codeBlocks.length;
+    var language = String(lang || '').trim();
+    var className = language ? ' class="language-' + escapeHtml(language) + '"' : '';
+    codeBlocks.push('<pre><code' + className + '>' + escapeHtml(code).replace(/\n$/, '') + '</code></pre>');
+    return '\x00CODEBLOCK' + idx + '\x00';
+  });
+  var html = renderMarkdownInlineFallback(protected_).replace(/\n/g, '<br>');
+  for (var i = 0; i < codeBlocks.length; i++) {
+    html = html.replace('\x00CODEBLOCK' + i + '\x00', codeBlocks[i]);
+  }
+  if (typeof dashboardWrapMarkdownCodeBlocks === 'function') {
+    html = dashboardWrapMarkdownCodeBlocks(html);
+  }
+  if (typeof dashboardWrapMarkdownTables === 'function') {
+    html = dashboardWrapMarkdownTables(html);
+  }
+  return html;
+}
+
 function renderMarkdown(text) {
   if (!text) return '';
   if (typeof marked !== 'undefined') {
@@ -167,5 +206,5 @@ function renderMarkdown(text) {
     html = html.replace(/<a\s+href="(https?:\/\/[^"]*)"(?![^>]*target=)([^>]*)>/gi, '<a href="$1" target="_blank" rel="noopener"$2>');
     return html;
   }
-  return escapeHtml(text);
+  return renderMarkdownFallback(text);
 }
