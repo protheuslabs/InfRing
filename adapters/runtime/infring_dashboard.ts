@@ -13,7 +13,7 @@ const {
   runInfringOps,
 } = require('./run_infring_ops.ts');
 const { buildPrimaryDashboardHtml, hasPrimaryDashboardUi, readBuildVersionInfo, readPrimaryDashboardAsset } = require('./dashboard_asset_router.ts');
-const { createAgentWsBridge } = require('./agent_ws_bridge.ts');
+const { createAgentWsBridge } = require('../../gateway/runtime/sockets/agent_ws/agent_ws_bridge.ts');
 const { loadAgentRuntimeEngineRegistry, createAgentRuntimeRouter } = require('./agent_engines/agent_runtime_router.ts');
 const {
   ingestAgentRuntimeContextProjection,

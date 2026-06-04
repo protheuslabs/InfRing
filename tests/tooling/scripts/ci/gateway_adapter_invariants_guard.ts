@@ -171,6 +171,9 @@ for (const rel of adapterFiles) {
 const dashboardPath = 'adapters/runtime/infring_dashboard.ts';
 if (exists(dashboardPath)) {
   const dashboard = read(dashboardPath);
+  if (!dashboard.includes("require('../../gateway/runtime/sockets/agent_ws/agent_ws_bridge.ts')")) {
+    push('dashboard_not_using_gateway_agent_ws_bridge', dashboardPath, 'Legacy dashboard host must delegate Agent WebSocket bridge behavior to gateway/**.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime_input_normalizer.ts')")) {
     push('dashboard_not_using_gateway_normalizer', dashboardPath, 'Legacy dashboard host must delegate input normalization to gateway/**.');
   }

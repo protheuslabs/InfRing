@@ -11,15 +11,10 @@
       "reason": "Legacy dashboard host currently serves Gateway routes while physical Gateway re-root is pending.",
       "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
       "allowed_until": "2026-07-01"
-    },
-    {
-      "path": "adapters/runtime/agent_ws_bridge.ts",
-      "reason": "Legacy WebSocket bridge remains in adapter path until Gateway sockets are physically re-rooted.",
-      "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
-      "allowed_until": "2026-07-01"
     }
   ],
   "canonical_gateway_socket_modules": [
+    "gateway/runtime/sockets/agent_ws/agent_ws_bridge.ts",
     "gateway/runtime/sockets/shell_socket/shell_socket_chat_projection.ts",
     "gateway/runtime/sockets/shell_socket/shell_socket_command_ingress.ts",
     "gateway/runtime/sockets/shell_socket/shell_socket_status_projection.ts",
