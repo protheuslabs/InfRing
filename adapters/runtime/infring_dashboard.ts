@@ -73,6 +73,9 @@ const {
 const {
   createAgentRuntimeTurnProjectionStore,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts');
+const {
+  createAgentRuntimeContextPreviewProjectionStore,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_context_preview.ts');
 
 const DASHBOARD_DIR = path.resolve(ROOT, 'client', 'runtime', 'systems', 'ui');
 const CANONICAL_STATIC_DIR = path.resolve(DASHBOARD_DIR, 'infring_static');
@@ -176,6 +179,17 @@ const agentRuntimeTurnProjectionStore = createAgentRuntimeTurnProjectionStore({
 const {
   agentRuntimeTurnProjection,
 } = agentRuntimeTurnProjectionStore;
+const agentRuntimeContextPreviewProjectionStore = createAgentRuntimeContextPreviewProjectionStore({
+  root: ROOT,
+  loadAgentRuntimeContextRows,
+  materializeKernelAgentRuntimeContextPack,
+  materializeAgentRuntimeContextPack,
+  buildAgentRuntimeContextPack,
+  buildUniversalToolGrants,
+});
+const {
+  agentRuntimeContextPackPreviewProjection,
+} = agentRuntimeContextPreviewProjectionStore;
 
 function nowIso() { return new Date().toISOString(); }
 function cleanText(value, maxLen = 200) { return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen); }
@@ -585,79 +599,7 @@ function agentRuntimePreTurnFailureProjection(traceId, engineId, agentId, sessio
     pending_permission_request: null,
   };
 }
-async function agentRuntimeContextPackPreviewProjection(traceId, body) {
-  const rawEngineId = body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id);
-  const engineId = cleanEngineId(rawEngineId || 'infring_native');
-  const agentId = cleanText(body && body.agent_id, 160) || 'default';
-  const sessionId = cleanText(body && body.session_id, 200) || `shell_${agentId}`;
-  const fallbackContextRows = loadAgentRuntimeContextRows({ root: ROOT, sessionId, agentId });
-  const kernelContext = await materializeKernelAgentRuntimeContextPack({
-    root: ROOT,
-    sessionId,
-    agentId,
-    traceId,
-    atoms: fallbackContextRows,
-    timeoutMs: 8000,
-  }).catch((error) => ({
-    ok: false,
-    reason: cleanText(error && error.message ? error.message : error, 240),
-  }));
-  const contextPack = kernelContext && kernelContext.ok && kernelContext.context_pack
-    ? kernelContext.context_pack
-    : await Promise.resolve(materializeAgentRuntimeContextPack({
-      root: ROOT,
-      sessionId,
-      agentId,
-      traceId,
-    })).catch(() => buildAgentRuntimeContextPack({ body, agentId, sessionId, traceId }));
-  contextPack.universal_tool_grants = buildUniversalToolGrants({
-    traceId,
-    sessionId,
-    agentId,
-    engineId,
-    permissionPolicy: body && body.permission_policy,
-  });
-  const fragments = Array.isArray(contextPack.fragments) ? contextPack.fragments : [];
-  return {
-    ok: true,
-    type: 'agent_runtime_context_pack_preview',
-    trace_id: traceId,
-    engine_id: engineId,
-    agent_id: agentId,
-    session_id: sessionId,
-    source_basis: cleanText(contextPack.source_basis, 160),
-    source_authority: cleanText(contextPack.source_authority, 200),
-    row_count: Number(contextPack.row_count) || 0,
-    raw_row_count: Number(contextPack.raw_row_count) || Number(contextPack.row_count) || 0,
-    dedupe_policy: contextPack.dedupe_policy || null,
-    kernel_materializer_used: !!(kernelContext && kernelContext.ok),
-    kernel_materializer_mode: cleanText(kernelContext && kernelContext.command_mode, 40),
-    frontier: {
-      hot_atom_count: Array.isArray(contextPack.frontier && contextPack.frontier.hot_atom_refs) ? contextPack.frontier.hot_atom_refs.length : 0,
-      warm_span_count: Array.isArray(contextPack.frontier && contextPack.frontier.warm_span_refs) ? contextPack.frontier.warm_span_refs.length : 0,
-      cool_span_count: Array.isArray(contextPack.frontier && contextPack.frontier.cool_span_refs) ? contextPack.frontier.cool_span_refs.length : 0,
-      cold_span_count: Array.isArray(contextPack.frontier && contextPack.frontier.cold_span_refs) ? contextPack.frontier.cold_span_refs.length : 0,
-      pressure_state: cleanText(contextPack.frontier && contextPack.frontier.pressure_state, 80),
-    },
-    fragments: fragments.slice(-24).map((fragment) => {
-      const payload = fragment && fragment.payload && typeof fragment.payload === 'object' ? fragment.payload : {};
-      return {
-        fragment_id: cleanText(fragment && fragment.fragment_id, 200),
-        kind: cleanText(fragment && fragment.kind, 40),
-        ref_id: cleanText(fragment && fragment.ref_id, 200),
-        level: Number(fragment && fragment.level) || 0,
-        source_kind: cleanText(payload.source_kind || payload.record_type, 120),
-        speaker_label: cleanText(payload.speaker_label || payload.role, 120),
-        role: cleanText(payload.role, 40),
-        source_ref: cleanText(payload.source_ref, 240),
-        summary: cleanDisplayText(payload.text_preview || payload.summary || '', 800),
-      };
-    }),
-    universal_tool_count: Array.isArray(contextPack.universal_tool_grants && contextPack.universal_tool_grants.tools)
-      ? contextPack.universal_tool_grants.tools.length
-      : 0,
-  };
-}
+
 function isTransientSocketError(error) {
   const code = cleanText(error && error.code ? error.code : '', 40);
   return code === 'ECONNRESET' || code === 'EPIPE' || code === 'ERR_STREAM_PREMATURE_CLOSE';

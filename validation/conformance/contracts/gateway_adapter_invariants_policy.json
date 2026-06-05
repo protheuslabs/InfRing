@@ -32,7 +32,8 @@
     "gateway/runtime/agent_runtime/agent_runtime_engine_projections.ts",
     "gateway/runtime/agent_runtime/agent_runtime_context_store.ts",
     "gateway/runtime/agent_runtime/agent_runtime_kernel_context_bridge.ts",
-    "gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts"
+    "gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts",
+    "gateway/runtime/agent_runtime/agent_runtime_context_preview.ts"
   ],
   "invariants": [
     "gateway_policy_lives_under_gateway_domain",

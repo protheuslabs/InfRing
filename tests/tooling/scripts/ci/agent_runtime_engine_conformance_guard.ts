@@ -320,6 +320,7 @@ const contextStorePath = 'gateway/runtime/agent_runtime/agent_runtime_context_st
 const kernelContextBridgePath = 'gateway/runtime/agent_runtime/agent_runtime_kernel_context_bridge.ts';
 const universalCoreToolsPath = 'gateway/runtime/agent_runtime/universal_core_tools.ts';
 const turnProjectionPath = 'gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts';
+const contextPreviewPath = 'gateway/runtime/agent_runtime/agent_runtime_context_preview.ts';
 const kernelContextMaterializerPath = 'core/layer2/memory/src/bin/agent_runtime_context_materializer.rs';
 const dashboardPath = 'adapters/runtime/infring_dashboard.ts';
 const chatSendPartPath = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/200-send-pipeline.part01.ts';
@@ -332,6 +333,7 @@ if (!exists(contextStorePath)) violations.push({ kind: 'context_store_module_mis
 if (!exists(kernelContextBridgePath)) violations.push({ kind: 'kernel_context_bridge_module_missing', path: kernelContextBridgePath });
 if (!exists(universalCoreToolsPath)) violations.push({ kind: 'universal_core_tools_module_missing', path: universalCoreToolsPath });
 if (!exists(turnProjectionPath)) violations.push({ kind: 'turn_projection_module_missing', path: turnProjectionPath });
+if (!exists(contextPreviewPath)) violations.push({ kind: 'context_preview_module_missing', path: contextPreviewPath });
 if (!exists(kernelContextMaterializerPath)) violations.push({ kind: 'kernel_context_materializer_bin_missing', path: kernelContextMaterializerPath });
 if (!exists(cliRuntimePath)) violations.push({ kind: 'cli_runtime_module_missing', path: cliRuntimePath });
 if (!exists(claudePath)) violations.push({ kind: 'claude_adapter_module_missing', path: claudePath });
@@ -421,7 +423,9 @@ if (exists(contextContinuityEvalPath)) {
 if (exists(dashboardPath)) {
   const dashboardSource = fs.readFileSync(path.join(ROOT, dashboardPath), 'utf8');
   const turnProjectionSource = exists(turnProjectionPath) ? fs.readFileSync(path.join(ROOT, turnProjectionPath), 'utf8') : '';
+  const contextPreviewSource = exists(contextPreviewPath) ? fs.readFileSync(path.join(ROOT, contextPreviewPath), 'utf8') : '';
   const turnProjectionCombinedSource = `${dashboardSource}\n${turnProjectionSource}`;
+  const contextProjectionCombinedSource = `${dashboardSource}\n${contextPreviewSource}`;
 	  if (!dashboardSource.includes('/api/shell-socket/agent-runtime/turn')) violations.push({ kind: 'dashboard_agent_runtime_turn_route_missing', path: dashboardPath });
 	  if (!dashboardSource.includes('agentRuntimeEngineInstallProjection')) violations.push({ kind: 'dashboard_agent_runtime_install_projection_missing', path: dashboardPath });
 	  if (!dashboardSource.includes('agentRuntimeInstallMatch') || !dashboardSource.includes('/install')) violations.push({ kind: 'dashboard_agent_runtime_install_route_missing', path: dashboardPath });
@@ -429,7 +433,7 @@ if (exists(dashboardPath)) {
 	  if (!dashboardSource.includes('buildAgentRuntimeContextPack') || !dashboardSource.includes('AGENT_RUNTIME_CONTEXT_FANOUT_TARGET = 7')) violations.push({ kind: 'dashboard_agent_runtime_context_pack_builder_missing', path: dashboardPath });
 	  if (!turnProjectionCombinedSource.includes('context_pack: contextPack')) violations.push({ kind: 'dashboard_agent_runtime_context_pack_not_submitted', path: turnProjectionPath });
 	  if (!dashboardSource.includes('ingestAgentRuntimeContextProjection') || !dashboardSource.includes('materializeAgentRuntimeContextPack') || !dashboardSource.includes('appendAgentRuntimeTurnAtoms')) violations.push({ kind: 'dashboard_agent_runtime_context_store_not_wired', path: dashboardPath });
-	  if (!dashboardSource.includes('materializeKernelAgentRuntimeContextPack') || !dashboardSource.includes('kernel_materializer_used')) violations.push({ kind: 'dashboard_agent_runtime_kernel_context_bridge_not_wired', path: dashboardPath });
+	  if (!contextProjectionCombinedSource.includes('materializeKernelAgentRuntimeContextPack') || !contextProjectionCombinedSource.includes('kernel_materializer_used')) violations.push({ kind: 'dashboard_agent_runtime_kernel_context_bridge_not_wired', path: contextPreviewPath });
 	  for (const marker of ['failed_with_reason', 'timed_out_with_reason', 'status_code: 200']) {
 	    if (!turnProjectionCombinedSource.includes(marker)) violations.push({ kind: 'dashboard_turn_outcome_projection_marker_missing', marker, path: turnProjectionPath });
 	  }
