@@ -158,6 +158,35 @@ function createAgentRuntimeWorkspaceStore(options = {}) {
     return { ok: false, cancelled: true, reason: cleanText(result.stderr || 'folder_picker_unavailable', 240) };
   }
 
+  function agentRuntimeWorkspaceProjection(traceId, body) {
+    const requested = body && (body.workspace_dir || body.active_workspace || body.cwd || body.path);
+    if (requested) {
+      return saveAgentRuntimeWorkspace(requested, traceId, body && body.scope);
+    }
+    return loadAgentRuntimeWorkspace(traceId);
+  }
+
+  function agentRuntimeWorkspacePickerProjection(traceId, body) {
+    const picked = pickAgentRuntimeWorkspaceDirectory();
+    if (!picked.ok) {
+      const current = loadAgentRuntimeWorkspace(traceId);
+      return {
+        ...current,
+        ok: false,
+        status_code: picked.cancelled ? 409 : 502,
+        type: 'agent_runtime_workspace_picker_projection',
+        error: picked.cancelled ? 'workspace_picker_cancelled' : 'workspace_picker_failed',
+        reason: cleanText(picked.reason, 240),
+      };
+    }
+    const saved = saveAgentRuntimeWorkspace(picked.path, traceId, body && body.scope);
+    return {
+      ...saved,
+      type: 'agent_runtime_workspace_picker_projection',
+      picker: 'native_os_folder_dialog',
+    };
+  }
+
   return {
     workspacePath,
     normalizeAgentRuntimeWorkspacePath,
@@ -166,6 +195,8 @@ function createAgentRuntimeWorkspaceStore(options = {}) {
     projectAgentRuntimeWorkspace,
     loadAgentRuntimeWorkspace,
     saveAgentRuntimeWorkspace,
+    agentRuntimeWorkspaceProjection,
+    agentRuntimeWorkspacePickerProjection,
     pickAgentRuntimeWorkspaceDirectory,
   };
 }

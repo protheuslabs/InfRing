@@ -123,8 +123,8 @@ const agentRuntimeWorkspaceStore = createAgentRuntimeWorkspaceStore({ root: ROOT
 const {
   normalizeAgentRuntimeWorkspacePath,
   loadAgentRuntimeWorkspace,
-  saveAgentRuntimeWorkspace,
-  pickAgentRuntimeWorkspaceDirectory,
+  agentRuntimeWorkspaceProjection,
+  agentRuntimeWorkspacePickerProjection,
 } = agentRuntimeWorkspaceStore;
 const agentRuntimeApprovalStore = createAgentRuntimeApprovalStore({ root: ROOT });
 const {
@@ -643,48 +643,12 @@ function readAgentRuntimeSteeringRecords() {
     })
     .filter((row) => row && typeof row === 'object');
 }
-function writeAgentRuntimeSteeringRecords(rows) {
-  ensureDir(path.dirname(AGENT_RUNTIME_STEERING_PATH));
-  const serialized = (Array.isArray(rows) ? rows : [])
-    .slice(-AGENT_RUNTIME_STEERING_MAX_RECORDS)
-    .map((row) => JSON.stringify(row))
-    .join('\n');
-  fs.writeFileSync(AGENT_RUNTIME_STEERING_PATH, serialized ? `${serialized}\n` : '', 'utf8');
-}
 function agentRuntimeSteerProjection(traceId, body) {
   const engineId = cleanEngineId(body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id)) || 'infring_native';
   const registry = loadAgentRuntimeEngineRegistry(ROOT);
   const engine = findAgentRuntimeEngine(registry, engineId);
   if (!engine) return { ok: false, status_code: 404, type: 'agent_runtime_steer_projection', trace_id: traceId, engine_id: engineId, error: 'agent_runtime_engine_unknown' };
   return queueAgentRuntimeSteeringIntervention(traceId, body);
-}
-function agentRuntimeWorkspaceProjection(traceId, body) {
-  const requested = body && (body.workspace_dir || body.active_workspace || body.cwd || body.path);
-  if (requested) {
-    const saved = saveAgentRuntimeWorkspace(requested, traceId, body && body.scope);
-    return saved;
-  }
-  return loadAgentRuntimeWorkspace(traceId);
-}
-function agentRuntimeWorkspacePickerProjection(traceId, body) {
-  const picked = pickAgentRuntimeWorkspaceDirectory();
-  if (!picked.ok) {
-    const current = loadAgentRuntimeWorkspace(traceId);
-    return {
-      ...current,
-      ok: false,
-      status_code: picked.cancelled ? 409 : 502,
-      type: 'agent_runtime_workspace_picker_projection',
-      error: picked.cancelled ? 'workspace_picker_cancelled' : 'workspace_picker_failed',
-      reason: cleanText(picked.reason, 240),
-    };
-  }
-  const saved = saveAgentRuntimeWorkspace(picked.path, traceId, body && body.scope);
-  return {
-    ...saved,
-    type: 'agent_runtime_workspace_picker_projection',
-    picker: 'native_os_folder_dialog',
-  };
 }
 function normalizeShutdownExitDelayMs(value) {
   const num = Number(value);
