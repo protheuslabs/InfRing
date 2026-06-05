@@ -63,8 +63,8 @@ for (const op of ['append_context_atom', 'materialize_context_topology']) {
   }
 }
 
-const gatewayBridge = 'adapters/runtime/agent_engines/agent_runtime_kernel_context_bridge.ts';
-const gatewayCache = 'adapters/runtime/agent_engines/agent_runtime_context_store.ts';
+const gatewayBridge = 'gateway/runtime/agent_runtime/agent_runtime_kernel_context_bridge.ts';
+const gatewayCache = 'gateway/runtime/agent_runtime/agent_runtime_context_store.ts';
 const cliAdapter = 'adapters/runtime/agent_engines/cli_runtime_adapter.ts';
 const dashboard = 'adapters/runtime/infring_dashboard.ts';
 const kernelMaterializer = 'core/layer2/memory/src/bin/agent_runtime_context_materializer.rs';

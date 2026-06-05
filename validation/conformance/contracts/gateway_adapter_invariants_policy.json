@@ -24,7 +24,11 @@
   "canonical_gateway_agent_runtime_modules": [
     "gateway/runtime/agent_runtime/agent_runtime_router.ts",
     "gateway/runtime/agent_runtime/universal_core_tools.ts",
-    "gateway/runtime/agent_runtime/agent_runtime_trace_writer.ts"
+    "gateway/runtime/agent_runtime/agent_runtime_trace_writer.ts",
+    "gateway/runtime/agent_runtime/agent_runtime_workspace.ts",
+    "gateway/runtime/agent_runtime/agent_runtime_approvals.ts",
+    "gateway/runtime/agent_runtime/agent_runtime_context_store.ts",
+    "gateway/runtime/agent_runtime/agent_runtime_kernel_context_bridge.ts"
   ],
   "invariants": [
     "gateway_policy_lives_under_gateway_domain",

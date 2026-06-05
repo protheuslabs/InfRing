@@ -107,7 +107,7 @@ function makeContinuityProbeAdapter(engineId, buildPromptWithContext) {
 
 async function main() {
   const { createAgentRuntimeRouter } = load('gateway/runtime/agent_runtime/agent_runtime_router.ts');
-  const { materializeKernelAgentRuntimeContextPack, resolveKernelMaterializerCommand } = load('adapters/runtime/agent_engines/agent_runtime_kernel_context_bridge.ts');
+  const { materializeKernelAgentRuntimeContextPack, resolveKernelMaterializerCommand } = load('gateway/runtime/agent_runtime/agent_runtime_kernel_context_bridge.ts');
   const { buildPromptWithContext } = load('adapters/runtime/agent_engines/cli_runtime_adapter.ts');
   const { buildUniversalToolGrants } = load('gateway/runtime/agent_runtime/universal_core_tools.ts');
 

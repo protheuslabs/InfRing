@@ -24,7 +24,7 @@
   "allowed_non_authority_roles": {
     "gateway_bridge": {
       "allowed_paths": [
-        "adapters/runtime/agent_engines/agent_runtime_kernel_context_bridge.ts"
+        "gateway/runtime/agent_runtime/agent_runtime_kernel_context_bridge.ts"
       ],
       "may_spawn_kernel_materializer": true,
       "may_use_workspace_cargo_auto_when_binary_is_unavailable": true,
@@ -33,7 +33,7 @@
     },
     "transitional_gateway_cache": {
       "allowed_paths": [
-        "adapters/runtime/agent_engines/agent_runtime_context_store.ts"
+        "gateway/runtime/agent_runtime/agent_runtime_context_store.ts"
       ],
       "canonical_authority": false,
       "may_persist_bootstrap_projection_rows": true,

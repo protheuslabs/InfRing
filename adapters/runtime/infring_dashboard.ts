@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const { createHash } = require('node:crypto');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const {
   ROOT,
   invokeInfringOpsViaBridge,
@@ -20,8 +20,8 @@ const {
   appendAgentRuntimeTurnAtoms,
   materializeAgentRuntimeContextPack,
   loadAgentRuntimeContextRows,
-} = require('./agent_engines/agent_runtime_context_store.ts');
-const { materializeKernelAgentRuntimeContextPack } = require('./agent_engines/agent_runtime_kernel_context_bridge.ts');
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_context_store.ts');
+const { materializeKernelAgentRuntimeContextPack } = require('../../gateway/runtime/agent_runtime/agent_runtime_kernel_context_bridge.ts');
 const { buildUniversalToolGrants } = require('../../gateway/runtime/agent_runtime/universal_core_tools.ts');
 const { createInfringNativeEngineAdapter } = require('./agent_engines/infring_native.ts');
 const { createCodexCliEngineAdapter } = require('./agent_engines/codex_cli.ts');
@@ -55,6 +55,12 @@ const {
 const {
   normalizeAgentRuntimeTurnInput,
 } = require('../../gateway/runtime/agent_runtime_input_normalizer.ts');
+const {
+  createAgentRuntimeWorkspaceStore,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_workspace.ts');
+const {
+  createAgentRuntimeApprovalStore,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_approvals.ts');
 
 const DASHBOARD_DIR = path.resolve(ROOT, 'client', 'runtime', 'systems', 'ui');
 const CANONICAL_STATIC_DIR = path.resolve(DASHBOARD_DIR, 'infring_static');
@@ -97,14 +103,25 @@ const DASHBOARD_SHUTDOWN_EXIT_DELAY_DEFAULT_MS = 180;
 const DASHBOARD_SHUTDOWN_EXIT_DELAY_MIN_MS = 80;
 const DASHBOARD_SHUTDOWN_EXIT_DELAY_MAX_MS = 5000;
 const HOP_BY_HOP = new Set(['connection', 'host', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailers', 'transfer-encoding', 'upgrade']);
-const AGENT_RUNTIME_APPROVAL_DECISIONS = new Map();
 const AGENT_RUNTIME_TRANSCRIPT_PATH = path.resolve(STATUS_DIR, 'agent_runtime_transcripts.jsonl');
 const AGENT_RUNTIME_SELECTION_PATH = path.resolve(STATUS_DIR, 'agent_runtime_selection.json');
-const AGENT_RUNTIME_WORKSPACE_PATH = path.resolve(STATUS_DIR, 'agent_runtime_workspace.json');
 const AGENT_RUNTIME_STEERING_PATH = path.resolve(STATUS_DIR, 'agent_runtime_steering.jsonl');
 const AGENT_RUNTIME_TRANSCRIPT_MAX_RECORDS = 2000;
 const AGENT_RUNTIME_TRANSCRIPT_WINDOW_LIMIT = 80;
 const AGENT_RUNTIME_STEERING_MAX_RECORDS = 240;
+const agentRuntimeWorkspaceStore = createAgentRuntimeWorkspaceStore({ root: ROOT, statusDir: STATUS_DIR });
+const {
+  normalizeAgentRuntimeWorkspacePath,
+  loadAgentRuntimeWorkspace,
+  saveAgentRuntimeWorkspace,
+  pickAgentRuntimeWorkspaceDirectory,
+} = agentRuntimeWorkspaceStore;
+const agentRuntimeApprovalStore = createAgentRuntimeApprovalStore({ root: ROOT });
+const {
+  sanitizeAgentRuntimeProposalArguments,
+  agentRuntimeApprovalDecisionProjection,
+  mergeAgentRuntimeApprovalPermissionPolicy,
+} = agentRuntimeApprovalStore;
 
 function nowIso() { return new Date().toISOString(); }
 function cleanText(value, maxLen = 200) { return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen); }
@@ -131,58 +148,6 @@ function decodeAgentRuntimeSessionRef(value) {
   return { agentId: '', sessionId: cleanTranscriptComponent(raw, 200) };
 }
 
-function sanitizeAgentRuntimeProposalArguments(value) {
-  const source = value && typeof value === 'object' ? value : {};
-  const out = {};
-  const rawPath = cleanText(source.path || source.file || source.filename || source.relative_path, 500);
-  if (rawPath) out.path = rawPath;
-  const mimeType = cleanText(source.mime_type || source.content_type || 'text/plain', 120);
-  if (mimeType) out.mime_type = mimeType;
-  if (source.content != null) out.content = cleanDisplayText(source.content, 262144);
-  else if (source.text != null) out.content = cleanDisplayText(source.text, 262144);
-  else if (source.body != null) out.content = cleanDisplayText(source.body, 262144);
-  return out;
-}
-
-function resolveAgentRuntimeArtifactPath(rawPath) {
-  const value = String(rawPath == null ? '' : rawPath).replace(/\\/g, '/').trim();
-  if (!value) throw new Error('artifact_path_required');
-  if (path.isAbsolute(value) || value.startsWith('~') || value.includes('\0')) throw new Error('artifact_path_must_be_repo_relative');
-  const normalized = path.posix.normalize(value).replace(/^\/+/, '');
-  if (!normalized || normalized === '.' || normalized.startsWith('../') || normalized.includes('/../')) throw new Error('artifact_path_escapes_repo');
-  const target = path.resolve(ROOT, normalized);
-  const rootWithSep = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
-  if (target !== ROOT && !target.startsWith(rootWithSep)) throw new Error('artifact_path_escapes_repo');
-  if (target === ROOT) throw new Error('artifact_path_must_name_file');
-  return { target, relativePath: path.relative(ROOT, target).replace(/\\/g, '/') };
-}
-
-function executeAgentRuntimeApprovedProposal(traceId, approvalId, body) {
-  const toolId = cleanText(body && body.tool_id, 120);
-  if (toolId !== 'artifact.create_propose') return null;
-  const args = sanitizeAgentRuntimeProposalArguments(body && (body.proposal_arguments || body.arguments));
-  const resolved = resolveAgentRuntimeArtifactPath(args.path);
-  const content = cleanDisplayText(args.content || '', 262144);
-  ensureDir(path.dirname(resolved.target));
-  fs.writeFileSync(resolved.target, content, 'utf8');
-  const digest = createHash('sha256').update(content).digest('hex');
-  const bytes = Buffer.byteLength(content, 'utf8');
-  return {
-    ok: true,
-    type: 'agent_runtime_approval_effect_receipt',
-    approval_id: cleanApprovalId(approvalId),
-    trace_id: cleanText(traceId, 200),
-    tool_id: toolId,
-    effect: 'artifact_written',
-    path: resolved.relativePath,
-    bytes,
-    sha256: digest,
-    mime_type: cleanText(args.mime_type || 'text/plain', 120),
-    result_ref: `artifact/${resolved.relativePath}`,
-    receipt_ref: `receipt/agent-runtime-approval/${cleanApprovalId(approvalId)}`,
-    display_text: `Created ${resolved.relativePath} (${bytes} bytes).`,
-  };
-}
 const AGENT_RUNTIME_CONTEXT_FANOUT_TARGET = 7;
 const AGENT_RUNTIME_CONTEXT_HOT_TAIL_COUNT = 4;
 const AGENT_RUNTIME_CONTEXT_MAX_ROWS = 49;
@@ -1037,81 +1002,6 @@ async function agentRuntimeContextPackPreviewProjection(traceId, body) {
       : 0,
   };
 }
-function agentRuntimeApprovalDecisionProjection(traceId, approvalId, body) {
-  const id = cleanApprovalId(approvalId);
-  const decision = cleanText(body && body.decision, 80);
-  const allowed = new Set(['allow_once', 'deny', 'always_allow_tool_call']);
-  if (!id) return { ok: false, status_code: 400, type: 'approval_decision_ack', trace_id: traceId, error: 'approval_id_required' };
-  if (!allowed.has(decision)) return { ok: false, status_code: 400, type: 'approval_decision_ack', trace_id: traceId, approval_id: id, error: 'approval_decision_invalid' };
-  let executionResult = null;
-  if (decision !== 'deny') {
-    try {
-      executionResult = executeAgentRuntimeApprovedProposal(traceId, id, body);
-    } catch (error) {
-      executionResult = {
-        ok: false,
-        type: 'agent_runtime_approval_effect_error',
-        approval_id: id,
-        trace_id: traceId,
-        tool_id: cleanText(body && body.tool_id, 120),
-        error: cleanText(error && error.message ? error.message : error, 240),
-      };
-    }
-  }
-  const row = {
-    type: 'approval_decision_ack',
-    ok: true,
-    trace_id: traceId,
-    approval_id: id,
-    decision,
-    tool_id: cleanText(body && body.tool_id, 120),
-    tool_call_ref: cleanText(body && body.tool_call_ref, 240),
-    engine_id: cleanEngineId(body && body.engine_id),
-    session_id: cleanText(body && body.session_id, 200),
-    gatekeeper_kind: cleanText(body && body.gatekeeper_kind || 'user', 80) || 'user',
-    decided_at: nowIso(),
-    durable_effect_executed: !!(executionResult && executionResult.ok),
-    execution_result: executionResult,
-    next_action: decision === 'deny'
-      ? 'tool_call_denied'
-      : executionResult && executionResult.ok
-        ? 'tool_call_executed'
-        : 'tool_call_permission_recorded_for_next_agent_runtime_turn',
-  };
-  AGENT_RUNTIME_APPROVAL_DECISIONS.set(id, row);
-  if (AGENT_RUNTIME_APPROVAL_DECISIONS.size > 200) {
-    const firstKey = AGENT_RUNTIME_APPROVAL_DECISIONS.keys().next().value;
-    if (firstKey) AGENT_RUNTIME_APPROVAL_DECISIONS.delete(firstKey);
-  }
-  return row;
-}
-function mergeAgentRuntimeApprovalPermissionPolicy(source, sessionId, engineId) {
-  const base = source && typeof source === 'object' ? source : {};
-  const alwaysAllowed = new Set(
-    Array.isArray(base.always_allowed_tool_calls)
-      ? base.always_allowed_tool_calls.map((toolId) => cleanText(toolId, 120)).filter(Boolean)
-      : [],
-  );
-  const session = cleanText(sessionId, 200);
-  const engine = cleanEngineId(engineId);
-  for (const [approvalId, row] of Array.from(AGENT_RUNTIME_APPROVAL_DECISIONS.entries())) {
-    if (!row || typeof row !== 'object') continue;
-    const decision = cleanText(row.decision, 80);
-    if (decision !== 'allow_once' && decision !== 'always_allow_tool_call') continue;
-    const toolId = cleanText(row.tool_id, 120);
-    if (!toolId) continue;
-    const rowSession = cleanText(row.session_id, 200);
-    const rowEngine = cleanEngineId(row.engine_id);
-    if (rowSession && session && rowSession !== session) continue;
-    if (rowEngine && engine && rowEngine !== engine) continue;
-    alwaysAllowed.add(toolId);
-    if (decision === 'allow_once') AGENT_RUNTIME_APPROVAL_DECISIONS.delete(approvalId);
-  }
-  return {
-    ...base,
-    always_allowed_tool_calls: Array.from(alwaysAllowed).slice(0, 64),
-  };
-}
 function isTransientSocketError(error) {
   const code = cleanText(error && error.code ? error.code : '', 40);
   return code === 'ECONNRESET' || code === 'EPIPE' || code === 'ERR_STREAM_PREMATURE_CLOSE';
@@ -1624,125 +1514,6 @@ function saveAgentRuntimeSelection(engineId, traceId) {
   };
   writeJson(AGENT_RUNTIME_SELECTION_PATH, row);
   return row;
-}
-function normalizeAgentRuntimeWorkspacePath(value) {
-  const raw = cleanPathText(value, 1200);
-  if (!raw) return ROOT;
-  const expanded = raw === '~' || raw.startsWith('~/')
-    ? path.join(process.env.HOME || ROOT, raw.slice(2))
-    : raw;
-  const resolved = path.resolve(expanded);
-  try {
-    const stat = fs.statSync(resolved);
-    if (!stat.isDirectory()) return ROOT;
-    return fs.realpathSync(resolved);
-  } catch {
-    return ROOT;
-  }
-}
-function deriveGitRootForWorkspace(workspaceDir) {
-  let cursor = normalizeAgentRuntimeWorkspacePath(workspaceDir);
-  const seen = new Set();
-  while (cursor && !seen.has(cursor)) {
-    seen.add(cursor);
-    try {
-      if (fs.existsSync(path.join(cursor, '.git'))) return cursor;
-    } catch {}
-    const next = path.dirname(cursor);
-    if (!next || next === cursor) break;
-    cursor = next;
-  }
-  return '';
-}
-function agentRuntimeWorkspaceLabel(workspaceDir) {
-  const dir = normalizeAgentRuntimeWorkspacePath(workspaceDir);
-  const base = path.basename(dir) || dir;
-  return `.../${base}`;
-}
-function projectAgentRuntimeWorkspace(traceId, row) {
-  const workspaceDir = normalizeAgentRuntimeWorkspacePath(row && (row.workspace_dir || row.active_workspace));
-  const gitRoot = cleanPathText((row && row.git_root) || deriveGitRootForWorkspace(workspaceDir), 1200);
-  return {
-    ok: true,
-    type: 'agent_runtime_workspace_projection',
-    schema_version: 1,
-    trace_id: cleanText(traceId, 200),
-    active_workspace: workspaceDir,
-    workspace_dir: workspaceDir,
-    display_label: agentRuntimeWorkspaceLabel(workspaceDir),
-    basename: path.basename(workspaceDir) || workspaceDir,
-    git_root: gitRoot,
-    git_root_label: gitRoot ? agentRuntimeWorkspaceLabel(gitRoot) : '',
-    scope: cleanText(row && row.scope, 80) || 'global_default',
-    source: cleanText(row && row.source, 120) || 'dashboard_gateway',
-    updated_at: cleanText(row && row.updated_at, 80),
-    permission_boundary: {
-      home_base: workspaceDir,
-      derived_git_root: gitRoot,
-      write_outside_workspace_requires_approval: true,
-      write_outside_git_root_requires_approval: true,
-    },
-  };
-}
-function loadAgentRuntimeWorkspace(traceId = '') {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(AGENT_RUNTIME_WORKSPACE_PATH, 'utf8'));
-    return projectAgentRuntimeWorkspace(traceId, parsed);
-  } catch {
-    return projectAgentRuntimeWorkspace(traceId, {
-      workspace_dir: ROOT,
-      git_root: deriveGitRootForWorkspace(ROOT),
-      scope: 'global_default',
-      source: 'default_repo_root',
-      updated_at: '',
-    });
-  }
-}
-function saveAgentRuntimeWorkspace(workspaceDir, traceId, scope = 'global_default') {
-  const activeWorkspace = normalizeAgentRuntimeWorkspacePath(workspaceDir);
-  const row = {
-    type: 'agent_runtime_workspace_selection',
-    schema_version: 1,
-    workspace_dir: activeWorkspace,
-    active_workspace: activeWorkspace,
-    display_label: agentRuntimeWorkspaceLabel(activeWorkspace),
-    git_root: deriveGitRootForWorkspace(activeWorkspace),
-    scope: cleanText(scope, 80) || 'global_default',
-    updated_at: nowIso(),
-    trace_id: cleanText(traceId, 200),
-    source: 'dashboard_gateway',
-  };
-  writeJson(AGENT_RUNTIME_WORKSPACE_PATH, row);
-  return projectAgentRuntimeWorkspace(traceId, row);
-}
-function pickAgentRuntimeWorkspaceDirectory() {
-  if (process.platform === 'darwin') {
-    const result = spawnSync('osascript', ['-e', 'POSIX path of (choose folder with prompt "Select InfRing working directory")'], {
-      encoding: 'utf8',
-      timeout: 120000,
-    });
-    const out = cleanPathText(result.stdout, 1200);
-    if (result.status === 0 && out) return { ok: true, path: out };
-    return { ok: false, cancelled: true, reason: cleanText(result.stderr || 'folder_picker_cancelled', 240) };
-  }
-  if (process.platform === 'win32') {
-    const script = '[void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms");$d=New-Object System.Windows.Forms.FolderBrowserDialog;$d.Description="Select InfRing working directory";if($d.ShowDialog() -eq "OK"){[Console]::WriteLine($d.SelectedPath)}';
-    const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
-      encoding: 'utf8',
-      timeout: 120000,
-      windowsHide: true,
-    });
-    const out = cleanPathText(result.stdout, 1200);
-    if (result.status === 0 && out) return { ok: true, path: out };
-    return { ok: false, cancelled: true, reason: cleanText(result.stderr || 'folder_picker_cancelled', 240) };
-  }
-  const result = spawnSync('zenity', ['--file-selection', '--directory', '--title=Select InfRing working directory'], {
-    encoding: 'utf8',
-    timeout: 120000,
-  });
-  const out = cleanPathText(result.stdout, 1200);
-  if (result.status === 0 && out) return { ok: true, path: out };
-  return { ok: false, cancelled: true, reason: cleanText(result.stderr || 'folder_picker_unavailable', 240) };
 }
 function agentRuntimeTranscriptMessageRow(input) {
   const text = cleanDisplayText(input && input.text, 24000);
