@@ -86,6 +86,7 @@ function main() {
   const conformance = readJson(clean(evidenceInputs.conformance || 'core/local/artifacts/agent_runtime_engine_conformance_guard_current.json', 300));
   const contextEval = readJson(clean(evidenceInputs.context_continuity || 'core/local/artifacts/agent_runtime_context_continuity_eval_current.json', 300));
   const liveWork = readJson(clean(evidenceInputs.live_work || 'core/local/artifacts/agent_runtime_live_work_eval_current.json', 300));
+  const hardFailure = readJson(clean(evidenceInputs.hard_failure_injection || 'core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json', 300));
   const engines = Array.isArray(registry.engines) ? registry.engines : [];
   const adapterContracts = readJson(clean(registry.private_adapter_contracts || 'validation/conformance/contracts/agent_runtime_adapter_contracts.json', 300));
   const adapterRows = Array.isArray(adapterContracts.adapters) ? adapterContracts.adapters : [];
@@ -101,6 +102,7 @@ function main() {
     const liveApprovalOk = liveApplies && liveResults.approval_pause && liveResults.approval_pause.ok === true && liveResults.approval_decision && liveResults.approval_decision.ok === true;
     const liveReceiptsOk = liveApplies && Number(liveResults.completion && liveResults.completion.receipt_refs || 0) >= 3;
     const liveActivityOk = liveApplies && liveResults.completion && liveResults.completion.activity_trace === true;
+    const hardFailureOk = hardFailure.ok === true && hardFailure.type === 'agent_runtime_hard_failure_injection_eval';
     const external = engineId !== 'infring_native';
     const install = engine.install && typeof engine.install === 'object' ? engine.install : {};
     const caps = {
@@ -113,7 +115,14 @@ function main() {
       approval_pause: capability(liveApprovalOk ? 'pass' : liveApplies ? 'fail' : 'not_sampled', liveApplies ? 'Latest live work eval included approval pause and decision.' : 'Approval pause not sampled for this engine.'),
       durable_receipts: capability(liveReceiptsOk ? 'pass' : liveApplies ? 'fail' : 'partial', liveReceiptsOk ? 'Latest live work eval returned receipt refs.' : 'Receipt evidence comes from contract/conformance, not live engine sample.'),
       activity_trace: capability(liveActivityOk ? 'pass' : liveApplies ? 'fail' : 'partial', liveActivityOk ? 'Latest live work eval returned bounded activity trace.' : 'Activity trace evidence comes from contract/conformance, not live engine sample.'),
-      error_projection: capability(conformanceOk ? 'partial' : 'fail', conformanceOk ? 'Conformance requires hard-failure classes; live hard-failure sample may be separate.' : 'Conformance guard failed or missing.'),
+      error_projection: capability(
+        hardFailureOk ? 'pass' : conformanceOk ? 'partial' : 'fail',
+        hardFailureOk
+          ? `Hard-failure injection eval passed ${Number(hardFailure.summary && hardFailure.summary.passed) || 0} scenarios.`
+          : conformanceOk
+            ? 'Conformance requires hard-failure classes; hard-failure injection evidence is missing or stale.'
+            : 'Conformance guard failed or missing.',
+      ),
     };
     if (external && !install.download_action_ref && caps.discovery_metadata.status === 'pass') {
       caps.discovery_metadata = capability('partial', 'Discovery exists but install/download action metadata is incomplete.');
@@ -139,6 +148,7 @@ function main() {
     integration_incomplete: rows.filter((row) => row.classification === 'integration_incomplete').length,
     not_ready: rows.filter((row) => row.classification === 'not_ready').length,
     latest_live_work_engine: clean(liveWork.engine_id, 120),
+    hard_failure_injection_ok: hardFailure.ok === true,
   };
   const report = {
     ok: rows.length > 0 && rows.every((row) => row.engine_id && row.score >= 0),

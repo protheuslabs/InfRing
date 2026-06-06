@@ -23,6 +23,7 @@ function stripTerminalControls(value) {
 function cleanDisplayText(value, maxLen = 24000) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim().slice(0, maxLen); }
 function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanApprovalId(value) { return cleanText(value, 260).replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, ''); }
+function cleanReceiptComponent(value, maxLen = 200) { return cleanText(value, maxLen).replace(/[^A-Za-z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown'; }
 
 function normalizeModelProviderContext(body, engineId) {
   const source = body && body.model_provider_context && typeof body.model_provider_context === 'object'
@@ -117,6 +118,20 @@ function classifyAgentRuntimePreTurnFailureCode(engineId, source, fallback = 'ag
     return `${cleanEngine}_provider_rate_limited`;
   }
   if (
+    text.includes('network') ||
+    text.includes('offline') ||
+    text.includes('connection refused') ||
+    text.includes('connection reset') ||
+    text.includes('econnreset') ||
+    text.includes('econnrefused') ||
+    text.includes('enotfound') ||
+    text.includes('dns') ||
+    text.includes('socket hang up') ||
+    text.includes('transport unavailable')
+  ) {
+    return `${cleanEngine}_provider_network_unavailable`;
+  }
+  if (
     text.includes('not found') ||
     text.includes('missing') ||
     text.includes('not installed') ||
@@ -128,6 +143,102 @@ function classifyAgentRuntimePreTurnFailureCode(engineId, source, fallback = 'ag
   return cleanText(source && (source.error_code || source.error), 120) || fallback;
 }
 
+function agentRuntimeFailureNextActions(errorCode, engineId) {
+  const code = cleanText(errorCode, 160).toLowerCase();
+  const engine = cleanEngineId(engineId) || 'agent_runtime';
+  if (code.includes('provider_auth_required')) {
+    return [
+      `Check ${engine} login/API-key configuration.`,
+      'Retry the turn after credentials are available.',
+    ];
+  }
+  if (code.includes('provider_quota_or_subscription_unavailable')) {
+    return [
+      `Check ${engine} billing, subscription, or quota status.`,
+      'Switch to another runtime engine or provider until quota is restored.',
+    ];
+  }
+  if (code.includes('provider_rate_limited')) {
+    return [
+      'Wait for the provider rate limit window to reset.',
+      'Retry with a smaller or lower-frequency turn.',
+    ];
+  }
+  if (code.includes('provider_network_unavailable')) {
+    return [
+      'Check local network/provider connectivity.',
+      'Retry the turn or switch to an available local/runtime engine.',
+    ];
+  }
+  if (code.includes('runtime_not_available')) {
+    return [
+      `Install or repair the ${engine} runtime binary.`,
+      'Refresh runtime discovery after installation.',
+    ];
+  }
+  if (code.includes('timeout') || code.includes('timed_out')) {
+    return [
+      'Retry with a smaller request or longer Gateway turn budget.',
+      'Check whether the selected runtime is stalled.',
+    ];
+  }
+  if (code.includes('payload') || code.includes('budget')) {
+    return [
+      'Reduce the requested output/detail size or fetch raw evidence by ref.',
+      'Keep default chat projection bounded and retry.',
+    ];
+  }
+  if (code.includes('transport')) {
+    return [
+      'Check the runtime socket/CLI transport and retry.',
+      'Switch engines if the selected transport remains unavailable.',
+    ];
+  }
+  return [
+    'Inspect the linked trace/receipt refs for failure evidence.',
+    'Retry or switch runtime engines if the failure repeats.',
+  ];
+}
+
+function workedLabelFromMs(workedMs) {
+  const workedSeconds = Math.max(0, Math.round((Number(workedMs) || 0) / 1000));
+  return workedSeconds >= 3600
+    ? `Worked for ${Math.floor(workedSeconds / 3600)}h ${Math.floor((workedSeconds % 3600) / 60)}m ${workedSeconds % 60}s`
+    : workedSeconds >= 60
+      ? `Worked for ${Math.floor(workedSeconds / 60)}m ${workedSeconds % 60}s`
+      : `Worked for ${workedSeconds}s`;
+}
+
+function buildAgentRuntimeFailureActivityTrace({ traceId, engineId, sessionId, turnId, errorCode, displayText, workedMs = 0, providerEventType = 'pre_turn.failure' }) {
+  const cleanEngine = cleanEngineId(engineId) || 'agent_runtime';
+  const title = cleanDisplayText(displayText || `${cleanEngine} failed with ${errorCode || 'a classified error'}.`, 1000);
+  return {
+    type: 'agent_runtime_activity_trace_projection',
+    source_authority: 'gateway.runtime.agent_runtime_turn_projection',
+    trace_id: cleanText(traceId, 200),
+    engine_id: cleanEngine,
+    session_id: cleanText(sessionId, 200),
+    turn_id: cleanText(turnId, 200),
+    collapsed_by_default: true,
+    collapse_label: workedLabelFromMs(workedMs),
+    worked_ms: Math.max(0, Number(workedMs) || 0),
+    row_count: 1,
+    raw_activity_event_count: 1,
+    rows: [
+      {
+        type: 'agent_runtime_activity_trace_row',
+        sequence_no: 1,
+        activity_kind: 'error',
+        provider_event_type: cleanText(providerEventType, 160),
+        status: 'failed',
+        title,
+        detail_ref: `agent-runtime-activity/${cleanReceiptComponent(traceId, 200)}/${cleanReceiptComponent(turnId, 200)}/1`,
+      },
+    ],
+    summary_text: `${cleanEngine} failed with ${cleanText(errorCode || 'a classified error', 160)}.`,
+  };
+}
+
 function agentRuntimePreTurnFailureProjection(traceId, engineId, agentId, sessionId, turnId, reason, source = {}) {
   const cleanEngine = cleanEngineId(engineId) || 'agent_runtime';
   const errorCode = classifyAgentRuntimePreTurnFailureCode(cleanEngine, { ...source, reason });
@@ -135,6 +246,25 @@ function agentRuntimePreTurnFailureProjection(traceId, engineId, agentId, sessio
     reason || `${cleanEngine} is not available for this turn.`,
     1200,
   );
+  const receiptProjection = source && source.receipt_projection && typeof source.receipt_projection === 'object'
+    ? source.receipt_projection
+    : null;
+  const receiptRefs = Array.isArray(source && source.receipt_refs)
+    ? source.receipt_refs.map((item) => cleanText(item, 240)).filter(Boolean).slice(0, 8)
+    : receiptProjection && Array.isArray(receiptProjection.receipt_refs)
+      ? receiptProjection.receipt_refs.map((item) => cleanText(item, 240)).filter(Boolean).slice(0, 8)
+      : [];
+  const workedMs = Math.max(0, Number(source && source.worked_ms) || 0);
+  const activityTrace = buildAgentRuntimeFailureActivityTrace({
+    traceId,
+    engineId: cleanEngine,
+    sessionId,
+    turnId,
+    errorCode,
+    displayText,
+    workedMs,
+    providerEventType: source && source.provider_event_type || 'pre_turn.failure',
+  });
   return {
     ok: false,
     status_code: 200,
@@ -150,6 +280,7 @@ function agentRuntimePreTurnFailureProjection(traceId, engineId, agentId, sessio
     retryable: !/quota|subscription|auth|login|api_key|billing/i.test(errorCode),
     timed_out: false,
     timeout_ms: 0,
+    next_actions: agentRuntimeFailureNextActions(errorCode, cleanEngine),
     text: displayText,
     display_text: displayText,
     output_text: displayText,
@@ -173,8 +304,16 @@ function agentRuntimePreTurnFailureProjection(traceId, engineId, agentId, sessio
     activity_event_count: 1,
     raw_activity_event_count: 1,
     structured_activity: true,
+    activity_trace: activityTrace,
     result_ref: '',
     receipt_ref: '',
+    receipt_refs: receiptRefs,
+    receipt_count: receiptRefs.length,
+    receipt_projection: receiptProjection ? {
+      type: 'agent_runtime_receipt_projection',
+      receipt_refs: receiptRefs,
+      receipt_count: Number(receiptProjection.receipt_count) || receiptRefs.length,
+    } : null,
     pending_permission_request: null,
   };
 }
@@ -593,7 +732,35 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
           : `${engineId} is unavailable for this turn.`,
         1200,
       );
-      return agentRuntimePreTurnFailureProjection(traceId, engineId, agentId, sessionId, turnId, reason, health || {});
+      const errorCode = classifyAgentRuntimePreTurnFailureCode(engineId, { ...(health || {}), reason });
+      let receiptProjection = null;
+      try {
+        receiptProjection = deps.recordAgentRuntimeTurnReceipts
+          ? deps.recordAgentRuntimeTurnReceipts({
+            traceId,
+            engineId,
+            agentId,
+            sessionId,
+            turnId,
+            status: 'failed_with_reason',
+            modelProviderContext,
+            contextPack,
+            errorCode,
+            reason,
+            retryable: !/quota|subscription|auth|login|api_key|billing/i.test(errorCode),
+            timedOut: false,
+            timeoutMs: 0,
+            outputText: reason,
+            outputPreview: cleanText(reason, 4000),
+          })
+          : null;
+      } catch {}
+      return agentRuntimePreTurnFailureProjection(traceId, engineId, agentId, sessionId, turnId, reason, {
+        ...(health || {}),
+        error_code: errorCode,
+        receipt_projection: receiptProjection,
+        receipt_refs: receiptProjection && receiptProjection.receipt_refs,
+      });
     }
     emitSyntheticActivity('started', 'session.start', `Starting ${engineId} session ${sessionId}.`);
     await router.startSession({
@@ -765,12 +932,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       })
       .filter(Boolean)
       .slice(-48);
-    const workedSeconds = Math.max(0, Math.round(workedMs / 1000));
-    const workedLabel = workedSeconds >= 3600
-      ? `Worked for ${Math.floor(workedSeconds / 3600)}h ${Math.floor((workedSeconds % 3600) / 60)}m ${workedSeconds % 60}s`
-      : workedSeconds >= 60
-        ? `Worked for ${Math.floor(workedSeconds / 60)}m ${workedSeconds % 60}s`
-        : `Worked for ${workedSeconds}s`;
+    const workedLabel = workedLabelFromMs(workedMs);
     const persistedAssistantOutput = projectedPendingPermission ? permissionDisplayText : output;
     try {
       (deps.appendAgentRuntimeTurnAtoms || noop)({
@@ -838,6 +1000,9 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       retryable: turn && turn.retryable === true,
       timed_out: turn && turn.timed_out === true,
       timeout_ms: Number(turn && turn.timeout_ms) || 0,
+      next_actions: (terminalOutcomeStatus === 'failed_with_reason' || terminalOutcomeStatus === 'timed_out_with_reason')
+        ? agentRuntimeFailureNextActions(cleanText(turn && turn.error_code, 120), engineId)
+        : [],
       text: projectedPendingPermission ? permissionDisplayText : output,
       display_text: projectedPendingPermission ? permissionDisplayText : output,
       output_text: projectedPendingPermission ? permissionDisplayText : output,

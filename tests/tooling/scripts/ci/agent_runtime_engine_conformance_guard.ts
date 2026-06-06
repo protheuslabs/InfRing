@@ -197,6 +197,32 @@ for (const failureClass of ['provider_quota_or_subscription_unavailable', 'provi
     violations.push({ kind: 'turn_outcome_provider_failure_class_missing', failure_class: failureClass, path: turnOutcomeContractPath });
   }
 }
+const hardFailureInjectionRequirements = turnOutcomeContract.hard_failure_injection_requirements || {};
+if (!hardFailureInjectionRequirements.script || !exists(hardFailureInjectionRequirements.script)) {
+  violations.push({ kind: 'agent_runtime_hard_failure_injection_script_missing', path: hardFailureInjectionRequirements.script || null });
+}
+if (hardFailureInjectionRequirements.must_write_artifact !== 'core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json') {
+  violations.push({ kind: 'agent_runtime_hard_failure_injection_artifact_path_wrong', actual: hardFailureInjectionRequirements.must_write_artifact, path: turnOutcomeContractPath });
+}
+for (const [field, expected] of Object.entries({
+  must_project_http_200: true,
+  must_include_display_text: true,
+  must_include_next_actions: true,
+  must_include_receipt_refs: true,
+  must_include_activity_trace: true,
+})) {
+  if (hardFailureInjectionRequirements[field] !== expected) {
+    violations.push({ kind: 'agent_runtime_hard_failure_injection_requirement_missing', field, expected, actual: hardFailureInjectionRequirements[field], path: turnOutcomeContractPath });
+  }
+}
+for (const failureClass of ['provider_auth_required', 'provider_quota_or_subscription_unavailable', 'provider_rate_limited', 'provider_network_unavailable', 'runtime_not_available', 'turn_timeout', 'agent_runtime_payload_budget_exceeded', 'agent_runtime_transport_failure']) {
+  if (!Array.isArray(hardFailureInjectionRequirements.must_cover_failure_classes) || !hardFailureInjectionRequirements.must_cover_failure_classes.includes(failureClass)) {
+    violations.push({ kind: 'agent_runtime_hard_failure_injection_class_missing', failure_class: failureClass, path: turnOutcomeContractPath });
+  }
+}
+if (!engineScorecardContract.evidence_inputs || engineScorecardContract.evidence_inputs.hard_failure_injection !== 'core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json') {
+  violations.push({ kind: 'engine_scorecard_hard_failure_evidence_missing', path: engineScorecardContractPath });
+}
 for (const mode of ['prompt_text_compat', 'structured_json', 'native_session_bridge']) {
   if (!Array.isArray(structuredTransportContract.allowed_transport_modes) || !structuredTransportContract.allowed_transport_modes.includes(mode)) {
     violations.push({ kind: 'structured_transport_mode_missing', mode, path: structuredTransportContractPath });

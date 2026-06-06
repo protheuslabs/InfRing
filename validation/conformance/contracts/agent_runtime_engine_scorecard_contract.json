@@ -31,7 +31,8 @@
     "registry": "validation/conformance/contracts/agent_runtime_engine_registry.json",
     "conformance": "core/local/artifacts/agent_runtime_engine_conformance_guard_current.json",
     "context_continuity": "core/local/artifacts/agent_runtime_context_continuity_eval_current.json",
-    "live_work": "core/local/artifacts/agent_runtime_live_work_eval_current.json"
+    "live_work": "core/local/artifacts/agent_runtime_live_work_eval_current.json",
+    "hard_failure_injection": "core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json"
   },
   "score_policy": {
     "pass": 1,

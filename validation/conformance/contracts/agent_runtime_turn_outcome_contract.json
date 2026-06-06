@@ -51,6 +51,7 @@
         "error_code",
         "reason",
         "display_text",
+        "next_actions",
         "receipt_refs",
         "activity_trace"
       ],
@@ -69,6 +70,7 @@
         "reason",
         "timeout_ms",
         "display_text",
+        "next_actions",
         "receipt_refs",
         "activity_trace"
       ],
@@ -173,7 +175,10 @@
       "status",
       "error_code",
       "reason",
-      "display_text"
+      "display_text",
+      "next_actions",
+      "receipt_refs",
+      "activity_trace"
     ]
   },
   "provider_failure_reason_classes": [
@@ -185,6 +190,25 @@
     "turn_failed",
     "turn_timeout"
   ],
+  "hard_failure_injection_requirements": {
+    "script": "tests/tooling/scripts/ci/agent_runtime_hard_failure_injection_eval.ts",
+    "must_write_artifact": "core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json",
+    "must_project_http_200": true,
+    "must_include_display_text": true,
+    "must_include_next_actions": true,
+    "must_include_receipt_refs": true,
+    "must_include_activity_trace": true,
+    "must_cover_failure_classes": [
+      "provider_auth_required",
+      "provider_quota_or_subscription_unavailable",
+      "provider_rate_limited",
+      "provider_network_unavailable",
+      "runtime_not_available",
+      "turn_timeout",
+      "agent_runtime_payload_budget_exceeded",
+      "agent_runtime_transport_failure"
+    ]
+  },
   "live_smoke_requirements": {
     "script": "tests/tooling/scripts/ci/agent_runtime_cli_live_turn_smoke.ts",
     "engines": [
