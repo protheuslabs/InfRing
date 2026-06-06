@@ -98,6 +98,20 @@ const requiredDocs = [
     ],
     forbidden: [],
   },
+  {
+    path: 'docs/workspace/system_action_authority_policy.md',
+    tokens: [
+      'System actions are OS/runtime authority, not Gateway authority.',
+      'Gateway may own external route admission and bounded response projection for system controls',
+      'Core / ops system-action authority',
+      'Gateway system control routes forward to Core/ops authority.',
+    ],
+    forbidden: [
+      'Gateway owns restart authority',
+      'Gateway owns shutdown authority',
+      'Gateway owns update authority',
+    ],
+  },
 ];
 
 for (const doc of requiredDocs) {
@@ -111,6 +125,14 @@ for (const doc of requiredDocs) {
   }
   for (const token of doc.forbidden) {
     if (text.includes(token)) push('forbidden_legacy_doc_token_present', doc.path, token);
+  }
+}
+
+const gatewaySystemRoutesPath = 'gateway/runtime/gateway_system_routes.ts';
+if (exists(gatewaySystemRoutesPath)) {
+  const gatewaySystemRoutes = read(gatewaySystemRoutesPath);
+  if (/spawn\s*\(|resolveBinary\s*\(|invokeInfringOpsViaBridge\s*\(|runInfringOps\s*\(|process\.exit\s*\(|dispatchDashboardSystemAction\s*\(|runDashboardSystemAction\s*\(/.test(gatewaySystemRoutes)) {
+    push('gateway_system_route_owns_os_authority', gatewaySystemRoutesPath, 'Gateway system routes may wrap/forward system controls, but must not spawn binaries, call resident IPC directly, or exit the host process.');
   }
 }
 

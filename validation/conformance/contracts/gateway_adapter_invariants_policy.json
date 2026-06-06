@@ -51,6 +51,7 @@
     "gateway_status_is_non_mutating",
     "gateway_default_payloads_are_bounded",
     "gateway_detail_fetches_are_ref_based",
+    "gateway_system_routes_wrap_but_do_not_own_os_authority",
     "gateway_shutdown_timers_are_bounded",
     "gateway_external_surface_does_not_mirror_raw_runtime_state"
   ],

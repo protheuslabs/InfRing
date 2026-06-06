@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-04T21:46:09.374Z
+Updated: 2026-06-06T20:58:00.000Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-04T21:46:09.374Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 24
+- active_items: 33
 - red: 4
-- yellow: 12
+- yellow: 21
 - white: 8
 
 ## Red Section (Do Immediately)
@@ -85,6 +85,20 @@ Updated: 2026-06-04T21:46:09.374Z
   work_gate: `simplification`
   real_work_score: `5`
   summary: Strengthen conformance so adapters/** may parse private provider/framework protocols but cannot own Gateway policy, Shell-facing sockets, permission policy, payload budgets, route admission, or runtime authority.
+- `SYSTEM-ACTION-AUTHORITY-RECEIPTS` — Replace dashboard system-action fallback with Core receipts
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Gateway Physical Domain Cleanup`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Ensure restart, shutdown, and update routes are Gateway-wrapped but Core/ops-authoritative, returning deterministic receipts or receipt refs while retiring dashboard-host detached subprocess fallback glue.
+- `AGENT-RUNTIME-ACTIVITY-TRACE-PARITY` — Normalize external runtime activity into useful collapsible traces
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Unified Agent Runtime Framework`
+  work_gate: `real_work`
+  real_work_score: `5`
+  summary: Capture and normalize framework activity streams into concise user-facing traces with real status text, tool calls, file changes, command results, failure events, and post-turn decision dialog, while keeping raw evidence behind refs and payload budgets.
 - `AGENT-RUNTIME-ADAPTER-CONTEXT-INJECTION` — Inject shared context into CLI and socket adapters
   owner: `codex`
   deadline: `2026-06-17`
@@ -92,6 +106,13 @@ Updated: 2026-06-04T21:46:09.374Z
   work_gate: `real_work`
   real_work_score: `5`
   summary: Render the shared envelope into a consistent bounded adapter preamble for Codex, Claude Code, Grok Code, custom socket engines, and native Infring without engine-specific prompt drift.
+- `AGENT-RUNTIME-APPROVAL-PAUSE-RESUME` — Make approval gates pause and resume runtime turns
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Unified Agent Runtime Framework`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: When Codex, Claude Code, Grok Code, native Infring, or socket engines hit a gated action, Gateway should create a permission request, pause the turn, wait for the user or future gatekeeper decision, and resume or fail with a durable decision receipt instead of letting the agent finish blocked.
 - `AGENT-RUNTIME-CONTEXT-BUILDER` — Build Gateway-owned runtime context assembly
   owner: `codex`
   deadline: `2026-06-17`
@@ -120,6 +141,27 @@ Updated: 2026-06-04T21:46:09.374Z
   work_gate: `reliability`
   real_work_score: `5`
   summary: Separate universal tools like conversation read, memory read/write-propose, artifact refs, and permission requests from native-only workflow tools, with Gateway enforcement and receipts.
+- `AGENT-RUNTIME-DURABLE-RECEIPTS` — Make external runtime effects receipt-first
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Unified Agent Runtime Framework`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Ensure every external runtime effect that matters has a durable InfRing receipt, including selected engine/model, context pack ref, approval decision, tool proposal, accepted artifact change, command outcome, final response, and failure classification.
+- `AGENT-RUNTIME-ENGINE-SCORECARD` — Create an engine parity and usefulness scorecard
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Unified Agent Runtime Framework`
+  work_gate: `real_work`
+  real_work_score: `4`
+  summary: Track each runtime engine against the same capabilities: discovery, model catalog, context continuity, useful work, approval pausing, universal tools, durable receipts, activity traces, error injection, and reload persistence.
+- `AGENT-RUNTIME-LIVE-WORK-EVALS` — Add live useful-work evals for every selectable runtime
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Unified Agent Runtime Framework`
+  work_gate: `real_work`
+  real_work_score: `5`
+  summary: Create live evals that ask each selectable runtime to perform practical agent work through InfRing, such as creating a small app, editing a file, reading prior context, using approved tools, and reporting receipts, then score whether it actually worked.
 - `AGENT-RUNTIME-MEMORY-BRIDGE` — Bridge unified memory into runtime context
   owner: `codex`
   deadline: `2026-06-17`
@@ -134,6 +176,27 @@ Updated: 2026-06-04T21:46:09.374Z
   work_gate: `reliability`
   real_work_score: `5`
   summary: Graduate /ws/agent-runtime from contracted_not_live to a live Gateway socket so dashboard, CLI, SDK, and future shells submit turns through the same UI-agnostic boundary instead of adapter-hosted HTTP shims.
+- `AGENT-RUNTIME-STRUCTURED-TRANSPORT` — Migrate external engines beyond prompt-text context hydration
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Unified Agent Runtime Framework`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Move external engines from prompt_text_compat toward structured_json or native session bridges where available, preserving the same AgentRuntimeTurnEnvelope while reducing token waste, ambiguity, duplicate transcript rows, and prompt-layer drift.
+- `AGENT-RUNTIME-UNIFIED-ERROR-INJECTION` — Inject hard runtime failures into chat as first-class messages
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Unified Agent Runtime Framework`
+  work_gate: `reliability`
+  real_work_score: `4`
+  summary: When an external framework fails from auth, quota, subscription, missing binary, timeout, payload budget, or transport failure, Gateway should emit a bounded chat-visible failure message plus trace refs and next actions instead of silently ending the turn.
+- `INFRING-NATIVE-RUNTIME-PARITY` — Make InfRing Native obey the same runtime abstraction as external engines
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Unified Agent Runtime Framework`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Route InfRing Native through the same engine_id, context envelope, available_models, activity event, permission request, artifact ref, and receipt surfaces used by external engines so native orchestration is swappable rather than special-cased.
 
 ## White Section (Do At Leisure)
 - `TRACE-IMPL` — Implement end-to-end unified trace_id propagation
@@ -197,4 +260,3 @@ Updated: 2026-06-04T21:46:09.374Z
 - When an item in this file is completed, remove it from this live board and append it to [TODO_ARCHIVE.md](/Users/jay/.openclaw/workspace/docs/workspace/todo/TODO_ARCHIVE.md) through the scripted flow.
 - Do not let completed rows accumulate here again.
 - Treat Markdown as a rendered operator surface, not the canonical mutation target.
-
