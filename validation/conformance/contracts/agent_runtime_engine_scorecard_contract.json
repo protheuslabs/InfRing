@@ -25,6 +25,7 @@
     "approval_pause",
     "durable_receipts",
     "activity_trace",
+    "structured_transport",
     "error_projection"
   ],
   "evidence_inputs": {
@@ -32,6 +33,7 @@
     "conformance": "core/local/artifacts/agent_runtime_engine_conformance_guard_current.json",
     "context_continuity": "core/local/artifacts/agent_runtime_context_continuity_eval_current.json",
     "live_work": "core/local/artifacts/agent_runtime_live_work_eval_current.json",
+    "structured_transport": "core/local/artifacts/agent_runtime_structured_transport_eval_current.json",
     "hard_failure_injection": "core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json"
   },
   "score_policy": {

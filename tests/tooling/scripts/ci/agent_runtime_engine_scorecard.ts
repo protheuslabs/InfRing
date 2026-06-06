@@ -72,6 +72,7 @@ function nextActions(engineId: string, caps: Record<string, ReturnType<typeof ca
   if (caps.approval_pause.status !== 'pass') out.push('Verify gated tool proposal pauses and resumes through Gateway approval route.');
   if (caps.durable_receipts.status !== 'pass') out.push('Ensure terminal projections include Gateway receipt refs.');
   if (caps.activity_trace.status !== 'pass') out.push('Normalize activity into bounded user-facing trace rows.');
+  if (caps.structured_transport.status !== 'pass') out.push('Attach and validate Gateway-owned structured turn payloads before adapter dispatch.');
   if (caps.error_projection.status !== 'pass' && caps.error_projection.status !== 'not_applicable') out.push('Add or refresh hard-failure projection evidence.');
   if (!out.length && engineId !== 'infring_native') out.push('Promote this engine to broader live useful-work scenarios.');
   if (!out.length) out.push('Keep monitoring parity against external engines.');
@@ -86,6 +87,7 @@ function main() {
   const conformance = readJson(clean(evidenceInputs.conformance || 'core/local/artifacts/agent_runtime_engine_conformance_guard_current.json', 300));
   const contextEval = readJson(clean(evidenceInputs.context_continuity || 'core/local/artifacts/agent_runtime_context_continuity_eval_current.json', 300));
   const liveWork = readJson(clean(evidenceInputs.live_work || 'core/local/artifacts/agent_runtime_live_work_eval_current.json', 300));
+  const structuredTransport = readJson(clean(evidenceInputs.structured_transport || 'core/local/artifacts/agent_runtime_structured_transport_eval_current.json', 300));
   const hardFailure = readJson(clean(evidenceInputs.hard_failure_injection || 'core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json', 300));
   const engines = Array.isArray(registry.engines) ? registry.engines : [];
   const adapterContracts = readJson(clean(registry.private_adapter_contracts || 'validation/conformance/contracts/agent_runtime_adapter_contracts.json', 300));
@@ -102,6 +104,7 @@ function main() {
     const liveApprovalOk = liveApplies && liveResults.approval_pause && liveResults.approval_pause.ok === true && liveResults.approval_decision && liveResults.approval_decision.ok === true;
     const liveReceiptsOk = liveApplies && Number(liveResults.completion && liveResults.completion.receipt_refs || 0) >= 3;
     const liveActivityOk = liveApplies && liveResults.completion && liveResults.completion.activity_trace === true;
+    const structuredTransportOk = structuredTransport.ok === true && structuredTransport.type === 'agent_runtime_structured_transport_eval';
     const hardFailureOk = hardFailure.ok === true && hardFailure.type === 'agent_runtime_hard_failure_injection_eval';
     const external = engineId !== 'infring_native';
     const install = engine.install && typeof engine.install === 'object' ? engine.install : {};
@@ -115,6 +118,14 @@ function main() {
       approval_pause: capability(liveApprovalOk ? 'pass' : liveApplies ? 'fail' : 'not_sampled', liveApplies ? 'Latest live work eval included approval pause and decision.' : 'Approval pause not sampled for this engine.'),
       durable_receipts: capability(liveReceiptsOk ? 'pass' : liveApplies ? 'fail' : 'partial', liveReceiptsOk ? 'Latest live work eval returned receipt refs.' : 'Receipt evidence comes from contract/conformance, not live engine sample.'),
       activity_trace: capability(liveActivityOk ? 'pass' : liveApplies ? 'fail' : 'partial', liveActivityOk ? 'Latest live work eval returned bounded activity trace.' : 'Activity trace evidence comes from contract/conformance, not live engine sample.'),
+      structured_transport: capability(
+        structuredTransportOk ? 'pass' : conformanceOk ? 'partial' : 'fail',
+        structuredTransportOk
+          ? `Structured transport eval passed with ref ${clean(structuredTransport.structured_turn_ref, 160)}.`
+          : conformanceOk
+            ? 'Conformance declares structured transport target; structured transport eval evidence is missing or stale.'
+            : 'Conformance guard failed or missing.',
+      ),
       error_projection: capability(
         hardFailureOk ? 'pass' : conformanceOk ? 'partial' : 'fail',
         hardFailureOk
@@ -149,6 +160,7 @@ function main() {
     not_ready: rows.filter((row) => row.classification === 'not_ready').length,
     latest_live_work_engine: clean(liveWork.engine_id, 120),
     hard_failure_injection_ok: hardFailure.ok === true,
+    structured_transport_eval_ok: structuredTransport.ok === true,
   };
   const report = {
     ok: rows.length > 0 && rows.every((row) => row.engine_id && row.score >= 0),

@@ -101,7 +101,7 @@ if (engineScorecardContract.turn_outcome_contract !== turnOutcomeContractPath) v
 if (!engineScorecardContract.script || !exists(engineScorecardContract.script)) violations.push({ kind: 'engine_scorecard_script_missing', path: engineScorecardContract.script || null });
 if (engineScorecardContract.artifact !== 'core/local/artifacts/agent_runtime_engine_scorecard_current.json') violations.push({ kind: 'engine_scorecard_artifact_path_wrong', actual: engineScorecardContract.artifact, path: engineScorecardContractPath });
 if (engineScorecardContract.shell_boundary_rule?.shell_may_not_score_or_interpret_engines !== true) violations.push({ kind: 'engine_scorecard_shell_boundary_missing', path: engineScorecardContractPath });
-for (const capability of ['registered', 'adapter_contract', 'discovery_metadata', 'model_catalog_metadata', 'context_continuity', 'live_work_completion', 'approval_pause', 'durable_receipts', 'activity_trace', 'error_projection']) {
+for (const capability of ['registered', 'adapter_contract', 'discovery_metadata', 'model_catalog_metadata', 'context_continuity', 'live_work_completion', 'approval_pause', 'durable_receipts', 'activity_trace', 'structured_transport', 'error_projection']) {
   if (!Array.isArray(engineScorecardContract.scored_capabilities) || !engineScorecardContract.scored_capabilities.includes(capability)) {
     violations.push({ kind: 'engine_scorecard_capability_missing', capability, path: engineScorecardContractPath });
   }
