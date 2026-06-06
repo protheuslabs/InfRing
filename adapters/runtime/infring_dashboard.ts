@@ -27,6 +27,8 @@ const { createInfringNativeEngineAdapter } = require('./agent_engines/infring_na
 const { createCodexCliEngineAdapter } = require('./agent_engines/codex_cli.ts');
 const { createClaudeCodeEngineAdapter } = require('./agent_engines/claude_code.ts');
 const { createGrokCodeEngineAdapter } = require('./agent_engines/grok_code.ts');
+const { createOpenClawEngineAdapter } = require('./agent_engines/openclaw.ts');
+const { createHermesAgentEngineAdapter } = require('./agent_engines/hermes_agent.ts');
 const {
   isShellSocketChatProjectionPath,
   shellSocketChatProjection,
@@ -129,6 +131,7 @@ const {
 const agentRuntimeApprovalStore = createAgentRuntimeApprovalStore({ root: ROOT });
 const {
   sanitizeAgentRuntimeProposalArguments,
+  recordAgentRuntimePendingApproval,
   agentRuntimeApprovalDecisionProjection,
   mergeAgentRuntimeApprovalPermissionPolicy,
 } = agentRuntimeApprovalStore;
@@ -175,6 +178,7 @@ const agentRuntimeTurnProjectionStore = createAgentRuntimeTurnProjectionStore({
   buildUniversalToolGrants,
   drainAgentRuntimeSteeringInterventions,
   sanitizeAgentRuntimeProposalArguments,
+  recordAgentRuntimePendingApproval,
 });
 const {
   agentRuntimeTurnProjection,
@@ -458,6 +462,8 @@ function createAgentRuntimeEngineAdapterMap(options = {}) {
     codex_cli: createCodexCliEngineAdapter({ liveDispatch, cwd }),
     claude_code: createClaudeCodeEngineAdapter({ liveDispatch, cwd }),
     grok_code: createGrokCodeEngineAdapter({ liveDispatch, cwd }),
+    openclaw: createOpenClawEngineAdapter({ liveDispatch, cwd }),
+    hermes_agent: createHermesAgentEngineAdapter({ liveDispatch, cwd }),
   };
 }
 function createDashboardAgentRuntimeRouter(options = {}) {

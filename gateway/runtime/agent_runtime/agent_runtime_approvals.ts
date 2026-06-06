@@ -30,6 +30,7 @@ function ensureDir(dir) {
 function createAgentRuntimeApprovalStore(options = {}) {
   const root = path.resolve(options.root || process.cwd());
   const approvalDecisions = new Map();
+  const pendingApprovals = new Map();
 
   function sanitizeAgentRuntimeProposalArguments(value) {
     const source = value && typeof value === 'object' ? value : {};
@@ -84,23 +85,93 @@ function createAgentRuntimeApprovalStore(options = {}) {
     };
   }
 
+  function normalizePendingApprovalRequest(request) {
+    const source = request && typeof request === 'object' ? request : {};
+    const approvalId = cleanApprovalId(source.approval_id);
+    const toolId = cleanText(source.tool_id, 120);
+    const traceId = cleanText(source.trace_id, 200);
+    const proposalArguments = sanitizeAgentRuntimeProposalArguments(source.proposal_arguments || source.arguments);
+    return {
+      type: 'agent_runtime_pending_approval',
+      schema_version: 1,
+      approval_id: approvalId,
+      trace_id: traceId,
+      request_id: cleanText(source.request_id, 200),
+      engine_id: cleanEngineId(source.engine_id),
+      session_id: cleanText(source.session_id, 200),
+      turn_id: cleanText(source.turn_id, 200),
+      tool_call_ref: cleanText(source.tool_call_ref, 240),
+      tool_id: toolId,
+      capability: cleanText(source.capability, 160),
+      reason: cleanText(source.reason, 1000),
+      argument_keys: Array.isArray(source.argument_keys)
+        ? source.argument_keys.map((key) => cleanText(key, 80)).filter(Boolean).slice(0, 24)
+        : Object.keys(proposalArguments || {}).map((key) => cleanText(key, 80)).filter(Boolean).slice(0, 24),
+      proposal_arguments: proposalArguments,
+      gatekeeper_kind: cleanText(source.gatekeeper_kind || 'user', 80) || 'user',
+      future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor', 'admin_agent'],
+      decisions: ['allow_once', 'deny', 'always_allow_tool_call'],
+      decision_scope: 'tool_call',
+      status: 'paused_pending_approval',
+      resume_strategy: Object.keys(proposalArguments || {}).length
+        ? 'gateway_apply_approved_effect'
+        : 'grant_then_retry_next_turn',
+      created_at: nowIso(),
+      source_authority: 'gateway.runtime.agent_runtime_approvals',
+    };
+  }
+
+  function recordAgentRuntimePendingApproval(request) {
+    const row = normalizePendingApprovalRequest(request);
+    if (!row.approval_id) return null;
+    pendingApprovals.set(row.approval_id, row);
+    if (pendingApprovals.size > 200) {
+      const firstKey = pendingApprovals.keys().next().value;
+      if (firstKey) pendingApprovals.delete(firstKey);
+    }
+    const argumentPreview = cleanDisplayText(
+      row.proposal_arguments && (row.proposal_arguments.path || row.proposal_arguments.content || row.proposal_arguments.text || ''),
+      1200,
+    );
+    return {
+      ...row,
+      proposal_arguments: undefined,
+      proposal_arguments_ref: `approval-pending/${row.approval_id}/proposal-arguments`,
+      proposal_arguments_preview: argumentPreview,
+      approval_route: `/api/shell-socket/approvals/${encodeURIComponent(row.approval_id)}/decision`,
+    };
+  }
+
   function agentRuntimeApprovalDecisionProjection(traceId, approvalId, body) {
     const id = cleanApprovalId(approvalId);
     const decision = cleanText(body && body.decision, 80);
     const allowed = new Set(['allow_once', 'deny', 'always_allow_tool_call']);
     if (!id) return { ok: false, status_code: 400, type: 'approval_decision_ack', trace_id: traceId, error: 'approval_id_required' };
     if (!allowed.has(decision)) return { ok: false, status_code: 400, type: 'approval_decision_ack', trace_id: traceId, approval_id: id, error: 'approval_decision_invalid' };
+    const pending = pendingApprovals.get(id) || null;
+    const decisionBody = {
+      ...(pending || {}),
+      ...(body && typeof body === 'object' ? body : {}),
+      tool_id: cleanText((body && body.tool_id) || (pending && pending.tool_id), 120),
+      proposal_arguments:
+        body && (body.proposal_arguments || body.arguments)
+          ? (body.proposal_arguments || body.arguments)
+          : pending && pending.proposal_arguments,
+      engine_id: cleanEngineId((body && body.engine_id) || (pending && pending.engine_id)),
+      session_id: cleanText((body && body.session_id) || (pending && pending.session_id), 200),
+      tool_call_ref: cleanText((body && body.tool_call_ref) || (pending && pending.tool_call_ref), 240),
+    };
     let executionResult = null;
     if (decision !== 'deny') {
       try {
-        executionResult = executeAgentRuntimeApprovedProposal(traceId, id, body);
+        executionResult = executeAgentRuntimeApprovedProposal(traceId, id, decisionBody);
       } catch (error) {
         executionResult = {
           ok: false,
           type: 'agent_runtime_approval_effect_error',
           approval_id: id,
           trace_id: traceId,
-          tool_id: cleanText(body && body.tool_id, 120),
+          tool_id: cleanText(decisionBody && decisionBody.tool_id, 120),
           error: cleanText(error && error.message ? error.message : error, 240),
         };
       }
@@ -111,12 +182,20 @@ function createAgentRuntimeApprovalStore(options = {}) {
       trace_id: traceId,
       approval_id: id,
       decision,
-      tool_id: cleanText(body && body.tool_id, 120),
-      tool_call_ref: cleanText(body && body.tool_call_ref, 240),
-      engine_id: cleanEngineId(body && body.engine_id),
-      session_id: cleanText(body && body.session_id, 200),
-      gatekeeper_kind: cleanText(body && body.gatekeeper_kind || 'user', 80) || 'user',
+      tool_id: cleanText(decisionBody && decisionBody.tool_id, 120),
+      tool_call_ref: cleanText(decisionBody && decisionBody.tool_call_ref, 240),
+      engine_id: cleanEngineId(decisionBody && decisionBody.engine_id),
+      session_id: cleanText(decisionBody && decisionBody.session_id, 200),
+      gatekeeper_kind: cleanText((body && body.gatekeeper_kind) || (pending && pending.gatekeeper_kind) || 'user', 80) || 'user',
       decided_at: nowIso(),
+      pending_request_found: !!pending,
+      paused_turn_id: cleanText(pending && pending.turn_id, 200),
+      resume_strategy: pending && pending.resume_strategy
+        ? pending.resume_strategy
+        : executionResult && executionResult.ok
+          ? 'gateway_apply_approved_effect'
+          : 'grant_then_retry_next_turn',
+      resumed: decision !== 'deny' && !!(executionResult && executionResult.ok),
       durable_effect_executed: !!(executionResult && executionResult.ok),
       execution_result: executionResult,
       next_action: decision === 'deny'
@@ -125,6 +204,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
           ? 'tool_call_executed'
           : 'tool_call_permission_recorded_for_next_agent_runtime_turn',
     };
+    pendingApprovals.delete(id);
     approvalDecisions.set(id, row);
     if (approvalDecisions.size > 200) {
       const firstKey = approvalDecisions.keys().next().value;
@@ -163,6 +243,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
 
   return {
     sanitizeAgentRuntimeProposalArguments,
+    recordAgentRuntimePendingApproval,
     agentRuntimeApprovalDecisionProjection,
     mergeAgentRuntimeApprovalPermissionPolicy,
   };

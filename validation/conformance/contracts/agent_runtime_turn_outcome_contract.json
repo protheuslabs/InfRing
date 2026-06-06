@@ -30,7 +30,8 @@
         "session_id",
         "turn_id",
         "status",
-        "pending_permission_request"
+        "pending_permission_request",
+        "approval_pause"
       ],
       "http_projection_status": 200
     },
@@ -81,6 +82,30 @@
     "adapter_may_not_default_below_gateway_declared_budget": true,
     "timeout_must_emit_user_visible_activity": true,
     "timeout_must_set_retryable_true": true
+  },
+  "approval_pause_resume_rule": {
+    "gateway_must_record_pending_request": true,
+    "shell_may_only_render_request_and_submit_decision": true,
+    "shell_may_not_reconstruct_proposal_arguments": true,
+    "decision_route_must_resolve_from_gateway_pending_request": true,
+    "decision_must_emit_ack_receipt": true,
+    "allowed_gatekeepers_today": [
+      "user"
+    ],
+    "future_gatekeepers_allowed": [
+      "system_policy",
+      "agent_supervisor",
+      "admin_agent"
+    ],
+    "allowed_decisions": [
+      "allow_once",
+      "deny",
+      "always_allow_tool_call"
+    ],
+    "resume_strategies": [
+      "gateway_apply_approved_effect",
+      "grant_then_retry_next_turn"
+    ]
   },
   "pre_turn_failure_rule": {
     "engine_unavailable_must_project_chat_visible_failure": true,

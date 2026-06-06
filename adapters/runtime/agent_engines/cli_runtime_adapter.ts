@@ -583,6 +583,34 @@ function formatConversationTranscriptLine(fragment) {
   return `${speaker} (${role}${sourceKind ? `/${sourceKind}` : ''}): ${text}`;
 }
 
+function formatStructuredConversationLine(row) {
+  const item = row && typeof row === 'object' ? row : {};
+  const role = cleanString(item.role || item.source_kind || 'message', 40).toLowerCase();
+  const sourceKind = cleanString(item.source_kind || '', 80);
+  const speaker = cleanString(item.speaker_label || role || 'message', 80);
+  const text = cleanDisplayString(item.content_preview || item.text_preview || item.summary || item.text || item.content || '', 1600);
+  if (!text) return '';
+  return `${speaker} (${role || 'message'}${sourceKind ? `/${sourceKind}` : ''}): ${text}`;
+}
+
+function formatRelevantMemoryLine(row) {
+  const item = row && typeof row === 'object' ? row : {};
+  const kind = cleanString(item.kind || 'memory_ref', 80);
+  const ref = cleanString(item.ref_id || item.source_ref || item.ref || '', 180);
+  const summary = cleanDisplayString(item.summary || item.content_preview || item.text_preview || item.text || '', 900);
+  const memoryRefs = Array.isArray(item.memory_version_refs)
+    ? item.memory_version_refs.map((value) => cleanString(value, 120)).filter(Boolean).slice(0, 4)
+    : [];
+  const suffix = memoryRefs.length ? ` memory_refs=${memoryRefs.join('; ')}` : '';
+  if (!ref && !summary && !suffix) return '';
+  return `- ${kind}${ref ? ` ${ref}` : ''}${summary ? `: ${summary}` : ''}${suffix}`.trim();
+}
+
+function structuredEnvelopeFromPack(pack) {
+  const source = pack && typeof pack === 'object' ? pack : {};
+  return source.turn_envelope && typeof source.turn_envelope === 'object' ? source.turn_envelope : source;
+}
+
 function dedupePromptLines(lines) {
   const out = [];
   const seen = new Set();
@@ -648,12 +676,26 @@ function buildPromptWithContext(contextPack, currentPrompt) {
   const current = cleanDisplayString(currentPrompt || '', 12000);
   if (!current) return '';
   const pack = contextPack && typeof contextPack === 'object' ? contextPack : null;
+  const envelope = structuredEnvelopeFromPack(pack);
   const fragments = pack && Array.isArray(pack.fragments) ? pack.fragments.slice() : [];
   const toolGrantSection = renderUniversalToolGrantPromptSection(pack && pack.universal_tool_grants);
   const steeringSection = renderRuntimeSteeringPromptSection(pack && pack.runtime_steering);
   const attachmentSection = renderRuntimeAttachmentPromptSection(pack && pack.runtime_attachment_refs);
+  const structuredConversationRows = Array.isArray(envelope && envelope.conversation_window)
+    ? envelope.conversation_window
+    : [];
+  const structuredRelevantMemoryRows = Array.isArray(envelope && envelope.relevant_memory)
+    ? envelope.relevant_memory
+    : [];
   if (!pack) return current;
-  if (fragments.length === 0 && !toolGrantSection && !steeringSection && !attachmentSection) return current;
+  if (
+    fragments.length === 0 &&
+    structuredConversationRows.length === 0 &&
+    structuredRelevantMemoryRows.length === 0 &&
+    !toolGrantSection &&
+    !steeringSection &&
+    !attachmentSection
+  ) return current;
   const hot = fragments
     .filter((row) => row && row.kind === 'atom')
     .sort((a, b) => fragmentSortValue(a) - fragmentSortValue(b))
@@ -662,7 +704,14 @@ function buildPromptWithContext(contextPack, currentPrompt) {
     .map(formatContextFragment)
     .filter(Boolean)
     .slice(-6);
-  const conversationTranscript = dedupePromptLines(hot.map(formatConversationTranscriptLine)).slice(-12);
+  const conversationTranscript = dedupePromptLines(
+    structuredConversationRows.length
+      ? structuredConversationRows.map(formatStructuredConversationLine)
+      : hot.map(formatConversationTranscriptLine),
+  ).slice(-12);
+  const relevantMemoryLines = dedupePromptLines(
+    structuredRelevantMemoryRows.map(formatRelevantMemoryLine),
+  ).slice(-8);
   const spans = fragments
     .filter((row) => row && row.kind === 'span')
     .sort((a, b) => {
@@ -678,6 +727,7 @@ function buildPromptWithContext(contextPack, currentPrompt) {
     `- source_authority: ${cleanString(pack.source_authority || 'gateway_bounded_projection', 160)}`,
     `- gateway_generated_at: ${new Date().toISOString()}`,
     `- session_id: ${cleanString(pack.session_id, 120)}`,
+    `- turn_envelope: ${envelope && envelope.type === 'AgentRuntimeTurnEnvelope' ? 'structured' : 'fragment_projection'}`,
     `- fanout_target: ${cleanString(pack.fanout_target || 7, 20)}`,
     '- trust_model: visible transcript rows are context; receipts are facts; tool proposals are intentions only until an approval decision and durable receipt exist.',
     '- temporal_precedence: if dates conflict, prefer explicit Gateway/runtime timestamps in this context pack, then the controlling runtime environment, then transcript text as historical evidence.',
@@ -685,6 +735,7 @@ function buildPromptWithContext(contextPack, currentPrompt) {
     '- permission bridge: If the current user turn requires creating, editing, deleting, running commands, or writing memory and your runtime/tooling cannot proceed because approval is missing, do not stop with a generic refusal. Attempt the native action/proposal path if available. If it is blocked, report the exact blocked action and permission reason so InfRing Gateway can convert it into a user approval request.',
   ];
   if (conversationTranscript.length) lines.push('', 'Recent conversation transcript:', ...conversationTranscript);
+  if (relevantMemoryLines.length) lines.push('', 'Relevant InfRing memory refs:', ...relevantMemoryLines);
   if (spans.length) lines.push('', 'Selected context spans:', ...spans);
   if (hotContextFragments.length) lines.push('', 'Recent context atoms:', ...hotContextFragments);
   if (attachmentSection) lines.push('', attachmentSection);

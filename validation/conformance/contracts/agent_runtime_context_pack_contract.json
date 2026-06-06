@@ -131,6 +131,20 @@
     ]
   },
   "required_gateway_enriched_pack_fields": [
-    "universal_tool_grants"
-  ]
+    "user_message",
+    "conversation_window",
+    "context_budget",
+    "permission_scope",
+    "universal_tool_grants",
+    "turn_envelope"
+  ],
+  "gateway_enriched_pack_rules": {
+    "turn_envelope_type": "AgentRuntimeTurnEnvelope",
+    "conversation_window_source": "Gateway must derive conversation_window from Kernel/fallback context fragments, not Shell-owned full conversation state.",
+    "conversation_window_contains_current_or_recent_atoms": true,
+    "relevant_memory_is_ref_first": true,
+    "context_budget_required": true,
+    "permission_scope_required": true,
+    "prompt_text_adapters_must_render_from_turn_envelope_first": true
+  }
 }

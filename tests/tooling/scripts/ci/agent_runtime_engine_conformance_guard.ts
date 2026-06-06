@@ -94,6 +94,28 @@ for (const forbidden of ['silent_failure', 'worked_timer_without_final_status', 
 if (turnOutcomeContract.pre_turn_failure_rule?.engine_unavailable_must_project_chat_visible_failure !== true) {
   violations.push({ kind: 'turn_outcome_pre_turn_failure_projection_missing', path: turnOutcomeContractPath });
 }
+const approvalPauseResumeRule = turnOutcomeContract.approval_pause_resume_rule || {};
+for (const [field, expected] of Object.entries({
+  gateway_must_record_pending_request: true,
+  shell_may_only_render_request_and_submit_decision: true,
+  shell_may_not_reconstruct_proposal_arguments: true,
+  decision_route_must_resolve_from_gateway_pending_request: true,
+  decision_must_emit_ack_receipt: true,
+})) {
+  if (approvalPauseResumeRule[field] !== expected) {
+    violations.push({ kind: 'approval_pause_resume_rule_missing', field, expected, actual: approvalPauseResumeRule[field], path: turnOutcomeContractPath });
+  }
+}
+for (const decision of ['allow_once', 'deny', 'always_allow_tool_call']) {
+  if (!Array.isArray(approvalPauseResumeRule.allowed_decisions) || !approvalPauseResumeRule.allowed_decisions.includes(decision)) {
+    violations.push({ kind: 'approval_pause_resume_decision_missing', decision, path: turnOutcomeContractPath });
+  }
+}
+for (const strategy of ['gateway_apply_approved_effect', 'grant_then_retry_next_turn']) {
+  if (!Array.isArray(approvalPauseResumeRule.resume_strategies) || !approvalPauseResumeRule.resume_strategies.includes(strategy)) {
+    violations.push({ kind: 'approval_pause_resume_strategy_missing', strategy, path: turnOutcomeContractPath });
+  }
+}
 for (const failureClass of ['provider_quota_or_subscription_unavailable', 'provider_auth_required', 'provider_rate_limited', 'runtime_not_available']) {
   if (!Array.isArray(turnOutcomeContract.provider_failure_reason_classes) || !turnOutcomeContract.provider_failure_reason_classes.includes(failureClass)) {
     violations.push({ kind: 'turn_outcome_provider_failure_class_missing', failure_class: failureClass, path: turnOutcomeContractPath });
@@ -219,6 +241,60 @@ for (const engine of engines) {
     if (!engine.install) violations.push({ kind: 'external_engine_install_metadata_missing', engine_id: id });
     if (engine.install && !engine.install.download_action_ref) violations.push({ kind: 'external_engine_download_action_ref_missing', engine_id: id });
   }
+  if (['openclaw', 'hermes_agent'].includes(id)) {
+    if (!engine.reference_repo_path || !exists(engine.reference_repo_path)) {
+      violations.push({ kind: 'external_engine_reference_repo_missing', engine_id: id, path: engine.reference_repo_path || null });
+    }
+    if (!engine.private_schema_contract || !exists(engine.private_schema_contract)) {
+      violations.push({ kind: 'external_engine_private_schema_contract_missing', engine_id: id, path: engine.private_schema_contract || null });
+    } else {
+      const privateSchema = readJson(engine.private_schema_contract);
+      if (privateSchema.type !== 'agent_runtime_private_schema_contract') violations.push({ kind: 'external_engine_private_schema_type_wrong', engine_id: id, path: engine.private_schema_contract });
+      if (privateSchema.engine_id !== id) violations.push({ kind: 'external_engine_private_schema_id_mismatch', engine_id: id, schema_engine_id: privateSchema.engine_id, path: engine.private_schema_contract });
+      if (privateSchema.public_socket_contract !== socketPath) violations.push({ kind: 'external_engine_private_schema_socket_mismatch', engine_id: id, path: engine.private_schema_contract });
+      if (privateSchema.private_schema_scope?.public_socket_schema_fork_allowed !== false) violations.push({ kind: 'external_engine_private_schema_allows_public_fork', engine_id: id, path: engine.private_schema_contract });
+      if (privateSchema.private_schema_scope?.shell_direct_access_allowed !== false) violations.push({ kind: 'external_engine_private_schema_allows_shell_direct', engine_id: id, path: engine.private_schema_contract });
+      if (!Array.isArray(privateSchema.discovery_schema?.health_probe_candidates) || privateSchema.discovery_schema.health_probe_candidates.length === 0) {
+        violations.push({ kind: 'external_engine_private_schema_health_probes_missing', engine_id: id, path: engine.private_schema_contract });
+      }
+      if (!Array.isArray(privateSchema.structured_turn_mapping?.required_normalized_outputs) || !privateSchema.structured_turn_mapping.required_normalized_outputs.includes('turn.completed')) {
+        violations.push({ kind: 'external_engine_private_schema_turn_mapping_incomplete', engine_id: id, path: engine.private_schema_contract });
+      }
+      if (id === 'hermes_agent') {
+        if (!Array.isArray(privateSchema.structured_turn_mapping?.turn_submission_candidates) || !privateSchema.structured_turn_mapping.turn_submission_candidates.some((candidate: any) => candidate?.kind === 'safe_cli_oneshot_bridge' && candidate?.status === 'active_safe_non_mutating_bridge')) {
+          violations.push({ kind: 'hermes_private_schema_safe_bridge_missing', engine_id: id, path: engine.private_schema_contract });
+        }
+        if (privateSchema.approval_and_tool_policy?.hermes_oneshot_auto_bypasses_native_approvals !== true) {
+          violations.push({ kind: 'hermes_private_schema_oneshot_approval_risk_missing', engine_id: id, path: engine.private_schema_contract });
+        }
+        if (privateSchema.approval_and_tool_policy?.safe_cli_bridge_forbids_file_terminal_toolsets !== true) {
+          violations.push({ kind: 'hermes_private_schema_safe_toolset_fuse_missing', engine_id: id, path: engine.private_schema_contract });
+        }
+        if (privateSchema.approval_and_tool_policy?.mutating_tool_bridge_status !== 'blocked_until_mediated_approval_bridge') {
+          violations.push({ kind: 'hermes_private_schema_mutating_bridge_status_wrong', engine_id: id, path: engine.private_schema_contract });
+        }
+        if (privateSchema.discovery_schema?.provider_readiness_probe?.auth_required_status !== 'auth_required' || privateSchema.discovery_schema?.provider_readiness_probe?.selectable_when_auth_required !== false) {
+          violations.push({ kind: 'hermes_private_schema_provider_readiness_probe_missing', engine_id: id, path: engine.private_schema_contract });
+        }
+        const defaultPaths = Array.isArray(privateSchema.discovery_schema?.default_paths) ? privateSchema.discovery_schema.default_paths : [];
+        if (defaultPaths.some((row: string) => String(row).includes('.infring/external_runtimes'))) {
+          violations.push({ kind: 'hermes_private_schema_managed_path_in_default_paths', engine_id: id, path: engine.private_schema_contract });
+        }
+        if (!Array.isArray(privateSchema.discovery_schema?.infring_managed_override_paths) || !privateSchema.discovery_schema.infring_managed_override_paths.some((row: string) => String(row).includes('.infring/external_runtimes/hermes_agent'))) {
+          violations.push({ kind: 'hermes_private_schema_managed_override_path_missing', engine_id: id, path: engine.private_schema_contract });
+        }
+      }
+    }
+  }
+  if (id === 'openclaw') {
+    const managedWorkspace = engine.discovery?.managed_workspace_policy?.infring_managed_default_workspace || '';
+    if (managedWorkspace === '~/.openclaw/workspace' || !String(managedWorkspace).includes('.infring/external_runtimes/openclaw')) {
+      violations.push({ kind: 'openclaw_managed_workspace_not_isolated_from_infring_workspace', engine_id: id, managed_workspace: managedWorkspace });
+    }
+    if (engine.discovery?.managed_workspace_policy?.upstream_default_preserved_for_new_openclaw_instances !== true) {
+      violations.push({ kind: 'openclaw_upstream_default_workspace_not_preserved', engine_id: id });
+    }
+  }
   if (['codex_cli', 'claude_code', 'grok_code'].includes(id)) {
     const install = engine.install || {};
     const commandLineInstall = install.command_line_install || {};
@@ -231,6 +307,7 @@ if (!ids.has('infring_native')) violations.push({ kind: 'infring_native_missing'
 if (!ids.has('codex_cli')) violations.push({ kind: 'first_external_adapter_missing', path: registryPath });
 if (!ids.has('claude_code')) violations.push({ kind: 'claude_code_missing', path: registryPath });
 if (!ids.has('grok_code')) violations.push({ kind: 'grok_code_missing', path: registryPath });
+if (!ids.has('hermes_agent')) violations.push({ kind: 'hermes_agent_missing', path: registryPath });
 
 const adapterRows = Array.isArray(adapterContracts.adapter_contracts) ? adapterContracts.adapter_contracts : [];
 const adapterIds = new Set<string>();
@@ -277,11 +354,33 @@ for (const row of adapterRows) {
   if (id === 'infring_native' && row.engine_runtime_path !== 'orchestration/**') violations.push({ kind: 'native_engine_runtime_path_wrong', engine_id: id, actual: row.engine_runtime_path });
   if (!row.discovery || typeof row.discovery !== 'object') violations.push({ kind: 'adapter_discovery_missing', engine_id: id });
   if (id !== 'infring_native' && row.discovery?.custom_location_allowed !== true) violations.push({ kind: 'adapter_custom_location_not_allowed', engine_id: id });
+  if (id === 'hermes_agent') {
+    if (row.context_transport_mode !== 'prompt_text_compat' || row.transport_migration_status !== 'transitional_safe_oneshot_bridge') {
+      violations.push({ kind: 'hermes_adapter_safe_bridge_transport_contract_wrong', engine_id: id, path: adapterContractsPath });
+    }
+    if (row.safe_bridge_policy?.bridge_mode !== 'cli_safe_oneshot' || row.safe_bridge_policy?.mutating_tool_bridge_ready !== false) {
+      violations.push({ kind: 'hermes_adapter_safe_bridge_policy_missing', engine_id: id, path: adapterContractsPath });
+    }
+    if (!Array.isArray(row.safe_bridge_policy?.forbidden_toolsets) || !row.safe_bridge_policy.forbidden_toolsets.includes('terminal') || !row.safe_bridge_policy.forbidden_toolsets.includes('file')) {
+      violations.push({ kind: 'hermes_adapter_safe_bridge_forbidden_toolsets_missing', engine_id: id, path: adapterContractsPath });
+    }
+    const defaultPaths = Array.isArray(row.discovery?.default_paths) ? row.discovery.default_paths : [];
+    if (defaultPaths.some((item: string) => String(item).includes('.infring/external_runtimes'))) {
+      violations.push({ kind: 'hermes_adapter_managed_path_in_default_paths', engine_id: id, path: adapterContractsPath });
+    }
+    if (!Array.isArray(row.discovery?.infring_managed_override_paths) || !row.discovery.infring_managed_override_paths.some((item: string) => String(item).includes('.infring/external_runtimes/hermes_agent'))) {
+      violations.push({ kind: 'hermes_adapter_managed_override_path_missing', engine_id: id, path: adapterContractsPath });
+    }
+  }
+  if (['openclaw', 'hermes_agent'].includes(id)) {
+    if (!row.reference_repo_path || !exists(row.reference_repo_path)) violations.push({ kind: 'adapter_reference_repo_missing', engine_id: id, path: row.reference_repo_path || null });
+    if (!row.private_schema_contract || !exists(row.private_schema_contract)) violations.push({ kind: 'adapter_private_schema_contract_missing', engine_id: id, path: row.private_schema_contract || null });
+  }
   if (id !== 'infring_native' && (!Array.isArray(row.discovery?.authority_order) || !row.discovery.authority_order.includes('user_override') || !row.discovery.authority_order.includes('missing_installable'))) {
     violations.push({ kind: 'adapter_discovery_authority_order_incomplete', engine_id: id });
   }
   if (['codex_cli', 'claude_code', 'grok_code'].includes(id) && (!Array.isArray(row.discovery?.path_commands) || row.discovery.path_commands.length === 0)) violations.push({ kind: 'adapter_cli_path_commands_missing', engine_id: id });
-  if (['openhands', 'openclaw', 'openfang'].includes(id) && (!Array.isArray(row.discovery?.default_urls) || row.discovery.default_urls.length === 0)) violations.push({ kind: 'adapter_socket_default_urls_missing', engine_id: id });
+  if (['openhands', 'openclaw', 'hermes_agent', 'openfang'].includes(id) && (!Array.isArray(row.discovery?.default_urls) || row.discovery.default_urls.length === 0)) violations.push({ kind: 'adapter_socket_default_urls_missing', engine_id: id });
 }
 for (const engine of engines) {
   const id = String(engine.engine_id || '');
@@ -312,6 +411,9 @@ const codexPath = 'adapters/runtime/agent_engines/codex_cli.ts';
 const cliRuntimePath = 'adapters/runtime/agent_engines/cli_runtime_adapter.ts';
 const claudePath = 'adapters/runtime/agent_engines/claude_code.ts';
 const grokPath = 'adapters/runtime/agent_engines/grok_code.ts';
+const httpSocketRuntimePath = 'adapters/runtime/agent_engines/http_socket_runtime_adapter.ts';
+const openclawPath = 'adapters/runtime/agent_engines/openclaw.ts';
+const hermesAgentPath = 'adapters/runtime/agent_engines/hermes_agent.ts';
 const liveTurnSmokePath = 'tests/tooling/scripts/ci/agent_runtime_cli_live_turn_smoke.ts';
 const contextContinuityEvalPath = 'tests/tooling/scripts/ci/agent_runtime_context_continuity_eval.ts';
 const tracePath = 'gateway/runtime/agent_runtime/agent_runtime_trace_writer.ts';
@@ -338,8 +440,32 @@ if (!exists(kernelContextMaterializerPath)) violations.push({ kind: 'kernel_cont
 if (!exists(cliRuntimePath)) violations.push({ kind: 'cli_runtime_module_missing', path: cliRuntimePath });
 if (!exists(claudePath)) violations.push({ kind: 'claude_adapter_module_missing', path: claudePath });
 if (!exists(grokPath)) violations.push({ kind: 'grok_adapter_module_missing', path: grokPath });
+if (!exists(httpSocketRuntimePath)) violations.push({ kind: 'http_socket_runtime_module_missing', path: httpSocketRuntimePath });
+if (!exists(openclawPath)) violations.push({ kind: 'openclaw_adapter_module_missing', path: openclawPath });
+if (!exists(hermesAgentPath)) violations.push({ kind: 'hermes_agent_adapter_module_missing', path: hermesAgentPath });
 if (!exists(liveTurnSmokePath)) violations.push({ kind: 'live_turn_smoke_script_missing', path: liveTurnSmokePath });
 if (!exists(contextContinuityEvalPath)) violations.push({ kind: 'context_continuity_eval_script_missing', path: contextContinuityEvalPath });
+if (exists(hermesAgentPath)) {
+  const hermesAgentSource = fs.readFileSync(path.join(ROOT, hermesAgentPath), 'utf8');
+  for (const marker of [
+    'createHttpSocketRuntimeEngineAdapter',
+    'createCliRuntimeEngineAdapter',
+    'FORBIDDEN_SAFE_BRIDGE_TOOLSETS',
+    'INFRING_AGENT_RUNTIME_HERMES_AGENT_LIVE',
+    'INFRING_HERMES_AGENT_SAFE_TOOLSETS',
+    'classifyHermesProviderReadiness',
+    'agent_runtime_setup/hermes_agent_provider',
+    "providerReadiness.provider_status === 'auth_required'",
+    '--toolsets',
+    '-z',
+    'mutating_tool_bridge_ready: false',
+  ]) {
+    if (!hermesAgentSource.includes(marker)) violations.push({ kind: 'hermes_agent_safe_bridge_marker_missing', marker, path: hermesAgentPath });
+  }
+  for (const forbidden of ['terminal', 'file', 'debugging', 'hermes-cli', 'hermes-acp']) {
+    if (!hermesAgentSource.includes(`'${forbidden}'`)) violations.push({ kind: 'hermes_agent_forbidden_toolset_not_guarded', forbidden, path: hermesAgentPath });
+  }
+}
 
 if (exists(contextStorePath)) {
   const contextStoreSource = fs.readFileSync(path.join(ROOT, contextStorePath), 'utf8');
@@ -443,6 +569,10 @@ if (exists(dashboardPath)) {
 	  for (const factory of ['createCodexCliEngineAdapter', 'createClaudeCodeEngineAdapter', 'createGrokCodeEngineAdapter']) {
 	    if (!dashboardSource.includes(factory)) violations.push({ kind: 'dashboard_agent_runtime_factory_missing', factory, path: dashboardPath });
 	  }
+	  for (const factory of ['createOpenClawEngineAdapter', 'createHermesAgentEngineAdapter']) {
+	    if (!dashboardSource.includes(factory)) violations.push({ kind: 'dashboard_socket_runtime_factory_missing', factory, path: dashboardPath });
+	  }
+	  if (!dashboardSource.includes('createHermesAgentEngineAdapter({ liveDispatch, cwd })')) violations.push({ kind: 'dashboard_hermes_live_dispatch_not_forwarded', path: dashboardPath });
 }
 if (exists(liveTurnSmokePath)) {
   const liveSmokeSource = fs.readFileSync(path.join(ROOT, liveTurnSmokePath), 'utf8');
