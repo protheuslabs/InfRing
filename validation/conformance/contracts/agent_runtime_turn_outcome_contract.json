@@ -225,6 +225,11 @@
   "live_work_eval_requirements": {
     "script": "tests/tooling/scripts/ci/agent_runtime_live_work_eval.ts",
     "default_engine": "codex_cli",
+    "supports_engine_matrix": true,
+    "engine_matrix_field": "engine_results",
+    "default_engine_matrix": [
+      "codex_cli"
+    ],
     "must_submit_real_turn": true,
     "must_verify_completed_turn": true,
     "must_verify_activity_trace": true,

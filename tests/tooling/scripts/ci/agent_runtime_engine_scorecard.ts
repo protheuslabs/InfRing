@@ -55,7 +55,17 @@ function continuityResult(contextEval: JsonObject, engineId: string): JsonObject
 }
 
 function liveWorkApplies(liveWork: JsonObject, engineId: string): boolean {
+  if (liveWorkResult(liveWork, engineId)) return true;
   return clean(liveWork.engine_id, 120) === engineId && liveWork.type === 'agent_runtime_live_work_eval';
+}
+
+function liveWorkResult(liveWork: JsonObject, engineId: string): JsonObject | null {
+  if (liveWork.type !== 'agent_runtime_live_work_eval') return null;
+  const rows = Array.isArray(liveWork.engine_results) ? liveWork.engine_results : [];
+  const row = rows.find((item: JsonObject) => item && item.engine_id === engineId);
+  if (row) return row;
+  if (clean(liveWork.engine_id, 120) === engineId) return liveWork;
+  return null;
 }
 
 function classify(score: number): string {
@@ -99,7 +109,8 @@ function main() {
     const adapterContract = adapterRows.find((row: JsonObject) => row && row.engine_id === engineId) || null;
     const continuity = continuityResult(contextEval, engineId);
     const liveApplies = liveWorkApplies(liveWork, engineId);
-    const liveResults = liveWork.results || {};
+    const liveRow = liveWorkResult(liveWork, engineId);
+    const liveResults = liveRow && liveRow.results || {};
     const liveCompletionOk = liveApplies && liveResults.completion && liveResults.completion.ok === true;
     const liveApprovalOk = liveApplies && liveResults.approval_pause && liveResults.approval_pause.ok === true && liveResults.approval_decision && liveResults.approval_decision.ok === true;
     const liveReceiptsOk = liveApplies && Number(liveResults.completion && liveResults.completion.receipt_refs || 0) >= 3;
@@ -159,6 +170,7 @@ function main() {
     integration_incomplete: rows.filter((row) => row.classification === 'integration_incomplete').length,
     not_ready: rows.filter((row) => row.classification === 'not_ready').length,
     latest_live_work_engine: clean(liveWork.engine_id, 120),
+    sampled_live_work_engines: Array.isArray(liveWork.sampled_engines) ? liveWork.sampled_engines.map((item: any) => clean(item, 120)).filter(Boolean) : [clean(liveWork.engine_id, 120)].filter(Boolean),
     hard_failure_injection_ok: hardFailure.ok === true,
     structured_transport_eval_ok: structuredTransport.ok === true,
   };

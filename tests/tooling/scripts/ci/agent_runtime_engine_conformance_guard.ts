@@ -161,6 +161,15 @@ for (const [field, expected] of Object.entries({
 if (liveWorkEvalRequirements.must_write_artifact !== 'core/local/artifacts/agent_runtime_live_work_eval_current.json') {
   violations.push({ kind: 'agent_runtime_live_work_eval_artifact_path_wrong', actual: liveWorkEvalRequirements.must_write_artifact, path: turnOutcomeContractPath });
 }
+if (liveWorkEvalRequirements.supports_engine_matrix !== true) {
+  violations.push({ kind: 'agent_runtime_live_work_eval_matrix_not_supported', path: turnOutcomeContractPath });
+}
+if (liveWorkEvalRequirements.engine_matrix_field !== 'engine_results') {
+  violations.push({ kind: 'agent_runtime_live_work_eval_matrix_field_wrong', actual: liveWorkEvalRequirements.engine_matrix_field, path: turnOutcomeContractPath });
+}
+if (!Array.isArray(liveWorkEvalRequirements.default_engine_matrix) || !liveWorkEvalRequirements.default_engine_matrix.includes('codex_cli')) {
+  violations.push({ kind: 'agent_runtime_live_work_eval_default_matrix_missing_codex', path: turnOutcomeContractPath });
+}
 const approvalPauseResumeRule = turnOutcomeContract.approval_pause_resume_rule || {};
 for (const [field, expected] of Object.entries({
   gateway_must_record_pending_request: true,

@@ -10,14 +10,27 @@ type JsonObject = Record<string, any>;
 const ROOT = process.cwd();
 const OUT_JSON = path.join(ROOT, 'core', 'local', 'artifacts', 'agent_runtime_live_work_eval_current.json');
 
-function argValue(name: string, fallback: string): string {
+function argValue(name: string, fallback = ''): string {
   const prefix = `${name}=`;
-  const found = process.argv.slice(2).find((arg) => arg.startsWith(prefix));
-  return found ? found.slice(prefix.length) : fallback;
+  const found = process.argv.slice(2).find((arg) => arg === name || arg.startsWith(prefix));
+  if (!found) return fallback;
+  if (found === name) return '1';
+  return found.slice(prefix.length);
+}
+
+function argList(name: string, fallback: string): string[] {
+  return argValue(name, fallback)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function ensureDir(filePath: string) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function clean(value: any, max = 4000): string {
+  return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
 function postJson(url: string, payload: JsonObject, timeoutMs = 180000): Promise<{ statusCode: number; parsed: JsonObject | null; raw: string; error?: string }> {
@@ -69,28 +82,31 @@ function hasReceipts(row: JsonObject | null): boolean {
   return Array.isArray(row && row.receipt_refs) && row!.receipt_refs.length >= 3;
 }
 
-async function main() {
-  const baseUrl = argValue('--base-url', process.env.INFRING_AGENT_RUNTIME_EVAL_BASE_URL || 'http://127.0.0.1:4173');
-  const engineId = argValue('--engine', process.env.INFRING_AGENT_RUNTIME_EVAL_ENGINE || 'codex_cli');
+function shellProjectionBounded(request: JsonObject | null): boolean {
+  return !!(request && !(request.proposal_arguments && request.proposal_arguments.content));
+}
+
+async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: number): Promise<JsonObject> {
   const endpoint = `${baseUrl.replace(/\/+$/, '')}/api/shell-socket/agent-runtime/turn`;
-  const token = `live-work-${Date.now().toString(36)}`;
-  const sessionId = `live-work-eval-${Date.now().toString(36)}`;
+  const token = `live-work-${engineId}-${Date.now().toString(36)}`;
+  const sessionId = `live-work-eval-${engineId}-${Date.now().toString(36)}`;
   const agentId = 'agent-runtime-live-work-eval';
   const workDir = ROOT;
-  const artifactRel = `tmp/agent-runtime-live-work-eval-${token}.txt`;
+  const artifactRel = `tmp/agent-runtime-live-work-eval-${engineId}-${token}.txt`;
   const artifactAbs = path.resolve(ROOT, artifactRel);
   try { fs.rmSync(artifactAbs, { force: true }); } catch {}
 
+  const completionPrompt = `Side-effect-free live work eval for ${engineId}. Reply exactly LIVE_WORK_OK ${token}`;
   const completion = await postJson(endpoint, {
     agent_id: agentId,
     session_id: sessionId,
     conversation_id: sessionId,
     engine_id: engineId,
-    message: `Side-effect-free live work eval. Reply exactly LIVE_WORK_OK ${token}`,
-    input_text: `Side-effect-free live work eval. Reply exactly LIVE_WORK_OK ${token}`,
+    message: completionPrompt,
+    input_text: completionPrompt,
     working_directory: workDir,
     test_probe: true,
-  });
+  }, timeoutMs);
   const completionPayload = completion.parsed || {};
   const completionOk =
     completion.statusCode === 200 &&
@@ -109,26 +125,22 @@ async function main() {
       content: `InfRing live work eval ${token}\n`,
     },
   });
+  const approvalPrompt = [
+    `InfRing approval work eval for ${engineId}.`,
+    'Do not use native filesystem tools and do not create files directly.',
+    'Output exactly this JSON object as plain text with no markdown fence and no extra explanation:',
+    proposalJson,
+  ].join('\n');
   const approval = await postJson(endpoint, {
     agent_id: agentId,
     session_id: sessionId,
     conversation_id: sessionId,
     engine_id: engineId,
-    message: [
-      'InfRing approval work eval.',
-      'Do not use native filesystem tools and do not create files directly.',
-      'Output exactly this JSON object as plain text with no markdown fence and no extra explanation:',
-      proposalJson,
-    ].join('\n'),
-    input_text: [
-      'InfRing approval work eval.',
-      'Do not use native filesystem tools and do not create files directly.',
-      'Output exactly this JSON object as plain text with no markdown fence and no extra explanation:',
-      proposalJson,
-    ].join('\n'),
+    message: approvalPrompt,
+    input_text: approvalPrompt,
     working_directory: workDir,
     test_probe: true,
-  });
+  }, timeoutMs);
   const approvalPayload = approval.parsed || {};
   const request = approvalPayload.pending_permission_request || approvalPayload.permission_request || null;
   const approvalProjectionOk =
@@ -137,7 +149,7 @@ async function main() {
     approvalPayload.approval_pause &&
     request &&
     request.approval_id &&
-    !(request.proposal_arguments && request.proposal_arguments.content) &&
+    shellProjectionBounded(request) &&
     hasBoundedActivityTrace(approvalPayload) &&
     hasReceipts(approvalPayload);
 
@@ -157,11 +169,8 @@ async function main() {
   }
   try { fs.rmSync(artifactAbs, { force: true }); } catch {}
 
-  const report = {
+  return {
     ok: completionOk && approvalProjectionOk && decisionOk,
-    type: 'agent_runtime_live_work_eval',
-    generated_at: new Date().toISOString(),
-    base_url: baseUrl,
     engine_id: engineId,
     session_id: sessionId,
     token,
@@ -170,6 +179,8 @@ async function main() {
         ok: completionOk,
         status_code: completion.statusCode,
         status: completionPayload.status || '',
+        error_code: completionPayload.error_code || '',
+        reason: clean(completionPayload.reason || completion.error || '', 1000),
         activity_trace: hasBoundedActivityTrace(completionPayload),
         receipt_refs: Array.isArray(completionPayload.receipt_refs) ? completionPayload.receipt_refs.length : 0,
       },
@@ -177,8 +188,10 @@ async function main() {
         ok: approvalProjectionOk,
         status_code: approval.statusCode,
         status: approvalPayload.status || '',
+        error_code: approvalPayload.error_code || '',
+        reason: clean(approvalPayload.reason || approval.error || '', 1000),
         approval_id: request && request.approval_id || '',
-        shell_projection_bounded: !!(request && !(request.proposal_arguments && request.proposal_arguments.content)),
+        shell_projection_bounded: shellProjectionBounded(request),
         activity_trace: hasBoundedActivityTrace(approvalPayload),
         receipt_refs: Array.isArray(approvalPayload.receipt_refs) ? approvalPayload.receipt_refs.length : 0,
       },
@@ -189,6 +202,36 @@ async function main() {
         artifact_removed_after_probe: !fs.existsSync(artifactAbs),
       },
     },
+  };
+}
+
+async function main() {
+  const baseUrl = argValue('--base-url', process.env.INFRING_AGENT_RUNTIME_EVAL_BASE_URL || 'http://127.0.0.1:4173');
+  const primaryEngine = argValue('--engine', process.env.INFRING_AGENT_RUNTIME_EVAL_ENGINE || 'codex_cli');
+  const engines = argList('--engines', process.env.INFRING_AGENT_RUNTIME_EVAL_ENGINES || primaryEngine);
+  const timeoutMs = Math.max(30000, Math.min(Number(argValue('--timeout-ms', process.env.INFRING_AGENT_RUNTIME_EVAL_TIMEOUT_MS || '180000')) || 180000, 300000));
+  const engineResults = [];
+  for (const engineId of engines) {
+    engineResults.push(await runEngineEval(baseUrl, engineId, timeoutMs));
+  }
+  const primary = engineResults.find((row) => row.engine_id === primaryEngine) || engineResults[0] || null;
+  const report = {
+    ok: engineResults.length > 0 && engineResults.every((row) => row.ok),
+    type: 'agent_runtime_live_work_eval',
+    generated_at: new Date().toISOString(),
+    base_url: baseUrl,
+    engine_id: primary ? primary.engine_id : primaryEngine,
+    session_id: primary ? primary.session_id : '',
+    token: primary ? primary.token : '',
+    engine_count: engineResults.length,
+    engine_results: engineResults,
+    sampled_engines: engineResults.map((row) => row.engine_id),
+    summary: {
+      passed: engineResults.filter((row) => row.ok).length,
+      failed: engineResults.filter((row) => !row.ok).length,
+      failed_engines: engineResults.filter((row) => !row.ok).map((row) => row.engine_id),
+    },
+    results: primary ? primary.results : {},
   };
   ensureDir(OUT_JSON);
   fs.writeFileSync(OUT_JSON, `${JSON.stringify(report, null, 2)}\n`);
