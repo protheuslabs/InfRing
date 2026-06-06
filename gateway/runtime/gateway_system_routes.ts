@@ -12,7 +12,9 @@ function isGatewaySystemRoute(pathname) {
   return path === '/api/system/release-check' ||
     path === '/api/config' ||
     path === '/api/config/schema' ||
-    path === '/api/auth/check';
+    path === '/api/auth/check' ||
+    path === '/api/system/restart' ||
+    path === '/api/system/update';
 }
 
 function systemProjection(traceId, routeId, routeClass = 'health_status') {
@@ -27,9 +29,18 @@ function systemProjection(traceId, routeId, routeClass = 'health_status') {
 
 function createGatewaySystemRouteHandler(options = {}) {
   const fetchBackendJson = options.fetchBackendJson;
+  const fetchBackend = options.fetchBackend;
+  const readJsonBody = options.readJsonBody;
   const sendJson = options.sendJson;
+  const legacyHostFallback = options.legacyHostFallback;
   if (typeof fetchBackendJson !== 'function') {
     throw new Error('gateway_system_route_fetch_backend_json_missing');
+  }
+  if (typeof fetchBackend !== 'function') {
+    throw new Error('gateway_system_route_fetch_backend_missing');
+  }
+  if (typeof readJsonBody !== 'function') {
+    throw new Error('gateway_system_route_read_json_body_missing');
   }
   if (typeof sendJson !== 'function') {
     throw new Error('gateway_system_route_send_json_missing');
@@ -110,6 +121,68 @@ function createGatewaySystemRouteHandler(options = {}) {
         },
       });
       return true;
+    }
+
+    if (req.method === 'POST' && (pathname === '/api/system/restart' || pathname === '/api/system/update')) {
+      const action = pathname.split('/').pop() || '';
+      const body = await readJsonBody(req).catch(() => ({}));
+      try {
+        const upstream = await fetchBackend(flags, pathname, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-infring-trace-id': traceId,
+          },
+          body: JSON.stringify(body || {}),
+          cache: 'no-store',
+        }, action === 'update' && body && body.apply === false ? 8000 : 3500);
+        const text = await upstream.text();
+        let payload = {};
+        try { payload = text ? JSON.parse(text) : {}; } catch { payload = {}; }
+        const base = payload && typeof payload === 'object' ? payload : { ok: upstream.ok };
+        sendJson(res, upstream.status || (base.ok === false ? 400 : 200), {
+          ...base,
+          trace_id: traceId,
+          gateway_projection: {
+            ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
+            authority_owner: 'core.ops',
+            forwarded_to_core: true,
+          },
+        });
+        return true;
+      } catch (error) {
+        if (typeof legacyHostFallback !== 'function') {
+          sendJson(res, 503, {
+            ok: false,
+            type: 'gateway_system_action_core_unavailable',
+            trace_id: traceId,
+            action,
+            error: String(error && error.message ? error.message : error).replace(/\s+/g, ' ').trim().slice(0, 240),
+            gateway_projection: {
+              ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
+              authority_owner: 'core.ops',
+              forwarded_to_core: false,
+              legacy_host_fallback_available: false,
+            },
+          });
+          return true;
+        }
+        const fallback = legacyHostFallback(action, body, { traceId, coreError: error });
+        const payload = fallback && typeof fallback === 'object' ? fallback : { ok: false, error: 'legacy_host_fallback_invalid' };
+        sendJson(res, payload.ok ? 200 : 500, {
+          ...payload,
+          trace_id: traceId,
+          gateway_projection: {
+            ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
+            authority_owner: 'legacy_dashboard_host_shim',
+            target_authority_owner: 'core.ops',
+            forwarded_to_core: false,
+            legacy_host_fallback: true,
+            legacy_host_fallback_reason: 'core_system_action_route_unavailable',
+          },
+        });
+        return true;
+      }
     }
 
     sendJson(res, 405, {

@@ -178,7 +178,13 @@ const {
   handleGatewaySystemRoute,
 } = createGatewaySystemRouteHandler({
   fetchBackendJson,
+  fetchBackend,
+  readJsonBody,
   sendJson,
+  legacyHostFallback: (action, body) => {
+    if (action === 'update') return runDashboardSystemAction('update', body);
+    return dispatchDashboardSystemAction(action, body);
+  },
 });
 const agentRuntimeSessionStateStore = createAgentRuntimeSessionStateStore({ statusDir: STATUS_DIR });
 const {
@@ -1629,6 +1635,16 @@ async function runServe(flags) {
       if (await handleAgentRuntimeEngineRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeWorkspaceRoute({ req, res, pathname, traceId })) return;
       if (await handleShellSocketCoreRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
+      if (req.method === 'POST' && pathname === '/api/system/shutdown') {
+        const body = await readJsonBody(req);
+        const result = dispatchDashboardSystemAction('shutdown', body);
+        sendJson(res, result.ok ? 200 : 500, result);
+        if (result.ok) {
+          const exitDelayMs = normalizeShutdownExitDelayMs(body && body.exit_delay_ms);
+          scheduleDashboardHostExit(cleanup, exitDelayMs);
+        }
+        return;
+      }
       if (req.method === 'GET') {
         const agentSessionsMatch = pathname.match(/^\/api\/agents\/([^/]+)\/sessions$/);
         if (agentSessionsMatch) {
@@ -1645,46 +1661,6 @@ async function runServe(flags) {
             });
           }
         }
-      }
-      if (req.method === 'POST' && pathname === '/api/system/restart') {
-        const body = await readJsonBody(req);
-        const result = dispatchDashboardSystemAction('restart', body);
-        return void sendJson(res, result.ok ? 200 : 500, result);
-      }
-      if (req.method === 'POST' && pathname === '/api/system/update') {
-        const body = await readJsonBody(req);
-        try {
-          const upstream = await fetchBackend(flags, '/api/system/update', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body || {})
-          }, body && body.apply === false ? 8000 : 3500);
-          const text = await upstream.text();
-          let payload = {};
-          try {
-            payload = text ? JSON.parse(text) : {};
-          } catch {
-            payload = {};
-          }
-          return void sendJson(
-            res,
-            upstream.status || ((payload && payload.ok === false) ? 400 : 200),
-            payload && typeof payload === 'object' ? payload : { ok: upstream.ok }
-          );
-        } catch (_) {
-          const result = runDashboardSystemAction('update', body);
-          return void sendJson(res, result.ok ? 200 : 500, result);
-        }
-      }
-      if (req.method === 'POST' && pathname === '/api/system/shutdown') {
-        const body = await readJsonBody(req);
-        const result = dispatchDashboardSystemAction('shutdown', body);
-        sendJson(res, result.ok ? 200 : 500, result);
-        if (result.ok) {
-          const exitDelayMs = normalizeShutdownExitDelayMs(body && body.exit_delay_ms);
-          scheduleDashboardHostExit(cleanup, exitDelayMs);
-        }
-        return;
       }
       if (req.method === 'GET') {
         const asset = readPrimaryDashboardAsset(STATIC_DIR, pathname);
