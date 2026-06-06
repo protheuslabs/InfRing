@@ -64,6 +64,9 @@ const {
   createAgentRuntimeApprovalStore,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_approvals.ts');
 const {
+  createAgentRuntimeReceiptStore,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_receipts.ts');
+const {
   createAgentRuntimeTranscriptStore,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_transcripts.ts');
 const {
@@ -135,6 +138,10 @@ const {
   agentRuntimeApprovalDecisionProjection,
   mergeAgentRuntimeApprovalPermissionPolicy,
 } = agentRuntimeApprovalStore;
+const agentRuntimeReceiptStore = createAgentRuntimeReceiptStore({ root: ROOT });
+const {
+  recordAgentRuntimeTurnReceipts,
+} = agentRuntimeReceiptStore;
 const agentRuntimeTranscriptStore = createAgentRuntimeTranscriptStore({ statusDir: STATUS_DIR });
 const {
   appendAgentRuntimeTranscriptTurn,
@@ -179,6 +186,7 @@ const agentRuntimeTurnProjectionStore = createAgentRuntimeTurnProjectionStore({
   drainAgentRuntimeSteeringInterventions,
   sanitizeAgentRuntimeProposalArguments,
   recordAgentRuntimePendingApproval,
+  recordAgentRuntimeTurnReceipts,
 });
 const {
   agentRuntimeTurnProjection,

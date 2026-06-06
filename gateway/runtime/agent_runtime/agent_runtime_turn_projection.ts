@@ -771,6 +771,31 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
         pendingPermissionRequest: projectedPendingPermission,
       });
     } catch {}
+    let receiptProjection = null;
+    try {
+      receiptProjection = deps.recordAgentRuntimeTurnReceipts
+        ? deps.recordAgentRuntimeTurnReceipts({
+          traceId,
+          engineId,
+          agentId,
+          sessionId,
+          turnId,
+          status: terminalOutcomeStatus,
+          modelProviderContext,
+          contextPack,
+          pendingPermissionRequest: projectedPendingPermission,
+          resultRef: turn && turn.result_ref,
+          adapterReceiptRef: turn && turn.receipt_ref,
+          errorCode: turn && turn.error_code,
+          reason: turn && turn.reason,
+          retryable: turn && turn.retryable,
+          timedOut: turn && turn.timed_out,
+          timeoutMs: turn && turn.timeout_ms,
+          outputText: output,
+          outputPreview,
+        })
+        : null;
+    } catch {}
     return {
       ok: terminalOutcomeOk,
       status_code: 200,
@@ -796,6 +821,15 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       structured_activity: turn && turn.structured_activity === true,
       result_ref: cleanText(turn && turn.result_ref, 240),
       receipt_ref: cleanText(turn && turn.receipt_ref, 240),
+      receipt_refs: receiptProjection && Array.isArray(receiptProjection.receipt_refs)
+        ? receiptProjection.receipt_refs
+        : [cleanText(turn && turn.receipt_ref, 240)].filter(Boolean),
+      receipt_count: Number(receiptProjection && receiptProjection.receipt_count) || 0,
+      receipt_projection: receiptProjection ? {
+        type: 'agent_runtime_receipt_projection',
+        receipt_refs: Array.isArray(receiptProjection.receipt_refs) ? receiptProjection.receipt_refs : [],
+        receipt_count: Number(receiptProjection.receipt_count) || 0,
+      } : null,
       pending_permission: !!projectedPendingPermission,
       pending_permission_request: projectedPendingPermission,
       permission_request: projectedPendingPermission,

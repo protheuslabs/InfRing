@@ -17,7 +17,8 @@
         "session_id",
         "turn_id",
         "status",
-        "display_text"
+        "display_text",
+        "receipt_refs"
       ],
       "http_projection_status": 200
     },
@@ -31,7 +32,8 @@
         "turn_id",
         "status",
         "pending_permission_request",
-        "approval_pause"
+        "approval_pause",
+        "receipt_refs"
       ],
       "http_projection_status": 200
     },
@@ -46,7 +48,8 @@
         "status",
         "error_code",
         "reason",
-        "display_text"
+        "display_text",
+        "receipt_refs"
       ],
       "http_projection_status": 200
     },
@@ -62,7 +65,8 @@
         "error_code",
         "reason",
         "timeout_ms",
-        "display_text"
+        "display_text",
+        "receipt_refs"
       ],
       "http_projection_status": 200
     }
@@ -105,6 +109,28 @@
     "resume_strategies": [
       "gateway_apply_approved_effect",
       "grant_then_retry_next_turn"
+    ]
+  },
+  "receipt_first_rule": {
+    "gateway_must_emit_turn_receipts": true,
+    "receipt_projection_must_be_bounded": true,
+    "receipt_refs_required_on_terminal_turn_projection": true,
+    "receipt_store_owner": "gateway.runtime.agent_runtime_receipts",
+    "receipt_store_path": "local/state/observability/agent_runtime/agent_runtime_receipts.jsonl",
+    "required_receipt_kinds": [
+      "engine_selection",
+      "context_pack"
+    ],
+    "terminal_receipt_kinds": [
+      "final_response",
+      "approval_pause",
+      "failure_classification"
+    ],
+    "forbidden_receipt_payloads": [
+      "raw_provider_transcript",
+      "adapter_process_dump",
+      "raw_tool_result",
+      "trace_body"
     ]
   },
   "pre_turn_failure_rule": {

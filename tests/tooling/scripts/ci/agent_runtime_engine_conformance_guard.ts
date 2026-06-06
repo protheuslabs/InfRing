@@ -116,6 +116,29 @@ for (const strategy of ['gateway_apply_approved_effect', 'grant_then_retry_next_
     violations.push({ kind: 'approval_pause_resume_strategy_missing', strategy, path: turnOutcomeContractPath });
   }
 }
+const receiptFirstRule = turnOutcomeContract.receipt_first_rule || {};
+for (const [field, expected] of Object.entries({
+  gateway_must_emit_turn_receipts: true,
+  receipt_projection_must_be_bounded: true,
+  receipt_refs_required_on_terminal_turn_projection: true,
+})) {
+  if (receiptFirstRule[field] !== expected) {
+    violations.push({ kind: 'agent_runtime_receipt_first_rule_missing', field, expected, actual: receiptFirstRule[field], path: turnOutcomeContractPath });
+  }
+}
+if (receiptFirstRule.receipt_store_owner !== 'gateway.runtime.agent_runtime_receipts') {
+  violations.push({ kind: 'agent_runtime_receipt_store_owner_wrong', actual: receiptFirstRule.receipt_store_owner, path: turnOutcomeContractPath });
+}
+for (const kind of ['engine_selection', 'context_pack']) {
+  if (!Array.isArray(receiptFirstRule.required_receipt_kinds) || !receiptFirstRule.required_receipt_kinds.includes(kind)) {
+    violations.push({ kind: 'agent_runtime_required_receipt_kind_missing', receipt_kind: kind, path: turnOutcomeContractPath });
+  }
+}
+for (const kind of ['final_response', 'approval_pause', 'failure_classification']) {
+  if (!Array.isArray(receiptFirstRule.terminal_receipt_kinds) || !receiptFirstRule.terminal_receipt_kinds.includes(kind)) {
+    violations.push({ kind: 'agent_runtime_terminal_receipt_kind_missing', receipt_kind: kind, path: turnOutcomeContractPath });
+  }
+}
 for (const failureClass of ['provider_quota_or_subscription_unavailable', 'provider_auth_required', 'provider_rate_limited', 'runtime_not_available']) {
   if (!Array.isArray(turnOutcomeContract.provider_failure_reason_classes) || !turnOutcomeContract.provider_failure_reason_classes.includes(failureClass)) {
     violations.push({ kind: 'turn_outcome_provider_failure_class_missing', failure_class: failureClass, path: turnOutcomeContractPath });
