@@ -179,6 +179,7 @@
       "source_refs": [
         "ops:gateway:external-surface:guard",
         "ops:gateway:interface:guard",
+        "ops:gateway:system-action-authority:guard",
         "ops:gateway-boundary:guard",
         "ops:conduit:scrambler-posture:guard",
         "tests/tooling/config/gateway_manifest.json",

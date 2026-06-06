@@ -176,6 +176,58 @@ for (const host of declaredLegacyHosts) {
   noteDebt('declared_legacy_gateway_host', rel, `retirement_todo=${host.retirement_todo || 'missing'} allowed_until=${host.allowed_until || 'missing'}`);
 }
 
+const declaredLegacyShims = Array.isArray(policy.declared_legacy_compatibility_shims)
+  ? policy.declared_legacy_compatibility_shims
+  : [];
+const declaredShimPaths = new Set<string>();
+const shimImplementationSignals = [
+  /function\s+\w+/,
+  /class\s+\w+/,
+  /export\s+(?:async\s+)?function/,
+  /createServer\s*\(/,
+  /new\s+WebSocketServer\s*\(/,
+  /res\.writeHead\s*\(/,
+  /req\.url/,
+  /pathname\s*===/,
+  /payload_budget/i,
+  /permission_gate/i,
+  /source_authority\s*:/,
+];
+for (const shim of declaredLegacyShims) {
+  const rel = String(shim && shim.path || '');
+  const canonicalPath = String(shim && shim.canonical_path || '');
+  if (!rel) {
+    push('legacy_shim_missing_path', policyPath, 'Every declared legacy Gateway shim needs a path.');
+    continue;
+  }
+  declaredShimPaths.add(rel);
+  if (!rel.startsWith('adapters/')) {
+    push('legacy_shim_outside_adapter_domain', policyPath, `${rel} must live under adapters/** while it is declared compatibility debt.`);
+  }
+  if (!canonicalPath.startsWith('gateway/')) {
+    push('legacy_shim_canonical_path_not_gateway', policyPath, `${rel} must point at a gateway/** canonical path.`);
+  }
+  if (!String(shim.retirement_todo || '').trim()) push('legacy_shim_missing_retirement_todo', policyPath, rel);
+  if (!String(shim.allowed_until || '').trim()) push('legacy_shim_missing_allowed_until', policyPath, rel);
+  if (!exists(rel)) {
+    push('legacy_shim_file_missing', rel, 'Declared legacy shim path does not exist.');
+  } else {
+    const text = read(rel);
+    const canonicalBase = path.basename(canonicalPath);
+    if (!exists(canonicalPath)) push('legacy_shim_canonical_file_missing', canonicalPath, `${rel} points at a missing canonical Gateway module.`);
+    if (!text.includes(canonicalPath) && !text.includes(canonicalBase)) {
+      push('legacy_shim_missing_canonical_delegate', rel, `Compatibility shim must delegate to ${canonicalPath}.`);
+    }
+    if (!/Compatibility shim/i.test(text)) {
+      push('legacy_shim_not_labeled', rel, 'Compatibility shim must label itself as compatibility debt.');
+    }
+    if (shimImplementationSignals.some((pattern) => pattern.test(text))) {
+      push('legacy_shim_contains_implementation_logic', rel, 'Compatibility shim must stay a thin Gateway delegate and must not grow route, policy, socket, or payload implementation logic.');
+    }
+  }
+  noteDebt('declared_legacy_gateway_shim', rel, `canonical_path=${canonicalPath || 'missing'} retirement_todo=${shim.retirement_todo || 'missing'} allowed_until=${shim.allowed_until || 'missing'}`);
+}
+
 const adapterFiles = walk('adapters').filter((rel) => /\.(ts|js|json|md)$/.test(rel));
 const gatewayPolicySignals = [
   /Gateway is InfRing['’]s skin/,
@@ -192,6 +244,10 @@ for (const rel of adapterFiles) {
   const text = read(rel);
   const hasGatewayPolicySignal = gatewayPolicySignals.some((pattern) => pattern.test(text));
   if (!hasGatewayPolicySignal) continue;
+  if (declaredShimPaths.has(rel)) {
+    noteDebt('legacy_adapter_gateway_policy_signal', rel, 'Gateway policy signal remains in a declared compatibility shim.');
+    continue;
+  }
   if (declaredHostPaths.has(rel)) {
     noteDebt('legacy_adapter_gateway_policy_signal', rel, 'Gateway policy signal remains in a declared legacy host.');
     continue;
@@ -285,6 +341,16 @@ if (exists(dashboardPath)) {
 const sentinelPolicyPath = 'observability/sentinel/usability_reliability_simplicity_enforcement_policy.json';
 if (!read(sentinelPolicyPath).includes('gateway_adapter_physical_inversion')) {
   push('sentinel_missing_gateway_inversion_signal', sentinelPolicyPath, 'Sentinel must watch for Gateway/Adapter physical inversion.');
+}
+
+const traceRegistryPath = 'observability/traces/domain_trace_extension_registry.json';
+if (exists(traceRegistryPath)) {
+  const traceRegistry = read(traceRegistryPath);
+  if (/adapters\/runtime\/shell_socket_/.test(traceRegistry)) {
+    push('observability_uses_legacy_adapter_shell_socket_source', traceRegistryPath, 'Gateway Shell Socket trace sources must point at gateway/** canonical modules, not adapter compatibility shims.');
+  }
+} else {
+  push('trace_registry_missing', traceRegistryPath, 'Trace extension registry must exist so Gateway physical ownership can be observed.');
 }
 
 const todo = exists('docs/workspace/todo/todo_registry.json') ? read('docs/workspace/todo/todo_registry.json') : '';

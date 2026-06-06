@@ -192,7 +192,7 @@
       "proofRefs": [
         "core/layer0/ops/src/dashboard_compat_api_parts/set_config_payload_parts/190_route_blocks/agent_scope_full_parts/046-turn-workflow-library.rs",
         "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/195-structured-tool-cards.ts",
-        "adapters/runtime/agent_ws_bridge.ts"
+        "gateway/runtime/sockets/agent_ws/agent_ws_bridge.ts"
       ]
     }
   ]

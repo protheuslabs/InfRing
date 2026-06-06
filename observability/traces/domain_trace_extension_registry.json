@@ -58,11 +58,11 @@
       "event_kinds": ["gateway_boundary", "health", "telemetry", "recovery", "error"],
       "current_sources": [
         "validation/conformance/contracts/gateway_shell_socket_trace_contract.json",
-        "adapters/runtime/shell_socket_chat_projection.ts",
-        "adapters/runtime/shell_socket_command_ingress.ts",
-        "adapters/runtime/shell_socket_eval_issue_ingress.ts",
-        "adapters/runtime/shell_socket_lifecycle_ingress.ts",
-        "adapters/runtime/shell_socket_status_projection.ts",
+        "gateway/runtime/sockets/shell_socket/shell_socket_chat_projection.ts",
+        "gateway/runtime/sockets/shell_socket/shell_socket_command_ingress.ts",
+        "gateway/runtime/sockets/shell_socket/shell_socket_eval_issue_ingress.ts",
+        "gateway/runtime/sockets/shell_socket/shell_socket_lifecycle_ingress.ts",
+        "gateway/runtime/sockets/shell_socket/shell_socket_status_projection.ts",
         "core/local/artifacts/gateway_shell_socket_trace_guard_current.json"
       ],
       "projection_status": "guarded",
