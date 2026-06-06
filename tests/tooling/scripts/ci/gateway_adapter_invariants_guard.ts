@@ -186,6 +186,15 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts')")) {
     push('dashboard_not_using_gateway_agent_runtime_router', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime routing to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_engine_routes.ts')")) {
+    push('dashboard_not_using_gateway_engine_routes', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime engine menu/selection routes to gateway/**.');
+  }
+  if (!dashboard.includes('handleAgentRuntimeEngineRoute')) {
+    push('dashboard_engine_route_handler_missing', dashboardPath, 'Legacy dashboard host must call the Gateway-owned engine route handler.');
+  }
+  if (/agentRuntimeEnginesProjection\s*\(|agentRuntimeEngineInstallProjection\s*\(/.test(dashboard)) {
+    push('dashboard_owns_engine_route_projection', dashboardPath, 'Legacy dashboard host must not call engine route projections directly.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_workspace_routes.ts')")) {
     push('dashboard_not_using_gateway_workspace_routes', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime workspace routes to gateway/**.');
   }

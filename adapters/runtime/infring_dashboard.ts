@@ -79,6 +79,9 @@ const {
   createAgentRuntimeEngineProjectionStore,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_engine_projections.ts');
 const {
+  createAgentRuntimeEngineRouteHandler,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_engine_routes.ts');
+const {
   createAgentRuntimeTurnProjectionStore,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts');
 const {
@@ -170,9 +173,13 @@ const agentRuntimeEngineProjectionStore = createAgentRuntimeEngineProjectionStor
   loadSelection: loadAgentRuntimeSelection,
 });
 const {
-  agentRuntimeEnginesProjection,
-  agentRuntimeEngineInstallProjection,
-} = agentRuntimeEngineProjectionStore;
+  handleAgentRuntimeEngineRoute,
+} = createAgentRuntimeEngineRouteHandler({
+  engineProjectionStore: agentRuntimeEngineProjectionStore,
+  selectEngine: agentRuntimeSelectionProjection,
+  readJsonBody,
+  sendJson,
+});
 const agentRuntimeTurnProjectionStore = createAgentRuntimeTurnProjectionStore({
   root: ROOT,
   contextFanoutTarget: AGENT_RUNTIME_CONTEXT_FANOUT_TARGET,
@@ -1679,35 +1686,7 @@ async function runServe(flags) {
         const payload = agentRuntimeApprovalDecisionProjection(traceId, approvalId, body);
         return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
       }
-      const agentRuntimeInstallMatch = pathname.match(/^\/api\/(?:shell-socket\/)?agent-runtime\/engines\/([^/]+)\/install$/);
-      if (req.method === 'POST' && agentRuntimeInstallMatch) {
-        await readJsonBody(req, 8192).catch(() => ({}));
-        const engineId = decodeURIComponent(agentRuntimeInstallMatch[1] || '');
-        const payload = await agentRuntimeEngineInstallProjection(traceId, engineId).catch((error) => ({
-          ok: false,
-          status_code: 502,
-          type: 'agent_runtime_engine_install_projection_error',
-          trace_id: traceId,
-          engine_id: cleanEngineId(engineId),
-          error: cleanText(error && error.message ? error.message : error, 240),
-        }));
-        return void sendJson(res, payload.status_code || (payload.ok === false ? 502 : 200), payload);
-      }
-      if (req.method === 'GET' && (pathname === '/api/shell-socket/agent-runtime/engines' || pathname === '/api/agent-runtime/engines')) {
-        const payload = await agentRuntimeEnginesProjection(traceId).catch((error) => ({
-          ok: false,
-          type: 'agent_runtime_engines_projection_error',
-          trace_id: traceId,
-          error: cleanText(error && error.message ? error.message : error, 240),
-          engines: [],
-        }));
-        return void sendJson(res, payload.ok === false ? 503 : 200, payload);
-      }
-      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/selection' || pathname === '/api/agent-runtime/selection')) {
-        const body = await readJsonBody(req, 8192).catch(() => ({}));
-        const payload = agentRuntimeSelectionProjection(traceId, body);
-        return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
-      }
+      if (await handleAgentRuntimeEngineRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeWorkspaceRoute({ req, res, pathname, traceId })) return;
       if (req.method === 'GET' && isShellSocketChatProjectionPath(pathname)) {
         const result = await shellSocketChatProjection({ flags, requestUrl, traceId, fetchBackendJson });
