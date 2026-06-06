@@ -26,6 +26,7 @@
     "gateway/runtime/agent_runtime/universal_core_tools.ts",
     "gateway/runtime/agent_runtime/agent_runtime_trace_writer.ts",
     "gateway/runtime/agent_runtime/agent_runtime_workspace.ts",
+    "gateway/runtime/agent_runtime/agent_runtime_workspace_routes.ts",
     "gateway/runtime/agent_runtime/agent_runtime_approvals.ts",
     "gateway/runtime/agent_runtime/agent_runtime_transcripts.ts",
     "gateway/runtime/agent_runtime/agent_runtime_session_state.ts",

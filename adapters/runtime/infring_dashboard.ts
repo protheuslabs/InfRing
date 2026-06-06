@@ -61,6 +61,9 @@ const {
   createAgentRuntimeWorkspaceStore,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_workspace.ts');
 const {
+  createAgentRuntimeWorkspaceRouteHandler,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_workspace_routes.ts');
+const {
   createAgentRuntimeApprovalStore,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_approvals.ts');
 const {
@@ -128,9 +131,14 @@ const agentRuntimeWorkspaceStore = createAgentRuntimeWorkspaceStore({ root: ROOT
 const {
   normalizeAgentRuntimeWorkspacePath,
   loadAgentRuntimeWorkspace,
-  agentRuntimeWorkspaceProjection,
-  agentRuntimeWorkspacePickerProjection,
 } = agentRuntimeWorkspaceStore;
+const {
+  handleAgentRuntimeWorkspaceRoute,
+} = createAgentRuntimeWorkspaceRouteHandler({
+  workspaceStore: agentRuntimeWorkspaceStore,
+  readJsonBody,
+  sendJson,
+});
 const agentRuntimeApprovalStore = createAgentRuntimeApprovalStore({ root: ROOT });
 const {
   sanitizeAgentRuntimeProposalArguments,
@@ -1700,20 +1708,7 @@ async function runServe(flags) {
         const payload = agentRuntimeSelectionProjection(traceId, body);
         return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
       }
-      if (req.method === 'GET' && (pathname === '/api/shell-socket/agent-runtime/workspace' || pathname === '/api/agent-runtime/workspace')) {
-        const payload = agentRuntimeWorkspaceProjection(traceId, {});
-        return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
-      }
-      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/workspace' || pathname === '/api/agent-runtime/workspace')) {
-        const body = await readJsonBody(req, 8192).catch(() => ({}));
-        const payload = agentRuntimeWorkspaceProjection(traceId, body);
-        return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
-      }
-      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/workspace/pick' || pathname === '/api/agent-runtime/workspace/pick')) {
-        const body = await readJsonBody(req, 8192).catch(() => ({}));
-        const payload = agentRuntimeWorkspacePickerProjection(traceId, body);
-        return void sendJson(res, payload.status_code || (payload.ok === false ? 409 : 200), payload);
-      }
+      if (await handleAgentRuntimeWorkspaceRoute({ req, res, pathname, traceId })) return;
       if (req.method === 'GET' && isShellSocketChatProjectionPath(pathname)) {
         const result = await shellSocketChatProjection({ flags, requestUrl, traceId, fetchBackendJson });
         const filter = agentRuntimeTranscriptFilterFromShellSocketPath(pathname);

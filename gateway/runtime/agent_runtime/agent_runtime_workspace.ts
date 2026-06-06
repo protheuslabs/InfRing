@@ -11,7 +11,9 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
+
+let lastPickerPrewarmAt = 0;
 
 function nowIso() { return new Date().toISOString(); }
 function cleanText(value, maxLen = 200) { return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen); }
@@ -96,6 +98,7 @@ function createAgentRuntimeWorkspaceStore(options = {}) {
   }
 
   function loadAgentRuntimeWorkspace(traceId = '') {
+    prewarmAgentRuntimeWorkspacePicker();
     try {
       const parsed = JSON.parse(fs.readFileSync(workspacePath, 'utf8'));
       return projectAgentRuntimeWorkspace(traceId, parsed);
@@ -158,6 +161,20 @@ function createAgentRuntimeWorkspaceStore(options = {}) {
     return { ok: false, cancelled: true, reason: cleanText(result.stderr || 'folder_picker_unavailable', 240) };
   }
 
+  function prewarmAgentRuntimeWorkspacePicker() {
+    if (process.platform !== 'darwin') return;
+    const now = Date.now();
+    if (now - lastPickerPrewarmAt < 30000) return;
+    lastPickerPrewarmAt = now;
+    try {
+      const child = spawn('osascript', ['-e', 'return ""'], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+    } catch {}
+  }
+
   function agentRuntimeWorkspaceProjection(traceId, body) {
     const requested = body && (body.workspace_dir || body.active_workspace || body.cwd || body.path);
     if (requested) {
@@ -198,6 +215,7 @@ function createAgentRuntimeWorkspaceStore(options = {}) {
     agentRuntimeWorkspaceProjection,
     agentRuntimeWorkspacePickerProjection,
     pickAgentRuntimeWorkspaceDirectory,
+    prewarmAgentRuntimeWorkspacePicker,
   };
 }
 

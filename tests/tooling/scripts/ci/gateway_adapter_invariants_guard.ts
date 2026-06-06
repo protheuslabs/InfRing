@@ -186,6 +186,15 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts')")) {
     push('dashboard_not_using_gateway_agent_runtime_router', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime routing to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_workspace_routes.ts')")) {
+    push('dashboard_not_using_gateway_workspace_routes', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime workspace routes to gateway/**.');
+  }
+  if (!dashboard.includes('handleAgentRuntimeWorkspaceRoute')) {
+    push('dashboard_workspace_route_handler_missing', dashboardPath, 'Legacy dashboard host must call the Gateway-owned workspace route handler.');
+  }
+  if (/agentRuntimeWorkspaceProjection\s*\(|agentRuntimeWorkspacePickerProjection\s*\(/.test(dashboard)) {
+    push('dashboard_owns_workspace_route_projection', dashboardPath, 'Legacy dashboard host must not call workspace route projections directly.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/universal_core_tools.ts')")) {
     push('dashboard_not_using_gateway_universal_tools', dashboardPath, 'Legacy dashboard host must delegate universal tool grant policy to gateway/**.');
   }
