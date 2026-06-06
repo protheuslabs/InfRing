@@ -17,6 +17,7 @@
     "gateway/runtime/sockets/agent_ws/agent_ws_bridge.ts",
     "gateway/runtime/sockets/shell_socket/shell_socket_chat_projection.ts",
     "gateway/runtime/sockets/shell_socket/shell_socket_command_ingress.ts",
+    "gateway/runtime/sockets/shell_socket/shell_socket_core_routes.ts",
     "gateway/runtime/sockets/shell_socket/shell_socket_status_projection.ts",
     "gateway/runtime/sockets/shell_socket/shell_socket_eval_issue_ingress.ts",
     "gateway/runtime/sockets/shell_socket/shell_socket_lifecycle_ingress.ts"

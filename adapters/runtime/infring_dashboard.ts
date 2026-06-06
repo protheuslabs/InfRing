@@ -33,21 +33,8 @@ const {
   createShellSocketAgentRuntimeOverlayRouteHandler,
 } = require('../../gateway/runtime/sockets/shell_socket/shell_socket_agent_runtime_overlay_routes.ts');
 const {
-  isShellSocketCommandIngressPath,
-  shellSocketCommandIngress,
-} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_command_ingress.ts');
-const {
-  isShellSocketStatusProjectionPath,
-  shellSocketStatusProjection,
-} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_status_projection.ts');
-const {
-  isShellSocketEvalIssueIngressPath,
-  shellSocketEvalIssueIngress,
-} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_eval_issue_ingress.ts');
-const {
-  isShellSocketLifecycleIngressPath,
-  shellSocketLifecycleIngress,
-} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_lifecycle_ingress.ts');
+  createShellSocketCoreRouteHandler,
+} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_core_routes.ts');
 const {
   backendFreshnessSnapshot: backendFreshnessSnapshotFromProcess,
   backendSpawnEnv: backendSpawnEnvForRoot,
@@ -174,6 +161,15 @@ const {
   transcriptStore: agentRuntimeTranscriptStore,
   fetchBackendJson,
   sendJson,
+});
+const {
+  handleShellSocketCoreRoute,
+} = createShellSocketCoreRouteHandler({
+  readJsonBody,
+  sendJson,
+  fetchBackend,
+  fetchBackendJson,
+  statusPayloadWithBootStage,
 });
 const agentRuntimeSessionStateStore = createAgentRuntimeSessionStateStore({ statusDir: STATUS_DIR });
 const {
@@ -1630,25 +1626,7 @@ async function runServe(flags) {
       if (await handleAgentRuntimeApprovalRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeEngineRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeWorkspaceRoute({ req, res, pathname, traceId })) return;
-      if (req.method === 'GET' && isShellSocketStatusProjectionPath(pathname)) {
-        const result = await shellSocketStatusProjection({ flags, traceId, fetchBackendJson, statusPayloadWithBootStage });
-        return void sendJson(res, result.status, result.payload);
-      }
-      if (req.method === 'POST' && isShellSocketCommandIngressPath(pathname)) {
-        const body = await readJsonBody(req, 65536);
-        const result = await shellSocketCommandIngress({ flags, requestUrl, traceId, body, fetchBackend });
-        return void sendJson(res, result.status, result.payload);
-      }
-      if (req.method === 'POST' && isShellSocketEvalIssueIngressPath(pathname)) {
-        const body = await readJsonBody(req, 65536);
-        const result = await shellSocketEvalIssueIngress({ flags, traceId, body, fetchBackend });
-        return void sendJson(res, result.status, result.payload);
-      }
-      if (req.method === 'POST' && isShellSocketLifecycleIngressPath(pathname)) {
-        const body = await readJsonBody(req, 65536);
-        const result = await shellSocketLifecycleIngress({ flags, requestUrl, traceId, body, fetchBackend });
-        return void sendJson(res, result.status, result.payload);
-      }
+      if (await handleShellSocketCoreRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
       if (req.method === 'GET') {
         const agentSessionsMatch = pathname.match(/^\/api\/agents\/([^/]+)\/sessions$/);
         if (agentSessionsMatch) {
