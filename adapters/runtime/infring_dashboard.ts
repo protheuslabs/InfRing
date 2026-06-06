@@ -36,6 +36,9 @@ const {
   createShellSocketCoreRouteHandler,
 } = require('../../gateway/runtime/sockets/shell_socket/shell_socket_core_routes.ts');
 const {
+  createGatewaySystemRouteHandler,
+} = require('../../gateway/runtime/gateway_system_routes.ts');
+const {
   backendFreshnessSnapshot: backendFreshnessSnapshotFromProcess,
   backendSpawnEnv: backendSpawnEnvForRoot,
   shouldRestartStaleBackend,
@@ -170,6 +173,12 @@ const {
   fetchBackend,
   fetchBackendJson,
   statusPayloadWithBootStage,
+});
+const {
+  handleGatewaySystemRoute,
+} = createGatewaySystemRouteHandler({
+  fetchBackendJson,
+  sendJson,
 });
 const agentRuntimeSessionStateStore = createAgentRuntimeSessionStateStore({ statusDir: STATUS_DIR });
 const {
@@ -1613,14 +1622,7 @@ async function runServe(flags) {
         const versionPayload = await fetchBackendJson(flags, '/api/version', 4000).catch(() => ({ ok: true }));
         return void sendJson(res, 200, mergeDashboardVersionPayload(versionPayload));
       }
-      if (req.method === 'GET' && pathname === '/api/system/release-check') {
-        const qs = requestUrl.search || '';
-        const payload = await fetchBackendJson(flags, `/api/update/check${qs}`, 5000).catch(() => ({
-          ok: true,
-          update_available: false,
-        }));
-        return void sendJson(res, 200, payload);
-      }
+      if (await handleGatewaySystemRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
       if (await handleShellSocketAgentRuntimeOverlayRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
       if (await handleAgentRuntimeTurnRoute({ req, res, pathname, traceId, flags })) return;
       if (await handleAgentRuntimeApprovalRoute({ req, res, pathname, traceId })) return;

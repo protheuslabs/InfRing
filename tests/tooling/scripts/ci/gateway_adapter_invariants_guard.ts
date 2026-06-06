@@ -186,6 +186,15 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts')")) {
     push('dashboard_not_using_gateway_agent_runtime_router', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime routing to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_system_routes.ts')")) {
+    push('dashboard_not_using_gateway_system_routes', dashboardPath, 'Legacy dashboard host must delegate Gateway system routes to gateway/**.');
+  }
+  if (!/handleGatewaySystemRoute\s*\(/.test(dashboard)) {
+    push('dashboard_gateway_system_route_handler_missing', dashboardPath, 'Legacy dashboard host must call the Gateway-owned system route handler.');
+  }
+  if (/pathname\s*===\s*['"]\/api\/system\/release-check['"]|\/api\/update\/check\$\{qs\}/.test(dashboard)) {
+    push('dashboard_owns_gateway_system_release_check', dashboardPath, 'Legacy dashboard host must not shape Gateway system release-check route directly.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/sockets/shell_socket/shell_socket_agent_runtime_overlay_routes.ts')")) {
     push('dashboard_not_using_gateway_shell_socket_agent_runtime_overlay_routes', dashboardPath, 'Legacy dashboard host must delegate Shell Socket Agent Runtime overlay routes to gateway/**.');
   }
