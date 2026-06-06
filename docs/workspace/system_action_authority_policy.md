@@ -51,5 +51,31 @@ Acceptance criteria:
 
 - Gateway system control routes forward to Core/ops authority.
 - Mutating system actions return receipts or receipt refs.
+- Successful `restart`, `shutdown`, and applied `update` actions must fail closed if the authority response lacks a receipt or receipt ref.
+- `update` requests with `apply:false` are dry-run/status checks and may return bounded projections without mutation receipts, but they must project `effect_mode: dry_run` and `receipt_required: false`.
 - Dashboard host no longer owns detached subprocess dispatch for restart/update/shutdown.
 - Dashboard host shutdown cleanup remains host lifecycle only, not system authority.
+
+## Receipt projection contract
+
+Gateway system-action responses must project receipt state without becoming the receipt authority:
+
+```json
+{
+  "gateway_projection": {
+    "authority_owner": "core.ops",
+    "forwarded_to_core": true,
+    "system_action_receipt": {
+      "action": "restart",
+      "effect_mode": "mutating",
+      "receipt_required": true,
+      "receipt_present": true,
+      "receipt_ref": "receipt/...",
+      "receipt_owner": "core.ops",
+      "receipt_source": "core_forwarded_response"
+    }
+  }
+}
+```
+
+Legacy dashboard-host fallback may remain only as explicit debt. If it is used for a mutating action, it must also return a receipt/ref and must project `receipt_owner: legacy_dashboard_host_shim` plus `target_authority_owner: core.ops` so operators can distinguish compatibility fallback from canonical authority.

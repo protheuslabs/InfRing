@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-06T23:46:00.856Z
+Updated: 2026-06-06T23:52:39.256Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-06T23:46:00.856Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 32
+- active_items: 31
 - red: 4
-- yellow: 20
+- yellow: 19
 - white: 8
 
 ## Red Section (Do Immediately)
@@ -183,13 +183,6 @@ Updated: 2026-06-06T23:46:00.856Z
   work_gate: `reliability`
   real_work_score: `5`
   summary: Route InfRing Native through the same engine_id, context envelope, available_models, activity event, permission request, artifact ref, and receipt surfaces used by external engines so native orchestration is swappable rather than special-cased.
-- `SYSTEM-ACTION-AUTHORITY-RECEIPTS` — Replace dashboard system-action fallback with Core receipts
-  owner: `codex`
-  deadline: `2026-06-17`
-  source_family: `Gateway Physical Domain Cleanup`
-  work_gate: `reliability`
-  real_work_score: `5`
-  summary: Ensure restart, shutdown, and update routes are Gateway-wrapped but Core/ops-authoritative, returning deterministic receipts or receipt refs while retiring dashboard-host detached subprocess fallback glue.
 
 ## White Section (Do At Leisure)
 - `TRACE-IMPL` — Implement end-to-end unified trace_id propagation

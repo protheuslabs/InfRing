@@ -57,6 +57,7 @@ function writeArtifacts(payload: any): void {
       '',
       `- Checked actions: ${(payload.checked_actions || []).join(', ')}`,
       `- Core forwarding: ${payload.core_forwarding === true}`,
+      `- Receipt enforcement: ${payload.receipt_enforcement === true}`,
       `- Legacy fallback labeled: ${payload.legacy_fallback_labeled === true}`,
       `- Gateway OS authority forbidden: ${payload.gateway_os_authority_forbidden === true}`,
       '',
@@ -79,6 +80,7 @@ function fail(id: string, detail: string): never {
     failures: [{ id, detail }],
     checked_actions: ['restart', 'update', 'shutdown'],
     core_forwarding: false,
+    receipt_enforcement: false,
     legacy_fallback_labeled: false,
     gateway_os_authority_forbidden: false,
   };
@@ -146,8 +148,64 @@ async function main(): Promise<void> {
     assert(captured && captured.status === 200, 'system_action_bad_status', `${action} did not return 200 in mock Core-forward path.`);
     assert(captured?.payload?.gateway_projection?.authority_owner === 'core.ops', 'system_action_not_core_authoritative', `${action} did not project authority_owner=core.ops.`);
     assert(captured?.payload?.gateway_projection?.forwarded_to_core === true, 'system_action_not_forwarded_to_core', `${action} did not project forwarded_to_core=true.`);
+    assert(captured?.payload?.gateway_projection?.system_action_receipt, 'system_action_receipt_projection_missing', `${action} did not project system_action_receipt.`);
+    assert(captured?.payload?.gateway_projection?.system_action_receipt?.receipt_ref === `receipt/mock-${action}`, 'system_action_receipt_ref_missing', `${action} did not project the Core receipt ref.`);
+    assert(captured?.payload?.gateway_projection?.system_action_receipt?.receipt_source === 'core_forwarded_response', 'system_action_receipt_source_wrong', `${action} did not project Core receipt source.`);
     assert(fallbackCalls === 0, 'system_action_used_legacy_fallback_despite_core', `${action} called legacy fallback even though Core route was available.`);
     assert(action === 'shutdown' ? cleanupCalls === 1 : cleanupCalls === 0, 'system_action_host_cleanup_mismatch', `${action} host cleanup callback count was ${cleanupCalls}.`);
+  }
+
+  {
+    let captured: CapturedResponse | null = null;
+    const handler = createGatewaySystemRouteHandler({
+      fetchBackendJson: async () => ({ ok: true }),
+      fetchBackend: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: true, route: '/api/system/restart' }),
+      }),
+      readJsonBody: async () => ({}),
+      sendJson: (_res: any, status: number, payload: any) => {
+        captured = { status, payload };
+      },
+    });
+    await handler.handleGatewaySystemRoute({
+      req: { method: 'POST' },
+      res: {},
+      pathname: '/api/system/restart',
+      traceId: 'guard-missing-receipt-restart',
+      flags: {},
+    });
+    assert(captured && captured.status === 502, 'system_action_missing_receipt_not_failed_closed', 'Mutating Core action without receipt must fail closed.');
+    assert(captured?.payload?.type === 'gateway_system_action_receipt_missing', 'system_action_missing_receipt_wrong_type', 'Missing Core receipt must use gateway_system_action_receipt_missing.');
+    assert(captured?.payload?.gateway_projection?.system_action_receipt?.receipt_required === true, 'system_action_missing_receipt_not_required', 'Missing Core receipt projection must mark receipt_required=true.');
+    assert(captured?.payload?.gateway_projection?.system_action_receipt?.receipt_present === false, 'system_action_missing_receipt_not_absent', 'Missing Core receipt projection must mark receipt_present=false.');
+  }
+
+  {
+    let captured: CapturedResponse | null = null;
+    const handler = createGatewaySystemRouteHandler({
+      fetchBackendJson: async () => ({ ok: true }),
+      fetchBackend: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: true, route: '/api/system/update', update_available: false }),
+      }),
+      readJsonBody: async () => ({ apply: false }),
+      sendJson: (_res: any, status: number, payload: any) => {
+        captured = { status, payload };
+      },
+    });
+    await handler.handleGatewaySystemRoute({
+      req: { method: 'POST' },
+      res: {},
+      pathname: '/api/system/update',
+      traceId: 'guard-dry-run-update',
+      flags: {},
+    });
+    assert(captured && captured.status === 200, 'system_action_dry_run_update_required_receipt', 'Dry-run update check must not require a mutation receipt.');
+    assert(captured?.payload?.gateway_projection?.system_action_receipt?.effect_mode === 'dry_run', 'system_action_dry_run_update_mode_missing', 'Dry-run update must project effect_mode=dry_run.');
+    assert(captured?.payload?.gateway_projection?.system_action_receipt?.receipt_required === false, 'system_action_dry_run_update_receipt_required', 'Dry-run update must project receipt_required=false.');
   }
 
   for (const action of ['restart', 'update', 'shutdown']) {
@@ -185,6 +243,33 @@ async function main(): Promise<void> {
     assert(captured?.payload?.gateway_projection?.authority_owner === 'legacy_dashboard_host_shim', 'system_action_fallback_not_labeled_legacy', `${action} fallback was not labeled legacy_dashboard_host_shim.`);
     assert(captured?.payload?.gateway_projection?.target_authority_owner === 'core.ops', 'system_action_fallback_missing_core_target', `${action} fallback did not preserve target_authority_owner=core.ops.`);
     assert(captured?.payload?.gateway_projection?.legacy_host_fallback === true, 'system_action_fallback_flag_missing', `${action} fallback did not project legacy_host_fallback=true.`);
+    assert(captured?.payload?.gateway_projection?.system_action_receipt, 'system_action_fallback_receipt_projection_missing', `${action} fallback did not project system_action_receipt.`);
+    assert(captured?.payload?.gateway_projection?.system_action_receipt?.receipt_source === 'legacy_dashboard_host_fallback', 'system_action_fallback_receipt_source_wrong', `${action} fallback did not project legacy receipt source.`);
+  }
+
+  {
+    let captured: CapturedResponse | null = null;
+    const handler = createGatewaySystemRouteHandler({
+      fetchBackendJson: async () => ({ ok: true }),
+      fetchBackend: async () => {
+        throw new Error('mock_core_unavailable');
+      },
+      readJsonBody: async () => ({}),
+      sendJson: (_res: any, status: number, payload: any) => {
+        captured = { status, payload };
+      },
+      legacyHostFallback: () => ({ ok: true, action: 'restart' }),
+    });
+    await handler.handleGatewaySystemRoute({
+      req: { method: 'POST' },
+      res: {},
+      pathname: '/api/system/restart',
+      traceId: 'guard-legacy-missing-receipt-restart',
+      flags: {},
+    });
+    assert(captured && captured.status === 502, 'system_action_legacy_missing_receipt_not_failed_closed', 'Mutating legacy fallback without receipt must fail closed.');
+    assert(captured?.payload?.type === 'gateway_system_action_legacy_fallback_receipt_missing', 'system_action_legacy_missing_receipt_wrong_type', 'Missing legacy fallback receipt must use gateway_system_action_legacy_fallback_receipt_missing.');
+    assert(captured?.payload?.gateway_projection?.system_action_receipt?.receipt_required === true, 'system_action_legacy_missing_receipt_not_required', 'Missing legacy fallback receipt projection must mark receipt_required=true.');
   }
 
   const payload = {
@@ -193,6 +278,7 @@ async function main(): Promise<void> {
     generated_at: new Date().toISOString(),
     checked_actions: ['restart', 'update', 'shutdown'],
     core_forwarding: true,
+    receipt_enforcement: true,
     legacy_fallback_labeled: true,
     gateway_os_authority_forbidden: true,
     failures: [],

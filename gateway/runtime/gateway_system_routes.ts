@@ -28,6 +28,47 @@ function systemProjection(traceId, routeId, routeClass = 'health_status') {
   };
 }
 
+function receiptRefFromPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  if (typeof payload.receipt_ref === 'string' && payload.receipt_ref.trim()) return payload.receipt_ref.trim();
+  if (payload.receipt && typeof payload.receipt === 'object') {
+    if (typeof payload.receipt.ref === 'string' && payload.receipt.ref.trim()) return payload.receipt.ref.trim();
+    if (typeof payload.receipt.id === 'string' && payload.receipt.id.trim()) return payload.receipt.id.trim();
+    if (typeof payload.receipt.receipt_ref === 'string' && payload.receipt.receipt_ref.trim()) return payload.receipt.receipt_ref.trim();
+  }
+  if (Array.isArray(payload.receipts)) {
+    for (const row of payload.receipts) {
+      const ref = receiptRefFromPayload({ receipt: row });
+      if (ref) return ref;
+    }
+  }
+  return null;
+}
+
+function systemActionRequiresReceipt(action, body) {
+  if (action === 'update' && body && body.apply === false) return false;
+  return action === 'restart' || action === 'shutdown' || action === 'update';
+}
+
+function systemActionEffectMode(action, body) {
+  if (action === 'update' && body && body.apply === false) return 'dry_run';
+  return 'mutating';
+}
+
+function systemActionReceiptProjection(action, body, payload, source) {
+  const receiptRef = receiptRefFromPayload(payload);
+  const receiptRequired = systemActionRequiresReceipt(action, body);
+  return {
+    action,
+    effect_mode: systemActionEffectMode(action, body),
+    receipt_required: receiptRequired,
+    receipt_present: Boolean(receiptRef),
+    receipt_ref: receiptRef,
+    receipt_owner: source === 'legacy' ? 'legacy_dashboard_host_shim' : 'core.ops',
+    receipt_source: source === 'legacy' ? 'legacy_dashboard_host_fallback' : 'core_forwarded_response',
+  };
+}
+
 function createGatewaySystemRouteHandler(options = {}) {
   const fetchBackendJson = options.fetchBackendJson;
   const fetchBackend = options.fetchBackend;
@@ -142,6 +183,23 @@ function createGatewaySystemRouteHandler(options = {}) {
         let payload = {};
         try { payload = text ? JSON.parse(text) : {}; } catch { payload = {}; }
         const base = payload && typeof payload === 'object' ? payload : { ok: upstream.ok };
+        const receiptProjection = systemActionReceiptProjection(action, body, base, 'core');
+        if (base.ok !== false && receiptProjection.receipt_required && !receiptProjection.receipt_present) {
+          sendJson(res, 502, {
+            ok: false,
+            type: 'gateway_system_action_receipt_missing',
+            trace_id: traceId,
+            action,
+            error: 'core_system_action_missing_receipt',
+            gateway_projection: {
+              ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
+              authority_owner: 'core.ops',
+              forwarded_to_core: true,
+              system_action_receipt: receiptProjection,
+            },
+          });
+          return true;
+        }
         sendJson(res, upstream.status || (base.ok === false ? 400 : 200), {
           ...base,
           trace_id: traceId,
@@ -149,6 +207,7 @@ function createGatewaySystemRouteHandler(options = {}) {
             ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
             authority_owner: 'core.ops',
             forwarded_to_core: true,
+            system_action_receipt: receiptProjection,
           },
         });
         if (action === 'shutdown' && base.ok !== false && typeof onHostShutdownAccepted === 'function') {
@@ -174,6 +233,26 @@ function createGatewaySystemRouteHandler(options = {}) {
         }
         const fallback = legacyHostFallback(action, body, { traceId, coreError: error });
         const payload = fallback && typeof fallback === 'object' ? fallback : { ok: false, error: 'legacy_host_fallback_invalid' };
+        const receiptProjection = systemActionReceiptProjection(action, body, payload, 'legacy');
+        if (payload.ok && receiptProjection.receipt_required && !receiptProjection.receipt_present) {
+          sendJson(res, 502, {
+            ok: false,
+            type: 'gateway_system_action_legacy_fallback_receipt_missing',
+            trace_id: traceId,
+            action,
+            error: 'legacy_dashboard_host_fallback_missing_receipt',
+            gateway_projection: {
+              ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
+              authority_owner: 'legacy_dashboard_host_shim',
+              target_authority_owner: 'core.ops',
+              forwarded_to_core: false,
+              legacy_host_fallback: true,
+              legacy_host_fallback_reason: 'core_system_action_route_unavailable',
+              system_action_receipt: receiptProjection,
+            },
+          });
+          return true;
+        }
         sendJson(res, payload.ok ? 200 : 500, {
           ...payload,
           trace_id: traceId,
@@ -184,6 +263,7 @@ function createGatewaySystemRouteHandler(options = {}) {
             forwarded_to_core: false,
             legacy_host_fallback: true,
             legacy_host_fallback_reason: 'core_system_action_route_unavailable',
+            system_action_receipt: receiptProjection,
           },
         });
         if (action === 'shutdown' && payload.ok && typeof onHostShutdownAccepted === 'function') {
@@ -213,4 +293,7 @@ function createGatewaySystemRouteHandler(options = {}) {
 module.exports = {
   isGatewaySystemRoute,
   createGatewaySystemRouteHandler,
+  systemActionRequiresReceipt,
+  systemActionEffectMode,
+  receiptRefFromPayload,
 };

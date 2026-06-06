@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-06T23:46:00.856Z
+Updated: 2026-06-06T23:52:39.256Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-06T23:46:00.856Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `SYSTEM-ACTION-AUTHORITY-RECEIPTS` — Replace dashboard system-action fallback with Core receipts
+  completed_at: `2026-06-06T23:52:39.253Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Gateway Physical Domain Cleanup`
+  summary: Ensure restart, shutdown, and update routes are Gateway-wrapped but Core/ops-authoritative, returning deterministic receipts or receipt refs while retiring dashboard-host detached subprocess fallback glue.
+  completion_note: Gateway system-action routes now fail closed for successful mutating restart/shutdown/applied-update responses without receipts; dry-run update projects receipt_required=false; ops:gateway:system-action-authority:guard passes.
 - `ADAPTER-TRANSLATOR-ONLY-GUARD` — Enforce adapters as translator-only
   completed_at: `2026-06-06T23:46:00.854Z`
   previous_section: `yellow`
@@ -732,4 +740,3 @@ Updated: 2026-06-06T23:46:00.856Z
 
 ## Legacy Appendix
 - Preserved historical markdown: [TODO_ARCHIVE_LEGACY.md](/Users/jay/.openclaw/workspace/docs/workspace/todo/TODO_ARCHIVE_LEGACY.md)
-
