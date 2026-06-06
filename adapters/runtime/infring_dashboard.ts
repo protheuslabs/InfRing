@@ -85,6 +85,9 @@ const {
   createAgentRuntimeTurnProjectionStore,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts');
 const {
+  createAgentRuntimeTurnRouteHandler,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_turn_routes.ts');
+const {
   createAgentRuntimeContextPreviewProjectionStore,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_context_preview.ts');
 
@@ -203,9 +206,6 @@ const agentRuntimeTurnProjectionStore = createAgentRuntimeTurnProjectionStore({
   recordAgentRuntimePendingApproval,
   recordAgentRuntimeTurnReceipts,
 });
-const {
-  agentRuntimeTurnProjection,
-} = agentRuntimeTurnProjectionStore;
 const agentRuntimeContextPreviewProjectionStore = createAgentRuntimeContextPreviewProjectionStore({
   root: ROOT,
   loadAgentRuntimeContextRows,
@@ -215,8 +215,15 @@ const agentRuntimeContextPreviewProjectionStore = createAgentRuntimeContextPrevi
   buildUniversalToolGrants,
 });
 const {
-  agentRuntimeContextPackPreviewProjection,
-} = agentRuntimeContextPreviewProjectionStore;
+  handleAgentRuntimeTurnRoute,
+} = createAgentRuntimeTurnRouteHandler({
+  turnProjectionStore: agentRuntimeTurnProjectionStore,
+  contextPreviewProjectionStore: agentRuntimeContextPreviewProjectionStore,
+  steer: agentRuntimeSteerProjection,
+  createNativeOrchestrationClient: createGatewayNativeOrchestrationClient,
+  readJsonBody,
+  sendJson,
+});
 
 function nowIso() { return new Date().toISOString(); }
 function cleanText(value, maxLen = 200) { return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen); }
@@ -1623,62 +1630,7 @@ async function runServe(flags) {
         });
         return void sendJson(res, merged.ok === false ? 502 : 200, merged);
       }
-      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/turn/stream' || pathname === '/api/agent-runtime/turn/stream')) {
-        const body = await readJsonBody(req, 65536);
-        res.writeHead(200, {
-          'content-type': 'application/x-ndjson; charset=utf-8',
-          'cache-control': 'no-store',
-          'x-accel-buffering': 'no',
-        });
-        const writeEvent = (event) => {
-          if (res.writableEnded || res.destroyed) return;
-          try { res.write(`${JSON.stringify(event)}\n`); } catch {}
-        };
-        writeEvent({ type: 'start', trace_id: traceId, route: 'agent_runtime.turn.stream' });
-        const payload = await agentRuntimeTurnProjection(traceId, body, {
-          stream: true,
-          nativeOrchestrationClient: createGatewayNativeOrchestrationClient(flags),
-          onActivity: (event) => writeEvent({ type: 'activity', trace_id: traceId, event }),
-        }).catch((error) => ({
-          ok: false,
-          status_code: 502,
-          type: 'agent_runtime_turn_stream_error',
-          trace_id: traceId,
-          error: cleanText(error && error.message ? error.message : error, 240),
-        }));
-        writeEvent({ type: 'final', trace_id: traceId, payload });
-        if (!res.writableEnded && !res.destroyed) res.end();
-        return;
-      }
-      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/turn' || pathname === '/api/agent-runtime/turn')) {
-        const body = await readJsonBody(req, 65536);
-        const payload = await agentRuntimeTurnProjection(traceId, body, {
-          nativeOrchestrationClient: createGatewayNativeOrchestrationClient(flags),
-        }).catch((error) => ({
-          ok: false,
-          status_code: 502,
-          type: 'agent_runtime_turn_projection_error',
-          trace_id: traceId,
-          error: cleanText(error && error.message ? error.message : error, 240),
-        }));
-        return void sendJson(res, payload.status_code || (payload.ok === false ? 502 : 200), payload);
-      }
-      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/steer' || pathname === '/api/agent-runtime/steer')) {
-        const body = await readJsonBody(req, 65536).catch(() => ({}));
-        const payload = agentRuntimeSteerProjection(traceId, body);
-        return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
-      }
-      if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/context-pack/preview' || pathname === '/api/agent-runtime/context-pack/preview')) {
-        const body = await readJsonBody(req, 65536).catch(() => ({}));
-        const payload = await agentRuntimeContextPackPreviewProjection(traceId, body).catch((error) => ({
-          ok: false,
-          status_code: 502,
-          type: 'agent_runtime_context_pack_preview_error',
-          trace_id: traceId,
-          error: cleanText(error && error.message ? error.message : error, 240),
-        }));
-        return void sendJson(res, payload.status_code || (payload.ok === false ? 502 : 200), payload);
-      }
+      if (await handleAgentRuntimeTurnRoute({ req, res, pathname, traceId, flags })) return;
       const approvalDecisionMatch = pathname.match(/^\/api\/shell-socket\/approvals\/([^/]+)\/decision$/);
       if (req.method === 'POST' && approvalDecisionMatch) {
         const body = await readJsonBody(req, 327680).catch(() => ({}));

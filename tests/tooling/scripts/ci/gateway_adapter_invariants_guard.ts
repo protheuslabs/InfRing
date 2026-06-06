@@ -195,6 +195,15 @@ if (exists(dashboardPath)) {
   if (/agentRuntimeEnginesProjection\s*\(|agentRuntimeEngineInstallProjection\s*\(/.test(dashboard)) {
     push('dashboard_owns_engine_route_projection', dashboardPath, 'Legacy dashboard host must not call engine route projections directly.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_turn_routes.ts')")) {
+    push('dashboard_not_using_gateway_turn_routes', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime turn/stream/steer/context-preview routes to gateway/**.');
+  }
+  if (!/handleAgentRuntimeTurnRoute\s*\(/.test(dashboard)) {
+    push('dashboard_turn_route_handler_missing', dashboardPath, 'Legacy dashboard host must call the Gateway-owned turn route handler.');
+  }
+  if (/agentRuntimeTurnProjection\s*\(|agentRuntimeContextPackPreviewProjection\s*\(/.test(dashboard)) {
+    push('dashboard_owns_turn_route_projection', dashboardPath, 'Legacy dashboard host must not call turn/context-preview route projections directly.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_workspace_routes.ts')")) {
     push('dashboard_not_using_gateway_workspace_routes', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime workspace routes to gateway/**.');
   }
