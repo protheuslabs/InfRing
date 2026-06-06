@@ -23,6 +23,7 @@
   ],
   "canonical_gateway_agent_runtime_modules": [
     "gateway/runtime/agent_runtime/agent_runtime_router.ts",
+    "gateway/runtime/agent_runtime/agent_runtime_approval_routes.ts",
     "gateway/runtime/agent_runtime/agent_runtime_engine_routes.ts",
     "gateway/runtime/agent_runtime/agent_runtime_turn_routes.ts",
     "gateway/runtime/agent_runtime/universal_core_tools.ts",

@@ -67,6 +67,9 @@ const {
   createAgentRuntimeApprovalStore,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_approvals.ts');
 const {
+  createAgentRuntimeApprovalRouteHandler,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_approval_routes.ts');
+const {
   createAgentRuntimeReceiptStore,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_receipts.ts');
 const {
@@ -149,9 +152,15 @@ const agentRuntimeApprovalStore = createAgentRuntimeApprovalStore({ root: ROOT }
 const {
   sanitizeAgentRuntimeProposalArguments,
   recordAgentRuntimePendingApproval,
-  agentRuntimeApprovalDecisionProjection,
   mergeAgentRuntimeApprovalPermissionPolicy,
 } = agentRuntimeApprovalStore;
+const {
+  handleAgentRuntimeApprovalRoute,
+} = createAgentRuntimeApprovalRouteHandler({
+  approvalStore: agentRuntimeApprovalStore,
+  readJsonBody,
+  sendJson,
+});
 const agentRuntimeReceiptStore = createAgentRuntimeReceiptStore({ root: ROOT });
 const {
   recordAgentRuntimeTurnReceipts,
@@ -1631,13 +1640,7 @@ async function runServe(flags) {
         return void sendJson(res, merged.ok === false ? 502 : 200, merged);
       }
       if (await handleAgentRuntimeTurnRoute({ req, res, pathname, traceId, flags })) return;
-      const approvalDecisionMatch = pathname.match(/^\/api\/shell-socket\/approvals\/([^/]+)\/decision$/);
-      if (req.method === 'POST' && approvalDecisionMatch) {
-        const body = await readJsonBody(req, 327680).catch(() => ({}));
-        const approvalId = decodeURIComponent(approvalDecisionMatch[1] || '');
-        const payload = agentRuntimeApprovalDecisionProjection(traceId, approvalId, body);
-        return void sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
-      }
+      if (await handleAgentRuntimeApprovalRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeEngineRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeWorkspaceRoute({ req, res, pathname, traceId })) return;
       if (req.method === 'GET' && isShellSocketChatProjectionPath(pathname)) {
