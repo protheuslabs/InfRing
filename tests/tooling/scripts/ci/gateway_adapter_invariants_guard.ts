@@ -186,6 +186,15 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts')")) {
     push('dashboard_not_using_gateway_agent_runtime_router', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime routing to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/sockets/shell_socket/shell_socket_agent_runtime_overlay_routes.ts')")) {
+    push('dashboard_not_using_gateway_shell_socket_agent_runtime_overlay_routes', dashboardPath, 'Legacy dashboard host must delegate Shell Socket Agent Runtime overlay routes to gateway/**.');
+  }
+  if (!/handleShellSocketAgentRuntimeOverlayRoute\s*\(/.test(dashboard)) {
+    push('dashboard_shell_socket_agent_runtime_overlay_route_handler_missing', dashboardPath, 'Legacy dashboard host must call the Gateway-owned Shell Socket Agent Runtime overlay route handler.');
+  }
+  if (/legacyAgentSessionMatch|mergeAgentRuntimeTranscriptPayload\s*\(|agentRuntimeTranscriptFilterFromShellSocketPath\s*\(|shellSocketChatProjection\s*\(/.test(dashboard)) {
+    push('dashboard_owns_shell_socket_agent_runtime_overlay', dashboardPath, 'Legacy dashboard host must not shape Shell Socket Agent Runtime transcript overlay responses directly.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_approval_routes.ts')")) {
     push('dashboard_not_using_gateway_approval_routes', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime approval decision routes to gateway/**.');
   }

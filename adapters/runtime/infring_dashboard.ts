@@ -30,9 +30,8 @@ const { createGrokCodeEngineAdapter } = require('./agent_engines/grok_code.ts');
 const { createOpenClawEngineAdapter } = require('./agent_engines/openclaw.ts');
 const { createHermesAgentEngineAdapter } = require('./agent_engines/hermes_agent.ts');
 const {
-  isShellSocketChatProjectionPath,
-  shellSocketChatProjection,
-} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_chat_projection.ts');
+  createShellSocketAgentRuntimeOverlayRouteHandler,
+} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_agent_runtime_overlay_routes.ts');
 const {
   isShellSocketCommandIngressPath,
   shellSocketCommandIngress,
@@ -168,9 +167,14 @@ const {
 const agentRuntimeTranscriptStore = createAgentRuntimeTranscriptStore({ statusDir: STATUS_DIR });
 const {
   appendAgentRuntimeTranscriptTurn,
-  mergeAgentRuntimeTranscriptPayload,
-  agentRuntimeTranscriptFilterFromShellSocketPath,
 } = agentRuntimeTranscriptStore;
+const {
+  handleShellSocketAgentRuntimeOverlayRoute,
+} = createShellSocketAgentRuntimeOverlayRouteHandler({
+  transcriptStore: agentRuntimeTranscriptStore,
+  fetchBackendJson,
+  sendJson,
+});
 const agentRuntimeSessionStateStore = createAgentRuntimeSessionStateStore({ statusDir: STATUS_DIR });
 const {
   loadAgentRuntimeSelection,
@@ -1621,40 +1625,11 @@ async function runServe(flags) {
         }));
         return void sendJson(res, 200, payload);
       }
-      const legacyAgentSessionMatch = pathname.match(/^\/api\/agents\/([^/]+)\/session$/);
-      if (req.method === 'GET' && legacyAgentSessionMatch) {
-        const agentId = decodeURIComponent(legacyAgentSessionMatch[1] || '');
-        const upstreamPath = `${pathname}${requestUrl.search || ''}`;
-        const payload = await fetchBackendJson(flags, upstreamPath, 10000, traceId).catch((error) => ({
-          ok: false,
-          type: 'agent_session_projection_unavailable',
-          trace_id: traceId,
-          error: cleanText(error && error.message ? error.message : error, 240),
-        }));
-        const sessionId = payload && (payload.session_id || payload.current_session_id || (payload.session && payload.session.id));
-        const merged = mergeAgentRuntimeTranscriptPayload(payload, {
-          agentId,
-          sessionId,
-          limit: requestUrl.searchParams.get('limit'),
-        });
-        return void sendJson(res, merged.ok === false ? 502 : 200, merged);
-      }
+      if (await handleShellSocketAgentRuntimeOverlayRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
       if (await handleAgentRuntimeTurnRoute({ req, res, pathname, traceId, flags })) return;
       if (await handleAgentRuntimeApprovalRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeEngineRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeWorkspaceRoute({ req, res, pathname, traceId })) return;
-      if (req.method === 'GET' && isShellSocketChatProjectionPath(pathname)) {
-        const result = await shellSocketChatProjection({ flags, requestUrl, traceId, fetchBackendJson });
-        const filter = agentRuntimeTranscriptFilterFromShellSocketPath(pathname);
-        const payload = filter
-          ? mergeAgentRuntimeTranscriptPayload(result.payload, {
-            agentId: filter.agentId,
-            sessionId: filter.sessionId,
-            limit: requestUrl.searchParams.get('limit'),
-          })
-          : result.payload;
-        return void sendJson(res, result.status, payload);
-      }
       if (req.method === 'GET' && isShellSocketStatusProjectionPath(pathname)) {
         const result = await shellSocketStatusProjection({ flags, traceId, fetchBackendJson, statusPayloadWithBootStage });
         return void sendJson(res, result.status, result.payload);
