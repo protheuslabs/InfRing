@@ -236,6 +236,8 @@
     "must_verify_receipt_refs": true,
     "must_verify_approval_pause": true,
     "must_verify_decision_resolves_stored_request": true,
+    "must_record_working_directory": true,
+    "must_record_observed_working_directory_when_available": true,
     "must_remove_probe_artifact": true,
     "must_write_artifact": "core/local/artifacts/agent_runtime_live_work_eval_current.json"
   }

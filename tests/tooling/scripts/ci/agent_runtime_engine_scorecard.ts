@@ -158,6 +158,12 @@ function main() {
       status: clean(engine.status, 120),
       score: Number(score.toFixed(3)),
       classification: classify(score),
+      live_work_evidence: liveRow ? {
+        working_directory: clean(liveRow.working_directory || liveWork.working_directory, 500),
+        observed_working_directory: clean(liveRow.observed_working_directory, 500),
+        working_directory_observation_source: clean(liveRow.working_directory_observation_source, 120),
+        classification: clean(liveRow.classification, 160),
+      } : null,
       capabilities: caps,
       next_actions: nextActions(engineId, caps),
     };
@@ -171,6 +177,12 @@ function main() {
     not_ready: rows.filter((row) => row.classification === 'not_ready').length,
     latest_live_work_engine: clean(liveWork.engine_id, 120),
     sampled_live_work_engines: Array.isArray(liveWork.sampled_engines) ? liveWork.sampled_engines.map((item: any) => clean(item, 120)).filter(Boolean) : [clean(liveWork.engine_id, 120)].filter(Boolean),
+    live_work_working_directory: clean(liveWork.working_directory, 500),
+    sampled_live_work_working_directories: Array.from(new Set(
+      (Array.isArray(liveWork.engine_results) ? liveWork.engine_results : [liveWork])
+        .map((row: JsonObject) => clean(row && (row.observed_working_directory || row.working_directory || liveWork.working_directory), 500))
+        .filter(Boolean),
+    )),
     hard_failure_injection_ok: hardFailure.ok === true,
     structured_transport_eval_ok: structuredTransport.ok === true,
   };

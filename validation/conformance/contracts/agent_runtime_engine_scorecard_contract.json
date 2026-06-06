@@ -49,7 +49,14 @@
     "display_name",
     "score",
     "classification",
+    "live_work_evidence",
     "capabilities",
     "next_actions"
+  ],
+  "live_work_evidence_fields": [
+    "working_directory",
+    "observed_working_directory",
+    "working_directory_observation_source",
+    "classification"
   ]
 }

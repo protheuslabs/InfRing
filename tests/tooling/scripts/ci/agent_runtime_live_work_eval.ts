@@ -33,6 +33,12 @@ function clean(value: any, max = 4000): string {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+function normalizePathValue(value: any): string {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return ROOT;
+  return path.resolve(raw.replace(/^~(?=$|\/|\\)/, process.env.HOME || '~'));
+}
+
 function postJson(url: string, payload: JsonObject, timeoutMs = 180000): Promise<{ statusCode: number; parsed: JsonObject | null; raw: string; error?: string }> {
   return new Promise((resolve) => {
     const body = JSON.stringify(payload);
@@ -84,6 +90,15 @@ function hasReceipts(row: JsonObject | null): boolean {
 
 function shellProjectionBounded(request: JsonObject | null): boolean {
   return !!(request && !(request.proposal_arguments && request.proposal_arguments.content));
+}
+
+function inferObservedWorkingDirectory(text: string): string {
+  const decoded = String(text || '').replace(/\\\\/g, '\\');
+  const mkdir = decoded.match(/mkdir\s+-p\s+["']?([^"'\n\r]+?)(?:\/tmp|\\tmp)(?:["'\s]|$)/i);
+  if (mkdir && mkdir[1]) return clean(mkdir[1], 500);
+  const filePath = decoded.match(/((?:\/Users|\/tmp|\/Volumes|[A-Za-z]:\\)[^"'\n\r]+?)(?:\/tmp|\\tmp)(?:\/agent-runtime-live-work-eval|["'\s]|$)/i);
+  if (filePath && filePath[1]) return clean(filePath[1], 500);
+  return '';
 }
 
 function usesNativePermissionDenialProbe(engineId: string): boolean {
@@ -152,14 +167,14 @@ function classifyFailure(args: {
   };
 }
 
-async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: number): Promise<JsonObject> {
+async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: number, workingDirectory: string): Promise<JsonObject> {
   const endpoint = `${baseUrl.replace(/\/+$/, '')}/api/shell-socket/agent-runtime/turn`;
   const token = `live-work-${engineId}-${Date.now().toString(36)}`;
   const sessionId = `live-work-eval-${engineId}-${Date.now().toString(36)}`;
   const agentId = 'agent-runtime-live-work-eval';
-  const workDir = ROOT;
+  const workDir = normalizePathValue(workingDirectory);
   const artifactRel = `tmp/agent-runtime-live-work-eval-${engineId}-${token}.txt`;
-  const artifactAbs = path.resolve(ROOT, artifactRel);
+  const artifactAbs = path.resolve(workDir, artifactRel);
   try { fs.rmSync(artifactAbs, { force: true }); } catch {}
 
   const completionPrompt = `Side-effect-free live work eval for ${engineId}. Reply exactly LIVE_WORK_OK ${token}`;
@@ -217,6 +232,7 @@ async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: numbe
   }, timeoutMs);
   const approvalPayload = approval.parsed || {};
   const request = approvalPayload.pending_permission_request || approvalPayload.permission_request || null;
+  const observedWorkingDirectory = inferObservedWorkingDirectory(outputText(approvalPayload));
   const approvalProjectionOk =
     approval.statusCode === 200 &&
     approvalPayload.status === 'permission_required' &&
@@ -268,6 +284,9 @@ async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: numbe
     engine_id: engineId,
     session_id: sessionId,
     token,
+    working_directory: workDir,
+    observed_working_directory: observedWorkingDirectory,
+    working_directory_observation_source: observedWorkingDirectory ? 'approval_output_preview' : 'request_payload',
     classification: failure.classification,
     root_cause_guess: failure.root_cause_guess,
     projection_contract_ok: failure.projection_contract_ok,
@@ -312,9 +331,10 @@ async function main() {
   const primaryEngine = argValue('--engine', process.env.INFRING_AGENT_RUNTIME_EVAL_ENGINE || 'codex_cli');
   const engines = argList('--engines', process.env.INFRING_AGENT_RUNTIME_EVAL_ENGINES || primaryEngine);
   const timeoutMs = Math.max(30000, Math.min(Number(argValue('--timeout-ms', process.env.INFRING_AGENT_RUNTIME_EVAL_TIMEOUT_MS || '180000')) || 180000, 300000));
+  const workingDirectory = normalizePathValue(argValue('--working-directory', process.env.INFRING_AGENT_RUNTIME_EVAL_WORKING_DIRECTORY || ROOT));
   const engineResults = [];
   for (const engineId of engines) {
-    engineResults.push(await runEngineEval(baseUrl, engineId, timeoutMs));
+    engineResults.push(await runEngineEval(baseUrl, engineId, timeoutMs, workingDirectory));
   }
   const primary = engineResults.find((row) => row.engine_id === primaryEngine) || engineResults[0] || null;
   const report = {
@@ -325,6 +345,7 @@ async function main() {
     engine_id: primary ? primary.engine_id : primaryEngine,
     session_id: primary ? primary.session_id : '',
     token: primary ? primary.token : '',
+    working_directory: workingDirectory,
     engine_count: engineResults.length,
     engine_results: engineResults,
     sampled_engines: engineResults.map((row) => row.engine_id),
