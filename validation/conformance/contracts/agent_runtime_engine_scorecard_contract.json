@@ -1,0 +1,52 @@
+{
+  "type": "agent_runtime_engine_scorecard_contract",
+  "schema_version": 1,
+  "version": "2026-06-06",
+  "owner": "assurance.validation",
+  "status": "contracted",
+  "purpose": "Track each selectable runtime engine against the same usefulness and reliability capabilities so InfRing can compare native and external engines without dashboard-owned judgment.",
+  "engine_registry": "validation/conformance/contracts/agent_runtime_engine_registry.json",
+  "turn_outcome_contract": "validation/conformance/contracts/agent_runtime_turn_outcome_contract.json",
+  "script": "tests/tooling/scripts/ci/agent_runtime_engine_scorecard.ts",
+  "artifact": "core/local/artifacts/agent_runtime_engine_scorecard_current.json",
+  "shell_boundary_rule": {
+    "shell_may_render_scorecard_projection": true,
+    "shell_may_not_score_or_interpret_engines": true,
+    "scorecard_owner": "assurance.validation",
+    "runtime_evidence_owner": "gateway.runtime.agent_runtime"
+  },
+  "scored_capabilities": [
+    "registered",
+    "adapter_contract",
+    "discovery_metadata",
+    "model_catalog_metadata",
+    "context_continuity",
+    "live_work_completion",
+    "approval_pause",
+    "durable_receipts",
+    "activity_trace",
+    "error_projection"
+  ],
+  "evidence_inputs": {
+    "registry": "validation/conformance/contracts/agent_runtime_engine_registry.json",
+    "conformance": "core/local/artifacts/agent_runtime_engine_conformance_guard_current.json",
+    "context_continuity": "core/local/artifacts/agent_runtime_context_continuity_eval_current.json",
+    "live_work": "core/local/artifacts/agent_runtime_live_work_eval_current.json"
+  },
+  "score_policy": {
+    "pass": 1,
+    "partial_or_not_sampled": 0.5,
+    "fail": 0,
+    "not_applicable": 1,
+    "minimum_practical_engine_score": 0.7,
+    "minimum_daily_driver_score": 0.85
+  },
+  "required_report_fields": [
+    "engine_id",
+    "display_name",
+    "score",
+    "classification",
+    "capabilities",
+    "next_actions"
+  ]
+}

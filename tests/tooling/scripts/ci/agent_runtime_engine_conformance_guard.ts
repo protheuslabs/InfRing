@@ -8,6 +8,7 @@ const socketPath = 'validation/conformance/contracts/agent_runtime_socket_contra
 const adapterContractsPath = 'validation/conformance/contracts/agent_runtime_adapter_contracts.json';
 const structuredTransportContractPath = 'validation/conformance/contracts/agent_runtime_structured_transport_contract.json';
 const turnOutcomeContractPath = 'validation/conformance/contracts/agent_runtime_turn_outcome_contract.json';
+const engineScorecardContractPath = 'validation/conformance/contracts/agent_runtime_engine_scorecard_contract.json';
 const routerScopeContractPath = 'validation/conformance/contracts/agent_runtime_router_scope_contract.json';
 const contextPackContractPath = 'validation/conformance/contracts/agent_runtime_context_pack_contract.json';
 const contextAuthorityBoundaryContractPath = 'validation/conformance/contracts/context_authority_boundary_contract.json';
@@ -28,6 +29,7 @@ const socket = readJson(socketPath);
 const adapterContracts = readJson(adapterContractsPath);
 const structuredTransportContract = readJson(structuredTransportContractPath);
 const turnOutcomeContract = readJson(turnOutcomeContractPath);
+const engineScorecardContract = readJson(engineScorecardContractPath);
 const routerScopeContract = readJson(routerScopeContractPath);
 const contextPackContract = readJson(contextPackContractPath);
 const contextAuthorityBoundaryContract = readJson(contextAuthorityBoundaryContractPath);
@@ -59,6 +61,17 @@ if (structuredTransportContract.universal_tools_contract !== universalToolsContr
 if (turnOutcomeContract.type !== 'agent_runtime_turn_outcome_contract') violations.push({ kind: 'turn_outcome_contract_type_wrong', path: turnOutcomeContractPath });
 if (turnOutcomeContract.public_socket_contract !== socketPath) violations.push({ kind: 'turn_outcome_public_socket_contract_mismatch', path: turnOutcomeContractPath });
 if (turnOutcomeContract.engine_registry !== registryPath) violations.push({ kind: 'turn_outcome_engine_registry_mismatch', path: turnOutcomeContractPath });
+if (engineScorecardContract.type !== 'agent_runtime_engine_scorecard_contract') violations.push({ kind: 'engine_scorecard_contract_type_wrong', path: engineScorecardContractPath });
+if (engineScorecardContract.engine_registry !== registryPath) violations.push({ kind: 'engine_scorecard_registry_mismatch', path: engineScorecardContractPath });
+if (engineScorecardContract.turn_outcome_contract !== turnOutcomeContractPath) violations.push({ kind: 'engine_scorecard_turn_outcome_contract_mismatch', path: engineScorecardContractPath });
+if (!engineScorecardContract.script || !exists(engineScorecardContract.script)) violations.push({ kind: 'engine_scorecard_script_missing', path: engineScorecardContract.script || null });
+if (engineScorecardContract.artifact !== 'core/local/artifacts/agent_runtime_engine_scorecard_current.json') violations.push({ kind: 'engine_scorecard_artifact_path_wrong', actual: engineScorecardContract.artifact, path: engineScorecardContractPath });
+if (engineScorecardContract.shell_boundary_rule?.shell_may_not_score_or_interpret_engines !== true) violations.push({ kind: 'engine_scorecard_shell_boundary_missing', path: engineScorecardContractPath });
+for (const capability of ['registered', 'adapter_contract', 'discovery_metadata', 'model_catalog_metadata', 'context_continuity', 'live_work_completion', 'approval_pause', 'durable_receipts', 'activity_trace', 'error_projection']) {
+  if (!Array.isArray(engineScorecardContract.scored_capabilities) || !engineScorecardContract.scored_capabilities.includes(capability)) {
+    violations.push({ kind: 'engine_scorecard_capability_missing', capability, path: engineScorecardContractPath });
+  }
+}
 if (routerScopeContract.type !== 'agent_runtime_router_scope_contract') violations.push({ kind: 'router_scope_contract_type_wrong', path: routerScopeContractPath });
 if (routerScopeContract.router_path !== 'gateway/runtime/agent_runtime/agent_runtime_router.ts') violations.push({ kind: 'router_scope_router_path_wrong', path: routerScopeContractPath });
 if (routerScopeContract.universal_tools_path !== 'gateway/runtime/agent_runtime/universal_core_tools.ts') violations.push({ kind: 'router_scope_universal_tools_path_wrong', path: routerScopeContractPath });
