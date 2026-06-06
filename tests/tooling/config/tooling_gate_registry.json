@@ -3327,6 +3327,21 @@
         "--out-markdown=local/workspace/reports/GATEWAY_ADAPTER_INVARIANTS_GUARD_CURRENT.md"
       ]
     },
+    "ops:gateway-system-action-authority:registered": {
+      "owner": "gateways.validation",
+      "source_domain": "validation",
+      "lifecycle": "executable_guard",
+      "description": "Gateway System Action Authority Guard: system-action routes may be Gateway-wrapped but must remain Core/ops authoritative with legacy host fallback explicitly labeled as debt.",
+      "timeout_sec": 60,
+      "canonical_definition_paths": [
+        "tests/tooling/scripts/ci/gateway_system_action_authority_guard.ts"
+      ],
+      "artifact_paths": [
+        "core/local/artifacts/gateway_system_action_authority_guard_current.json",
+        "local/workspace/reports/GATEWAY_SYSTEM_ACTION_AUTHORITY_GUARD_CURRENT.md"
+      ],
+      "script": "ops:gateway:system-action-authority:guard"
+    },
     "ops:gateway-disposable-live-replay:registered": {
       "owner": "gateways.validation",
       "source_domain": "validation",
