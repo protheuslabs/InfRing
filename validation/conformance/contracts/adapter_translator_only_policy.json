@@ -1,0 +1,197 @@
+{
+  "type": "adapter_translator_only_policy",
+  "schema_version": 1,
+  "owner_domain": "validation.conformance",
+  "scope": "adapters/** translation boundaries",
+  "canonical_rule": "adapters/** translates private provider, protocol, process, CLI, HTTP, WebSocket, importer, and framework schemas behind Gateway sockets; adapters must not own Gateway policy, Shell presentation state, Kernel authority, Orchestration planning, Validation scoring, Observability storage truth, route admission, payload budgets, or permission decisions.",
+  "todo_id": "ADAPTER-TRANSLATOR-ONLY-GUARD",
+  "translator_roots": [
+    {
+      "path": "adapters/protocol/**",
+      "role": "external_protocol_translation"
+    },
+    {
+      "path": "adapters/importers/**",
+      "role": "external_data_import_translation"
+    },
+    {
+      "path": "adapters/polyglot/**",
+      "role": "external_framework_translation"
+    },
+    {
+      "path": "adapters/cognition/collectors/**",
+      "role": "external_signal_collection_translation"
+    },
+    {
+      "path": "adapters/cognition/skills/**",
+      "role": "external_skill_tool_protocol_translation"
+    },
+    {
+      "path": "adapters/economy/**",
+      "role": "external_economy_protocol_translation"
+    },
+    {
+      "path": "adapters/runtime/agent_engines/**",
+      "role": "agent_runtime_engine_transport_translation"
+    }
+  ],
+  "declared_legacy_non_translator_paths": [
+    {
+      "path": "adapters/runtime/infring_dashboard.ts",
+      "reason": "Legacy dashboard host until Gateway physical re-root completes.",
+      "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/dashboard_asset_router.ts",
+      "reason": "Legacy dashboard asset host; not a provider/framework translator.",
+      "retirement_todo": "SHELL-CLEANUP",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/dashboard_backend_freshness.ts",
+      "reason": "Legacy dashboard host freshness helper.",
+      "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/infring_setup_wizard.ts",
+      "reason": "Legacy setup/onboarding helper outside the stable adapter translator role.",
+      "retirement_todo": "ALPINE-PURGE",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/infring_cli_modules.ts",
+      "reason": "Legacy CLI module barrel; should shrink as canonical commands move to domain owners.",
+      "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/binary_resolver.ts",
+      "reason": "Legacy binary discovery helper; process discovery policy should eventually live under Gateway/Core-owned launch surfaces.",
+      "retirement_todo": "SYSTEM-ACTION-AUTHORITY-RECEIPTS",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/run_infring_ops.ts",
+      "reason": "Legacy ops process bridge; durable ops authority must become Core/ops receipted.",
+      "retirement_todo": "SYSTEM-ACTION-AUTHORITY-RECEIPTS",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/ops_lane_bridge.ts",
+      "reason": "Legacy ops lane bridge; retained as explicit debt while resident/core receipts replace fallback behavior.",
+      "retirement_todo": "SYSTEM-ACTION-AUTHORITY-RECEIPTS",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/runtime_system_bridge.ts",
+      "reason": "Legacy runtime-system bridge; not a pure external translator.",
+      "retirement_todo": "SYSTEM-ACTION-AUTHORITY-RECEIPTS",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/infring_kernel_bridge.ts",
+      "reason": "Legacy Kernel bridge compatibility wrapper.",
+      "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/adaptive_memory_bridge.ts",
+      "reason": "Legacy memory bridge compatibility wrapper; canonical memory truth must remain outside adapters.",
+      "retirement_todo": "AGENT-RUNTIME-MEMORY-BRIDGE",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/orchestration_surface_modules.ts",
+      "reason": "Legacy Orchestration surface module barrel.",
+      "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/swarm_bridge_modules.ts",
+      "reason": "Legacy swarm bridge module barrel.",
+      "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/shannon_bridge.ts",
+      "reason": "Legacy Shannon bridge compatibility wrapper.",
+      "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/shannon_desktop_shell.ts",
+      "reason": "Legacy desktop shell bridge.",
+      "retirement_todo": "SHELL-CLEANUP",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/swarm_repl_demo.ts",
+      "reason": "Legacy demo entrypoint, not a stable adapter translator.",
+      "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/dev_only/**",
+      "reason": "Development-only process fallback utilities.",
+      "retirement_todo": "SYSTEM-ACTION-AUTHORITY-RECEIPTS",
+      "allowed_until": "2026-07-01"
+    },
+    {
+      "path": "adapters/runtime/orchestration_cognition_impl/**",
+      "reason": "Legacy Orchestration compatibility implementation under adapters; must not expand.",
+      "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
+      "allowed_until": "2026-07-01"
+    }
+  ],
+  "forbidden_translator_signals": [
+    {
+      "id": "http_route_authority",
+      "pattern": "createServer\\s*\\(|res\\.writeHead\\s*\\(|req\\.url|pathname\\s*===",
+      "detail": "Translator files must not own HTTP route admission/projection."
+    },
+    {
+      "id": "socket_host_authority",
+      "pattern": "new\\s+WebSocketServer\\s*\\(",
+      "detail": "Translator files must not host Shell/Gateway sockets."
+    },
+    {
+      "id": "host_process_exit",
+      "pattern": "process\\.exit\\s*\\(",
+      "detail": "Translator files must not own host lifecycle authority."
+    },
+    {
+      "id": "shell_ui_dependency",
+      "pattern": "client/runtime/systems/ui|infring_static|shell/socket",
+      "detail": "Translator files must not depend on Shell implementation or presentation state."
+    },
+    {
+      "id": "kernel_authority_dependency",
+      "pattern": "require\\([^\\n]*core/layer0|from ['\\\"][^'\\\"]*core/layer0",
+      "detail": "Translator files must not import Kernel authority internals directly."
+    },
+    {
+      "id": "orchestration_planning_dependency",
+      "pattern": "require\\([^\\n]*orchestration/src|from ['\\\"][^'\\\"]*orchestration/src",
+      "detail": "Translator files must not import Orchestration planning internals directly."
+    },
+    {
+      "id": "gateway_policy_ownership",
+      "pattern": "payload_budget|permission_gate|route_admission|Gateway is InfRing",
+      "detail": "Translator files must not own Gateway policy or boundary doctrine."
+    }
+  ],
+  "signal_exemptions": [
+    {
+      "signal_id": "host_process_exit",
+      "path": "adapters/cognition/skills/**",
+      "reason": "Standalone external skill adapter scripts may exit their own CLI process; they still must not own InfRing host lifecycle, Gateway routes, payload budgets, or permission policy."
+    }
+  ],
+  "external_policy_refs": [
+    "validation/conformance/contracts/gateway_adapter_invariants_policy.json",
+    "validation/conformance/contracts/agent_runtime_adapter_contracts.json",
+    "docs/workspace/gateway_ingress_egress_policy.md"
+  ]
+}

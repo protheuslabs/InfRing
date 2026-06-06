@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-02T20:01:41.207Z
+Updated: 2026-06-06T23:46:00.856Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-02T20:01:41.207Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `ADAPTER-TRANSLATOR-ONLY-GUARD` — Enforce adapters as translator-only
+  completed_at: `2026-06-06T23:46:00.854Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Gateway Physical Domain Cleanup`
+  summary: Strengthen conformance so adapters/** may parse private provider/framework protocols but cannot own Gateway policy, Shell-facing sockets, permission policy, payload budgets, route admission, or runtime authority.
+  completion_note: Added adapter translator-only policy and guard; npm run -s ops:adapter:translator-only:guard passes with zero violations.
 - `SHELL-EXTRACT-WORKFLOW` — Project workflow stage and thought status from Orchestration
   completed_at: `2026-06-02T20:01:41.205Z`
   previous_section: `yellow`

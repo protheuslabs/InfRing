@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-06T09:01:27.697Z",
+  "updated_at": "2026-06-06T23:46:00.856Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -271,17 +271,6 @@
       "source_family": "Gateway Physical Domain Cleanup",
       "summary": "Move Gateway socket hosts, ingress normalization, payload budgets, permission entrypoints, and runtime route authority into gateway/** while leaving adapters/** as translator-only provider/framework bridges behind Gateway sockets.",
       "work_gate": "reliability",
-      "real_work_score": 5
-    },
-    {
-      "id": "ADAPTER-TRANSLATOR-ONLY-GUARD",
-      "title": "Enforce adapters as translator-only",
-      "section": "yellow",
-      "owner": "codex",
-      "deadline": "2026-06-17",
-      "source_family": "Gateway Physical Domain Cleanup",
-      "summary": "Strengthen conformance so adapters/** may parse private provider/framework protocols but cannot own Gateway policy, Shell-facing sockets, permission policy, payload budgets, route admission, or runtime authority.",
-      "work_gate": "simplification",
       "real_work_score": 5
     },
     {

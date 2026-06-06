@@ -3327,6 +3327,22 @@
         "--out-markdown=local/workspace/reports/GATEWAY_ADAPTER_INVARIANTS_GUARD_CURRENT.md"
       ]
     },
+    "ops:adapter-translator-only:registered": {
+      "owner": "validation.conformance",
+      "source_domain": "validation",
+      "lifecycle": "executable_guard",
+      "description": "Adapter Translator-Only Guard: adapters/** may translate provider/framework/protocol/process schemas but must not own Gateway, Kernel, Shell, Orchestration, Validation, or Observability authority.",
+      "timeout_sec": 60,
+      "canonical_definition_paths": [
+        "tests/tooling/scripts/ci/adapter_translator_only_guard.ts",
+        "validation/conformance/contracts/adapter_translator_only_policy.json"
+      ],
+      "artifact_paths": [
+        "core/local/artifacts/adapter_translator_only_guard_current.json",
+        "local/workspace/reports/ADAPTER_TRANSLATOR_ONLY_GUARD_CURRENT.md"
+      ],
+      "script": "ops:adapter:translator-only:guard"
+    },
     "ops:gateway-system-action-authority:registered": {
       "owner": "gateways.validation",
       "source_domain": "validation",

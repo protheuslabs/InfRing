@@ -645,6 +645,22 @@
       "operator_surface_reason": "top_100_operator_surface:reliability:gateway"
     },
     {
+      "id": "ops:adapter:translator-only:guard",
+      "group": "ops",
+      "command": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/adapter_translator_only_guard.ts --out-json=core/local/artifacts/adapter_translator_only_guard_current.json --out-markdown=local/workspace/reports/ADAPTER_TRANSLATOR_ONLY_GUARD_CURRENT.md",
+      "lifecycle": "canonical_entrypoint",
+      "owner": "validation.conformance",
+      "source": "package.json:scripts",
+      "domain": "adapters",
+      "work_gate": "simplification",
+      "description": "Validate that adapters remain translator-only and do not own Gateway, Shell, Kernel, Orchestration, Validation, or Observability authority.",
+      "metadata_curated_at": "2026-06-06T00:00:00Z",
+      "metadata_curated": true,
+      "operator_surface": true,
+      "operator_surface_rank": 20,
+      "operator_surface_reason": "top_100_operator_surface:simplification:adapters"
+    },
+    {
       "id": "ops:guard-registry:ownership:guard",
       "group": "ops",
       "command": "npm run -s ops:guard-registry:ownership:report && node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/guard_registry_ownership_guard.ts",

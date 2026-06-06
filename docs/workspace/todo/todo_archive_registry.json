@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-02T20:01:41.207Z",
+  "updated_at": "2026-06-06T23:46:00.856Z",
   "historical_snapshot": {
     "preserved_archive_path": "docs/workspace/todo/TODO_ARCHIVE_LEGACY.md",
     "total_rows": 4145,
@@ -1057,6 +1057,19 @@
       "real_work_score": 4,
       "completed_at": "2026-06-02T20:01:41.205Z",
       "completion_note": "Extended the explicit Gateway shell-socket projection bridge to /api/shell-socket/sessions/{session_id}/events with bounded cursor/limit shaping and trace/projection metadata, giving Shell-next a Gateway-owned workflow/event visibility path without legacy Shell-authored status fallback changes."
+    },
+    {
+      "id": "ADAPTER-TRANSLATOR-ONLY-GUARD",
+      "title": "Enforce adapters as translator-only",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-17",
+      "source_family": "Gateway Physical Domain Cleanup",
+      "summary": "Strengthen conformance so adapters/** may parse private provider/framework protocols but cannot own Gateway policy, Shell-facing sockets, permission policy, payload budgets, route admission, or runtime authority.",
+      "work_gate": "simplification",
+      "real_work_score": 5,
+      "completed_at": "2026-06-06T23:46:00.854Z",
+      "completion_note": "Added adapter translator-only policy and guard; npm run -s ops:adapter:translator-only:guard passes with zero violations."
     }
   ]
 }

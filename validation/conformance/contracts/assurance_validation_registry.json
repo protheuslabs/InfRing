@@ -177,6 +177,8 @@
       "authority_class": "controlled_validation",
       "owner_of_truth": "Gateway and Conduit boundary policies",
       "source_refs": [
+        "ops:adapter:translator-only:guard",
+        "ops:gateway-adapter-invariants:guard",
         "ops:gateway:external-surface:guard",
         "ops:gateway:interface:guard",
         "ops:gateway:system-action-authority:guard",
