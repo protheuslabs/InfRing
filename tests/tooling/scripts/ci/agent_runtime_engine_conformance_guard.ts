@@ -58,6 +58,40 @@ if (structuredTransportContract.type !== 'agent_runtime_structured_transport_con
 if (structuredTransportContract.public_socket_contract !== socketPath) violations.push({ kind: 'structured_transport_public_socket_contract_mismatch', path: structuredTransportContractPath });
 if (structuredTransportContract.context_pack_contract !== contextPackContractPath) violations.push({ kind: 'structured_transport_context_pack_contract_mismatch', path: structuredTransportContractPath });
 if (structuredTransportContract.universal_tools_contract !== universalToolsContractPath) violations.push({ kind: 'structured_transport_universal_tools_contract_mismatch', path: structuredTransportContractPath });
+if (!structuredTransportContract.canonical_turn_schema?.builder_path || !exists(structuredTransportContract.canonical_turn_schema.builder_path)) {
+  violations.push({ kind: 'structured_transport_builder_missing', path: structuredTransportContract.canonical_turn_schema?.builder_path || null });
+}
+if (structuredTransportContract.canonical_turn_schema?.builder_export !== 'buildAgentRuntimeStructuredTurn') {
+  violations.push({ kind: 'structured_transport_builder_export_wrong', actual: structuredTransportContract.canonical_turn_schema?.builder_export, path: structuredTransportContractPath });
+}
+const structuredTransportEvalRequirements = structuredTransportContract.structured_transport_eval_requirements || {};
+if (!structuredTransportEvalRequirements.script || !exists(structuredTransportEvalRequirements.script)) {
+  violations.push({ kind: 'structured_transport_eval_script_missing', path: structuredTransportEvalRequirements.script || null });
+}
+if (structuredTransportEvalRequirements.must_write_artifact !== 'core/local/artifacts/agent_runtime_structured_transport_eval_current.json') {
+  violations.push({ kind: 'structured_transport_eval_artifact_path_wrong', actual: structuredTransportEvalRequirements.must_write_artifact, path: structuredTransportContractPath });
+}
+for (const [field, expected] of Object.entries({
+  gateway_must_attach_structured_turn_before_adapter_dispatch: true,
+  adapters_may_render_prompt_text_from_structured_turn: true,
+  adapters_may_not_invent_context_sections_outside_structured_turn: true,
+  shell_may_not_construct_structured_turn: true,
+  kernel_may_record_refs_but_not_depend_on_engine_schema: true,
+})) {
+  if (structuredTransportContract.gateway_materialization_policy?.[field] !== expected) {
+    violations.push({ kind: 'structured_transport_materialization_policy_missing', field, expected, actual: structuredTransportContract.gateway_materialization_policy?.[field], path: structuredTransportContractPath });
+  }
+}
+for (const [field, expected] of Object.entries({
+  must_verify_gateway_payload: true,
+  must_verify_required_sections: true,
+  must_verify_prompt_compat_derives_from_structured_turn: true,
+  must_verify_no_secret_material: true,
+})) {
+  if (structuredTransportEvalRequirements[field] !== expected) {
+    violations.push({ kind: 'structured_transport_eval_requirement_missing', field, expected, actual: structuredTransportEvalRequirements[field], path: structuredTransportContractPath });
+  }
+}
 if (turnOutcomeContract.type !== 'agent_runtime_turn_outcome_contract') violations.push({ kind: 'turn_outcome_contract_type_wrong', path: turnOutcomeContractPath });
 if (turnOutcomeContract.public_socket_contract !== socketPath) violations.push({ kind: 'turn_outcome_public_socket_contract_mismatch', path: turnOutcomeContractPath });
 if (turnOutcomeContract.engine_registry !== registryPath) violations.push({ kind: 'turn_outcome_engine_registry_mismatch', path: turnOutcomeContractPath });

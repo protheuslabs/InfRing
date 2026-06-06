@@ -11,6 +11,7 @@
 
 const { normalizeAgentRuntimeTurnInput: defaultNormalizeAgentRuntimeTurnInput } = require('../agent_runtime_input_normalizer.ts');
 const { buildUniversalToolGrants: defaultBuildUniversalToolGrants } = require('./universal_core_tools.ts');
+const { buildAgentRuntimeStructuredTurn: defaultBuildAgentRuntimeStructuredTurn } = require('./agent_runtime_structured_transport.ts');
 
 const DEFAULT_CONTEXT_FANOUT_TARGET = 7;
 
@@ -534,6 +535,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
   const contextFanoutTarget = Number(deps.contextFanoutTarget) || DEFAULT_CONTEXT_FANOUT_TARGET;
   const normalizeAgentRuntimeTurnInput = deps.normalizeAgentRuntimeTurnInput || defaultNormalizeAgentRuntimeTurnInput;
   const buildUniversalToolGrants = deps.buildUniversalToolGrants || defaultBuildUniversalToolGrants;
+  const buildAgentRuntimeStructuredTurn = deps.buildAgentRuntimeStructuredTurn || defaultBuildAgentRuntimeStructuredTurn;
   const noop = () => {};
 
   async function agentRuntimeTurnProjection(traceId, body, options = {}) {
@@ -806,6 +808,29 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       attachmentRefs,
       permissionPolicy,
     });
+    const structuredTurn = buildAgentRuntimeStructuredTurn({
+      traceId,
+      engineId,
+      agentId,
+      sessionId,
+      turnId,
+      text,
+      attachmentRefs,
+      turnEnvelope,
+      contextPack,
+      modelProviderContext,
+      transportMode: 'structured_json',
+      transportTarget: 'structured_json',
+      promptTextCompatibilityAllowed: true,
+    });
+    contextPack.structured_turn_ref = structuredTurn.structured_turn_ref;
+    contextPack.structured_transport = {
+      type: 'agent_runtime_structured_transport_projection',
+      structured_turn_ref: structuredTurn.structured_turn_ref,
+      transport_mode: structuredTurn.transport_mode,
+      transport_target: structuredTurn.transport_target,
+      source_authority: structuredTurn.source_authority,
+    };
     const turnMessage = {
       type: 'agent_runtime.turn_submit',
       trace_id: traceId,
@@ -819,6 +844,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       model_provider_context: modelProviderContext,
       input: { text, attachments: attachmentRefs },
       turn_envelope: turnEnvelope,
+      structured_turn: structuredTurn,
       context_pack: contextPack,
       capability_budget: {
         max_default_response_bytes: 65536,

@@ -50,8 +50,15 @@
   },
   "canonical_turn_schema": {
     "type": "AgentRuntimeStructuredTurn",
+    "builder_path": "gateway/runtime/agent_runtime/agent_runtime_structured_transport.ts",
+    "builder_export": "buildAgentRuntimeStructuredTurn",
     "required_fields": [
       "schema_version",
+      "type",
+      "source_authority",
+      "transport_mode",
+      "transport_target",
+      "structured_turn_ref",
       "trace_id",
       "engine_id",
       "agent_id",
@@ -78,7 +85,16 @@
       "approval_requests": "runtime-neutral pending approval requests and decisions",
       "activity_events": "normalized user-facing progress/status events",
       "assistant_output": "final assistant answer projection with result refs",
-      "receipts": "receipt refs for durable effects and policy decisions"
+      "receipts": "receipt refs for durable effects and policy decisions",
+      "structured_turn_ref": "stable Gateway ref for the bounded structured turn payload",
+      "transport_mode": "current payload mode for this turn",
+      "transport_target": "preferred next-hop transport target for the selected engine",
+      "model_provider_context": {
+        "required": false,
+        "source_authority": "gateway_projection_from_active_model_selection",
+        "secret_policy": "no_raw_api_keys_or_secret_values",
+        "purpose": "Allows swappable framework runtimes to use the selected provider/model without coupling Shell or Kernel to a provider-specific schema."
+      }
     }
   },
   "migration_policy": {
@@ -90,5 +106,44 @@
     ],
     "guard_must_emit_transport_migration_report": true,
     "new_prompt_text_hacks_require_transition_marker": true
-  }
+  },
+  "gateway_materialization_policy": {
+    "gateway_must_attach_structured_turn_before_adapter_dispatch": true,
+    "adapters_may_render_prompt_text_from_structured_turn": true,
+    "adapters_may_not_invent_context_sections_outside_structured_turn": true,
+    "shell_may_not_construct_structured_turn": true,
+    "kernel_may_record_refs_but_not_depend_on_engine_schema": true
+  },
+  "structured_transport_eval_requirements": {
+    "script": "tests/tooling/scripts/ci/agent_runtime_structured_transport_eval.ts",
+    "must_write_artifact": "core/local/artifacts/agent_runtime_structured_transport_eval_current.json",
+    "must_verify_gateway_payload": true,
+    "must_verify_required_sections": true,
+    "must_verify_prompt_compat_derives_from_structured_turn": true,
+    "must_verify_no_secret_material": true
+  },
+  "model_provider_inheritance_policy": {
+    "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+    "owner": "gateway_agent_runtime_socket",
+    "rule": "Framework runtimes may inherit the active InfRing LLM provider/model only through Gateway-owned non-secret projections and adapter-owned credential materialization.",
+    "precedence": [
+      "framework_native_auth_and_model_config",
+      "framework_specific_model_selection_from_llm_menu",
+      "inherited_active_infring_provider_model",
+      "fail_closed_auth_required_or_config_required"
+    ],
+    "shell_rules": [
+      "Shell may display framework-aware model rows and selected provider/model labels.",
+      "Shell must not receive, persist, or transmit raw API keys or secret values.",
+      "Shell selection is advisory until Gateway attaches a model_provider_context to the turn."
+    ],
+    "adapter_rules": [
+      "Adapters translate model_provider_context into engine-specific args or environment only when the provider is allowlisted.",
+      "Adapters must prefer framework native auth when present, then explicit engine selection, then inherited InfRing provider/model.",
+      "Adapters must emit auth_required or config_required instead of guessing credentials."
+    ]
+  },
+  "srs_refs": [
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-020"
+  ]
 }
