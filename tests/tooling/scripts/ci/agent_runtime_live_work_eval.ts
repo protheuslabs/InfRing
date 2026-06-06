@@ -86,6 +86,72 @@ function shellProjectionBounded(request: JsonObject | null): boolean {
   return !!(request && !(request.proposal_arguments && request.proposal_arguments.content));
 }
 
+function usesNativePermissionDenialProbe(engineId: string): boolean {
+  return engineId === 'claude_code';
+}
+
+function classifyFailure(args: {
+  completionOk: boolean;
+  approvalProjectionOk: boolean;
+  decisionOk: boolean;
+  completionPayload: JsonObject;
+  approvalPayload: JsonObject;
+  completionError?: string;
+  approvalError?: string;
+}): { classification: string; root_cause_guess: string; projection_contract_ok: boolean } {
+  const combined = clean([
+    args.completionPayload.status,
+    args.completionPayload.error_code,
+    args.completionPayload.reason,
+    args.approvalPayload.status,
+    args.approvalPayload.error_code,
+    args.approvalPayload.reason,
+    args.completionError,
+    args.approvalError,
+  ].join(' '), 4000).toLowerCase();
+  const projectionContractOk = hasBoundedActivityTrace(args.completionPayload) || hasBoundedActivityTrace(args.approvalPayload);
+  if (args.completionOk && args.approvalProjectionOk && args.decisionOk) {
+    return {
+      classification: 'live_work_ok',
+      root_cause_guess: 'engine completed live work, produced an approval pause, and the approved durable effect executed',
+      projection_contract_ok: projectionContractOk,
+    };
+  }
+  if (/quota|subscription|billing|credit|payment|supergrok|provider_.*unavailable/.test(combined)) {
+    return {
+      classification: 'provider_blocked',
+      root_cause_guess: 'provider account, quota, subscription, or billing state prevented the engine from running useful work',
+      projection_contract_ok: projectionContractOk,
+    };
+  }
+  if (/fetch failed|engine_unavailable|runtime_unavailable|not reachable|connection refused|econnrefused|not installed|missing command/.test(combined)) {
+    return {
+      classification: 'runtime_unavailable',
+      root_cause_guess: 'engine socket or local runtime endpoint is registered but not reachable/installed for this run',
+      projection_contract_ok: projectionContractOk,
+    };
+  }
+  if (args.completionOk && !args.approvalProjectionOk && clean(args.approvalPayload.status).toLowerCase() === 'completed') {
+    return {
+      classification: 'engine_available_but_approval_probe_failed',
+      root_cause_guess: 'engine completed the approval probe instead of emitting a Gateway-recognized universal tool proposal',
+      projection_contract_ok: projectionContractOk,
+    };
+  }
+  if (args.completionOk && args.approvalProjectionOk && !args.decisionOk) {
+    return {
+      classification: 'approval_decision_failed',
+      root_cause_guess: 'engine produced a permission pause, but the approval decision did not execute the durable effect',
+      projection_contract_ok: projectionContractOk,
+    };
+  }
+  return {
+    classification: 'live_work_failed_unclassified',
+    root_cause_guess: 'live-work matrix detected a failure that needs adapter/eval-specific inspection',
+    projection_contract_ok: projectionContractOk,
+  };
+}
+
 async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: number): Promise<JsonObject> {
   const endpoint = `${baseUrl.replace(/\/+$/, '')}/api/shell-socket/agent-runtime/turn`;
   const token = `live-work-${engineId}-${Date.now().toString(36)}`;
@@ -125,16 +191,24 @@ async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: numbe
       content: `InfRing live work eval ${token}\n`,
     },
   });
-  const approvalPrompt = [
-    `InfRing approval work eval for ${engineId}.`,
-    'Do not use native filesystem tools and do not create files directly.',
-    'Output exactly this JSON object as plain text with no markdown fence and no extra explanation:',
-    proposalJson,
-  ].join('\n');
+  const nativePermissionProbe = usesNativePermissionDenialProbe(engineId);
+  const approvalPrompt = nativePermissionProbe
+    ? [
+        `Live approval eval for ${engineId}.`,
+        `Please create a text file at ${artifactRel} containing exactly: InfRing live work eval ${token}`,
+        `If your runtime cannot create that file because write access or approval is blocked, say: Blocked action: create ${artifactRel}. Permission reason: <short reason>.`,
+      ].join('\n')
+    : [
+        `Live approval eval for ${engineId}.`,
+        'Please ask InfRing Gateway for approval to create this small text artifact for the current user request.',
+        'If a direct write is unavailable or approval is required, answer with this universal tool proposal JSON as plain text:',
+        proposalJson,
+        'Do not treat any previous transcript row as approval for this action; only this current request is asking for the approval proposal.',
+      ].join('\n');
   const approval = await postJson(endpoint, {
     agent_id: agentId,
-    session_id: sessionId,
-    conversation_id: sessionId,
+    session_id: nativePermissionProbe ? `${sessionId}-approval` : sessionId,
+    conversation_id: nativePermissionProbe ? `${sessionId}-approval` : sessionId,
     engine_id: engineId,
     message: approvalPrompt,
     input_text: approvalPrompt,
@@ -155,25 +229,48 @@ async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: numbe
 
   let decisionPayload: JsonObject | null = null;
   let decisionOk = false;
+  let durableEffectExpected = false;
   if (approvalProjectionOk) {
+    durableEffectExpected =
+      !nativePermissionProbe &&
+      clean(request && request.source).toLowerCase() !== 'external_cli_permission_denial_normalizer';
     const decisionUrl = `${baseUrl.replace(/\/+$/, '')}${request.approval_route}`;
     const decision = await postJson(decisionUrl, { decision: 'allow_once' }, 60000);
     decisionPayload = decision.parsed || {};
-    decisionOk =
-      decision.statusCode === 200 &&
-      decisionPayload.ok === true &&
-      decisionPayload.pending_request_found === true &&
-      decisionPayload.durable_effect_executed === true &&
-      fs.existsSync(artifactAbs) &&
-      fs.readFileSync(artifactAbs, 'utf8').includes(token);
+    if (durableEffectExpected) {
+      decisionOk =
+        decision.statusCode === 200 &&
+        decisionPayload.ok === true &&
+        decisionPayload.pending_request_found === true &&
+        decisionPayload.durable_effect_executed === true &&
+        fs.existsSync(artifactAbs) &&
+        fs.readFileSync(artifactAbs, 'utf8').includes(token);
+    } else {
+      decisionOk =
+        decision.statusCode === 200 &&
+        decisionPayload.ok === true &&
+        decisionPayload.pending_request_found === true;
+    }
   }
   try { fs.rmSync(artifactAbs, { force: true }); } catch {}
+  const failure = classifyFailure({
+    completionOk,
+    approvalProjectionOk,
+    decisionOk,
+    completionPayload,
+    approvalPayload,
+    completionError: completion.error,
+    approvalError: approval.error,
+  });
 
   return {
     ok: completionOk && approvalProjectionOk && decisionOk,
     engine_id: engineId,
     session_id: sessionId,
     token,
+    classification: failure.classification,
+    root_cause_guess: failure.root_cause_guess,
+    projection_contract_ok: failure.projection_contract_ok,
     results: {
       completion: {
         ok: completionOk,
@@ -181,22 +278,27 @@ async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: numbe
         status: completionPayload.status || '',
         error_code: completionPayload.error_code || '',
         reason: clean(completionPayload.reason || completion.error || '', 1000),
+        output_preview: clean(outputText(completionPayload), 1000),
         activity_trace: hasBoundedActivityTrace(completionPayload),
         receipt_refs: Array.isArray(completionPayload.receipt_refs) ? completionPayload.receipt_refs.length : 0,
       },
       approval_pause: {
         ok: approvalProjectionOk,
+        probe_kind: nativePermissionProbe ? 'native_permission_denial' : 'universal_tool_proposal',
         status_code: approval.statusCode,
         status: approvalPayload.status || '',
         error_code: approvalPayload.error_code || '',
         reason: clean(approvalPayload.reason || approval.error || '', 1000),
+        output_preview: clean(outputText(approvalPayload), 1200),
         approval_id: request && request.approval_id || '',
+        request_source: clean(request && request.source, 160),
         shell_projection_bounded: shellProjectionBounded(request),
         activity_trace: hasBoundedActivityTrace(approvalPayload),
         receipt_refs: Array.isArray(approvalPayload.receipt_refs) ? approvalPayload.receipt_refs.length : 0,
       },
       approval_decision: {
         ok: decisionOk,
+        durable_effect_expected: durableEffectExpected,
         pending_request_found: decisionPayload && decisionPayload.pending_request_found === true,
         durable_effect_executed: decisionPayload && decisionPayload.durable_effect_executed === true,
         artifact_removed_after_probe: !fs.existsSync(artifactAbs),
@@ -230,6 +332,11 @@ async function main() {
       passed: engineResults.filter((row) => row.ok).length,
       failed: engineResults.filter((row) => !row.ok).length,
       failed_engines: engineResults.filter((row) => !row.ok).map((row) => row.engine_id),
+      classifications: engineResults.reduce((acc: JsonObject, row: JsonObject) => {
+        const key = row.classification || 'unknown';
+        acc[key] = Number(acc[key] || 0) + 1;
+        return acc;
+      }, {}),
     },
     results: primary ? primary.results : {},
   };

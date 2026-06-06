@@ -206,12 +206,13 @@ function renderUniversalToolGrantPromptSection(grants) {
   const tools = Array.isArray(pack && pack.tools) ? pack.tools : [];
   if (!tools.length) return '';
   const lines = [
-    'Universal InfRing core tools (proposal-only):',
-    '- You may propose these tools when needed. Do not claim they executed.',
-    '- Gateway validates proposals; Kernel/Memory/Artifact authority performs any durable effect and emits receipts.',
-    '- Read-only core tools may be default-allowed unless revoked; mutating/proposal tools require an approval gate.',
-    '- If you need a mutating action and your native runtime reports missing approval, report the blocked action and permission reason clearly. InfRing Gateway will convert that into a user/admin approval request instead of treating it as task failure.',
-    '- Approval gatekeepers are user-owned today and may later include system_policy, agent_supervisor, or admin_agent gatekeepers. Do not invent approval; surface the request.',
+    'Host app universal tool request notes:',
+    '- These are interoperability notes for proposing host-side reads or durable effects from an external runtime.',
+    '- You may write one of these proposal JSON objects when needed. Do not claim the proposal executed.',
+    '- The host app validates proposals. Durable effects happen only after approval and emit receipts.',
+    '- Read-only proposals may be default-allowed unless revoked; mutating proposals require an approval gate.',
+    '- If your native runtime reports missing approval for a mutating action, include the blocked action and permission reason clearly so the host app can ask the user/admin gatekeeper.',
+    '- Gatekeepers are user-owned today and may later include system_policy, agent_supervisor, or admin_agent. Do not invent approval; surface the request.',
     '- Proposal JSON shape: {"type":"infring_universal_tool_proposal","tool_id":"memory.read","reason":"why needed","arguments":{}}',
   ];
   for (const tool of tools.slice(0, 12)) {

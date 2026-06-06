@@ -678,7 +678,7 @@ if (exists(universalCoreToolsPath)) {
     const gatedProposal = tools.normalizeUniversalToolProposal({ type: 'infring_universal_tool_proposal', tool_id: 'memory.write_propose', reason: 'remember this', arguments: { summary: 'x' } }, grants);
     if (!Array.isArray(grants.tools) || grants.tools.length !== 6) violations.push({ kind: 'universal_core_tool_grant_count_wrong', count: grants.tools && grants.tools.length });
     if (!grants.permission_policy || grants.permission_policy.gatekeeper_kind !== 'user') violations.push({ kind: 'universal_core_tool_permission_policy_not_attached' });
-    if (!prompt.includes('proposal-only') || !prompt.includes('memory.read')) violations.push({ kind: 'universal_core_tool_prompt_wrong' });
+    if (!prompt.includes('Host app universal tool request notes') || !prompt.includes('Proposal JSON shape') || !prompt.includes('memory.read')) violations.push({ kind: 'universal_core_tool_prompt_wrong' });
     if (!okProposal.ok || okProposal.type !== 'tool.proposed' || okProposal.engine_may_execute_directly !== false || okProposal.permission_status !== 'allowed_by_default_read_policy') violations.push({ kind: 'universal_core_tool_valid_proposal_not_normalized', result: okProposal });
     if (!gatedProposal.ok || gatedProposal.permission_requires_user_approval !== true || gatedProposal.permission_status !== 'requires_user_approval') violations.push({ kind: 'universal_core_tool_gated_proposal_not_marked', result: gatedProposal });
     if (badProposal.ok || badProposal.error_code !== 'universal_tool_not_granted') violations.push({ kind: 'universal_core_tool_unknown_proposal_not_denied', result: badProposal });
@@ -879,7 +879,7 @@ if (exists(cliRuntimePath)) {
 	        { kind: 'atom', ref_id: 'atom-8', level: 0, payload: { role: 'user', text_preview: 'previous user request', sequence_no: 8 } },
 	      ],
 	    }, 'current request');
-	    if (!prompt.includes('InfRing bounded context pack') || !prompt.includes('prior todo context') || !prompt.includes('Current user turn:') || !prompt.includes('current request')) {
+	    if (!prompt.includes('Session continuity excerpt') || !prompt.includes('plain prior conversation context') || !prompt.includes('prior todo context') || !prompt.includes('Current user turn:') || !prompt.includes('current request')) {
 	      violations.push({ kind: 'cli_runtime_context_prompt_builder_broken', path: cliRuntimePath });
 	    }
 	  }
