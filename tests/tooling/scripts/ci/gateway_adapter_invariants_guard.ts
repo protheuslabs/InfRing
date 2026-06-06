@@ -192,7 +192,7 @@ if (exists(dashboardPath)) {
   if (!/handleGatewaySystemRoute\s*\(/.test(dashboard)) {
     push('dashboard_gateway_system_route_handler_missing', dashboardPath, 'Legacy dashboard host must call the Gateway-owned system route handler.');
   }
-  if (/pathname\s*===\s*['"]\/api\/system\/release-check['"]|\/api\/update\/check\$\{qs\}/.test(dashboard)) {
+  if (/pathname\s*===\s*['"]\/api\/system\/release-check['"]|pathname\s*===\s*['"]\/api\/config['"]|pathname\s*===\s*['"]\/api\/config\/schema['"]|pathname\s*===\s*['"]\/api\/auth\/check['"]|\/api\/update\/check\$\{qs\}/.test(dashboard)) {
     push('dashboard_owns_gateway_system_release_check', dashboardPath, 'Legacy dashboard host must not shape Gateway system release-check route directly.');
   }
   if (!dashboard.includes("require('../../gateway/runtime/sockets/shell_socket/shell_socket_agent_runtime_overlay_routes.ts')")) {

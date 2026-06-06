@@ -8,7 +8,21 @@
 'use strict';
 
 function isGatewaySystemRoute(pathname) {
-  return String(pathname || '') === '/api/system/release-check';
+  const path = String(pathname || '');
+  return path === '/api/system/release-check' ||
+    path === '/api/config' ||
+    path === '/api/config/schema' ||
+    path === '/api/auth/check';
+}
+
+function systemProjection(traceId, routeId, routeClass = 'health_status') {
+  return {
+    route_id: routeId,
+    route_class: routeClass,
+    gateway_owner: 'gateway.runtime',
+    bounded: true,
+    trace_id: traceId,
+  };
 }
 
 function createGatewaySystemRouteHandler(options = {}) {
@@ -35,21 +49,63 @@ function createGatewaySystemRouteHandler(options = {}) {
       const payload = await fetchBackendJson(flags, `/api/update/check${qs}`, 5000, traceId).catch(() => ({
         ok: true,
         update_available: false,
-        gateway_projection: {
-          route_id: 'gateway.system.release_check',
-          route_class: 'health_status',
-          gateway_owner: 'gateway.runtime',
-          fallback: true,
-        },
+        gateway_projection: { ...systemProjection(traceId, 'gateway.system.release_check'), fallback: true },
       }));
       sendJson(res, 200, {
         ...(payload && typeof payload === 'object' ? payload : {}),
         trace_id: traceId,
         gateway_projection: {
-          route_id: 'gateway.system.release_check',
-          route_class: 'health_status',
-          gateway_owner: 'gateway.runtime',
-          bounded: true,
+          ...systemProjection(traceId, 'gateway.system.release_check'),
+          ...((payload && payload.gateway_projection && typeof payload.gateway_projection === 'object') ? payload.gateway_projection : {}),
+        },
+      });
+      return true;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/config') {
+      const payload = await fetchBackendJson(flags, '/api/config', 8000, traceId).catch(() => ({
+        ok: false,
+        error: 'config_unavailable',
+      }));
+      sendJson(res, 200, {
+        ...(payload && typeof payload === 'object' ? payload : {}),
+        trace_id: traceId,
+        gateway_projection: {
+          ...systemProjection(traceId, 'gateway.system.config', 'bounded_search_query'),
+          ...((payload && payload.gateway_projection && typeof payload.gateway_projection === 'object') ? payload.gateway_projection : {}),
+        },
+      });
+      return true;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/config/schema') {
+      const payload = await fetchBackendJson(flags, '/api/config/schema', 8000, traceId).catch(() => ({
+        ok: true,
+        sections: {},
+      }));
+      sendJson(res, 200, {
+        ...(payload && typeof payload === 'object' ? payload : {}),
+        trace_id: traceId,
+        gateway_projection: {
+          ...systemProjection(traceId, 'gateway.system.config_schema', 'bounded_search_query'),
+          ...((payload && payload.gateway_projection && typeof payload.gateway_projection === 'object') ? payload.gateway_projection : {}),
+        },
+      });
+      return true;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/auth/check') {
+      const payload = await fetchBackendJson(flags, '/api/auth/check', 8000, traceId).catch(() => ({
+        ok: true,
+        mode: 'none',
+        authenticated: true,
+        user: 'operator',
+      }));
+      sendJson(res, 200, {
+        ...(payload && typeof payload === 'object' ? payload : {}),
+        trace_id: traceId,
+        gateway_projection: {
+          ...systemProjection(traceId, 'gateway.system.auth_check'),
           ...((payload && payload.gateway_projection && typeof payload.gateway_projection === 'object') ? payload.gateway_projection : {}),
         },
       });

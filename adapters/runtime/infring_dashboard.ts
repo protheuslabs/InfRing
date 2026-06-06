@@ -1646,18 +1646,6 @@ async function runServe(flags) {
           }
         }
       }
-      if (req.method === 'GET' && pathname === '/api/config') {
-        const config = await fetchBackendJson(flags, '/api/config', 8000).catch(() => ({ ok: false, error: 'config_unavailable' }));
-        return void sendJson(res, 200, config);
-      }
-      if (req.method === 'GET' && pathname === '/api/config/schema') {
-        const schema = await fetchBackendJson(flags, '/api/config/schema', 8000).catch(() => ({ ok: true, sections: {} }));
-        return void sendJson(res, 200, schema);
-      }
-      if (req.method === 'GET' && pathname === '/api/auth/check') {
-        const auth = await fetchBackendJson(flags, '/api/auth/check', 8000).catch(() => ({ ok: true, mode: 'none', authenticated: true, user: 'operator' }));
-        return void sendJson(res, 200, auth);
-      }
       if (req.method === 'POST' && pathname === '/api/system/restart') {
         const body = await readJsonBody(req);
         const result = dispatchDashboardSystemAction('restart', body);
