@@ -4,7 +4,7 @@
 
 'use strict';
 
-const { createCliRuntimeEngineAdapter } = require('./cli_runtime_adapter.ts');
+const { createCliRuntimeEngineAdapter, selectedRuntimeModelArg } = require('./cli_runtime_adapter.ts');
 
 function mutationGrantActive(ctx) {
   const grants = ctx && ctx.message && ctx.message.context_pack && ctx.message.context_pack.universal_tool_grants;
@@ -25,18 +25,30 @@ function createGrokCodeEngineAdapter(options = {}) {
     artifactKind: 'grok_code_result_projection',
     receiptKind: 'grok_code_adapter_receipt',
     versionArgs: ['--version'],
-    runArgs: (prompt, ctx) => [
-      '--disable-web-search',
-      '--experimental-memory',
-      '--no-subagents',
-      '--output-format',
-      'streaming-json',
-      '--permission-mode',
-      mutationGrantActive(ctx) ? 'acceptEdits' : 'default',
-      '--verbatim',
-      '--single',
-      prompt,
-    ],
+    modelDiscovery: {
+      kind: 'grok_models_command',
+      args: ['models'],
+      source: 'grok_models_command',
+      freshnessAuthority: 'grok_code_models_command',
+      timeoutMs: 8000,
+      maxOutputBytes: 65536,
+    },
+    runArgs: (prompt, ctx) => {
+      const modelArg = selectedRuntimeModelArg(ctx, ['grok_code', 'grok', 'xai']);
+      return [
+        '--disable-web-search',
+        '--experimental-memory',
+        '--no-subagents',
+        '--output-format',
+        'streaming-json',
+        '--permission-mode',
+        mutationGrantActive(ctx) ? 'acceptEdits' : 'default',
+        ...(modelArg ? ['--model', modelArg] : []),
+        '--verbatim',
+        '--single',
+        prompt,
+      ];
+    },
     ...options,
   });
 }

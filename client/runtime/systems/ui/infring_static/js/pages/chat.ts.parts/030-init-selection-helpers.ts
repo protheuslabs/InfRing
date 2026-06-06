@@ -206,6 +206,55 @@
       if (this.isPlaceholderModelRef(storeRuntime)) storeRuntime = '';
       if (this.isPlaceholderModelRef(storeOverride)) storeOverride = '';
       if (this.isPlaceholderModelRef(suggestionRef)) suggestionRef = '';
+      var runtimeEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      if (runtimeEngineId !== 'infring_native' && Array.isArray(this.runtimeEngineRows)) {
+        var runtimeEngineRow = null;
+        for (var ri = 0; ri < this.runtimeEngineRows.length; ri += 1) {
+          var runtimeCandidate = this.runtimeEngineRows[ri] || {};
+          if (String(runtimeCandidate.engine_id || '').trim() === runtimeEngineId) {
+            runtimeEngineRow = runtimeCandidate;
+            break;
+          }
+        }
+        var availableModels = runtimeEngineRow && runtimeEngineRow.available_models && typeof runtimeEngineRow.available_models === 'object'
+          ? runtimeEngineRow.available_models
+          : runtimeEngineRow && runtimeEngineRow.model_menu && typeof runtimeEngineRow.model_menu === 'object'
+          ? runtimeEngineRow.model_menu
+          : null;
+        var availableRows = availableModels && Array.isArray(availableModels.rows)
+          ? availableModels.rows
+          : (availableModels && Array.isArray(availableModels.model_rows) ? availableModels.model_rows : []);
+        if (availableModels && (availableModels.framework_native_models || availableModels.source === 'framework_native') && availableRows.length) {
+          var runtimeCandidates = [runtime, selected, modelOverride, storeRuntime, storeSelected, storeOverride, suggestionRef];
+          var matchedRuntimeModel = null;
+          for (var rci = 0; rci < runtimeCandidates.length && !matchedRuntimeModel; rci += 1) {
+            var runtimeCandidateId = String(runtimeCandidates[rci] || '').trim().toLowerCase();
+            if (!runtimeCandidateId) continue;
+            for (var rmi = 0; rmi < availableRows.length; rmi += 1) {
+              var runtimeModelRow = availableRows[rmi] || {};
+              var rowIds = [
+                runtimeModelRow.id,
+                runtimeModelRow.qualified_model_ref,
+                runtimeModelRow.model,
+                runtimeModelRow.model_name,
+                runtimeModelRow.adapter_model_arg,
+                runtimeModelRow.display_name
+              ];
+              for (var ridx = 0; ridx < rowIds.length; ridx += 1) {
+                if (String(rowIds[ridx] || '').trim().toLowerCase() === runtimeCandidateId) {
+                  matchedRuntimeModel = runtimeModelRow;
+                  break;
+                }
+              }
+              if (matchedRuntimeModel) break;
+            }
+          }
+          var displayRuntimeModel = matchedRuntimeModel || availableRows[0] || {};
+          var runtimeModelLabel = String(displayRuntimeModel.display_name || displayRuntimeModel.model_name || displayRuntimeModel.model || displayRuntimeModel.id || '').trim();
+          var compactRuntimeModel = this.truncateModelLabel(runtimeModelLabel);
+          if (compactRuntimeModel) return compactRuntimeModel.length > 24 ? compactRuntimeModel.substring(0, 22) + '\u2026' : compactRuntimeModel;
+        }
+      }
       if (selected.toLowerCase() === 'auto') {
         var resolved = this.truncateModelLabel(runtime);
         var autoLabel = resolved ? ('Auto: ' + resolved) : 'Auto';
@@ -236,7 +285,49 @@
       return label;
     },
 
-    get switcherViewState() {
+    modelRowsForActiveRuntimeEngine: function(rows, runtimeEngineId) {
+    var list = Array.isArray(rows) ? rows : [];
+    var engineId = String(runtimeEngineId || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+    if (!engineId || engineId === 'infring_native') return list;
+    var runtimeRows = Array.isArray(this.runtimeEngineRows) ? this.runtimeEngineRows : [];
+    var engineRow = null;
+    for (var i = 0; i < runtimeRows.length; i += 1) {
+      var row = runtimeRows[i] || {};
+      if (String(row.engine_id || '').trim() === engineId) {
+        engineRow = row;
+        break;
+      }
+    }
+    var menu = engineRow && engineRow.available_models && typeof engineRow.available_models === 'object'
+      ? engineRow.available_models
+      : engineRow && engineRow.model_menu && typeof engineRow.model_menu === 'object'
+      ? engineRow.model_menu
+      : null;
+    if (!menu || menu.show_in_llm_menu === false) return list;
+    var sanitize = typeof this.sanitizeModelCatalogRows === 'function'
+      ? this.sanitizeModelCatalogRows.bind(this)
+      : function(value) { return Array.isArray(value) ? value : []; };
+    var menuRows = Array.isArray(menu.rows) ? menu.rows : (Array.isArray(menu.model_rows) ? menu.model_rows : []);
+    if ((menu.framework_native_models || menu.source === 'framework_native') && menuRows.length) {
+      return sanitize(menuRows.map(function(modelRow) {
+        return Object.assign({}, modelRow || {}, {
+          runtime_engine_id: engineId,
+          runtime_model_source: 'framework_native'
+        });
+      }));
+    }
+    if (menu.inherit_active_llm_when_unconfigured || menu.credential_inheritance_allowed || menu.source === 'inherited_infring') {
+      return list.map(function(modelRow) {
+        return Object.assign({}, modelRow || {}, {
+          runtime_engine_id: engineId,
+          runtime_model_source: 'inherited_infring_llm'
+        });
+      });
+    }
+    return list;
+  },
+
+  get switcherViewState() {
       var modelsRef = Array.isArray(this._modelCache) ? this._modelCache : [];
       if (!modelsRef.length && this.showModelSwitcher && typeof this.fallbackModelCatalogRows === 'function') {
         modelsRef = this.fallbackModelCatalogRows();
@@ -245,6 +336,8 @@
         this.modelPickerList = modelsRef;
         this._modelSwitcherViewCache = null;
       }
+      var runtimeEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      modelsRef = this.modelRowsForActiveRuntimeEngine(modelsRef, runtimeEngineId);
       var providerFilter = String(this.modelSwitcherProviderFilter || '').trim();
       var textFilter = String(this.modelSwitcherFilter || '').trim().toLowerCase();
       var cacheTime = Number(this._modelCacheTime || 0);
@@ -252,6 +345,7 @@
       if (
         cache &&
         cache.modelsRef === modelsRef &&
+        cache.runtimeEngineId === runtimeEngineId &&
         cache.providerFilter === providerFilter &&
         cache.textFilter === textFilter &&
         cache.cacheTime === cacheTime
@@ -355,6 +449,7 @@
       };
       this._modelSwitcherViewCache = {
         modelsRef: modelsRef,
+        runtimeEngineId: runtimeEngineId,
         providerFilter: providerFilter,
         textFilter: textFilter,
         cacheTime: cacheTime,

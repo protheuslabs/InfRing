@@ -94,9 +94,314 @@ function stableExternalSessionUuid(ctx, defaultEngineId) {
   ].join('-');
 }
 
+function selectedRuntimeModelContext(ctx) {
+  const message = (ctx && ctx.message) || {};
+  const contextPack = message.context_pack && typeof message.context_pack === 'object' ? message.context_pack : {};
+  const source = message.model_provider_context && typeof message.model_provider_context === 'object'
+    ? message.model_provider_context
+    : (contextPack.model_provider_context && typeof contextPack.model_provider_context === 'object' ? contextPack.model_provider_context : {});
+  let provider = cleanString(source.provider || source.model_provider || message.model_provider || message.provider || '', 120).toLowerCase();
+  let model = cleanString(source.model || source.model_name || source.runtime_model || message.model || message.model_name || message.runtime_model || '', 240);
+  let qualified = cleanString(source.qualified_model_ref || source.id || '', 280);
+  if (!provider && qualified.indexOf('/') >= 0) {
+    const parts = qualified.split('/');
+    provider = cleanString(parts.shift(), 120).toLowerCase();
+    model = model || cleanString(parts.join('/'), 240);
+  }
+  if (!qualified && provider && model) qualified = `${provider}/${model}`;
+  return {
+    provider,
+    model,
+    qualified_model_ref: qualified,
+    credential_ref: cleanString(source.credential_ref || source.provider_credential_ref || '', 240),
+    secrets_included: false,
+  };
+}
+
+const PROVIDER_ENV_CANDIDATES = Object.freeze({
+  openai: ['OPENAI_API_KEY'],
+  anthropic: ['ANTHROPIC_API_KEY'],
+  claude: ['ANTHROPIC_API_KEY'],
+  xai: ['XAI_API_KEY', 'GROK_API_KEY'],
+  grok: ['XAI_API_KEY', 'GROK_API_KEY'],
+  openrouter: ['OPENROUTER_API_KEY'],
+  google: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
+  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+  deepseek: ['DEEPSEEK_API_KEY'],
+  mistral: ['MISTRAL_API_KEY'],
+  cohere: ['COHERE_API_KEY'],
+  groq: ['GROQ_API_KEY'],
+  ollama: ['OLLAMA_HOST'],
+  llama_cpp: ['LLAMA_CPP_SERVER_URL'],
+});
+
+function inheritedProviderEnv(ctx, options = {}) {
+  const selected = selectedRuntimeModelContext(ctx);
+  const env = {};
+  if (selected.provider) env.INFRING_ACTIVE_PROVIDER = selected.provider;
+  if (selected.model) env.INFRING_ACTIVE_MODEL = selected.model;
+  if (selected.qualified_model_ref) env.INFRING_ACTIVE_MODEL_REF = selected.qualified_model_ref;
+  const runtimeEngineId = cleanString(((ctx && ctx.message && ctx.message.engine_id) || (ctx && ctx.engine && ctx.engine.engine_id) || ''), 120).toLowerCase();
+  if (runtimeEngineId === 'hermes_agent') {
+    const hermesModel = selected.qualified_model_ref || selected.model;
+    if (hermesModel && !(options.env && options.env.HERMES_MODEL) && !process.env.HERMES_MODEL) env.HERMES_MODEL = hermesModel;
+    if (selected.provider && !(options.env && options.env.HERMES_INFERENCE_PROVIDER) && !process.env.HERMES_INFERENCE_PROVIDER) {
+      env.HERMES_INFERENCE_PROVIDER = selected.provider;
+    }
+  }
+  const candidates = PROVIDER_ENV_CANDIDATES[selected.provider] || [];
+  for (const name of candidates) {
+    if (options.env && options.env[name]) continue;
+    if (process.env[name]) env[name] = process.env[name];
+  }
+  return env;
+}
+
+function mergedRuntimeEnv(ctx, options = {}) {
+  return {
+    ...inheritedProviderEnv(ctx, options),
+    ...(options.env || {}),
+  };
+}
+
+function selectedRuntimeModelArg(ctx, acceptedProviders = []) {
+  const selected = selectedRuntimeModelContext(ctx);
+  const model = cleanString(selected.model, 240);
+  if (!model) return '';
+  const lower = model.toLowerCase();
+  if (lower === 'auto' || lower === 'default' || lower === 'framework-default' || lower === 'framework_default') return '';
+  const providers = Array.isArray(acceptedProviders) ? acceptedProviders.map((item) => cleanString(item, 80).toLowerCase()).filter(Boolean) : [];
+  if (!providers.length) return model;
+  const provider = cleanString(selected.provider, 120).toLowerCase();
+  if (!provider || providers.includes(provider)) return model;
+  return '';
+}
+
+function titleCaseModelId(value) {
+  return cleanString(value, 180)
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase())
+    .replace(/\bGpt\b/g, 'GPT')
+    .replace(/\bAi\b/g, 'AI')
+    .replace(/\bApi\b/g, 'API')
+    .replace(/\bCli\b/g, 'CLI')
+    .replace(/\bLlm\b/g, 'LLM')
+    .replace(/\bInfring\b/g, 'InfRing');
+}
+
+function normalizeDiscoveredModelRow(row, defaults = {}) {
+  const source = row && typeof row === 'object' ? row : {};
+  const provider = cleanString(source.provider || defaults.provider || '', 120).toLowerCase();
+  const model = cleanString(source.model || source.slug || source.id || source.name || '', 240);
+  const lower = model.toLowerCase();
+  if (!model || lower === 'default' || lower === 'framework-default' || lower === 'framework_default') return null;
+  const displayName = cleanString(
+    source.display_name ||
+      source.displayName ||
+      source.title ||
+      defaults.displayName ||
+      titleCaseModelId(model),
+    180,
+  );
+  const qualified = cleanString(source.qualified_model_ref || source.qualifiedModelRef || '', 280) ||
+    (provider ? `${provider}/${model}` : model);
+  return {
+    provider,
+    model,
+    qualified_model_ref: qualified,
+    display_name: displayName,
+    availability: cleanString(source.availability || defaults.availability || 'runtime_discovered', 120),
+    available: source.available !== false,
+    source: cleanString(source.source || defaults.source || 'runtime_model_discovery', 160),
+    adapter_model_arg: cleanString(source.adapter_model_arg || source.adapterModelArg || model, 240),
+  };
+}
+
+function dedupeDiscoveredModelRows(rows) {
+  const out = [];
+  const seen = new Set();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const normalized = normalizeDiscoveredModelRow(row);
+    if (!normalized) continue;
+    const key = cleanString(normalized.qualified_model_ref || normalized.model, 280).toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+  }
+  return out.slice(0, 64);
+}
+
+function parseCodexDebugModels(stdout) {
+  let parsed = null;
+  try { parsed = JSON.parse(String(stdout || '')); } catch {
+    return { rows: [], defaultModel: '', source: 'codex_debug_models_parse_failed' };
+  }
+  const models = Array.isArray(parsed && parsed.models) ? parsed.models : [];
+  const rows = models
+    .filter((row) => row && typeof row === 'object')
+    .filter((row) => cleanString(row.slug || row.id || row.name, 240))
+    .filter((row) => cleanString(row.visibility || 'list', 80) !== 'hidden')
+    .sort((left, right) => {
+      const lp = Number(left && left.priority != null ? left.priority : 0);
+      const rp = Number(right && right.priority != null ? right.priority : 0);
+      if (rp !== lp) return rp - lp;
+      return cleanString(left.display_name || left.slug, 180).localeCompare(cleanString(right.display_name || right.slug, 180));
+    })
+    .map((row) => normalizeDiscoveredModelRow({
+      provider: 'openai',
+      model: row.slug,
+      qualified_model_ref: `openai/${cleanString(row.slug, 240)}`,
+      display_name: row.display_name || titleCaseModelId(row.slug),
+      availability: row.supported_in_api === false ? 'codex_runtime_only' : 'runtime_discovered',
+      source: 'codex_debug_models',
+      adapter_model_arg: row.slug,
+    }))
+    .filter(Boolean);
+  return {
+    rows: dedupeDiscoveredModelRows(rows),
+    defaultModel: '',
+    source: 'codex_debug_models',
+  };
+}
+
+function parseGrokModels(stdout) {
+  const lines = String(stdout || '').split(/\r?\n/);
+  let defaultModel = '';
+  const rows = [];
+  for (const line of lines) {
+    const defaultMatch = line.match(/^\s*Default model:\s*([^\s]+)/i);
+    if (defaultMatch) defaultModel = cleanString(defaultMatch[1], 240);
+    const rowMatch = line.match(/^\s*([*-])\s+([^\s(]+)(?:\s+\((default)\))?/i);
+    if (!rowMatch) continue;
+    const model = cleanString(rowMatch[2], 240);
+    if (!model) continue;
+    if (rowMatch[1] === '*' || rowMatch[3]) defaultModel = defaultModel || model;
+    rows.push(normalizeDiscoveredModelRow({
+      provider: 'grok_code',
+      model,
+      qualified_model_ref: `grok_code/${model}`,
+      display_name: titleCaseModelId(model),
+      availability: 'runtime_discovered',
+      source: 'grok_models_command',
+      adapter_model_arg: model,
+      available: true,
+    }));
+  }
+  return {
+    rows: dedupeDiscoveredModelRows(rows),
+    defaultModel,
+    source: 'grok_models_command',
+  };
+}
+
+function claudeConfiguredModelFromEnv(env = process.env) {
+  return cleanString(
+    env.ANTHROPIC_MODEL ||
+      env.CLAUDE_MODEL ||
+      env.ANTHROPIC_DEFAULT_OPUS_MODEL ||
+      env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+      '',
+    240,
+  );
+}
+
+function parseClaudeCodeHelpModels(stdout, env = process.env) {
+  const text = String(stdout || '');
+  const supportsModelFlag = /--model\s+<model>/i.test(text) || /Provide an alias/i.test(text);
+  if (!supportsModelFlag) return { rows: [], defaultModel: '', source: 'claude_code_help_model_aliases_missing' };
+  const rows = [
+    ['claude-opus-4-8', 'Claude Opus 4.8', 'opus'],
+    ['claude-sonnet-4-6', 'Claude Sonnet 4.6', 'sonnet'],
+    ['claude-haiku-4-5-20251001', 'Claude Haiku 4.5', 'haiku'],
+    ['opus[1m]', 'Claude Opus 4.8 1M', 'opus[1m]'],
+    ['sonnet[1m]', 'Claude Sonnet 4.6 1M', 'sonnet[1m]'],
+    ['opusplan', 'Claude Opus Plan', 'opusplan'],
+  ].map(([model, displayName, adapterModelArg]) => normalizeDiscoveredModelRow({
+    provider: 'anthropic',
+    model,
+    qualified_model_ref: `anthropic/${model}`,
+    display_name: displayName,
+    availability: 'claude_code_alias_or_model',
+    source: 'claude_code_help_model_aliases',
+    adapter_model_arg: adapterModelArg,
+  })).filter(Boolean);
+  return {
+    rows: dedupeDiscoveredModelRows(rows),
+    defaultModel: claudeConfiguredModelFromEnv(env),
+    source: 'claude_code_help_model_aliases',
+  };
+}
+
+function registrySeedRows(registryMenu) {
+  const menu = registryMenu && typeof registryMenu === 'object' ? registryMenu : {};
+  return dedupeDiscoveredModelRows((Array.isArray(menu.model_rows) ? menu.model_rows : []).map((row) => ({
+    ...(row && typeof row === 'object' ? row : {}),
+    source: cleanString(row && row.source, 160) || cleanString(menu.source, 160) || 'registry_static_seed',
+    availability: cleanString(row && row.availability, 120) || 'registry_seed',
+  })));
+}
+
+function buildDiscoveredModelMenu(engineId, spec, discoveryResult, registryMenu) {
+  const source = discoveryResult && typeof discoveryResult === 'object' ? discoveryResult : {};
+  const rows = dedupeDiscoveredModelRows(source.rows);
+  if (!rows.length) return null;
+  const defaultModel = cleanString(source.defaultModel || source.selectedModel || '', 240);
+  const mode = cleanString(source.source || spec.source || `${engineId}_runtime_model_discovery`, 160);
+  return {
+    show_in_llm_menu: true,
+    source: mode,
+    framework_native_models: true,
+    inherit_active_llm_when_unconfigured: false,
+    credential_inheritance_allowed: false,
+    model_rows: rows,
+    default_selection_policy: {
+      type: defaultModel ? 'runtime_discovered_default' : 'framework_configured_default',
+      menu_row: false,
+      current_model: defaultModel,
+      rule: defaultModel
+        ? `The runtime reported ${defaultModel} as its configured/default model. This is metadata, not a fake default model row.`
+        : 'Default is a provider/framework selection policy, not a model row.',
+    },
+    catalog_refresh_policy: {
+      mode: 'runtime_discovered',
+      freshness_authority: cleanString(spec.freshnessAuthority || mode, 240),
+      fallback_source: registrySeedRows(registryMenu).length ? 'registry_static_seed' : '',
+      rule: 'Gateway prefers live runtime model discovery over registry seed rows; registry rows are only a bounded fallback.',
+    },
+    secrets_included: false,
+  };
+}
+
+async function discoverCliRuntimeModelMenu(command, spec, ctx, registryMenu) {
+  if (!spec || typeof spec !== 'object') return null;
+  const kind = cleanString(spec.kind || '', 120);
+  const args = Array.isArray(spec.args) ? spec.args.map((item) => cleanString(item, 500)) : [];
+  if (!kind || !args.length) return null;
+  const run = await spawnCapture(command, args, {
+    timeoutMs: Math.max(1000, Math.min(Number(spec.timeoutMs) || 8000, 30000)),
+    maxOutputBytes: Math.max(65536, Math.min(Number(spec.maxOutputBytes) || 1048576, 2097152)),
+    cwd: spec.cwd || process.cwd(),
+    env: { ...process.env, ...(spec.env || {}) },
+  });
+  const output = cleanTextChunk([run.stdout, run.stderr].filter(Boolean).join('\n'), Number(spec.maxOutputBytes) || 1048576);
+  let discovery = null;
+  if (kind === 'codex_debug_models') discovery = parseCodexDebugModels(run.stdout);
+  else if (kind === 'grok_models_command') discovery = parseGrokModels(output);
+  else if (kind === 'claude_code_help_model_aliases') discovery = parseClaudeCodeHelpModels(output, { ...process.env, ...(spec.env || {}) });
+  const modelMenu = buildDiscoveredModelMenu(cleanString((ctx && ctx.engine && ctx.engine.engine_id) || '', 120), spec, discovery, registryMenu);
+  if (modelMenu) {
+    modelMenu.discovery_ok = run.ok !== false || modelMenu.model_rows.length > 0;
+    modelMenu.discovery_exit_code = run.exit_code;
+    modelMenu.discovery_timed_out = run.timed_out === true;
+  }
+  return modelMenu;
+}
+
 function spawnCapture(command, args, options = {}) {
   const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, 300000));
-  const maxOutputBytes = Math.max(1024, Math.min(Number(options.maxOutputBytes) || 24000, 65536));
+  const maxOutputBytes = Math.max(1024, Math.min(Number(options.maxOutputBytes) || 24000, 2097152));
   return new Promise((resolve) => {
     const child = childProcess.spawn(command, Array.isArray(args) ? args : [], {
       cwd: options.cwd || process.cwd(),
@@ -1293,6 +1598,7 @@ function createCliRuntimeEngineAdapter(options = {}) {
       timeoutMs: turnTimeoutMs,
       maxOutputBytes: 64000,
       cwd: options.cwd || (ctx && ctx.message && (ctx.message.cwd || ctx.message.workspace_dir)) || process.cwd(),
+      env: mergedRuntimeEnv(ctx, options),
       ctx,
       engineId,
       onActivity: ctx.onActivity,
@@ -1330,6 +1636,12 @@ function createCliRuntimeEngineAdapter(options = {}) {
       const probe = discovery.status === 'available'
       ? await spawnCapture(command, versionArgs, { timeoutMs: 5000, maxOutputBytes: 4096, cwd: options.cwd || process.cwd() })
         : { ok: false, stdout: '', stderr: discovery.reason || discovery.status };
+      const registryMenu = ctx && ctx.engine && ctx.engine.model_menu && typeof ctx.engine.model_menu === 'object'
+        ? ctx.engine.model_menu
+        : null;
+      const modelMenu = probe.ok
+        ? await discoverCliRuntimeModelMenu(command, options.modelDiscovery, ctx, registryMenu).catch(() => null)
+        : null;
       return {
         ...baseEvent(ctx, 'engine.health.result', engineId),
         status: probe.ok ? 'available' : discovery.status || 'not_downloaded',
@@ -1347,6 +1659,7 @@ function createCliRuntimeEngineAdapter(options = {}) {
         supports_next_turn_steering: true,
         steering_transport: 'gateway_next_turn_intervention',
         version_preview: cleanString(probe.stdout || probe.stderr, 500),
+        model_menu: modelMenu,
       };
     },
 
@@ -1404,4 +1717,7 @@ module.exports = {
   buildPromptWithContext,
   parseCliActivityOutput,
   stableExternalSessionUuid,
+  selectedRuntimeModelArg,
+  selectedRuntimeModelContext,
+  inheritedProviderEnv,
 };

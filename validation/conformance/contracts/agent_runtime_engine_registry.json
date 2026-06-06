@@ -13,12 +13,34 @@
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-008",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-009",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-010",
-    "V13-AGENT-RUNTIME-ENGINE-SOCKET-014"
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-014",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-020"
   ],
   "socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
   "turn_outcome_contract": "validation/conformance/contracts/agent_runtime_turn_outcome_contract.json",
   "router_scope_contract": "validation/conformance/contracts/agent_runtime_router_scope_contract.json",
   "selection_rule": "Shell and external clients may select engine_id only through the Gateway socket. Engine-specific execution remains behind Gateway adapters.",
+  "available_models_projection_contract": {
+    "field": "available_models",
+    "source_authority": "gateway.agent_runtime_engine_projection",
+    "canonical_for_shell_and_cli": true,
+    "legacy_alias": "model_menu",
+    "source_values": [
+      "framework_native",
+      "inherited_infring",
+      "system_default"
+    ],
+    "secrets_included": false,
+    "rule": "Shell and CLI clients consume available_models. Registry model_menu entries are config/compat input and must not become a Shell-owned model authority.",
+    "default_selection_policy": {
+      "default_is_model": false,
+      "rule": "Default may describe how an engine selects a model when no model is provided, but default must not appear as an available model row."
+    },
+    "catalog_refresh_policy": {
+      "static_seed_is_not_freshness_authority": true,
+      "rule": "available_models may use registry rows as a seed, but provider/framework discovery should replace seed rows when a trusted model listing source is available."
+    }
+  },
   "required_engine_interface": [
     "health_check",
     "start_session",
@@ -76,11 +98,27 @@
       },
       "context_transport_mode": "native_session_bridge",
       "structured_transport_target": "native_session_bridge",
-      "transport_migration_status": "native_target"
+      "transport_migration_status": "native_target",
+      "model_menu": {
+        "show_in_llm_menu": true,
+        "source": "infring_model_catalog",
+        "framework_native_models": false,
+        "inherit_active_llm_when_unconfigured": false,
+        "credential_inheritance_allowed": false,
+        "model_rows": []
+      },
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": false,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "codex_cli",
-      "display_name": "Codex CLI",
+      "display_name": "Codex",
       "engine_kind": "external_cli_adapter",
       "implementation_path": "adapters/runtime/agent_engines/codex_cli/**",
       "transport_kind": "local_process_or_socket",
@@ -105,7 +143,7 @@
         "download_available": true,
         "download_action_ref": "agent_runtime_download/codex_cli",
         "preferred_install_method": "command_line",
-        "command_line_hint": "Install the Codex CLI using the current official OpenAI/Codex installer for this machine.",
+        "command_line_hint": "Install Codex using the current official OpenAI/Codex installer for this machine.",
         "browser_fallback_url": "https://developers.openai.com/codex",
         "display_when_missing": "download_icon",
         "command_line_install": {
@@ -156,7 +194,97 @@
       },
       "context_transport_mode": "prompt_text_compat",
       "structured_transport_target": "structured_json",
-      "transport_migration_status": "transitional_bootstrap"
+      "transport_migration_status": "transitional_bootstrap",
+      "model_menu": {
+        "show_in_llm_menu": true,
+        "source": "framework_native_catalog_static_seed",
+        "framework_native_models": true,
+        "inherit_active_llm_when_unconfigured": false,
+        "credential_inheritance_allowed": false,
+        "model_rows": [
+          {
+            "provider": "openai",
+            "model": "gpt-5.5",
+            "qualified_model_ref": "openai/gpt-5.5",
+            "display_name": "GPT-5.5",
+            "availability": "if_supported_by_codex",
+            "source": "official_openai_models",
+            "adapter_model_arg": "gpt-5.5"
+          },
+          {
+            "provider": "openai",
+            "model": "gpt-5.5-pro",
+            "qualified_model_ref": "openai/gpt-5.5-pro",
+            "display_name": "GPT-5.5 Pro",
+            "availability": "if_supported_by_codex",
+            "source": "official_openai_models",
+            "adapter_model_arg": "gpt-5.5-pro"
+          },
+          {
+            "provider": "openai",
+            "model": "gpt-5.4",
+            "qualified_model_ref": "openai/gpt-5.4",
+            "display_name": "GPT-5.4",
+            "availability": "if_supported_by_codex",
+            "source": "official_openai_models",
+            "adapter_model_arg": "gpt-5.4"
+          },
+          {
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "qualified_model_ref": "openai/gpt-5.4-mini",
+            "display_name": "GPT-5.4 Mini",
+            "availability": "if_supported_by_codex",
+            "source": "official_openai_models",
+            "adapter_model_arg": "gpt-5.4-mini"
+          },
+          {
+            "provider": "openai",
+            "model": "gpt-5.4-nano",
+            "qualified_model_ref": "openai/gpt-5.4-nano",
+            "display_name": "GPT-5.4 Nano",
+            "availability": "if_supported_by_codex",
+            "source": "official_openai_models",
+            "adapter_model_arg": "gpt-5.4-nano"
+          },
+          {
+            "provider": "openai",
+            "model": "gpt-5.3-codex",
+            "qualified_model_ref": "openai/gpt-5.3-codex",
+            "display_name": "GPT-5.3 Codex",
+            "availability": "if_supported_by_codex",
+            "source": "official_openai_codex_model",
+            "adapter_model_arg": "gpt-5.3-codex"
+          },
+          {
+            "provider": "openai",
+            "model": "gpt-5.3-codex-spark",
+            "qualified_model_ref": "openai/gpt-5.3-codex-spark",
+            "display_name": "GPT-5.3 Codex Spark",
+            "availability": "if_supported_by_codex",
+            "source": "codex_runtime_seed_pending_discovery",
+            "adapter_model_arg": "gpt-5.3-codex-spark"
+          }
+        ],
+        "default_selection_policy": {
+          "type": "framework_configured_default",
+          "menu_row": false,
+          "rule": "Default is a provider/framework selection policy, not a model. Omit model_provider_context.model to let the framework choose its configured default."
+        },
+        "catalog_refresh_policy": {
+          "mode": "static_seed_until_framework_model_discovery_is_wired",
+          "freshness_authority": "official_openai_model_docs_and_codex_runtime_discovery",
+          "rule": "These rows are model seeds, not truth. Prefer framework/API discovery when available; do not fabricate default rows."
+        }
+      },
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": true,
+        "framework_native_models": true,
+        "inherit_active_infring_provider_when_unconfigured": false,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "claude_code",
@@ -235,7 +363,79 @@
       },
       "context_transport_mode": "prompt_text_compat",
       "structured_transport_target": "structured_json",
-      "transport_migration_status": "transitional_bootstrap"
+      "transport_migration_status": "transitional_bootstrap",
+      "model_menu": {
+        "show_in_llm_menu": true,
+        "source": "framework_native_catalog_static_seed",
+        "framework_native_models": true,
+        "inherit_active_llm_when_unconfigured": false,
+        "credential_inheritance_allowed": false,
+        "model_rows": [
+          {
+            "provider": "anthropic",
+            "model": "claude-opus-4-8",
+            "qualified_model_ref": "anthropic/claude-opus-4-8",
+            "display_name": "Claude Opus 4.8",
+            "availability": "if_supported_by_claude_code",
+            "source": "official_anthropic_models_and_claude_code_aliases",
+            "adapter_model_arg": "opus"
+          },
+          {
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+            "qualified_model_ref": "anthropic/claude-sonnet-4-6",
+            "display_name": "Claude Sonnet 4.6",
+            "availability": "if_supported_by_claude_code",
+            "source": "official_anthropic_models_and_claude_code_aliases",
+            "adapter_model_arg": "sonnet"
+          },
+          {
+            "provider": "anthropic",
+            "model": "claude-haiku-4-5-20251001",
+            "qualified_model_ref": "anthropic/claude-haiku-4-5-20251001",
+            "display_name": "Claude Haiku 4.5",
+            "availability": "if_supported_by_claude_code",
+            "source": "official_anthropic_models_and_claude_code_aliases",
+            "adapter_model_arg": "haiku"
+          },
+          {
+            "provider": "anthropic",
+            "model": "opus[1m]",
+            "qualified_model_ref": "anthropic/opus[1m]",
+            "display_name": "Claude Opus 4.8 1M",
+            "availability": "if_supported_by_claude_code",
+            "source": "official_anthropic_models_and_claude_code_aliases",
+            "adapter_model_arg": "opus[1m]"
+          },
+          {
+            "provider": "anthropic",
+            "model": "sonnet[1m]",
+            "qualified_model_ref": "anthropic/sonnet[1m]",
+            "display_name": "Claude Sonnet 4.6 1M",
+            "availability": "if_supported_by_claude_code",
+            "source": "official_anthropic_models_and_claude_code_aliases",
+            "adapter_model_arg": "sonnet[1m]"
+          }
+        ],
+        "default_selection_policy": {
+          "type": "framework_configured_default",
+          "menu_row": false,
+          "rule": "Default is a provider/framework selection policy, not a model. Omit model_provider_context.model to let the framework choose its configured default."
+        },
+        "catalog_refresh_policy": {
+          "mode": "static_seed_until_framework_model_discovery_is_wired",
+          "freshness_authority": "official_anthropic_model_docs_and_claude_code_runtime_discovery",
+          "rule": "These rows are model seeds, not truth. Prefer Anthropic Models API or Claude Code runtime discovery when available; do not fabricate default rows."
+        }
+      },
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": true,
+        "framework_native_models": true,
+        "inherit_active_infring_provider_when_unconfigured": false,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "grok_code",
@@ -308,7 +508,48 @@
       },
       "context_transport_mode": "prompt_text_compat",
       "structured_transport_target": "structured_json",
-      "transport_migration_status": "transitional_bootstrap"
+      "transport_migration_status": "transitional_bootstrap",
+      "model_menu": {
+        "show_in_llm_menu": true,
+        "source": "framework_native_catalog",
+        "framework_native_models": true,
+        "inherit_active_llm_when_unconfigured": false,
+        "credential_inheritance_allowed": false,
+        "model_rows": [
+          {
+            "provider": "xai",
+            "model": "grok-code",
+            "qualified_model_ref": "xai/grok-code",
+            "display_name": "Grok Code",
+            "availability": "if_supported_by_grok_code"
+          },
+          {
+            "provider": "xai",
+            "model": "grok-4",
+            "qualified_model_ref": "xai/grok-4",
+            "display_name": "Grok 4",
+            "availability": "if_supported_by_grok_code"
+          }
+        ],
+        "default_selection_policy": {
+          "type": "framework_configured_default",
+          "menu_row": false,
+          "rule": "Default is a provider/framework selection policy, not a model. Omit model_provider_context.model to let the framework choose its configured default."
+        },
+        "catalog_refresh_policy": {
+          "mode": "static_seed_until_framework_model_discovery_is_wired",
+          "freshness_authority": "grok_code_runtime_discovery_or_xai_provider_catalog",
+          "rule": "These rows are model seeds, not truth. Prefer runtime/API discovery when available; do not fabricate default rows."
+        }
+      },
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": true,
+        "framework_native_models": true,
+        "inherit_active_infring_provider_when_unconfigured": false,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "openhands",
@@ -360,7 +601,23 @@
       },
       "context_transport_mode": "structured_json",
       "structured_transport_target": "structured_json",
-      "transport_migration_status": "planned_structured_target"
+      "transport_migration_status": "planned_structured_target",
+      "model_menu": {
+        "show_in_llm_menu": true,
+        "source": "inherited_infring_catalog",
+        "framework_native_models": false,
+        "inherit_active_llm_when_unconfigured": true,
+        "credential_inheritance_allowed": true,
+        "model_rows": []
+      },
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": true,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "openclaw",
@@ -389,16 +646,31 @@
         "download_action_ref": "agent_runtime_download/openclaw",
         "preferred_install_method": "command_line",
         "command_line_hint": "Install or start OpenClaw through the configured local runtime path.",
-        "browser_fallback_url": "https://github.com",
-        "display_when_missing": "download_icon"
+        "browser_fallback_url": "https://github.com/openclaw/openclaw",
+        "display_when_missing": "download_icon",
+        "command_line_install": {
+          "permission_mode": "allowed",
+          "commands": [
+            {
+              "platform": "all",
+              "command": "npm install -g openclaw@latest",
+              "source": "references/coding-agent-systems/openclaw/README.md"
+            }
+          ],
+          "post_install_start_hint": "openclaw onboard --install-daemon; openclaw gateway status",
+          "managed_workspace_override_hint": "Set agents.defaults.workspace to ~/.infring/external_runtimes/openclaw/workspace for the InfRing-managed OpenClaw instance."
+        }
       },
       "discovery": {
         "custom_location_allowed": true,
         "override_url_config_key": "agent_runtimes.openclaw.url",
         "env_vars": [
-          "INFRING_OPENCLAW_URL"
+          "INFRING_OPENCLAW_URL",
+          "INFRING_OPENCLAW_COMMAND",
+          "INFRING_OPENCLAW_WORKSPACE"
         ],
         "default_urls": [
+          "http://127.0.0.1:18789",
           "http://127.0.0.1:8787"
         ],
         "authority_order": [
@@ -407,11 +679,208 @@
           "environment_variable",
           "default_url_probe",
           "missing_installable"
-        ]
+        ],
+        "override_config_key": "agent_runtimes.openclaw.command",
+        "override_workspace_config_key": "agent_runtimes.openclaw.workspace",
+        "path_commands": [
+          "openclaw"
+        ],
+        "default_paths": [
+          "~/.infring/external_runtimes/openclaw/bin/openclaw",
+          "~/.infring/external_runtimes/openclaw/openclaw.mjs",
+          "~/.local/bin/openclaw"
+        ],
+        "managed_workspace_policy": {
+          "upstream_default_workspace": "~/.openclaw/workspace",
+          "upstream_default_preserved_for_new_openclaw_instances": true,
+          "infring_managed_default_home": "~/.infring/external_runtimes/openclaw",
+          "infring_managed_default_workspace": "~/.infring/external_runtimes/openclaw/workspace",
+          "current_infring_workspace_forbidden_as_openclaw_home": true
+        }
       },
       "context_transport_mode": "structured_json",
       "structured_transport_target": "structured_json",
-      "transport_migration_status": "planned_structured_target"
+      "transport_migration_status": "planned_structured_target",
+      "reference_repo_path": "references/coding-agent-systems/openclaw",
+      "reference_repo_head": "36d9241cf7d6a79d30094bb2d7c313f60ebd9f64",
+      "private_schema_contract": "validation/conformance/contracts/agent_runtime_private_schemas/openclaw.json",
+      "model_menu": {
+        "show_in_llm_menu": true,
+        "source": "openclaw_model_catalog_or_inherited_infring_catalog",
+        "framework_native_models": false,
+        "inherit_active_llm_when_unconfigured": true,
+        "credential_inheritance_allowed": true,
+        "provider_allowlist": [
+          "openai",
+          "anthropic",
+          "claude",
+          "xai",
+          "grok",
+          "openrouter",
+          "google",
+          "gemini",
+          "deepseek",
+          "mistral",
+          "cohere",
+          "groq",
+          "ollama",
+          "llama_cpp"
+        ],
+        "model_rows": []
+      },
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": true,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
+    },
+    {
+      "engine_id": "hermes_agent",
+      "display_name": "Hermes Agent",
+      "engine_kind": "external_framework_adapter",
+      "implementation_path": "adapters/runtime/agent_engines/hermes_agent/**",
+      "reference_repo_path": "references/coding-agent-systems/hermes-agent",
+      "transport_kind": "http_or_cli_safe_oneshot_adapter",
+      "status": "safe_cli_bridge",
+      "capabilities": [
+        "agent_session",
+        "coding_workflow",
+        "tool_event_stream",
+        "artifact_collection",
+        "memory_continuity",
+        "safe_cli_oneshot_turns"
+      ],
+      "health_contract": "adapter reports bounded Hermes dashboard/API health and CLI safe oneshot readiness; engine is selectable only when a non-mutating safe turn bridge is available",
+      "adapter_boundary": "Gateway normalizes Hermes Agent CLI/dashboard events into InfRing agent runtime events; Hermes private schemas never become public socket schemas.",
+      "authority_constraints": [
+        "sandbox_required",
+        "no_direct_kernel_write",
+        "no_direct_shell_socket",
+        "capability_budget_required",
+        "gateway_health_check_required",
+        "mutating_hermes_toolsets_forbidden_until_mediated_bridge"
+      ],
+      "install": {
+        "install_state_source": "adapter_health_check",
+        "download_available": true,
+        "download_action_ref": "agent_runtime_download/hermes_agent",
+        "preferred_install_method": "command_line",
+        "command_line_hint": "Install Hermes Agent through its official CLI installer, then expose the local dashboard/API with `hermes dashboard` or `python -m hermes_cli.main web --no-open`.",
+        "browser_fallback_url": "https://github.com/NousResearch/hermes-agent",
+        "display_when_missing": "download_icon",
+        "command_line_install": {
+          "permission_mode": "allowed",
+          "commands": [
+            {
+              "platform": "darwin_or_linux",
+              "command": "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
+              "source": "references/coding-agent-systems/hermes-agent/README.md"
+            },
+            {
+              "platform": "windows_powershell",
+              "command": "iex (irm https://hermes-agent.nousresearch.com/install.ps1)",
+              "source": "references/coding-agent-systems/hermes-agent/README.md"
+            }
+          ],
+          "post_install_start_hint": "hermes dashboard or python -m hermes_cli.main web --no-open"
+        }
+      },
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_url_config_key": "agent_runtimes.hermes_agent.url",
+        "env_vars": [
+          "INFRING_HERMES_AGENT_URL",
+          "HERMES_DASHBOARD_URL",
+          "INFRING_HERMES_AGENT_COMMAND",
+          "INFRING_HERMES_AGENT_HOME",
+          "INFRING_HERMES_AGENT_SAFE_TOOLSETS"
+        ],
+        "default_urls": [
+          "http://127.0.0.1:9119"
+        ],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "path_discovery",
+          "default_url_probe",
+          "missing_installable"
+        ],
+        "override_config_key": "agent_runtimes.hermes_agent.command",
+        "override_home_config_key": "agent_runtimes.hermes_agent.home",
+        "path_commands": [
+          "hermes"
+        ],
+        "default_paths": [
+          "~/.local/bin/hermes",
+          "~/.hermes/bin/hermes",
+          "%LOCALAPPDATA%\\hermes\\bin\\hermes.exe"
+        ],
+        "infring_managed_override_paths": [
+          "~/.infring/external_runtimes/hermes_agent/venv/bin/hermes",
+          "%LOCALAPPDATA%\\InfRing\\external_runtimes\\hermes_agent\\venv\\Scripts\\hermes.exe"
+        ],
+        "override_note": "Default paths are upstream/user install locations only. InfRing-managed or cloned/runtime-local paths must be selected through user override, config, or environment variable."
+      },
+      "context_transport_mode": "prompt_text_compat",
+      "structured_transport_target": "structured_json",
+      "transport_migration_status": "transitional_safe_oneshot_bridge",
+      "reference_repo_head": "6f6eb871d83415fe2980f3483cc41a435ba22196",
+      "private_schema_contract": "validation/conformance/contracts/agent_runtime_private_schemas/hermes_agent.json",
+      "safe_bridge_policy": {
+        "bridge_mode": "cli_safe_oneshot",
+        "default_toolsets": "safe",
+        "forbidden_toolsets": [
+          "*",
+          "all",
+          "terminal",
+          "file",
+          "debugging",
+          "hermes-cli",
+          "hermes-acp",
+          "hermes-telegram",
+          "hermes-discord",
+          "hermes-whatsapp",
+          "hermes-slack"
+        ],
+        "mutating_tool_bridge_ready": false,
+        "reason": "Hermes oneshot auto-bypasses native approvals, so InfRing enables only non-mutating safe toolsets until a mediated approval bridge exists."
+      },
+      "model_menu": {
+        "show_in_llm_menu": true,
+        "source": "inherited_infring_catalog_or_hermes_config",
+        "framework_native_models": false,
+        "inherit_active_llm_when_unconfigured": true,
+        "credential_inheritance_allowed": true,
+        "provider_allowlist": [
+          "openai",
+          "anthropic",
+          "claude",
+          "xai",
+          "grok",
+          "openrouter",
+          "google",
+          "gemini",
+          "deepseek",
+          "mistral",
+          "cohere",
+          "groq",
+          "ollama",
+          "llama_cpp"
+        ],
+        "model_rows": []
+      },
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": true,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "openfang",
@@ -462,7 +931,23 @@
       },
       "context_transport_mode": "structured_json",
       "structured_transport_target": "structured_json",
-      "transport_migration_status": "planned_structured_target"
+      "transport_migration_status": "planned_structured_target",
+      "model_menu": {
+        "show_in_llm_menu": true,
+        "source": "inherited_infring_catalog",
+        "framework_native_models": false,
+        "inherit_active_llm_when_unconfigured": true,
+        "credential_inheritance_allowed": true,
+        "model_rows": []
+      },
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": true,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "custom_socket_engine",
@@ -509,12 +994,118 @@
       },
       "context_transport_mode": "structured_json",
       "structured_transport_target": "structured_json",
-      "transport_migration_status": "planned_structured_target"
+      "transport_migration_status": "planned_structured_target",
+      "model_menu": {
+        "show_in_llm_menu": true,
+        "source": "inherited_infring_catalog",
+        "framework_native_models": false,
+        "inherit_active_llm_when_unconfigured": true,
+        "credential_inheritance_allowed": true,
+        "model_rows": []
+      },
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": true,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     }
   ],
   "first_adapter_recommendation": {
     "engine_id": "codex_cli",
-    "reason": "Codex CLI remains the smallest useful external-engine slice; Claude Code and Grok Code now share the same bounded CLI adapter discovery path for local availability checks."
+    "reason": "Codex remains the smallest useful external-engine slice; Claude Code and Grok Code now share the same bounded CLI adapter discovery path for local availability checks.",
+    "model_menu": {
+      "show_in_llm_menu": true,
+      "source": "framework_native_catalog_static_seed",
+      "framework_native_models": true,
+      "inherit_active_llm_when_unconfigured": false,
+      "credential_inheritance_allowed": false,
+      "model_rows": [
+        {
+          "provider": "openai",
+          "model": "gpt-5.5",
+          "qualified_model_ref": "openai/gpt-5.5",
+          "display_name": "GPT-5.5",
+          "availability": "if_supported_by_codex",
+          "source": "official_openai_models",
+          "adapter_model_arg": "gpt-5.5"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5.5-pro",
+          "qualified_model_ref": "openai/gpt-5.5-pro",
+          "display_name": "GPT-5.5 Pro",
+          "availability": "if_supported_by_codex",
+          "source": "official_openai_models",
+          "adapter_model_arg": "gpt-5.5-pro"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5.4",
+          "qualified_model_ref": "openai/gpt-5.4",
+          "display_name": "GPT-5.4",
+          "availability": "if_supported_by_codex",
+          "source": "official_openai_models",
+          "adapter_model_arg": "gpt-5.4"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5.4-mini",
+          "qualified_model_ref": "openai/gpt-5.4-mini",
+          "display_name": "GPT-5.4 Mini",
+          "availability": "if_supported_by_codex",
+          "source": "official_openai_models",
+          "adapter_model_arg": "gpt-5.4-mini"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5.4-nano",
+          "qualified_model_ref": "openai/gpt-5.4-nano",
+          "display_name": "GPT-5.4 Nano",
+          "availability": "if_supported_by_codex",
+          "source": "official_openai_models",
+          "adapter_model_arg": "gpt-5.4-nano"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5.3-codex",
+          "qualified_model_ref": "openai/gpt-5.3-codex",
+          "display_name": "GPT-5.3 Codex",
+          "availability": "if_supported_by_codex",
+          "source": "official_openai_codex_model",
+          "adapter_model_arg": "gpt-5.3-codex"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5.3-codex-spark",
+          "qualified_model_ref": "openai/gpt-5.3-codex-spark",
+          "display_name": "GPT-5.3 Codex Spark",
+          "availability": "if_supported_by_codex",
+          "source": "codex_runtime_seed_pending_discovery",
+          "adapter_model_arg": "gpt-5.3-codex-spark"
+        }
+      ],
+      "default_selection_policy": {
+        "type": "framework_configured_default",
+        "menu_row": false,
+        "rule": "Default is a provider/framework selection policy, not a model row."
+      },
+      "catalog_refresh_policy": {
+        "mode": "static_seed_until_framework_model_discovery_is_wired",
+        "freshness_authority": "official_openai_model_docs_and_codex_runtime_discovery",
+        "rule": "Prefer framework/API discovery when available; static rows are seeds only."
+      }
+    },
+    "model_provider_policy": {
+      "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+      "framework_native_auth_preferred": true,
+      "framework_native_models": true,
+      "inherit_active_infring_provider_when_unconfigured": false,
+      "shell_secret_exposure": "forbidden",
+      "gateway_context_field": "model_provider_context"
+    }
   },
   "private_adapter_contracts": "validation/conformance/contracts/agent_runtime_adapter_contracts.json",
   "engine_selection_model": {
@@ -556,5 +1147,26 @@
     "preferred_external_mode": "structured_json",
     "prompt_text_compat_is_transitional": true,
     "kernel_selection_role": "none; Kernel executes authorized effects and records receipts without selecting runtime engines"
+  },
+  "model_provider_inheritance_policy": {
+    "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+    "owner": "gateway_agent_runtime_socket",
+    "rule": "Framework runtimes may inherit the active InfRing LLM provider/model only through Gateway-owned non-secret projections and adapter-owned credential materialization.",
+    "precedence": [
+      "framework_native_auth_and_model_config",
+      "framework_specific_model_selection_from_llm_menu",
+      "inherited_active_infring_provider_model",
+      "fail_closed_auth_required_or_config_required"
+    ],
+    "shell_rules": [
+      "Shell may display framework-aware model rows and selected provider/model labels.",
+      "Shell must not receive, persist, or transmit raw API keys or secret values.",
+      "Shell selection is advisory until Gateway attaches a model_provider_context to the turn."
+    ],
+    "adapter_rules": [
+      "Adapters translate model_provider_context into engine-specific args or environment only when the provider is allowlisted.",
+      "Adapters must prefer framework native auth when present, then explicit engine selection, then inherited InfRing provider/model.",
+      "Adapters must emit auth_required or config_required instead of guessing credentials."
+    ]
   }
 }

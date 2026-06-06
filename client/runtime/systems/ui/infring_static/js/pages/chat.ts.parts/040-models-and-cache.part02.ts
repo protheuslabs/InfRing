@@ -96,17 +96,66 @@
 
     fallbackModelCatalogRows: function() {
       var seeds = [
-        ['openai', 'gpt-5.5', 'GPT-5.5'],
-        ['openai', 'gpt-5.4', 'GPT-5.4'],
-        ['openai', 'gpt-5.4-mini', 'GPT-5.4 Mini'],
-        ['openai', 'gpt-5.3-codex', 'GPT-5.3 Codex'],
-        ['openai', 'gpt-5.3-codex-spark', 'GPT-5.3 Codex Spark'],
-        ['anthropic', 'claude-4.2', 'Claude 4.2'],
-        ['anthropic', 'claude-opus-4-6', 'Claude Opus 4.6'],
-        ['google', 'gemini-3', 'Gemini 3'],
-        ['deepseek', 'deepseek-chat', 'DeepSeek Chat'],
-        ['deepseek', 'deepseek-reasoner', 'DeepSeek Reasoner'],
-        ['ollama', 'qwen2.5:3b-instruct', 'Qwen 2.5 3B Instruct']
+              [
+                      "openai",
+                      "gpt-5.5",
+                      "GPT-5.5"
+              ],
+              [
+                      "openai",
+                      "gpt-5.4",
+                      "GPT-5.4"
+              ],
+              [
+                      "openai",
+                      "gpt-5.4-mini",
+                      "GPT-5.4 Mini"
+              ],
+              [
+                      "openai",
+                      "gpt-5.4-nano",
+                      "GPT-5.4 Nano"
+              ],
+              [
+                      "openai",
+                      "gpt-5.3-codex",
+                      "GPT-5.3 Codex"
+              ],
+              [
+                      "anthropic",
+                      "claude-opus-4-8",
+                      "Claude Opus 4.8"
+              ],
+              [
+                      "anthropic",
+                      "claude-sonnet-4-6",
+                      "Claude Sonnet 4.6"
+              ],
+              [
+                      "anthropic",
+                      "claude-haiku-4-5-20251001",
+                      "Claude Haiku 4.5"
+              ],
+              [
+                      "google",
+                      "gemini-3",
+                      "Gemini 3"
+              ],
+              [
+                      "deepseek",
+                      "deepseek-chat",
+                      "DeepSeek Chat"
+              ],
+              [
+                      "deepseek",
+                      "deepseek-reasoner",
+                      "DeepSeek Reasoner"
+              ],
+              [
+                      "ollama",
+                      "qwen2.5:3b-instruct",
+                      "Qwen 2.5 3B Instruct"
+              ]
       ];
       return this.sanitizeModelCatalogRows(seeds.map(function(seed) {
         var provider = seed[0];

@@ -9,7 +9,7 @@
 
 'use strict';
 
-const { createCliRuntimeEngineAdapter } = require('./cli_runtime_adapter.ts');
+const { createCliRuntimeEngineAdapter, selectedRuntimeModelArg } = require('./cli_runtime_adapter.ts');
 
 function codexSandboxMode(ctx) {
   const grants = ctx && ctx.message && ctx.message.context_pack && ctx.message.context_pack.universal_tool_grants;
@@ -32,16 +32,28 @@ function createCodexCliEngineAdapter(options = {}) {
     artifactKind: 'codex_cli_result_projection',
     receiptKind: 'external_cli_adapter_receipt',
     versionArgs: ['--version'],
-    runArgs: (prompt, ctx) => [
-      'exec',
-      '--json',
-      '--sandbox',
-      codexSandboxMode(ctx),
-      '--ignore-rules',
-      '--color',
-      'never',
-      prompt,
-    ],
+    modelDiscovery: {
+      kind: 'codex_debug_models',
+      args: ['debug', 'models'],
+      source: 'codex_debug_models',
+      freshnessAuthority: 'codex_cli_debug_models',
+      timeoutMs: 8000,
+      maxOutputBytes: 1048576,
+    },
+    runArgs: (prompt, ctx) => {
+      const modelArg = selectedRuntimeModelArg(ctx, ['codex_cli', 'codex', 'openai']);
+      return [
+        'exec',
+        '--json',
+        '--sandbox',
+        codexSandboxMode(ctx),
+        '--ignore-rules',
+        '--color',
+        'never',
+        ...(modelArg ? ['--model', modelArg] : []),
+        prompt,
+      ];
+    },
     ...options,
   });
 }

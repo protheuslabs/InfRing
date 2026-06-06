@@ -57,6 +57,102 @@ function findAgentRuntimeEngine(registryInfo, engineId) {
   return engines.find((engine) => cleanEngineId(engine && engine.engine_id) === target) || null;
 }
 
+function projectAgentRuntimeModelMenu(engine, health) {
+  const row = engine && typeof engine === 'object' ? engine : {};
+  const source = row.model_menu && typeof row.model_menu === 'object' ? row.model_menu : {};
+  const healthMenu = health && health.model_menu && typeof health.model_menu === 'object' ? health.model_menu : {};
+  const menuSource = cleanText(healthMenu.source || source.source || 'infring_model_catalog', 120);
+  const modelRowsSource = Array.isArray(healthMenu.model_rows)
+    ? healthMenu.model_rows
+    : (Array.isArray(source.model_rows) ? source.model_rows : []);
+  const modelRows = modelRowsSource.map((item) => {
+    const model = item && typeof item === 'object' ? item : {};
+    return {
+      id: cleanText(model.id || model.qualified_model_ref || model.model || '', 240),
+      provider: cleanText(model.provider || model.model_provider || '', 120),
+      model: cleanText(model.model || model.model_name || '', 180),
+      model_name: cleanText(model.model_name || model.model || '', 180),
+      display_name: cleanText(model.display_name || model.model_name || model.model || model.id || '', 180),
+      available: model.available !== false,
+      source: cleanText(model.source || menuSource || '', 120),
+      adapter_model_arg: cleanText(model.adapter_model_arg || model.model || model.model_name || '', 180),
+    };
+  }).filter((item) => {
+    const modelId = cleanText(item.id || item.model || item.model_name || item.adapter_model_arg || '', 240).toLowerCase();
+    const display = cleanText(item.display_name || '', 240).toLowerCase();
+    if (!modelId) return false;
+    if (modelId === 'default' || modelId === 'framework-default' || modelId === 'framework_default') return false;
+    if (modelId.endsWith('/default') || modelId.endsWith('/framework-default') || modelId.endsWith('/framework_default')) return false;
+    if (display === 'default' || display.endsWith(' default')) return false;
+    return true;
+  }).slice(0, 64);
+  const policySource = healthMenu.default_selection_policy && typeof healthMenu.default_selection_policy === 'object'
+    ? healthMenu.default_selection_policy
+    : (source.default_selection_policy && typeof source.default_selection_policy === 'object' ? source.default_selection_policy : null);
+  const refreshSource = healthMenu.catalog_refresh_policy && typeof healthMenu.catalog_refresh_policy === 'object'
+    ? healthMenu.catalog_refresh_policy
+    : (source.catalog_refresh_policy && typeof source.catalog_refresh_policy === 'object' ? source.catalog_refresh_policy : null);
+  return {
+    source: menuSource,
+    menu_label: cleanText(healthMenu.menu_label || source.menu_label || '', 160),
+    show_in_llm_menu: (healthMenu.show_in_llm_menu ?? source.show_in_llm_menu) !== false,
+    framework_native_models: (healthMenu.framework_native_models ?? source.framework_native_models) === true,
+    inherit_active_llm_when_unconfigured: (healthMenu.inherit_active_llm_when_unconfigured ?? source.inherit_active_llm_when_unconfigured) === true,
+    credential_inheritance_allowed: (healthMenu.credential_inheritance_allowed ?? source.credential_inheritance_allowed) === true,
+    provider_allowlist: Array.isArray(healthMenu.provider_allowlist)
+      ? healthMenu.provider_allowlist.map((item) => cleanText(item, 80)).filter(Boolean).slice(0, 24)
+      : (Array.isArray(source.provider_allowlist) ? source.provider_allowlist.map((item) => cleanText(item, 80)).filter(Boolean).slice(0, 24) : []),
+    default_selection_policy: policySource
+      ? {
+        type: cleanText(policySource.type || 'framework_configured_default', 120),
+        menu_row: policySource.menu_row === true,
+        current_model: cleanText(policySource.current_model || '', 240),
+        rule: cleanText(policySource.rule || 'Default is a framework/provider policy, not a model row.', 500),
+      }
+      : null,
+    catalog_refresh_policy: refreshSource
+      ? {
+        mode: cleanText(refreshSource.mode || 'static_seed_until_framework_model_discovery_is_wired', 160),
+        freshness_authority: cleanText(refreshSource.freshness_authority || '', 240),
+        fallback_source: cleanText(refreshSource.fallback_source || '', 160),
+        rule: cleanText(refreshSource.rule || 'Prefer trusted provider/framework discovery over static model seeds.', 500),
+      }
+      : null,
+    model_rows: modelRows,
+    secrets_included: false,
+  };
+}
+
+function projectAgentRuntimeAvailableModels(engineId, engine, health) {
+  const menu = projectAgentRuntimeModelMenu(engine, health);
+  let projectionSource = 'system_default';
+  if (menu.framework_native_models) projectionSource = 'framework_native';
+  else if (menu.inherit_active_llm_when_unconfigured || menu.credential_inheritance_allowed) projectionSource = 'inherited_infring';
+  return {
+    type: 'agent_runtime_available_models_projection',
+    source_authority: 'gateway.agent_runtime_engine_projection',
+    engine_id: cleanEngineId(engineId),
+    source: projectionSource,
+    catalog_source: cleanText(menu.source || '', 120),
+    menu_label: cleanText(menu.menu_label || '', 160),
+    show_in_llm_menu: menu.show_in_llm_menu !== false,
+    framework_native_models: menu.framework_native_models === true,
+    inherit_active_llm_when_unconfigured: menu.inherit_active_llm_when_unconfigured === true,
+    credential_inheritance_allowed: menu.credential_inheritance_allowed === true,
+    provider_allowlist: Array.isArray(menu.provider_allowlist) ? menu.provider_allowlist.slice(0, 24) : [],
+    default_selection_policy: menu.default_selection_policy && typeof menu.default_selection_policy === 'object'
+      ? menu.default_selection_policy
+      : null,
+    catalog_refresh_policy: menu.catalog_refresh_policy && typeof menu.catalog_refresh_policy === 'object'
+      ? menu.catalog_refresh_policy
+      : null,
+    selected_model_id: '',
+    rows: Array.isArray(menu.model_rows) ? menu.model_rows.slice(0, 64) : [],
+    model_rows: Array.isArray(menu.model_rows) ? menu.model_rows.slice(0, 64) : [],
+    secrets_included: false,
+  };
+}
+
 function createAgentRuntimeEngineProjectionStore(options = {}) {
   const root = options.root || process.cwd();
   const loadRegistry = typeof options.loadRegistry === 'function'
@@ -135,6 +231,7 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
     const supportsNextTurnSteering = (health && health.supports_next_turn_steering === true) || row.supports_next_turn_steering === true || engineId !== 'infring_native';
     const steeringMode = supportsLiveSteering ? 'live' : supportsNextTurnSteering ? 'next_turn' : 'unsupported';
     const capabilities = registryCapabilities.slice();
+    const availableModels = projectAgentRuntimeAvailableModels(engineId, row, health);
     if (supportsLiveSteering && !capabilities.includes('live_steering')) capabilities.push('live_steering');
     if (supportsNextTurnSteering && !capabilities.includes('next_turn_steering')) capabilities.push('next_turn_steering');
     return {
@@ -149,6 +246,20 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
       supports_next_turn_steering: supportsNextTurnSteering,
       steering_mode: steeringMode,
       steering_transport: cleanText((health && health.steering_transport) || (steeringMode === 'next_turn' ? 'gateway_next_turn_intervention' : steeringMode), 120),
+      available_models: availableModels,
+      model_menu: {
+        source: availableModels.catalog_source,
+        menu_label: availableModels.menu_label,
+        show_in_llm_menu: availableModels.show_in_llm_menu,
+        framework_native_models: availableModels.framework_native_models,
+        inherit_active_llm_when_unconfigured: availableModels.inherit_active_llm_when_unconfigured,
+        credential_inheritance_allowed: availableModels.credential_inheritance_allowed,
+        provider_allowlist: availableModels.provider_allowlist,
+        default_selection_policy: availableModels.default_selection_policy,
+        catalog_refresh_policy: availableModels.catalog_refresh_policy,
+        model_rows: availableModels.rows,
+        secrets_included: false,
+      },
       download_available: !!downloadAvailable,
       install_action_available: !!installActionAvailable,
       command_line_install_available: !!commandLineInstall,

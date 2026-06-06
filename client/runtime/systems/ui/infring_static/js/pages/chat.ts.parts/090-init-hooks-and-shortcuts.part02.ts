@@ -60,9 +60,13 @@
     },
 
     get filteredModelPicker() {
-      if (!this.modelPickerFilter) return this.modelPickerList.slice(0, 15);
+      var runtimeEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var rows = typeof this.modelRowsForActiveRuntimeEngine === 'function'
+        ? this.modelRowsForActiveRuntimeEngine(this.modelPickerList, runtimeEngineId)
+        : this.modelPickerList;
+      if (!this.modelPickerFilter) return rows.slice(0, 15);
       var f = this.modelPickerFilter;
-      return this.modelPickerList.filter(function(m) {
+      return rows.filter(function(m) {
         return m.id.toLowerCase().indexOf(f) !== -1 || (m.display_name || '').toLowerCase().indexOf(f) !== -1 || m.provider.toLowerCase().indexOf(f) !== -1;
       }).slice(0, 15);
     },
@@ -148,6 +152,13 @@
       this.modelSwitcherProviderFilter = '';
       this.modelSwitcherIdx = 0;
       this.showModelSwitcher = true;
+      if (typeof self.loadRuntimeEnginesSafely === 'function') {
+        self.loadRuntimeEnginesSafely({ force: true }).then(function() {
+          self._modelSwitcherViewCache = null;
+        }).catch(function() {
+          self._modelSwitcherViewCache = null;
+        });
+      }
       this.$nextTick(function() {
         var el = document.getElementById('model-switcher-search');
         if (el) el.focus();
@@ -182,10 +193,10 @@
 
     fallbackRuntimeEngineRows: function() {
       return [
-        { engine_id: 'infring_native', display_name: 'InfRing Native', status: 'available', selectable: true, engine_kind: 'native_orchestration' },
-        { engine_id: 'codex_cli', display_name: 'Codex CLI', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' },
-        { engine_id: 'claude_code', display_name: 'Claude Code', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' },
-        { engine_id: 'openhands', display_name: 'OpenHands', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' }
+        { engine_id: 'infring_native', display_name: 'InfRing Native', status: 'available', selectable: true, engine_kind: 'native_orchestration', supports_next_turn_steering: true, steering_mode: 'next_turn' },
+        { engine_id: 'codex_cli', display_name: 'Codex', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon', supports_next_turn_steering: true, steering_mode: 'next_turn' },
+        { engine_id: 'claude_code', display_name: 'Claude Code', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon', supports_next_turn_steering: true, steering_mode: 'next_turn' },
+        { engine_id: 'openhands', display_name: 'OpenHands', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon', supports_next_turn_steering: true, steering_mode: 'next_turn' }
       ];
     },
 
@@ -204,6 +215,10 @@
           status: String(row.status || 'unknown').trim(),
           selectable: row.selectable !== false && ['not_downloaded', 'not_configured', 'planned_adapter'].indexOf(String(row.status || '').trim()) < 0,
           capabilities: Array.isArray(row.capabilities) ? row.capabilities : [],
+          supports_live_steering: row.supports_live_steering === true,
+          supports_next_turn_steering: row.supports_next_turn_steering === true,
+          steering_mode: String(row.steering_mode || '').trim(),
+          steering_transport: String(row.steering_transport || '').trim(),
           download_available: row.download_available === true,
           install_action_available: row.install_action_available === true || row.command_line_install_available === true,
           command_line_install_available: row.command_line_install_available === true,
@@ -213,7 +228,9 @@
           command_line_hint: String(row.command_line_hint || '').trim(),
           browser_fallback_url: String(row.browser_fallback_url || '').trim(),
           display_when_missing: String(row.display_when_missing || '').trim(),
-          version_preview: String(row.version_preview || '').trim()
+          version_preview: String(row.version_preview || '').trim(),
+          available_models: row.available_models && typeof row.available_models === 'object' ? row.available_models : null,
+          model_menu: row.model_menu && typeof row.model_menu === 'object' ? row.model_menu : null
         });
       }
       return out.length ? out : this.fallbackRuntimeEngineRows();
@@ -233,7 +250,20 @@
         self.runtimeEngineCacheTime = Date.now();
         var restoredLocalSelection = typeof self.restoreAgentRuntimeEngineSelection === 'function' ? self.restoreAgentRuntimeEngineSelection() : false;
         var serverSelected = String(payload && (payload.active_engine_id || payload.selected_default_engine_id) || '').trim();
-        if (!restoredLocalSelection && serverSelected) self.selectedAgentRuntimeEngineId = serverSelected;
+        if (restoredLocalSelection) {
+          var restoredEngineId = String(self.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+          if (restoredEngineId && restoredEngineId !== serverSelected) {
+            InfringAPI.post('/api/shell-socket/agent-runtime/selection', { engine_id: restoredEngineId }).catch(function() {});
+          }
+        } else if (serverSelected) {
+          self.selectedAgentRuntimeEngineId = serverSelected;
+        }
+        self._modelSwitcherViewCache = null;
+        if (self.showModelSwitcher && typeof self.sanitizeModelCatalogRows === 'function') {
+          var refreshedModels = self.sanitizeModelCatalogRows(self._modelCache || self.modelPickerList || []);
+          self._modelCache = refreshedModels.slice();
+          self.modelPickerList = refreshedModels.slice();
+        }
         return rows;
       }).catch(function(e) {
         self.runtimeEngineError = e && e.message ? String(e.message) : 'runtime_engines_unavailable';
@@ -322,6 +352,92 @@
       return String((row && row.display_name) || 'InfRing Native').trim();
     },
 
+    activeWorkspaceMenuLabel: function() {
+      var row = this.activeWorkspaceProjection && typeof this.activeWorkspaceProjection === 'object' ? this.activeWorkspaceProjection : null;
+      var label = String(row && (row.display_label || row.basename) || '').trim();
+      if (label) return label.length > 22 ? label.substring(0, 19) + '...' : label;
+      var cwd = String(this.terminalPromptPath || this.terminalCwd || '/workspace').trim();
+      var parts = cwd.split(/[\\/]+/).filter(Boolean);
+      var base = parts.length ? parts[parts.length - 1] : cwd;
+      return base ? '.../' + base : '/workspace';
+    },
+
+    activeWorkspacePath: function() {
+      var row = this.activeWorkspaceProjection && typeof this.activeWorkspaceProjection === 'object' ? this.activeWorkspaceProjection : null;
+      return String(row && (row.workspace_dir || row.active_workspace) || this.terminalPromptPath || this.terminalCwd || '/workspace').trim();
+    },
+
+    activeWorkspaceTurnContextProjection: function() {
+      var row = this.activeWorkspaceProjection && typeof this.activeWorkspaceProjection === 'object' ? this.activeWorkspaceProjection : null;
+      if (!row) return null;
+      return {
+        workspace_dir: String(row.workspace_dir || row.active_workspace || '').trim(),
+        active_workspace: String(row.active_workspace || row.workspace_dir || '').trim(),
+        display_label: String(row.display_label || '').trim(),
+        git_root: String(row.git_root || '').trim(),
+        git_root_label: String(row.git_root_label || '').trim(),
+        permission_boundary: row.permission_boundary || null
+      };
+    },
+
+    applyActiveWorkspaceProjection: function(payload) {
+      var row = payload && typeof payload === 'object' ? payload : null;
+      if (!row) return null;
+      this.activeWorkspaceProjection = row;
+      this.activeWorkspaceCacheTime = Date.now();
+      this.activeWorkspaceError = '';
+      if (row.workspace_dir || row.active_workspace) {
+        this.terminalCwd = String(row.workspace_dir || row.active_workspace);
+      }
+      return row;
+    },
+
+    loadActiveWorkspaceProjection: function(options) {
+      var opts = options && typeof options === 'object' ? options : {};
+      var self = this;
+      if (!opts.force && this.activeWorkspaceProjection && (Date.now() - Number(this.activeWorkspaceCacheTime || 0)) < 120000) {
+        return Promise.resolve(this.activeWorkspaceProjection);
+      }
+      this.activeWorkspaceLoading = true;
+      this.activeWorkspaceError = '';
+      return InfringAPI.get('/api/shell-socket/agent-runtime/workspace').then(function(payload) {
+        return self.applyActiveWorkspaceProjection(payload);
+      }).catch(function(e) {
+        self.activeWorkspaceError = e && e.message ? String(e.message) : 'workspace_unavailable';
+        return self.activeWorkspaceProjection;
+      }).finally(function() {
+        self.activeWorkspaceLoading = false;
+      });
+    },
+
+    chooseActiveWorkspace: function() {
+      var self = this;
+      this.activeWorkspacePicking = true;
+      this.activeWorkspaceError = '';
+      if (typeof this.closeComposerMenus === 'function') this.closeComposerMenus();
+      InfringToast.info('Choose InfRing working directory...');
+      return InfringAPI.post('/api/shell-socket/agent-runtime/workspace/pick', {
+        scope: 'global_default'
+      }).then(function(payload) {
+        if (!payload || payload.ok === false) {
+          var reason = payload && (payload.reason || payload.error) ? String(payload.reason || payload.error) : 'workspace_picker_cancelled';
+          self.activeWorkspaceError = reason;
+          if (payload && payload.error !== 'workspace_picker_cancelled') InfringToast.error('Workspace picker: ' + reason);
+          return payload;
+        }
+        self.applyActiveWorkspaceProjection(payload);
+        InfringToast.success('Working directory: ' + self.activeWorkspaceMenuLabel());
+        return payload;
+      }).catch(function(e) {
+        var reason = e && e.message ? String(e.message) : 'workspace_picker_failed';
+        self.activeWorkspaceError = reason;
+        InfringToast.error('Workspace picker: ' + reason);
+        return null;
+      }).finally(function() {
+        self.activeWorkspacePicking = false;
+      });
+    },
+
     isRuntimeEngineActive: function(row) {
       return String(row && row.engine_id || '') === String(this.selectedAgentRuntimeEngineId || 'infring_native');
     },
@@ -340,8 +456,11 @@
       var parts = [];
       var kind = String(row && row.engine_kind || '').replace(/_/g, ' ').trim();
       var status = this.runtimeEngineStatusLabel(row);
+      var steering = String(row && row.steering_mode || '').trim();
       if (kind) parts.push(kind);
       if (status) parts.push(status);
+      if (steering === 'live') parts.push('live steer');
+      else if (steering === 'next_turn') parts.push('next-turn steer');
       return parts.join(' · ');
     },
 

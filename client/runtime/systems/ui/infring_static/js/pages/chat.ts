@@ -1309,6 +1309,55 @@ function chatPage() {
       if (this.isPlaceholderModelRef(storeRuntime)) storeRuntime = '';
       if (this.isPlaceholderModelRef(storeOverride)) storeOverride = '';
       if (this.isPlaceholderModelRef(suggestionRef)) suggestionRef = '';
+      var runtimeEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      if (runtimeEngineId !== 'infring_native' && Array.isArray(this.runtimeEngineRows)) {
+        var runtimeEngineRow = null;
+        for (var ri = 0; ri < this.runtimeEngineRows.length; ri += 1) {
+          var runtimeCandidate = this.runtimeEngineRows[ri] || {};
+          if (String(runtimeCandidate.engine_id || '').trim() === runtimeEngineId) {
+            runtimeEngineRow = runtimeCandidate;
+            break;
+          }
+        }
+        var availableModels = runtimeEngineRow && runtimeEngineRow.available_models && typeof runtimeEngineRow.available_models === 'object'
+          ? runtimeEngineRow.available_models
+          : runtimeEngineRow && runtimeEngineRow.model_menu && typeof runtimeEngineRow.model_menu === 'object'
+          ? runtimeEngineRow.model_menu
+          : null;
+        var availableRows = availableModels && Array.isArray(availableModels.rows)
+          ? availableModels.rows
+          : (availableModels && Array.isArray(availableModels.model_rows) ? availableModels.model_rows : []);
+        if (availableModels && (availableModels.framework_native_models || availableModels.source === 'framework_native') && availableRows.length) {
+          var runtimeCandidates = [runtime, selected, modelOverride, storeRuntime, storeSelected, storeOverride, suggestionRef];
+          var matchedRuntimeModel = null;
+          for (var rci = 0; rci < runtimeCandidates.length && !matchedRuntimeModel; rci += 1) {
+            var runtimeCandidateId = String(runtimeCandidates[rci] || '').trim().toLowerCase();
+            if (!runtimeCandidateId) continue;
+            for (var rmi = 0; rmi < availableRows.length; rmi += 1) {
+              var runtimeModelRow = availableRows[rmi] || {};
+              var rowIds = [
+                runtimeModelRow.id,
+                runtimeModelRow.qualified_model_ref,
+                runtimeModelRow.model,
+                runtimeModelRow.model_name,
+                runtimeModelRow.adapter_model_arg,
+                runtimeModelRow.display_name
+              ];
+              for (var ridx = 0; ridx < rowIds.length; ridx += 1) {
+                if (String(rowIds[ridx] || '').trim().toLowerCase() === runtimeCandidateId) {
+                  matchedRuntimeModel = runtimeModelRow;
+                  break;
+                }
+              }
+              if (matchedRuntimeModel) break;
+            }
+          }
+          var displayRuntimeModel = matchedRuntimeModel || availableRows[0] || {};
+          var runtimeModelLabel = String(displayRuntimeModel.display_name || displayRuntimeModel.model_name || displayRuntimeModel.model || displayRuntimeModel.id || '').trim();
+          var compactRuntimeModel = this.truncateModelLabel(runtimeModelLabel);
+          if (compactRuntimeModel) return compactRuntimeModel.length > 24 ? compactRuntimeModel.substring(0, 22) + '\u2026' : compactRuntimeModel;
+        }
+      }
       if (selected.toLowerCase() === 'auto') {
         var resolved = this.truncateModelLabel(runtime);
         var autoLabel = resolved ? ('Auto: ' + resolved) : 'Auto';
@@ -1339,6 +1388,50 @@ function chatPage() {
       return label;
     },
 
+    modelRowsForActiveRuntimeEngine: function(rows, runtimeEngineId) {
+      var list = Array.isArray(rows) ? rows : [];
+      var engineId = String(runtimeEngineId || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      if (!engineId || engineId === 'infring_native') {
+        return list;
+      }
+      var runtimeRows = Array.isArray(this.runtimeEngineRows) ? this.runtimeEngineRows : [];
+      var engineRow = null;
+      for (var i = 0; i < runtimeRows.length; i += 1) {
+        var candidate = runtimeRows[i] || {};
+        if (String(candidate.engine_id || candidate.id || '').trim() === engineId) {
+          engineRow = candidate;
+          break;
+        }
+      }
+      var menu = engineRow && engineRow.available_models && typeof engineRow.available_models === 'object'
+        ? engineRow.available_models
+        : engineRow && engineRow.model_menu && typeof engineRow.model_menu === 'object' ? engineRow.model_menu : null;
+      if (!menu || menu.show_in_llm_menu === false) {
+        return list;
+      }
+      var sanitize = typeof this.sanitizeModelCatalogRows === 'function'
+        ? this.sanitizeModelCatalogRows.bind(this)
+        : function(value) { return Array.isArray(value) ? value : []; };
+      var menuRows = Array.isArray(menu.rows) ? menu.rows : (Array.isArray(menu.model_rows) ? menu.model_rows : []);
+      if ((menu.framework_native_models || menu.source === 'framework_native') && menuRows.length) {
+        return sanitize(menuRows.map(function(row) {
+          var copy = Object.assign({}, row || {});
+          copy.runtime_engine_id = engineId;
+          copy.runtime_model_source = 'framework_native';
+          return copy;
+        }));
+      }
+      if (menu.inherit_active_llm_when_unconfigured || menu.credential_inheritance_allowed || menu.source === 'inherited_infring') {
+        return list.map(function(row) {
+          var copy = Object.assign({}, row || {});
+          copy.runtime_engine_id = engineId;
+          copy.runtime_model_source = 'inherited_infring_llm';
+          return copy;
+        });
+      }
+      return list;
+    },
+
     get switcherViewState() {
       var modelsRef = Array.isArray(this._modelCache) ? this._modelCache : [];
       if (!modelsRef.length && this.showModelSwitcher && typeof this.fallbackModelCatalogRows === 'function') {
@@ -1348,6 +1441,8 @@ function chatPage() {
         this.modelPickerList = modelsRef;
         this._modelSwitcherViewCache = null;
       }
+      var runtimeEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      modelsRef = this.modelRowsForActiveRuntimeEngine(modelsRef, runtimeEngineId);
       var providerFilter = String(this.modelSwitcherProviderFilter || '').trim();
       var textFilter = String(this.modelSwitcherFilter || '').trim().toLowerCase();
       var cacheTime = Number(this._modelCacheTime || 0);
@@ -1355,6 +1450,7 @@ function chatPage() {
       if (
         cache &&
         cache.modelsRef === modelsRef &&
+        cache.runtimeEngineId === runtimeEngineId &&
         cache.providerFilter === providerFilter &&
         cache.textFilter === textFilter &&
         cache.cacheTime === cacheTime
@@ -1458,6 +1554,7 @@ function chatPage() {
       };
       this._modelSwitcherViewCache = {
         modelsRef: modelsRef,
+        runtimeEngineId: runtimeEngineId,
         providerFilter: providerFilter,
         textFilter: textFilter,
         cacheTime: cacheTime,
@@ -5710,8 +5807,55 @@ function chatPage() {
       return false;
     },
 
+    installComposerPlusClickFallback: function() {
+      if (typeof document === 'undefined' || this._composerPlusClickFallbackInstalled) return;
+      this._composerPlusClickFallbackInstalled = true;
+      var self = this;
+      document.addEventListener('click', function(event) {
+        var target = event && event.target;
+        var anchor = target && target.closest ? target.closest('#composer-plus-menu-anchor') : null;
+        if (!anchor) return;
+        var previous = !!self.showAttachMenu;
+        setTimeout(function() {
+          if (!!self.showAttachMenu !== previous) return;
+          if (typeof self.closeComposerMenus === 'function') self.closeComposerMenus({ attach: true });
+          else {
+            self.showModelSwitcher = false;
+            self.showRuntimeSwitcher = false;
+            if (typeof self.closeGitTreeMenu === 'function') self.closeGitTreeMenu();
+            else self.showGitTreeMenu = false;
+          }
+          self.showAttachMenu = !previous;
+          if (self.showAttachMenu && typeof self.loadActiveWorkspaceProjection === 'function') {
+            Promise.resolve(self.loadActiveWorkspaceProjection({ force: false })).catch(function() {});
+          }
+        }, 0);
+      }, true);
+    },
+
+    publishChatPageBridge: function() {
+      if (typeof window === 'undefined') return;
+      window.InfringChatPage = this;
+      try {
+        if (document && document.body) {
+          document.body.__infringChatPage = this;
+          document.body.setAttribute('data-infring-chat-page-bridge', 'ready');
+        }
+        var wrappers = document && document.querySelectorAll ? document.querySelectorAll('.chat-wrapper') : [];
+        for (var i = 0; i < wrappers.length; i += 1) {
+          wrappers[i].__infringChatPage = this;
+          wrappers[i].setAttribute('data-infring-chat-page-bridge', 'ready');
+        }
+      } catch (_) {}
+    },
+
     init() {
       var self = this;
+      this.publishChatPageBridge();
+      this.installComposerPlusClickFallback();
+      if (typeof this.loadRuntimeEnginesSafely === 'function') {
+        this.loadRuntimeEnginesSafely({ force: false }).catch(function() {});
+      }
 
       if (typeof window !== 'undefined') {
         var persistedCache = this.loadConversationCache();
@@ -5824,6 +5968,7 @@ function chatPage() {
         this.conversationCache = this.sanitizeConversationCacheForPersistence(Object.assign({}, persistedCache, runtimeCache));
         try { delete window.__infringChatCache; } catch (_) { window.__infringChatCache = {}; }
       }
+      this.publishChatPageBridge();
       // Load session + session list when agent changes
       this.$watch('currentAgent', function(agent) {
         if (agent) {
@@ -6438,9 +6583,13 @@ function chatPage() {
     },
 
     get filteredModelPicker() {
-      if (!this.modelPickerFilter) return this.modelPickerList.slice(0, 15);
+      var runtimeEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var rows = typeof this.modelRowsForActiveRuntimeEngine === 'function'
+        ? this.modelRowsForActiveRuntimeEngine(this.modelPickerList, runtimeEngineId)
+        : this.modelPickerList;
+      if (!this.modelPickerFilter) return rows.slice(0, 15);
       var f = this.modelPickerFilter;
-      return this.modelPickerList.filter(function(m) {
+      return rows.filter(function(m) {
         return m.id.toLowerCase().indexOf(f) !== -1 || (m.display_name || '').toLowerCase().indexOf(f) !== -1 || m.provider.toLowerCase().indexOf(f) !== -1;
       }).slice(0, 15);
     },
@@ -6526,6 +6675,13 @@ function chatPage() {
       this.modelSwitcherProviderFilter = '';
       this.modelSwitcherIdx = 0;
       this.showModelSwitcher = true;
+      if (typeof self.loadRuntimeEnginesSafely === 'function') {
+        self.loadRuntimeEnginesSafely({ force: true }).then(function() {
+          self._modelSwitcherViewCache = null;
+        }).catch(function() {
+          self._modelSwitcherViewCache = null;
+        });
+      }
       this.$nextTick(function() {
         var el = document.getElementById('model-switcher-search');
         if (el) el.focus();
@@ -6561,7 +6717,7 @@ function chatPage() {
     fallbackRuntimeEngineRows: function() {
       return [
         { engine_id: 'infring_native', display_name: 'InfRing Native', status: 'available', selectable: true, engine_kind: 'native_orchestration' },
-        { engine_id: 'codex_cli', display_name: 'Codex CLI', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' },
+        { engine_id: 'codex_cli', display_name: 'Codex', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' },
         { engine_id: 'claude_code', display_name: 'Claude Code', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' },
         { engine_id: 'openhands', display_name: 'OpenHands', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' }
       ];
@@ -6591,7 +6747,9 @@ function chatPage() {
           command_line_hint: String(row.command_line_hint || '').trim(),
           browser_fallback_url: String(row.browser_fallback_url || '').trim(),
           display_when_missing: String(row.display_when_missing || '').trim(),
-          version_preview: String(row.version_preview || '').trim()
+          version_preview: String(row.version_preview || '').trim(),
+          available_models: row.available_models && typeof row.available_models === 'object' ? row.available_models : null,
+          model_menu: row.model_menu && typeof row.model_menu === 'object' ? row.model_menu : null
         });
       }
       return out.length ? out : this.fallbackRuntimeEngineRows();
@@ -6609,10 +6767,27 @@ function chatPage() {
         var rows = self.normalizeRuntimeEngineRows(payload);
         self.runtimeEngineRows = rows;
         self.runtimeEngineCacheTime = Date.now();
+        var restoredLocalSelection = typeof self.restoreAgentRuntimeEngineSelection === 'function' ? self.restoreAgentRuntimeEngineSelection() : false;
+        var serverSelected = String(payload && (payload.active_engine_id || payload.selected_default_engine_id) || '').trim();
+        if (restoredLocalSelection) {
+          var restoredEngineId = String(self.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+          if (restoredEngineId && restoredEngineId !== serverSelected) {
+            InfringAPI.post('/api/shell-socket/agent-runtime/selection', { engine_id: restoredEngineId }).catch(function() {});
+          }
+        } else if (serverSelected) {
+          self.selectedAgentRuntimeEngineId = serverSelected;
+        }
+        self._modelSwitcherViewCache = null;
+        if (self.showModelSwitcher && typeof self.sanitizeModelCatalogRows === 'function') {
+          var refreshedModels = self.sanitizeModelCatalogRows(self._modelCache || self.modelPickerList || []);
+          self._modelCache = refreshedModels.slice();
+          self.modelPickerList = refreshedModels.slice();
+        }
         return rows;
       }).catch(function(e) {
         self.runtimeEngineError = e && e.message ? String(e.message) : 'runtime_engines_unavailable';
         self.runtimeEngineRows = self.runtimeEngineRows && self.runtimeEngineRows.length ? self.runtimeEngineRows : self.fallbackRuntimeEngineRows();
+        if (typeof self.restoreAgentRuntimeEngineSelection === 'function') self.restoreAgentRuntimeEngineSelection();
         return self.runtimeEngineRows;
       }).finally(function() {
         self.runtimeEngineLoading = false;

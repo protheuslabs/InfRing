@@ -4,7 +4,7 @@
 
 'use strict';
 
-const { createCliRuntimeEngineAdapter } = require('./cli_runtime_adapter.ts');
+const { createCliRuntimeEngineAdapter, selectedRuntimeModelArg } = require('./cli_runtime_adapter.ts');
 
 function mutationGrantActive(ctx) {
   const grants = ctx && ctx.message && ctx.message.context_pack && ctx.message.context_pack.universal_tool_grants;
@@ -25,20 +25,32 @@ function createClaudeCodeEngineAdapter(options = {}) {
     artifactKind: 'claude_code_result_projection',
     receiptKind: 'claude_code_adapter_receipt',
     versionArgs: ['--version'],
+    modelDiscovery: {
+      kind: 'claude_code_help_model_aliases',
+      args: ['--help'],
+      source: 'claude_code_help_model_aliases',
+      freshnessAuthority: 'claude_code_cli_model_aliases_and_environment',
+      timeoutMs: 5000,
+      maxOutputBytes: 65536,
+    },
     // Keep the one-shot print adapter stateless at the native Claude layer.
     // Reusing --session-id in print mode can leave the session locked; InfRing
     // continuity is supplied through the Gateway-owned bounded context pack.
-    runArgs: (prompt, ctx) => [
-      '--print',
-      '--output-format',
-      'stream-json',
-      '--verbose',
-      '--permission-mode',
-      mutationGrantActive(ctx) ? 'acceptEdits' : 'default',
-      '--include-partial-messages',
-      '--include-hook-events',
-      prompt,
-    ],
+    runArgs: (prompt, ctx) => {
+      const modelArg = selectedRuntimeModelArg(ctx, ['claude_code', 'claude', 'anthropic']);
+      return [
+        '--print',
+        '--output-format',
+        'stream-json',
+        '--verbose',
+        '--permission-mode',
+        mutationGrantActive(ctx) ? 'acceptEdits' : 'default',
+        ...(modelArg ? ['--model', modelArg] : []),
+        '--include-partial-messages',
+        '--include-hook-events',
+        prompt,
+      ];
+    },
     ...options,
   });
 }

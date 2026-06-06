@@ -1,6 +1,10 @@
         this.conversationCache = this.sanitizeConversationCacheForPersistence(Object.assign({}, persistedCache, runtimeCache));
         try { delete window.__infringChatCache; } catch (_) { window.__infringChatCache = {}; }
       }
+      this.publishChatPageBridge();
+      if (typeof this.loadRuntimeEnginesSafely === 'function') {
+        this.loadRuntimeEnginesSafely({ force: false }).catch(function() {});
+      }
       // Load session + session list when agent changes
       this.$watch('currentAgent', function(agent) {
         if (agent) {
@@ -328,6 +332,11 @@
 
     toggleTerminalMode() {
       var self = this;
+      // infring-chat-page-early-bridge: Svelte Shell islands need the page bridge even if later init work fails.
+      if (typeof window !== 'undefined') {
+        window.InfringChatPage = self;
+        if (typeof Alpine !== 'undefined' && !window.InfringApp) window.InfringApp = Alpine.store('app');
+      }
       if (this.isSystemThreadAgent && this.isSystemThreadAgent(this.currentAgent)) {
         this.terminalMode = true;
         if (typeof this.closeComposerMenus === 'function') this.closeComposerMenus();

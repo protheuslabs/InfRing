@@ -16,7 +16,8 @@
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-011",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-012",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-013",
-    "V13-AGENT-RUNTIME-ENGINE-SOCKET-014"
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-014",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-020"
   ],
   "policy_refs": [
     "docs/workspace/SRS.md",
@@ -106,7 +107,8 @@
       "purpose": "Submit a user turn to the selected runtime engine.",
       "optional_fields": [
         "context_pack",
-        "universal_tool_proposals"
+        "universal_tool_proposals",
+        "model_provider_context"
       ],
       "payload_rules": [
         "context_pack must follow validation/conformance/contracts/agent_runtime_context_pack_contract.json when present",
@@ -141,6 +143,11 @@
       ],
       "payload_rules": [
         "engine rows are bounded projections",
+        "engine rows may include available_models as the canonical Gateway-owned model availability projection",
+        "available_models rows must represent real model identifiers; default/framework-default is a selection policy, not a model row",
+        "Gateway must prefer runtime/provider model discovery over registry seed rows when a trusted discovery command or API is available",
+        "catalog_refresh_policy must disclose whether rows came from runtime_discovered or registry_static_seed authority",
+        "legacy model_menu fields are compatibility aliases only",
         "no adapter internals"
       ]
     },
@@ -393,7 +400,8 @@
     "private adapter contracts declare every selectable engine",
     "no runtime-specific public socket schemas are allowed",
     "Kernel/Core remains engine-neutral while receipts may record engine_id",
-    "Codex CLI, Claude Code, and Grok Code can be health-checked through the Gateway runtime router with local discovery metadata"
+    "Codex, Claude Code, and Grok Code can be health-checked through the Gateway runtime router with local discovery metadata",
+    "Codex and Grok model catalogs prefer runtime CLI discovery; Claude Code model rows use CLI alias discovery until a direct model-list command/API is exposed"
   ],
   "private_adapter_contracts": "validation/conformance/contracts/agent_runtime_adapter_contracts.json",
   "canonical_public_socket_invariant": {
@@ -413,5 +421,26 @@
     "shell_may_not_infer_install_state": true,
     "shell_may_not_probe_user_filesystem_directly": true
   },
-  "universal_tools_contract": "validation/conformance/contracts/agent_runtime_universal_tools_contract.json"
+  "universal_tools_contract": "validation/conformance/contracts/agent_runtime_universal_tools_contract.json",
+  "model_provider_inheritance_policy": {
+    "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+    "owner": "gateway_agent_runtime_socket",
+    "rule": "Framework runtimes may inherit the active InfRing LLM provider/model only through Gateway-owned non-secret projections and adapter-owned credential materialization.",
+    "precedence": [
+      "framework_native_auth_and_model_config",
+      "framework_specific_model_selection_from_llm_menu",
+      "inherited_active_infring_provider_model",
+      "fail_closed_auth_required_or_config_required"
+    ],
+    "shell_rules": [
+      "Shell may display framework-aware model rows and selected provider/model labels.",
+      "Shell must not receive, persist, or transmit raw API keys or secret values.",
+      "Shell selection is advisory until Gateway attaches a model_provider_context to the turn."
+    ],
+    "adapter_rules": [
+      "Adapters translate model_provider_context into engine-specific args or environment only when the provider is allowlisted.",
+      "Adapters must prefer framework native auth when present, then explicit engine selection, then inherited InfRing provider/model.",
+      "Adapters must emit auth_required or config_required instead of guessing credentials."
+    ]
+  }
 }
