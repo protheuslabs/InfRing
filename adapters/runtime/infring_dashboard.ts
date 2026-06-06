@@ -185,6 +185,10 @@ const {
     if (action === 'update') return runDashboardSystemAction('update', body);
     return dispatchDashboardSystemAction(action, body);
   },
+  onHostShutdownAccepted: (body) => {
+    const exitDelayMs = normalizeShutdownExitDelayMs(body && body.exit_delay_ms);
+    scheduleDashboardHostExit(cleanup, exitDelayMs);
+  },
 });
 const agentRuntimeSessionStateStore = createAgentRuntimeSessionStateStore({ statusDir: STATUS_DIR });
 const {
@@ -1635,16 +1639,6 @@ async function runServe(flags) {
       if (await handleAgentRuntimeEngineRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeWorkspaceRoute({ req, res, pathname, traceId })) return;
       if (await handleShellSocketCoreRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
-      if (req.method === 'POST' && pathname === '/api/system/shutdown') {
-        const body = await readJsonBody(req);
-        const result = dispatchDashboardSystemAction('shutdown', body);
-        sendJson(res, result.ok ? 200 : 500, result);
-        if (result.ok) {
-          const exitDelayMs = normalizeShutdownExitDelayMs(body && body.exit_delay_ms);
-          scheduleDashboardHostExit(cleanup, exitDelayMs);
-        }
-        return;
-      }
       if (req.method === 'GET') {
         const agentSessionsMatch = pathname.match(/^\/api\/agents\/([^/]+)\/sessions$/);
         if (agentSessionsMatch) {

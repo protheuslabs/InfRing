@@ -14,7 +14,8 @@ function isGatewaySystemRoute(pathname) {
     path === '/api/config/schema' ||
     path === '/api/auth/check' ||
     path === '/api/system/restart' ||
-    path === '/api/system/update';
+    path === '/api/system/update' ||
+    path === '/api/system/shutdown';
 }
 
 function systemProjection(traceId, routeId, routeClass = 'health_status') {
@@ -33,6 +34,7 @@ function createGatewaySystemRouteHandler(options = {}) {
   const readJsonBody = options.readJsonBody;
   const sendJson = options.sendJson;
   const legacyHostFallback = options.legacyHostFallback;
+  const onHostShutdownAccepted = options.onHostShutdownAccepted;
   if (typeof fetchBackendJson !== 'function') {
     throw new Error('gateway_system_route_fetch_backend_json_missing');
   }
@@ -123,7 +125,7 @@ function createGatewaySystemRouteHandler(options = {}) {
       return true;
     }
 
-    if (req.method === 'POST' && (pathname === '/api/system/restart' || pathname === '/api/system/update')) {
+    if (req.method === 'POST' && (pathname === '/api/system/restart' || pathname === '/api/system/update' || pathname === '/api/system/shutdown')) {
       const action = pathname.split('/').pop() || '';
       const body = await readJsonBody(req).catch(() => ({}));
       try {
@@ -149,6 +151,9 @@ function createGatewaySystemRouteHandler(options = {}) {
             forwarded_to_core: true,
           },
         });
+        if (action === 'shutdown' && base.ok !== false && typeof onHostShutdownAccepted === 'function') {
+          onHostShutdownAccepted(body, base);
+        }
         return true;
       } catch (error) {
         if (typeof legacyHostFallback !== 'function') {
@@ -181,6 +186,9 @@ function createGatewaySystemRouteHandler(options = {}) {
             legacy_host_fallback_reason: 'core_system_action_route_unavailable',
           },
         });
+        if (action === 'shutdown' && payload.ok && typeof onHostShutdownAccepted === 'function') {
+          onHostShutdownAccepted(body, payload);
+        }
         return true;
       }
     }
