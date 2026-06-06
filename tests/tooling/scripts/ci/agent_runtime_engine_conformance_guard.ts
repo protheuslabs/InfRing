@@ -139,6 +139,26 @@ for (const kind of ['final_response', 'approval_pause', 'failure_classification'
     violations.push({ kind: 'agent_runtime_terminal_receipt_kind_missing', receipt_kind: kind, path: turnOutcomeContractPath });
   }
 }
+const activityTraceParityRule = turnOutcomeContract.activity_trace_parity_rule || {};
+for (const [field, expected] of Object.entries({
+  gateway_must_emit_activity_trace_projection: true,
+  shell_may_render_trace_but_not_interpret_provider_payloads: true,
+  activity_trace_must_be_bounded: true,
+  activity_trace_collapsed_by_default: true,
+  activity_trace_requires_worked_label: true,
+  activity_rows_must_have_user_facing_title: true,
+  raw_provider_events_must_remain_behind_refs: true,
+  status_suffix_sandwich_forbidden: true,
+})) {
+  if (activityTraceParityRule[field] !== expected) {
+    violations.push({ kind: 'agent_runtime_activity_trace_parity_rule_missing', field, expected, actual: activityTraceParityRule[field], path: turnOutcomeContractPath });
+  }
+}
+for (const field of ['type', 'trace_id', 'engine_id', 'session_id', 'turn_id', 'collapsed_by_default', 'collapse_label', 'worked_ms', 'row_count', 'rows', 'summary_text']) {
+  if (!Array.isArray(activityTraceParityRule.required_activity_trace_fields) || !activityTraceParityRule.required_activity_trace_fields.includes(field)) {
+    violations.push({ kind: 'agent_runtime_activity_trace_required_field_missing', field, path: turnOutcomeContractPath });
+  }
+}
 for (const failureClass of ['provider_quota_or_subscription_unavailable', 'provider_auth_required', 'provider_rate_limited', 'runtime_not_available']) {
   if (!Array.isArray(turnOutcomeContract.provider_failure_reason_classes) || !turnOutcomeContract.provider_failure_reason_classes.includes(failureClass)) {
     violations.push({ kind: 'turn_outcome_provider_failure_class_missing', failure_class: failureClass, path: turnOutcomeContractPath });

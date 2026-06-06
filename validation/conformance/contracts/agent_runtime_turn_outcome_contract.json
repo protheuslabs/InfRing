@@ -18,7 +18,8 @@
         "turn_id",
         "status",
         "display_text",
-        "receipt_refs"
+        "receipt_refs",
+        "activity_trace"
       ],
       "http_projection_status": 200
     },
@@ -33,7 +34,8 @@
         "status",
         "pending_permission_request",
         "approval_pause",
-        "receipt_refs"
+        "receipt_refs",
+        "activity_trace"
       ],
       "http_projection_status": 200
     },
@@ -49,7 +51,8 @@
         "error_code",
         "reason",
         "display_text",
-        "receipt_refs"
+        "receipt_refs",
+        "activity_trace"
       ],
       "http_projection_status": 200
     },
@@ -66,7 +69,8 @@
         "reason",
         "timeout_ms",
         "display_text",
-        "receipt_refs"
+        "receipt_refs",
+        "activity_trace"
       ],
       "http_projection_status": 200
     }
@@ -131,6 +135,29 @@
       "adapter_process_dump",
       "raw_tool_result",
       "trace_body"
+    ]
+  },
+  "activity_trace_parity_rule": {
+    "gateway_must_emit_activity_trace_projection": true,
+    "shell_may_render_trace_but_not_interpret_provider_payloads": true,
+    "activity_trace_must_be_bounded": true,
+    "activity_trace_collapsed_by_default": true,
+    "activity_trace_requires_worked_label": true,
+    "activity_rows_must_have_user_facing_title": true,
+    "raw_provider_events_must_remain_behind_refs": true,
+    "status_suffix_sandwich_forbidden": true,
+    "required_activity_trace_fields": [
+      "type",
+      "trace_id",
+      "engine_id",
+      "session_id",
+      "turn_id",
+      "collapsed_by_default",
+      "collapse_label",
+      "worked_ms",
+      "row_count",
+      "rows",
+      "summary_text"
     ]
   },
   "pre_turn_failure_rule": {

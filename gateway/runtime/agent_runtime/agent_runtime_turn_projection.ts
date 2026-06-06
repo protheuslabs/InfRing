@@ -664,9 +664,11 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       },
     };
     emitSyntheticActivity('started', 'turn.launch', `Launching ${engineId} turn with bounded context pack.`);
+    const turnStartedAtMs = Date.now();
     const turn = options && options.stream === true
       ? await router.streamTurn(turnMessage, onActivity)
       : await router.submitTurn(turnMessage);
+    const workedMs = Math.max(0, Date.now() - turnStartedAtMs);
     if (!(turn && Array.isArray(turn.activity_events) && turn.activity_events.length)) {
       emitSyntheticActivity('completed', 'turn.completed', `${engineId} returned ${cleanText(turn && turn.status, 80) || 'a result'}.`);
     }
@@ -744,6 +746,31 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
         return true;
       })
       .slice(-80);
+    const activityTraceRows = activityEvents
+      .map((event, index) => {
+        const title = cleanDisplayText(
+          event.display_text || event.text || event.summary || event.provider_event_type || event.activity_kind,
+          1000,
+        );
+        if (!title) return null;
+        return {
+          type: 'agent_runtime_activity_trace_row',
+          sequence_no: Number(event.sequence_no || index + 1) || index + 1,
+          activity_kind: cleanText(event.activity_kind || 'activity', 80),
+          provider_event_type: cleanText(event.provider_event_type || '', 160),
+          status: cleanText(event.status || '', 80),
+          title,
+          detail_ref: `agent-runtime-activity/${traceId}/${turnId}/${index + 1}`,
+        };
+      })
+      .filter(Boolean)
+      .slice(-48);
+    const workedSeconds = Math.max(0, Math.round(workedMs / 1000));
+    const workedLabel = workedSeconds >= 3600
+      ? `Worked for ${Math.floor(workedSeconds / 3600)}h ${Math.floor((workedSeconds % 3600) / 60)}m ${workedSeconds % 60}s`
+      : workedSeconds >= 60
+        ? `Worked for ${Math.floor(workedSeconds / 60)}m ${workedSeconds % 60}s`
+        : `Worked for ${workedSeconds}s`;
     const persistedAssistantOutput = projectedPendingPermission ? permissionDisplayText : output;
     try {
       (deps.appendAgentRuntimeTurnAtoms || noop)({
@@ -819,6 +846,29 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       activity_event_count: activityEvents.length,
       raw_activity_event_count: Number(turn && turn.activity_event_count) || activityEvents.length,
       structured_activity: turn && turn.structured_activity === true,
+      activity_trace: {
+        type: 'agent_runtime_activity_trace_projection',
+        source_authority: 'gateway.runtime.agent_runtime_turn_projection',
+        trace_id: traceId,
+        engine_id: engineId,
+        session_id: sessionId,
+        turn_id: turnId,
+        collapsed_by_default: true,
+        collapse_label: workedLabel,
+        worked_ms: workedMs,
+        row_count: activityTraceRows.length,
+        raw_activity_event_count: Number(turn && turn.activity_event_count) || activityEvents.length,
+        rows: activityTraceRows,
+        summary_text: projectedPendingPermission
+          ? permissionDisplayText
+          : terminalOutcomeStatus === 'completed'
+            ? `${engineId} completed the turn.`
+            : terminalOutcomeStatus === 'failed_with_reason'
+              ? `${engineId} failed with ${cleanText(turn && turn.error_code, 120) || 'a classified error'}.`
+              : terminalOutcomeStatus === 'timed_out_with_reason'
+                ? `${engineId} timed out.`
+                : `${engineId} ended with status ${terminalOutcomeStatus}.`,
+      },
       result_ref: cleanText(turn && turn.result_ref, 240),
       receipt_ref: cleanText(turn && turn.receipt_ref, 240),
       receipt_refs: receiptProjection && Array.isArray(receiptProjection.receipt_refs)
