@@ -197,5 +197,17 @@
     "must_record_turn_outcome": true,
     "must_fail_on_silent_outcome": true,
     "must_write_artifact": "core/local/artifacts/agent_runtime_cli_live_turn_smoke_current.json"
+  },
+  "live_work_eval_requirements": {
+    "script": "tests/tooling/scripts/ci/agent_runtime_live_work_eval.ts",
+    "default_engine": "codex_cli",
+    "must_submit_real_turn": true,
+    "must_verify_completed_turn": true,
+    "must_verify_activity_trace": true,
+    "must_verify_receipt_refs": true,
+    "must_verify_approval_pause": true,
+    "must_verify_decision_resolves_stored_request": true,
+    "must_remove_probe_artifact": true,
+    "must_write_artifact": "core/local/artifacts/agent_runtime_live_work_eval_current.json"
   }
 }

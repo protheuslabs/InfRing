@@ -94,6 +94,26 @@ for (const forbidden of ['silent_failure', 'worked_timer_without_final_status', 
 if (turnOutcomeContract.pre_turn_failure_rule?.engine_unavailable_must_project_chat_visible_failure !== true) {
   violations.push({ kind: 'turn_outcome_pre_turn_failure_projection_missing', path: turnOutcomeContractPath });
 }
+const liveWorkEvalRequirements = turnOutcomeContract.live_work_eval_requirements || {};
+if (!liveWorkEvalRequirements.script || !exists(liveWorkEvalRequirements.script)) {
+  violations.push({ kind: 'agent_runtime_live_work_eval_script_missing', path: liveWorkEvalRequirements.script || null });
+}
+for (const [field, expected] of Object.entries({
+  must_submit_real_turn: true,
+  must_verify_completed_turn: true,
+  must_verify_activity_trace: true,
+  must_verify_receipt_refs: true,
+  must_verify_approval_pause: true,
+  must_verify_decision_resolves_stored_request: true,
+  must_remove_probe_artifact: true,
+})) {
+  if (liveWorkEvalRequirements[field] !== expected) {
+    violations.push({ kind: 'agent_runtime_live_work_eval_requirement_missing', field, expected, actual: liveWorkEvalRequirements[field], path: turnOutcomeContractPath });
+  }
+}
+if (liveWorkEvalRequirements.must_write_artifact !== 'core/local/artifacts/agent_runtime_live_work_eval_current.json') {
+  violations.push({ kind: 'agent_runtime_live_work_eval_artifact_path_wrong', actual: liveWorkEvalRequirements.must_write_artifact, path: turnOutcomeContractPath });
+}
 const approvalPauseResumeRule = turnOutcomeContract.approval_pause_resume_rule || {};
 for (const [field, expected] of Object.entries({
   gateway_must_record_pending_request: true,
