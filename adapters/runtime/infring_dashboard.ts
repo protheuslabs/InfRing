@@ -46,6 +46,9 @@ const {
   parseGatewayHostFlags: parseFlags,
 } = require('../../gateway/runtime/gateway_host_config.ts');
 const {
+  createGatewayDashboardSurfaceLock,
+} = require('../../gateway/runtime/gateway_dashboard_surface_lock.ts');
+const {
   createGatewayNativeOrchestrationClient,
 } = require('../../gateway/runtime/gateway_native_orchestration_client.ts');
 const {
@@ -145,14 +148,6 @@ const {
 const DASHBOARD_DIR = path.resolve(ROOT, 'client', 'runtime', 'systems', 'ui');
 const CANONICAL_STATIC_DIR = path.resolve(DASHBOARD_DIR, 'infring_static');
 const STATIC_DIR = CANONICAL_STATIC_DIR;
-const FORBIDDEN_ALT_DASHBOARD_DIRS = [
-  path.resolve(DASHBOARD_DIR, 'legacy_dashboard'),
-  path.resolve(DASHBOARD_DIR, 'reference_runtime_dashboard'),
-  path.resolve(DASHBOARD_DIR, 'control_runtime_dashboard'),
-  path.resolve(DASHBOARD_DIR, 'dashboard_legacy'),
-  path.resolve(DASHBOARD_DIR, 'deprecated_dashboard'),
-];
-const SIBLING_ALT_DASHBOARD_PATTERN = /(legacy|reference_runtime|control_runtime|deprecated)/i;
 const STATUS_DIR = path.resolve(
   ROOT,
   'client',
@@ -181,6 +176,13 @@ const {
   readBuildVersionInfo,
   platform: process.platform,
   arch: process.arch,
+});
+const {
+  assertDashboardSurfaceLocked,
+} = createGatewayDashboardSurfaceLock({
+  dashboardDir: DASHBOARD_DIR,
+  staticDir: STATIC_DIR,
+  hasPrimaryDashboardUi,
 });
 const agentRuntimeWorkspaceStore = createAgentRuntimeWorkspaceStore({ root: ROOT, statusDir: STATUS_DIR });
 const {
@@ -552,47 +554,6 @@ function runSnapshotWithCompatBootstrap(args, options) {
   }
   return writeBridgeOutput(out);
 }
-function discoverSiblingAltDashboardSurfaces() {
-  const out = [];
-  let rows = [];
-  try { rows = fs.readdirSync(DASHBOARD_DIR, { withFileTypes: true }); } catch { return out; }
-  for (const entry of rows) {
-    if (!entry || typeof entry.isDirectory !== 'function' || !entry.isDirectory()) continue;
-    const dirPath = path.resolve(DASHBOARD_DIR, String(entry.name || ''));
-    if (!dirPath || dirPath === STATIC_DIR) continue;
-    const dirName = path.basename(dirPath);
-    const hasInlineDashboardRoot = hasPrimaryDashboardUi(dirPath);
-    const hasBuildIndex = fs.existsSync(path.resolve(dirPath, 'build', 'index.html'));
-    const hasIndexHtml = fs.existsSync(path.resolve(dirPath, 'index.html'));
-    if (SIBLING_ALT_DASHBOARD_PATTERN.test(dirName) || hasInlineDashboardRoot || hasBuildIndex || hasIndexHtml) out.push(dirPath);
-  }
-  return out;
-}
-function assertNoAlternateDashboardSurfaces() {
-  const found = new Set();
-  FORBIDDEN_ALT_DASHBOARD_DIRS.filter((dirPath) => fs.existsSync(dirPath)).forEach((dirPath) => found.add(dirPath));
-  discoverSiblingAltDashboardSurfaces().forEach((dirPath) => found.add(dirPath));
-  if (found.size === 0) return;
-  const labels = Array.from(found).map((dirPath) => path.basename(dirPath)).sort((a, b) => a.localeCompare(b, 'en')).join(',');
-  throw new Error(`forbidden_dashboard_surface_present:${labels}`);
-}
-function assertSingleDashboardRoot() {
-  if (!hasPrimaryDashboardUi(STATIC_DIR)) throw new Error('primary_dashboard_ui_missing');
-  let rows = [];
-  try { rows = fs.readdirSync(DASHBOARD_DIR, { withFileTypes: true }); } catch { return; }
-  const duplicateRoots = rows
-    .filter((entry) => entry && typeof entry.isDirectory === 'function' && entry.isDirectory())
-    .map((entry) => path.resolve(DASHBOARD_DIR, String(entry.name || '')))
-    .filter((dirPath) => dirPath !== STATIC_DIR && hasPrimaryDashboardUi(dirPath));
-  if (!duplicateRoots.length) return;
-  const labels = duplicateRoots.map((dirPath) => path.basename(dirPath)).sort((a, b) => a.localeCompare(b, 'en')).join(',');
-  throw new Error(`multiple_dashboard_roots_detected:${labels}`);
-}
-function assertDashboardSurfaceLocked() {
-  assertNoAlternateDashboardSurfaces();
-  assertSingleDashboardRoot();
-}
-
 function backendSpawnEnv() { return backendSpawnEnvForRoot(ROOT, process.env); }
 const backendFreshnessSnapshot = createGatewayBackendFreshnessSnapshot({
   root: ROOT,
