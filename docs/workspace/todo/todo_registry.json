@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-07T05:21:58.429Z",
+  "updated_at": "2026-06-07T05:24:49.153Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -407,11 +407,11 @@
       "id": "V13-FRAMEWORK-COORDINATION-004",
       "title": "Implement real per-framework model discovery and selection",
       "section": "yellow",
-      "status": "queued",
+      "status": "in_progress",
       "deadline": "2026-06-21",
       "owner": "gateway.provider_discovery",
       "summary": "The model menu should ask the active runtime for its available models when the framework owns model selection, otherwise fall back to InfRing provider discovery. Placeholder labels like default must not appear as models.",
-      "progress_note": "Current risk: model lists can be stale or placeholder-driven instead of accurately reflecting Codex, Claude, Grok, or provider availability.",
+      "progress_note": "Gateway model projection now exposes empty-catalog reasons and has a guard proving framework-native rows for Codex/Claude/Grok, inherited InfRing model policy for native/OpenClaw/Hermes, and no fake `default` model rows.",
       "created_at": "2026-06-07T04:56:27.538Z",
       "updated_at": "2026-06-07T04:56:27.538Z",
       "source": "framework_coordination_gap_breakdown"

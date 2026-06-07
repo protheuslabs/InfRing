@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-07T05:21:58.429Z
+Updated: 2026-06-07T05:24:49.153Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -100,12 +100,12 @@ Updated: 2026-06-07T05:21:58.429Z
   progress_note: `Shell Socket shims were retired; remaining debt includes the thin legacy dashboard host, agent_ws_bridge client-loader shim, and Agent Runtime compatibility shims.`
 
 - `V13-FRAMEWORK-COORDINATION-004` — Implement real per-framework model discovery and selection
-  status: `queued`
+  status: `in_progress`
   section: `yellow`
   owner: `gateway.provider_discovery`
   deadline: `2026-06-21`
   summary: The model menu should ask the active runtime for its available models when the framework owns model selection, otherwise fall back to InfRing provider discovery. Placeholder labels like default must not appear as models.
-  progress_note: `Current risk: model lists can be stale or placeholder-driven instead of accurately reflecting Codex, Claude, Grok, or provider availability.`
+  progress_note: `Gateway model projection now exposes empty-catalog reasons and has a guard proving framework-native rows for Codex/Claude/Grok, inherited InfRing model policy for native/OpenClaw/Hermes, and no fake `default` model rows.`
 
 - `V13-FRAMEWORK-COORDINATION-003` — Project external runtime activity into clean semantic thinking/status traces
   status: `in_progress`

@@ -128,6 +128,16 @@ function projectAgentRuntimeAvailableModels(engineId, engine, health) {
   let projectionSource = 'system_default';
   if (menu.framework_native_models) projectionSource = 'framework_native';
   else if (menu.inherit_active_llm_when_unconfigured || menu.credential_inheritance_allowed) projectionSource = 'inherited_infring';
+  const rows = Array.isArray(menu.model_rows) ? menu.model_rows.slice(0, 64) : [];
+  const emptyCatalogReason = rows.length
+    ? ''
+    : menu.inherit_active_llm_when_unconfigured
+      ? 'inherits_active_infring_provider_model'
+      : menu.framework_native_models
+        ? 'runtime_model_discovery_unavailable_or_filtered'
+        : menu.default_selection_policy
+          ? 'framework_default_policy_only'
+          : 'model_catalog_unavailable';
   return {
     type: 'agent_runtime_available_models_projection',
     source_authority: 'gateway.agent_runtime_engine_projection',
@@ -147,8 +157,10 @@ function projectAgentRuntimeAvailableModels(engineId, engine, health) {
       ? menu.catalog_refresh_policy
       : null,
     selected_model_id: '',
-    rows: Array.isArray(menu.model_rows) ? menu.model_rows.slice(0, 64) : [],
-    model_rows: Array.isArray(menu.model_rows) ? menu.model_rows.slice(0, 64) : [],
+    rows,
+    model_rows: rows,
+    row_count: rows.length,
+    empty_catalog_reason: emptyCatalogReason,
     secrets_included: false,
   };
 }

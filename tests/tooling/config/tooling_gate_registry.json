@@ -4152,6 +4152,16 @@
       "artifact_paths": [
         "core/local/artifacts/agent_runtime_activity_projection_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:model-projection:guard": {
+      "owner": "validation",
+      "description": "Agent runtime model projection guard for framework-native and inherited model menus.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "script": "ops:agent-runtime:model-projection:guard",
+      "artifact_paths": [
+        "core/local/artifacts/agent_runtime_model_projection_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {
