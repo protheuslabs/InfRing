@@ -69,6 +69,7 @@ const {
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_session_state.ts');
 const {
   createAgentRuntimeEngineProjectionStore,
+  findAgentRuntimeEngine,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_engine_projections.ts');
 const {
   createAgentRuntimeEngineRouteHandler,
@@ -202,12 +203,13 @@ const agentRuntimeEngineProjectionStore = createAgentRuntimeEngineProjectionStor
   loadRegistry: () => loadAgentRuntimeEngineRegistry(ROOT),
   createAdapterMap: createAgentRuntimeEngineAdapterMap,
   loadSelection: loadAgentRuntimeSelection,
+  saveSelection: saveAgentRuntimeSelection,
 });
 const {
   handleAgentRuntimeEngineRoute,
 } = createAgentRuntimeEngineRouteHandler({
   engineProjectionStore: agentRuntimeEngineProjectionStore,
-  selectEngine: agentRuntimeSelectionProjection,
+  selectEngine: agentRuntimeEngineProjectionStore.agentRuntimeSelectionProjection,
   readJsonBody,
   sendJson,
 });
@@ -534,11 +536,6 @@ function createDashboardAgentRuntimeRouter(options = {}) {
   for (const [engineId, adapter] of Object.entries(adapters)) router.registerAdapter(engineId, adapter);
   return router;
 }
-function findAgentRuntimeEngine(registryInfo, engineId) {
-  const target = cleanEngineId(engineId);
-  const engines = Array.isArray(registryInfo && registryInfo.engines) ? registryInfo.engines : [];
-  return engines.find((engine) => cleanEngineId(engine && engine.engine_id) === target) || null;
-}
 function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
   const event = row && typeof row === 'object' ? row : {};
   return {
@@ -559,110 +556,6 @@ function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
     turn_id: cleanText(event.turn_id || defaults.turnId, 200),
   };
 }
-function classifyAgentRuntimePreTurnFailureCode(engineId, source, fallback = 'agent_runtime_engine_unavailable') {
-  const cleanEngine = cleanEngineId(engineId) || 'agent_runtime';
-  const text = cleanDisplayText([
-    source && source.error,
-    source && source.error_code,
-    source && source.reason,
-    source && source.status,
-    source && source.version_preview,
-    source && source.stderr_preview,
-    source && source.message,
-  ].filter(Boolean).join('\n'), 12000).toLowerCase();
-  if (
-    text.includes('quota') ||
-    text.includes('credit') ||
-    text.includes('billing') ||
-    text.includes('subscription') ||
-    text.includes('payment required') ||
-    text.includes('insufficient balance')
-  ) {
-    return `${cleanEngine}_provider_quota_or_subscription_unavailable`;
-  }
-  if (
-    text.includes('unauthorized') ||
-    text.includes('not authorized') ||
-    text.includes('authentication') ||
-    text.includes('auth required') ||
-    text.includes('login required') ||
-    text.includes('please login') ||
-    text.includes('please log in') ||
-    text.includes('api key') ||
-    text.includes('invalid token') ||
-    text.includes('token expired')
-  ) {
-    return `${cleanEngine}_provider_auth_required`;
-  }
-  if (
-    text.includes('rate limit') ||
-    text.includes('rate-limit') ||
-    text.includes('too many requests') ||
-    text.includes('429')
-  ) {
-    return `${cleanEngine}_provider_rate_limited`;
-  }
-  if (
-    text.includes('not found') ||
-    text.includes('missing') ||
-    text.includes('not installed') ||
-    text.includes('command not found') ||
-    text.includes('enoent')
-  ) {
-    return `${cleanEngine}_runtime_not_available`;
-  }
-  return cleanText(source && (source.error_code || source.error), 120) || fallback;
-}
-function agentRuntimePreTurnFailureProjection(traceId, engineId, agentId, sessionId, turnId, reason, source = {}) {
-  const cleanEngine = cleanEngineId(engineId) || 'agent_runtime';
-  const errorCode = classifyAgentRuntimePreTurnFailureCode(cleanEngine, { ...source, reason });
-  const displayText = cleanDisplayText(
-    reason || `${cleanEngine} is not available for this turn.`,
-    1200,
-  );
-  return {
-    ok: false,
-    status_code: 200,
-    type: 'agent_runtime_turn_projection',
-    trace_id: traceId,
-    engine_id: cleanEngine,
-    agent_id: cleanText(agentId, 160),
-    session_id: cleanText(sessionId, 200),
-    turn_id: cleanText(turnId, 200),
-    status: 'failed_with_reason',
-    error_code: errorCode,
-    reason: displayText,
-    retryable: !/quota|subscription|auth|login|api_key|billing/i.test(errorCode),
-    timed_out: false,
-    timeout_ms: 0,
-    text: displayText,
-    display_text: displayText,
-    output_text: displayText,
-    output_preview: cleanText(displayText, 4000),
-    agent_activity_events: [
-      {
-        type: 'agent_activity_event',
-        activity_kind: 'error',
-        provider_event_type: 'pre_turn.failure',
-        source: 'infring_gateway_agent_runtime_socket',
-        sequence_no: 1,
-        status: 'failed',
-        text: displayText,
-        display_text: displayText,
-        engine_id: cleanEngine,
-        trace_id: traceId,
-        session_id: cleanText(sessionId, 200),
-        turn_id: cleanText(turnId, 200),
-      },
-    ],
-    activity_event_count: 1,
-    raw_activity_event_count: 1,
-    structured_activity: true,
-    result_ref: '',
-    receipt_ref: '',
-    pending_permission_request: null,
-  };
-}
 
 function isTransientSocketError(error) {
   const code = cleanText(error && error.code ? error.code : '', 40);
@@ -678,22 +571,6 @@ function parsePositiveInt(value, fallback, min = 1, max = 65535) {
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(num)));
-}
-function agentRuntimeSelectionProjection(traceId, body) {
-  const engineId = cleanEngineId(body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id));
-  if (!engineId) return { ok: false, status_code: 400, type: 'agent_runtime_selection_projection', trace_id: traceId, error: 'engine_id_required' };
-  const info = loadAgentRuntimeEngineRegistry(ROOT);
-  const engine = findAgentRuntimeEngine(info, engineId);
-  if (!engine) return { ok: false, status_code: 404, type: 'agent_runtime_selection_projection', trace_id: traceId, engine_id: engineId, error: 'engine_not_registered' };
-  const saved = saveAgentRuntimeSelection(engineId, traceId);
-  return {
-    ok: true,
-    type: 'agent_runtime_selection_projection',
-    trace_id: traceId,
-    engine_id: saved.engine_id,
-    updated_at: saved.updated_at,
-    source: saved.source,
-  };
 }
 function readAgentRuntimeSteeringRecords() {
   let raw = '';

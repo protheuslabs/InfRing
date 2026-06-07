@@ -164,6 +164,13 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
   const loadSelection = typeof options.loadSelection === 'function'
     ? options.loadSelection
     : () => ({ engine_id: 'infring_native', updated_at: '' });
+  const saveSelection = typeof options.saveSelection === 'function'
+    ? options.saveSelection
+    : (engineId) => ({
+      engine_id: cleanEngineId(engineId),
+      updated_at: '',
+      source: 'gateway_agent_runtime_engine_projection_noop',
+    });
 
   function captureAgentRuntimeInstall(commandSpec) {
     const row = commandSpec && typeof commandSpec === 'object' ? commandSpec : {};
@@ -398,13 +405,32 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
     };
   }
 
+  function agentRuntimeSelectionProjection(traceId, body) {
+    const engineId = cleanEngineId(body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id));
+    if (!engineId) return { ok: false, status_code: 400, type: 'agent_runtime_selection_projection', trace_id: traceId, error: 'engine_id_required' };
+    const info = loadRegistry(root);
+    const engine = findAgentRuntimeEngine(info, engineId);
+    if (!engine) return { ok: false, status_code: 404, type: 'agent_runtime_selection_projection', trace_id: traceId, engine_id: engineId, error: 'engine_not_registered' };
+    const saved = saveSelection(engineId, traceId);
+    return {
+      ok: true,
+      type: 'agent_runtime_selection_projection',
+      trace_id: traceId,
+      engine_id: cleanEngineId(saved && saved.engine_id) || engineId,
+      updated_at: cleanText(saved && saved.updated_at, 120),
+      source: cleanText(saved && saved.source, 160) || 'gateway_agent_runtime_engine_projection',
+    };
+  }
+
   return {
     projectAgentRuntimeEngineRow,
     agentRuntimeEnginesProjection,
     agentRuntimeEngineInstallProjection,
+    agentRuntimeSelectionProjection,
   };
 }
 
 module.exports = {
   createAgentRuntimeEngineProjectionStore,
+  findAgentRuntimeEngine,
 };
