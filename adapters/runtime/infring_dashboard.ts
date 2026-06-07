@@ -44,10 +44,10 @@ const {
   sanitizeGatewayTraceId: sanitizeTraceId,
 } = require('../../gateway/runtime/gateway_trace_boundary.ts');
 const {
-  ignoreGatewayStreamErrors: ignoreStreamErrors,
   sendGatewayJson: sendJson,
   readGatewayJsonBody: readJsonBody,
-  filterGatewayProxyHeaders: filteredHeaders,
+  proxyGatewayHttpRequest,
+  proxyGatewayUpgrade,
 } = require('../../gateway/runtime/gateway_http_boundary.ts');
 const {
   backendFreshnessSnapshot: backendFreshnessSnapshotFromProcess,
@@ -1251,56 +1251,6 @@ function scheduleDashboardHostExit(cleanup, normalizedDelayMs = DASHBOARD_SHUTDO
     }, 0);
   }, waitMs);
 }
-function proxyToBackend(req, res, flags) {
-  return new Promise((resolve, reject) => {
-    ignoreStreamErrors(req);
-    ignoreStreamErrors(res);
-    ignoreStreamErrors(req.socket);
-    ignoreStreamErrors(res.socket);
-    const upstream = http.request({ host: flags.apiHost, port: flags.apiPort, method: req.method || 'GET', path: req.url || '/', headers: filteredHeaders(req.headers, `${flags.apiHost}:${flags.apiPort}`, requestTraceId(req)) }, (upstreamRes) => {
-      ignoreStreamErrors(upstreamRes);
-      ignoreStreamErrors(upstreamRes.socket);
-      res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
-      upstreamRes.pipe(res);
-      upstreamRes.on('end', resolve);
-      upstreamRes.on('error', reject);
-    });
-    ignoreStreamErrors(upstream);
-    upstream.on('error', reject);
-    req.pipe(upstream);
-  });
-}
-function proxyUpgrade(req, socket, head, flags) {
-  ignoreStreamErrors(req);
-  ignoreStreamErrors(req.socket);
-  ignoreStreamErrors(socket);
-  const upstream = http.request({
-    host: flags.apiHost,
-    port: flags.apiPort,
-    path: req.url || '/',
-    headers: { ...filteredHeaders(req.headers, `${flags.apiHost}:${flags.apiPort}`, requestTraceId(req)), connection: 'Upgrade', upgrade: req.headers.upgrade || 'websocket' },
-  });
-  upstream.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
-    ignoreStreamErrors(upstreamRes);
-    ignoreStreamErrors(upstreamSocket);
-    const headerLines = [`HTTP/1.1 ${upstreamRes.statusCode || 101} ${upstreamRes.statusMessage || 'Switching Protocols'}`];
-    for (const [key, value] of Object.entries(upstreamRes.headers || {})) {
-      if (Array.isArray(value)) value.forEach((entry) => headerLines.push(`${key}: ${entry}`));
-      else if (value != null) headerLines.push(`${key}: ${value}`);
-    }
-    socket.write(`${headerLines.join('\r\n')}\r\n\r\n`);
-    if (head && head.length) upstreamSocket.write(head);
-    if (upstreamHead && upstreamHead.length) socket.write(upstreamHead);
-    upstreamSocket.pipe(socket).pipe(upstreamSocket);
-  });
-  upstream.on('response', (upstreamRes) => {
-    ignoreStreamErrors(upstreamRes);
-    socket.write(`HTTP/1.1 ${upstreamRes.statusCode || 502} ${upstreamRes.statusMessage || 'Bad Gateway'}\r\nConnection: close\r\n\r\n`);
-    upstreamRes.pipe(socket);
-  });
-  upstream.on('error', () => { try { socket.destroy(); } catch {} });
-  upstream.end();
-}
 async function runServe(flags) {
   assertDashboardSurfaceLocked();
   let dashboardHtml = buildPrimaryDashboardHtml(STATIC_DIR);
@@ -1446,7 +1396,13 @@ async function runServe(flags) {
           return;
         }
       }
-      if (pathname === '/healthz' || pathname.startsWith('/api/')) return void await proxyToBackend(req, res, flags);
+      if (pathname === '/healthz' || pathname.startsWith('/api/')) {
+        return void await proxyGatewayHttpRequest(req, res, {
+          apiHost: flags.apiHost,
+          apiPort: flags.apiPort,
+          requestTraceId,
+        });
+      }
       sendJson(res, 404, { ok: false, type: 'infring_dashboard_not_found', path: pathname });
     } catch (error) {
       const message = cleanText(error && error.message ? error.message : String(error), 260);
@@ -1458,7 +1414,11 @@ async function runServe(flags) {
     if (wsBridge.tryHandle(req, socket, head)) return;
     const pathname = new URL(req.url || '/', `http://${flags.host}:${flags.port}`).pathname;
     if (!pathname.startsWith('/api/')) { socket.destroy(); return; }
-    proxyUpgrade(req, socket, head, flags);
+    proxyGatewayUpgrade(req, socket, head, {
+      apiHost: flags.apiHost,
+      apiPort: flags.apiPort,
+      requestTraceId,
+    });
   });
   server.on('clientError', (_error, socket) => {
     try { socket.destroy(); } catch {}

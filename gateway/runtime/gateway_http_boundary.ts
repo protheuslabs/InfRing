@@ -8,6 +8,8 @@
 
 'use strict';
 
+const http = require('node:http');
+
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'host',
@@ -75,10 +77,85 @@ function filterGatewayProxyHeaders(headers, host, traceId = '') {
   return out;
 }
 
+function gatewayProxyTargetFromOptions(options = {}) {
+  return {
+    host: options.apiHost || options.host,
+    port: options.apiPort || options.port,
+    headerHost: `${options.apiHost || options.host}:${options.apiPort || options.port}`,
+    requestTraceId: typeof options.requestTraceId === 'function' ? options.requestTraceId : () => '',
+  };
+}
+
+function proxyGatewayHttpRequest(req, res, options = {}) {
+  const target = gatewayProxyTargetFromOptions(options);
+  return new Promise((resolve, reject) => {
+    ignoreGatewayStreamErrors(req);
+    ignoreGatewayStreamErrors(res);
+    ignoreGatewayStreamErrors(req && req.socket);
+    ignoreGatewayStreamErrors(res && res.socket);
+    const upstream = http.request({
+      host: target.host,
+      port: target.port,
+      method: req.method || 'GET',
+      path: req.url || '/',
+      headers: filterGatewayProxyHeaders(req.headers, target.headerHost, target.requestTraceId(req)),
+    }, (upstreamRes) => {
+      ignoreGatewayStreamErrors(upstreamRes);
+      ignoreGatewayStreamErrors(upstreamRes.socket);
+      res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
+      upstreamRes.pipe(res);
+      upstreamRes.on('end', resolve);
+      upstreamRes.on('error', reject);
+    });
+    ignoreGatewayStreamErrors(upstream);
+    upstream.on('error', reject);
+    req.pipe(upstream);
+  });
+}
+
+function proxyGatewayUpgrade(req, socket, head, options = {}) {
+  const target = gatewayProxyTargetFromOptions(options);
+  ignoreGatewayStreamErrors(req);
+  ignoreGatewayStreamErrors(req && req.socket);
+  ignoreGatewayStreamErrors(socket);
+  const upstream = http.request({
+    host: target.host,
+    port: target.port,
+    path: req.url || '/',
+    headers: {
+      ...filterGatewayProxyHeaders(req.headers, target.headerHost, target.requestTraceId(req)),
+      connection: 'Upgrade',
+      upgrade: req.headers.upgrade || 'websocket',
+    },
+  });
+  upstream.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
+    ignoreGatewayStreamErrors(upstreamRes);
+    ignoreGatewayStreamErrors(upstreamSocket);
+    const headerLines = [`HTTP/1.1 ${upstreamRes.statusCode || 101} ${upstreamRes.statusMessage || 'Switching Protocols'}`];
+    for (const [key, value] of Object.entries(upstreamRes.headers || {})) {
+      if (Array.isArray(value)) value.forEach((entry) => headerLines.push(`${key}: ${entry}`));
+      else if (value != null) headerLines.push(`${key}: ${value}`);
+    }
+    socket.write(`${headerLines.join('\r\n')}\r\n\r\n`);
+    if (head && head.length) upstreamSocket.write(head);
+    if (upstreamHead && upstreamHead.length) socket.write(upstreamHead);
+    upstreamSocket.pipe(socket).pipe(upstreamSocket);
+  });
+  upstream.on('response', (upstreamRes) => {
+    ignoreGatewayStreamErrors(upstreamRes);
+    socket.write(`HTTP/1.1 ${upstreamRes.statusCode || 502} ${upstreamRes.statusMessage || 'Bad Gateway'}\r\nConnection: close\r\n\r\n`);
+    upstreamRes.pipe(socket);
+  });
+  upstream.on('error', () => { try { socket.destroy(); } catch {} });
+  upstream.end();
+}
+
 module.exports = {
   HOP_BY_HOP_HEADERS,
   ignoreGatewayStreamErrors,
   sendGatewayJson,
   readGatewayJsonBody,
   filterGatewayProxyHeaders,
+  proxyGatewayHttpRequest,
+  proxyGatewayUpgrade,
 };
