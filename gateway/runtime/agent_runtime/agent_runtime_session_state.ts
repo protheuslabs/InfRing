@@ -47,6 +47,8 @@ function createAgentRuntimeSessionStateStore(options = {}) {
   const selectionPath = path.resolve(statusDir, 'agent_runtime_selection.json');
   const steeringPath = path.resolve(statusDir, 'agent_runtime_steering.jsonl');
   const steeringMaxRecords = Math.max(1, Number(options.steeringMaxRecords) || DEFAULT_STEERING_MAX_RECORDS);
+  const loadRegistry = typeof options.loadRegistry === 'function' ? options.loadRegistry : null;
+  const findEngine = typeof options.findEngine === 'function' ? options.findEngine : null;
 
   function loadAgentRuntimeSelection() {
     try {
@@ -140,6 +142,28 @@ function createAgentRuntimeSessionStateStore(options = {}) {
     };
   }
 
+  function agentRuntimeSteerProjection(traceId, body) {
+    const engineId = cleanEngineId(body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id)) || 'infring_native';
+    if (loadRegistry && findEngine) {
+      const registry = loadRegistry();
+      const engine = findEngine(registry, engineId);
+      if (!engine) {
+        return {
+          ok: false,
+          status_code: 404,
+          type: 'agent_runtime_steer_projection',
+          trace_id: cleanText(traceId, 200),
+          engine_id: engineId,
+          error: 'agent_runtime_engine_unknown',
+        };
+      }
+    }
+    return queueAgentRuntimeSteeringIntervention(traceId, {
+      ...(body && typeof body === 'object' ? body : {}),
+      engine_id: engineId,
+    });
+  }
+
   function drainAgentRuntimeSteeringInterventions(options = {}) {
     const agentId = cleanText(options.agentId, 160) || 'default';
     const sessionId = cleanText(options.sessionId, 200) || `shell_${agentId}`;
@@ -187,6 +211,7 @@ function createAgentRuntimeSessionStateStore(options = {}) {
     steeringPath,
     loadAgentRuntimeSelection,
     saveAgentRuntimeSelection,
+    agentRuntimeSteerProjection,
     queueAgentRuntimeSteeringIntervention,
     drainAgentRuntimeSteeringInterventions,
   };

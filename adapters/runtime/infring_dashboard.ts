@@ -191,11 +191,15 @@ const {
     scheduleDashboardHostExit(cleanup, exitDelayMs);
   },
 });
-const agentRuntimeSessionStateStore = createAgentRuntimeSessionStateStore({ statusDir: STATUS_DIR });
+const agentRuntimeSessionStateStore = createAgentRuntimeSessionStateStore({
+  statusDir: STATUS_DIR,
+  loadRegistry: () => loadAgentRuntimeEngineRegistry(ROOT),
+  findEngine: findAgentRuntimeEngine,
+});
 const {
   loadAgentRuntimeSelection,
   saveAgentRuntimeSelection,
-  queueAgentRuntimeSteeringIntervention,
+  agentRuntimeSteerProjection,
   drainAgentRuntimeSteeringInterventions,
 } = agentRuntimeSessionStateStore;
 const agentRuntimeEngineProjectionStore = createAgentRuntimeEngineProjectionStore({
@@ -571,25 +575,6 @@ function parsePositiveInt(value, fallback, min = 1, max = 65535) {
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(num)));
-}
-function readAgentRuntimeSteeringRecords() {
-  let raw = '';
-  try { raw = fs.readFileSync(AGENT_RUNTIME_STEERING_PATH, 'utf8'); } catch { return []; }
-  return raw.split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(-AGENT_RUNTIME_STEERING_MAX_RECORDS)
-    .map((line) => {
-      try { return JSON.parse(line); } catch { return null; }
-    })
-    .filter((row) => row && typeof row === 'object');
-}
-function agentRuntimeSteerProjection(traceId, body) {
-  const engineId = cleanEngineId(body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id)) || 'infring_native';
-  const registry = loadAgentRuntimeEngineRegistry(ROOT);
-  const engine = findAgentRuntimeEngine(registry, engineId);
-  if (!engine) return { ok: false, status_code: 404, type: 'agent_runtime_steer_projection', trace_id: traceId, engine_id: engineId, error: 'agent_runtime_engine_unknown' };
-  return queueAgentRuntimeSteeringIntervention(traceId, body);
 }
 function normalizeShutdownExitDelayMs(value) {
   const num = Number(value);

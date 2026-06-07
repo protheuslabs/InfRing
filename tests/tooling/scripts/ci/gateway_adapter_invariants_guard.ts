@@ -327,8 +327,8 @@ if (exists(dashboardPath)) {
   if (/agentRuntimeWorkspaceProjection\s*\(|agentRuntimeWorkspacePickerProjection\s*\(/.test(dashboard)) {
     push('dashboard_owns_workspace_route_projection', dashboardPath, 'Legacy dashboard host must not call workspace route projections directly.');
   }
-  if (/function\s+(?:agentRuntimeSelectionProjection|classifyAgentRuntimePreTurnFailureCode|agentRuntimePreTurnFailureProjection)\b/.test(dashboard)) {
-    push('dashboard_owns_agent_runtime_projection_helpers', dashboardPath, 'Legacy dashboard host must not define Agent Runtime selection or pre-turn failure projection helpers; those belong under gateway/**.');
+  if (/function\s+(?:agentRuntimeSelectionProjection|agentRuntimeSteerProjection|readAgentRuntimeSteeringRecords|classifyAgentRuntimePreTurnFailureCode|agentRuntimePreTurnFailureProjection)\b/.test(dashboard)) {
+    push('dashboard_owns_agent_runtime_projection_helpers', dashboardPath, 'Legacy dashboard host must not define Agent Runtime selection, steering, or pre-turn failure projection helpers; those belong under gateway/**.');
   }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/universal_core_tools.ts')")) {
     push('dashboard_not_using_gateway_universal_tools', dashboardPath, 'Legacy dashboard host must delegate universal tool grant policy to gateway/**.');
