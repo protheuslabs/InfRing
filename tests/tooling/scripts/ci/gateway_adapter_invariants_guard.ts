@@ -330,6 +330,15 @@ if (exists(dashboardPath)) {
   if (/function\s+(?:agentRuntimeSelectionProjection|agentRuntimeSteerProjection|readAgentRuntimeSteeringRecords|sanitizeAgentRuntimeActivityEvent|classifyAgentRuntimePreTurnFailureCode|agentRuntimePreTurnFailureProjection)\b/.test(dashboard)) {
     push('dashboard_owns_agent_runtime_projection_helpers', dashboardPath, 'Legacy dashboard host must not define Agent Runtime selection, steering, activity, or pre-turn failure projection helpers; those belong under gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_trace_boundary.ts')")) {
+    push('dashboard_not_using_gateway_trace_boundary', dashboardPath, 'Legacy dashboard host must delegate trace admission and boundary metadata to gateway/**.');
+  }
+  if (/function\s+(?:sanitizeTraceId|requestTraceId|requestTraceBoundary)\b/.test(dashboard)) {
+    push('dashboard_owns_gateway_trace_boundary', dashboardPath, 'Legacy dashboard host must not define Gateway trace boundary helpers locally.');
+  }
+  if (/gateway_boundary:\s*['"]adapters\.runtime\.infring_dashboard['"]/.test(dashboard)) {
+    push('dashboard_labels_adapter_as_gateway_boundary', dashboardPath, 'Gateway trace boundary metadata must identify gateway/** authority, not adapter host paths.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/universal_core_tools.ts')")) {
     push('dashboard_not_using_gateway_universal_tools', dashboardPath, 'Legacy dashboard host must delegate universal tool grant policy to gateway/**.');
   }

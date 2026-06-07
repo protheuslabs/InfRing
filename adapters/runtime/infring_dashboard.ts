@@ -39,6 +39,11 @@ const {
   createGatewaySystemRouteHandler,
 } = require('../../gateway/runtime/gateway_system_routes.ts');
 const {
+  gatewayRequestTraceId: requestTraceId,
+  gatewayRequestTraceBoundary: requestTraceBoundary,
+  sanitizeGatewayTraceId: sanitizeTraceId,
+} = require('../../gateway/runtime/gateway_trace_boundary.ts');
+const {
   backendFreshnessSnapshot: backendFreshnessSnapshotFromProcess,
   backendSpawnEnv: backendSpawnEnvForRoot,
   shouldRestartStaleBackend,
@@ -1105,28 +1110,6 @@ async function ensureBackend(flags) {
   }
   try { child.kill('SIGTERM'); } catch {}
   throw new Error('dashboard_backend_timeout');
-}
-function sanitizeTraceId(value) {
-  const raw = Array.isArray(value) ? value[0] : value;
-  const clean = String(raw || '').trim();
-  return /^[A-Za-z0-9_.:-]{8,160}$/.test(clean) ? clean : '';
-}
-function requestTraceId(req) {
-  if (req.__infringTraceId) return req.__infringTraceId;
-  const rawHeader = req.headers && (req.headers['x-infring-trace-id'] || req.headers['traceparent']);
-  const existing = sanitizeTraceId(rawHeader);
-  const minted = `trace_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 14)}`;
-  req.__infringTraceId = existing || minted;
-  req.__infringTraceBoundary = {
-    trace_id: req.__infringTraceId,
-    source: existing ? 'incoming_header' : 'gateway_minted',
-    gateway_boundary: 'adapters.runtime.infring_dashboard',
-  };
-  return req.__infringTraceId;
-}
-function requestTraceBoundary(req) {
-  requestTraceId(req);
-  return req.__infringTraceBoundary || { trace_id: req.__infringTraceId || '', source: 'unknown' };
 }
 function sendJson(res, statusCode, value) {
   res.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
