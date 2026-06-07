@@ -44,6 +44,12 @@ const {
   sanitizeGatewayTraceId: sanitizeTraceId,
 } = require('../../gateway/runtime/gateway_trace_boundary.ts');
 const {
+  ignoreGatewayStreamErrors: ignoreStreamErrors,
+  sendGatewayJson: sendJson,
+  readGatewayJsonBody: readJsonBody,
+  filterGatewayProxyHeaders: filteredHeaders,
+} = require('../../gateway/runtime/gateway_http_boundary.ts');
+const {
   backendFreshnessSnapshot: backendFreshnessSnapshotFromProcess,
   backendSpawnEnv: backendSpawnEnvForRoot,
   shouldRestartStaleBackend,
@@ -130,7 +136,6 @@ const BACKEND_PORT_OFFSET = 1000;
 const DASHBOARD_SHUTDOWN_EXIT_DELAY_DEFAULT_MS = 180;
 const DASHBOARD_SHUTDOWN_EXIT_DELAY_MIN_MS = 80;
 const DASHBOARD_SHUTDOWN_EXIT_DELAY_MAX_MS = 5000;
-const HOP_BY_HOP = new Set(['connection', 'host', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailers', 'transfer-encoding', 'upgrade']);
 const AGENT_RUNTIME_CONTEXT_FANOUT_TARGET = 7;
 const agentRuntimeWorkspaceStore = createAgentRuntimeWorkspaceStore({ root: ROOT, statusDir: STATUS_DIR });
 const {
@@ -549,12 +554,6 @@ function createDashboardAgentRuntimeRouter(options = {}) {
 function isTransientSocketError(error) {
   const code = cleanText(error && error.code ? error.code : '', 40);
   return code === 'ECONNRESET' || code === 'EPIPE' || code === 'ERR_STREAM_PREMATURE_CLOSE';
-}
-function ignoreStreamErrors(stream) {
-  if (!stream || typeof stream.on !== 'function') return;
-  if (stream.__infringIgnoreErrorsInstalled) return;
-  stream.__infringIgnoreErrorsInstalled = true;
-  stream.on('error', () => {});
 }
 function parsePositiveInt(value, fallback, min = 1, max = 65535) {
   const num = Number(value);
@@ -1111,10 +1110,6 @@ async function ensureBackend(flags) {
   try { child.kill('SIGTERM'); } catch {}
   throw new Error('dashboard_backend_timeout');
 }
-function sendJson(res, statusCode, value) {
-  res.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-  res.end(`${JSON.stringify(value, null, 2)}\n`);
-}
 function parseLastJson(stdout) {
   const lines = String(stdout || '')
     .split('\n')
@@ -1128,34 +1123,6 @@ function parseLastJson(stdout) {
     } catch {}
   }
   return null;
-}
-function readJsonBody(req, maxBytes = 65536) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let total = 0;
-    ignoreStreamErrors(req);
-    req.on('data', (chunk) => {
-      const next = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      total += next.length;
-      if (total > maxBytes) {
-        reject(new Error('request_body_too_large'));
-        return;
-      }
-      chunks.push(next);
-    });
-    req.on('end', () => {
-      if (!chunks.length) {
-        resolve({});
-        return;
-      }
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
-      } catch {
-        reject(new Error('request_body_invalid_json'));
-      }
-    });
-    req.on('error', reject);
-  });
 }
 function currentDashboardBuildInfo() {
   return readBuildVersionInfo(STATIC_DIR);
@@ -1177,16 +1144,6 @@ function mergeDashboardVersionPayload(payload) {
     platform: base.platform || process.platform,
     arch: base.arch || process.arch,
   };
-}
-function filteredHeaders(headers, host, traceId = '') {
-  const out = {};
-  for (const [key, value] of Object.entries(headers || {})) {
-    if (!value || HOP_BY_HOP.has(String(key).toLowerCase())) continue;
-    out[key] = value;
-  }
-  out.host = host;
-  if (traceId) out['x-infring-trace-id'] = traceId;
-  return out;
 }
 function dashboardSystemActionArgs(action, payload = {}) {
   const normalized = cleanText(action, 40).toLowerCase();

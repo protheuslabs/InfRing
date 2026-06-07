@@ -339,6 +339,12 @@ if (exists(dashboardPath)) {
   if (/gateway_boundary:\s*['"]adapters\.runtime\.infring_dashboard['"]/.test(dashboard)) {
     push('dashboard_labels_adapter_as_gateway_boundary', dashboardPath, 'Gateway trace boundary metadata must identify gateway/** authority, not adapter host paths.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_http_boundary.ts')")) {
+    push('dashboard_not_using_gateway_http_boundary', dashboardPath, 'Legacy dashboard host must delegate JSON response, bounded body parsing, and proxy header filtering to gateway/**.');
+  }
+  if (/function\s+(?:sendJson|readJsonBody|filteredHeaders|ignoreStreamErrors)\b|const\s+HOP_BY_HOP\b/.test(dashboard)) {
+    push('dashboard_owns_gateway_http_boundary', dashboardPath, 'Legacy dashboard host must not define Gateway HTTP boundary helpers locally.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/universal_core_tools.ts')")) {
     push('dashboard_not_using_gateway_universal_tools', dashboardPath, 'Legacy dashboard host must delegate universal tool grant policy to gateway/**.');
   }
