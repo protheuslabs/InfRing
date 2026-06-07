@@ -4172,6 +4172,16 @@
       "artifact_paths": [
         "core/local/artifacts/agent_runtime_route_structured_transport_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:real-work-replay:guard": {
+      "owner": "validation",
+      "description": "Agent runtime real-work replay guard for Gateway turn, approval, artifact, transcript, and context flow.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "script": "ops:agent-runtime:real-work-replay:guard",
+      "artifact_paths": [
+        "core/local/artifacts/agent_runtime_real_work_replay_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {

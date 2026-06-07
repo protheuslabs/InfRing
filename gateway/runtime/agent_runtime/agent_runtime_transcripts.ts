@@ -166,19 +166,25 @@ function createAgentRuntimeTranscriptStore(options = {}) {
     const targetAgentId = filter && filter.agentId ? cleanTranscriptComponent(filter.agentId, 160) : '';
     const targetSessionId = filter && filter.sessionId ? cleanTranscriptComponent(filter.sessionId, 200) : '';
     const targetRef = targetSessionId ? agentRuntimeSessionRef(targetAgentId, targetSessionId) : '';
-    const out = [];
-    for (const record of readAgentRuntimeTranscriptRecords()) {
-      if (!agentRuntimeTranscriptSessionMatches(record, targetAgentId, targetSessionId, targetRef)) {
-        const allowAgentFallback = filter && filter.allowAgentFallback === true;
-        const recordAgentId = cleanTranscriptComponent(record && record.agent_id, 160);
-        if (!allowAgentFallback || !targetAgentId || recordAgentId !== targetAgentId) continue;
+    const records = readAgentRuntimeTranscriptRecords();
+    const collectMessages = (selectedRecords) => {
+      const out = [];
+      for (const record of selectedRecords) {
+        if (!Array.isArray(record.messages)) continue;
+        for (const message of record.messages) {
+          if (message && typeof message === 'object') out.push(message);
+        }
       }
-      if (!Array.isArray(record.messages)) continue;
-      for (const message of record.messages) {
-        if (message && typeof message === 'object') out.push(message);
-      }
-    }
-    return out;
+      return out;
+    };
+    const directRecords = records.filter((record) => agentRuntimeTranscriptSessionMatches(record, targetAgentId, targetSessionId, targetRef));
+    const directRows = collectMessages(directRecords);
+    if (directRows.length || !(filter && filter.allowAgentFallback === true) || !targetAgentId) return directRows;
+    const fallbackRecords = records.filter((record) => {
+      const recordAgentId = cleanTranscriptComponent(record && record.agent_id, 160);
+      return recordAgentId === targetAgentId;
+    });
+    return collectMessages(fallbackRecords);
   }
 
   function mergeAgentRuntimeMessageRows(baseRows, overlayRows, limit) {

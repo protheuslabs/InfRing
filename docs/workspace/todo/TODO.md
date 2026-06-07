@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-07T05:26:06.315Z
+Updated: 2026-06-07T05:28:02.648Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -68,12 +68,12 @@ Updated: 2026-06-07T05:26:06.315Z
 ## Yellow Section (Do Soon)
 
 - `V13-FRAMEWORK-COORDINATION-008` — Add cross-framework real-work replay proof for the coordinating face
-  status: `queued`
+  status: `in_progress`
   section: `yellow`
   owner: `validation.gateway`
   deadline: `2026-07-05`
   summary: Create repeatable validation that runs small real tasks through at least native, Codex, Claude Code, and one open framework, proving context continuity, approval flow, persistence, status traces, and receipts.
-  progress_note: `Acceptance should measure useful task completion, not merely adapter discovery or fixture-backed route shape.`
+  progress_note: `Added deterministic real-work replay guard: each selected runtime engine must drive a Todo app artifact proposal through public Gateway turn routing, pause for approval, execute the approved durable artifact write, preserve bounded transcript evidence, and reload context preview.`
 
 - `V13-FRAMEWORK-COORDINATION-007` — Graduate external engine transport from prompt-text compatibility toward structured transport
   status: `in_progress`
