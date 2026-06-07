@@ -4250,6 +4250,17 @@
       "artifacts": [
         "core/local/artifacts/agent_runtime_transport_migration_pressure_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:shell-replaceability:guard": {
+      "command": "ops:agent-runtime:shell-replaceability:guard",
+      "description": "Agent Runtime Shell replaceability guard proving framework-router behavior is Gateway/socket-owned rather than dashboard-owned.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_sec": 60,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_shell_replaceability_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {

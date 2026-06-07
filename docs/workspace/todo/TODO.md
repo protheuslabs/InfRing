@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-07T05:28:02.648Z
+Updated: 2026-06-07T05:44:58.645Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,28 +14,12 @@ Updated: 2026-06-07T05:28:02.648Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 30
-- red: 4
-- yellow: 18
+- active_items: 38
+- red: 5
+- yellow: 25
 - white: 8
 
 ## Red Section (Do Immediately)
-
-- `V13-FRAMEWORK-COORDINATION-002` — Make framework context and persistence identical for native and external engines
-  status: `in_progress`
-  section: `red`
-  owner: `gateway.kernel_context`
-  deadline: `2026-06-14`
-  summary: All engines, including InfRing native, Codex, Claude Code, Grok Code, OpenClaw, and Hermes, should receive the same bounded context pack, save turns through the same backend persistence path, and reload conversation state consistently.
-  progress_note: `Public Gateway turn-route transcript persistence guard now proves route submission -> Gateway transcript overlay -> bounded budget -> context preview reload across six engines, and the runtime no longer duplicates user rows in raw transcript persistence after dispatch.`
-
-- `V13-FRAMEWORK-COORDINATION-001` — Pause and resume external runtime turns through approval-gated tool calls
-  status: `in_progress`
-  section: `red`
-  owner: `gateway`
-  deadline: `2026-06-14`
-  summary: External frameworks must not end a turn when a write/tool action needs permission. Gateway should hold the turn, emit a permission request, resume or deny based on the gate decision, and preserve receipts regardless of engine.
-  progress_note: `Approval pause/resume gate is now wired through the existing npm/tooling gate name to the public Gateway route lifecycle guard, so governance runs the same turn-route -> permission_required -> approval-decision -> artifact-effect -> receipt proof.`
 - `SHELL-CLEANUP` — Finish the Shell source-of-truth cleanup
   owner: `unassigned`
   deadline: `2026-05-07`
@@ -57,63 +41,18 @@ Updated: 2026-06-07T05:28:02.648Z
   work_gate: `reliability`
   real_work_score: `5`
   summary: Remove the remaining Alpine boot/runtime dependency once the retirement guard is green.
-- `GATEWAY-PHYSICAL-REROOT` — Retire legacy Gateway adapter host and shims
-  owner: `codex`
-  deadline: `2026-06-10`
-  source_family: `Gateway Physical Domain Cleanup`
-  work_gate: `reliability`
-  real_work_score: `5`
-  summary: Re-root phase is complete: Gateway route, status, startup, lifecycle, request-boundary, and Agent Runtime assembly logic now lives under gateway/**. Remaining work is retiring the thin legacy dashboard host and compatibility adapter shims before the allowed window closes.
+- `V13-FRAMEWORK-COORDINATION-001` — Pause and resume external runtime turns through approval-gated tool calls
+  owner: `gateway`
+  deadline: `2026-06-14`
+  source_family: `undefined`
+  summary: External frameworks must not end a turn when a write/tool action needs permission. Gateway should hold the turn, emit a permission request, resume or deny based on the gate decision, and preserve receipts regardless of engine.
+- `V13-FRAMEWORK-COORDINATION-002` — Make framework context and persistence identical for native and external engines
+  owner: `gateway.kernel_context`
+  deadline: `2026-06-14`
+  source_family: `undefined`
+  summary: All engines, including InfRing native, Codex, Claude Code, Grok Code, OpenClaw, and Hermes, should receive the same bounded context pack, save turns through the same backend persistence path, and reload conversation state consistently.
 
 ## Yellow Section (Do Soon)
-
-- `V13-FRAMEWORK-COORDINATION-008` — Add cross-framework real-work replay proof for the coordinating face
-  status: `in_progress`
-  section: `yellow`
-  owner: `validation.gateway`
-  deadline: `2026-07-05`
-  summary: Create repeatable validation that runs small real tasks through at least native, Codex, Claude Code, and one open framework, proving context continuity, approval flow, persistence, status traces, and receipts.
-  progress_note: `Added deterministic real-work replay guard: each selected runtime engine must drive a Todo app artifact proposal through public Gateway turn routing, pause for approval, execute the approved durable artifact write, preserve bounded transcript evidence, and reload context preview.`
-
-- `V13-FRAMEWORK-COORDINATION-007` — Graduate external engine transport from prompt-text compatibility toward structured transport
-  status: `in_progress`
-  section: `yellow`
-  owner: `gateway.agent_runtime`
-  deadline: `2026-07-05`
-  summary: Keep prompt-text context hydration as compatibility only, then move capable engines toward structured JSON context, refs, receipts, tool proposals, and eventually lower-token native context transfer.
-  progress_note: `Added public Gateway route matrix guard proving every selected runtime engine receives AgentRuntimeStructuredTurn, context_pack.structured_transport refs match, prompt-text compatibility is explicitly transitional, and no model-provider secrets enter structured payloads.`
-
-- `V13-FRAMEWORK-COORDINATION-006` — Make the legacy dashboard replaceable without losing framework-router behavior
-  status: `queued`
-  section: `yellow`
-  owner: `gateway.shell_boundary`
-  deadline: `2026-07-01`
-  summary: Framework routing, permissions, context, persistence, model discovery, and status traces must live behind Gateway sockets so a rebuilt Shell or CLI can use the same behavior without copying dashboard cognition.
-  progress_note: `This is the architectural safety check that the UI remains a face/lens, not the framework-router brain.`
-
-- `V13-FRAMEWORK-COORDINATION-005` — Retire remaining Gateway adapter compatibility shims
-  status: `in_progress`
-  section: `yellow`
-  owner: `gateway.validation`
-  deadline: `2026-07-01`
-  summary: Finish retiring declared Gateway compatibility shims under adapters/** after callers move to canonical gateway/** modules, while keeping adapter code translator-only.
-  progress_note: `Shell Socket shims were retired; remaining debt includes the thin legacy dashboard host, agent_ws_bridge client-loader shim, and Agent Runtime compatibility shims.`
-
-- `V13-FRAMEWORK-COORDINATION-004` — Implement real per-framework model discovery and selection
-  status: `in_progress`
-  section: `yellow`
-  owner: `gateway.provider_discovery`
-  deadline: `2026-06-21`
-  summary: The model menu should ask the active runtime for its available models when the framework owns model selection, otherwise fall back to InfRing provider discovery. Placeholder labels like default must not appear as models.
-  progress_note: `Gateway model projection now exposes empty-catalog reasons and has a guard proving framework-native rows for Codex/Claude/Grok, inherited InfRing model policy for native/OpenClaw/Hermes, and no fake `default` model rows.`
-
-- `V13-FRAMEWORK-COORDINATION-003` — Project external runtime activity into clean semantic thinking/status traces
-  status: `in_progress`
-  section: `yellow`
-  owner: `gateway.observability`
-  deadline: `2026-06-21`
-  summary: Normalize Codex, Claude Code, Grok Code, OpenClaw, Hermes, and native runtime activity into concise user-facing status rows without raw JSON noise, duplicate rows, or forced started/finished/done sandwich text.
-  progress_note: `Gateway activity projection now covers Codex-, Claude-, Grok-, OpenClaw-, and Hermes-shaped raw provider event fixtures, including nested input/args/tool fields, so chat-facing trace rows stay semantic without Shell cognition.`
 - `HYGIENE-RUST-UNUSED-IMPORTS` — Remove unused Rust imports in narrow batches
   owner: `codex`
   deadline: `2026-05-19`
@@ -142,6 +81,13 @@ Updated: 2026-06-07T05:28:02.648Z
   work_gate: `real_work`
   real_work_score: `5`
   summary: Build the workflow utility spine so the system is useful for real work after Shell de-authority.
+- `GATEWAY-PHYSICAL-REROOT` — Retire legacy Gateway adapter host and shims
+  owner: `codex`
+  deadline: `2026-06-10`
+  source_family: `Gateway Physical Domain Cleanup`
+  work_gate: `reliability`
+  real_work_score: `5`
+  summary: Re-root phase is complete: Gateway route, status, startup, lifecycle, request-boundary, and Agent Runtime assembly logic now lives under gateway/**. Remaining work is retiring the thin legacy dashboard host and compatibility adapter shims before the allowed window closes.
 - `AGENT-RUNTIME-ACTIVITY-TRACE-PARITY` — Normalize external runtime activity into useful collapsible traces
   owner: `codex`
   deadline: `2026-06-17`
@@ -199,14 +145,12 @@ Updated: 2026-06-07T05:28:02.648Z
   real_work_score: `4`
   summary: Track each runtime engine against the same capabilities: discovery, model catalog, context continuity, useful work, approval pausing, universal tools, durable receipts, activity traces, error injection, and reload persistence.
 - `AGENT-RUNTIME-LIVE-WORK-EVALS` — Add live useful-work evals for every selectable runtime
-  status: `in_progress`
   owner: `codex`
   deadline: `2026-06-17`
   source_family: `Unified Agent Runtime Framework`
   work_gate: `real_work`
   real_work_score: `5`
   summary: Create live evals that ask each selectable runtime to perform practical agent work through InfRing, such as creating a small app, editing a file, reading prior context, using approved tools, and reporting receipts, then score whether it actually worked.
-  progress_note: `Live useful-work eval is now registry-aware: adapter-ready/selectable expands to all five live-selectable engines, registry/all can sample all nine registered engines, and plan-only mode proves coverage without contacting live providers.`
 - `AGENT-RUNTIME-MEMORY-BRIDGE` — Bridge unified memory into runtime context
   owner: `codex`
   deadline: `2026-06-17`
@@ -242,8 +186,36 @@ Updated: 2026-06-07T05:28:02.648Z
   work_gate: `reliability`
   real_work_score: `5`
   summary: Route InfRing Native through the same engine_id, context envelope, available_models, activity event, permission request, artifact ref, and receipt surfaces used by external engines so native orchestration is swappable rather than special-cased.
-
-- Progress: Added `ops:agent-runtime:framework-coordination:guard` as a rollup for approval, context, transcript, activity, model, structured transport, and real-work replay proofs.
+- `V13-FRAMEWORK-COORDINATION-003` — Project external runtime activity into clean semantic thinking/status traces
+  owner: `gateway.observability`
+  deadline: `2026-06-21`
+  source_family: `undefined`
+  summary: Normalize Codex, Claude Code, Grok Code, OpenClaw, Hermes, and native runtime activity into concise user-facing status rows without raw JSON noise, duplicate rows, or forced started/finished/done sandwich text.
+- `V13-FRAMEWORK-COORDINATION-004` — Implement real per-framework model discovery and selection
+  owner: `gateway.provider_discovery`
+  deadline: `2026-06-21`
+  source_family: `undefined`
+  summary: The model menu should ask the active runtime for its available models when the framework owns model selection, otherwise fall back to InfRing provider discovery. Placeholder labels like default must not appear as models.
+- `V13-FRAMEWORK-COORDINATION-005` — Retire remaining Gateway adapter compatibility shims
+  owner: `gateway.validation`
+  deadline: `2026-07-01`
+  source_family: `undefined`
+  summary: Finish retiring declared Gateway compatibility shims under adapters/** after callers move to canonical gateway/** modules, while keeping adapter code translator-only.
+- `V13-FRAMEWORK-COORDINATION-006` — Make the legacy dashboard replaceable without losing framework-router behavior
+  owner: `gateway.shell_boundary`
+  deadline: `2026-07-01`
+  source_family: `undefined`
+  summary: Framework routing, permissions, context, persistence, model discovery, and status traces must live behind Gateway sockets so a rebuilt Shell or CLI can use the same behavior without copying dashboard cognition.
+- `V13-FRAMEWORK-COORDINATION-007` — Graduate external engine transport from prompt-text compatibility toward structured transport
+  owner: `gateway.agent_runtime`
+  deadline: `2026-07-05`
+  source_family: `undefined`
+  summary: Keep prompt-text context hydration as compatibility only, then move capable engines toward structured JSON context, refs, receipts, tool proposals, and eventually lower-token native context transfer.
+- `V13-FRAMEWORK-COORDINATION-008` — Add cross-framework real-work replay proof for the coordinating face
+  owner: `validation.gateway`
+  deadline: `2026-07-05`
+  source_family: `undefined`
+  summary: Create repeatable validation that runs small real tasks through at least native, Codex, Claude Code, and one open framework, proving context continuity, approval flow, persistence, status traces, and receipts.
 
 ## White Section (Do At Leisure)
 - `TRACE-IMPL` — Implement end-to-end unified trace_id propagation
@@ -308,14 +280,3 @@ Updated: 2026-06-07T05:28:02.648Z
 - Do not let completed rows accumulate here again.
 - Treat Markdown as a rendered operator surface, not the canonical mutation target.
 
-- Progress: Integrated OpenClaw/Hermes private schema contracts and model-provider inheritance policy; `ops:agent-runtime-engine:conformance:guard` passes.
-
-- Progress: Wired `ops:agent-runtime:engine-scorecard` and upgraded it to consume cross-framework real-work replay evidence.
-
-- Progress: Expanded context continuity proof to OpenClaw and Hermes Agent; refreshed scorecard confirms both receive the same continuity fact and universal core-tool grants.
-
-- Progress: Expanded context continuity proof to every registered engine; remaining scorecard gaps are now live-work/replay sampling rather than shared-context injection.
-
-- Progress: Real-work replay now samples all registered engines from the registry and distinguishes passing engines from expected planned-adapter unavailability; framework coordination rollup passes.
-
-- Progress: Framework coordination rollup now enforces coverage metadata against the engine registry, distinguishing full-registry proofs from explicitly scoped subset proofs.

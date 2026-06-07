@@ -449,14 +449,16 @@
       "id": "V13-FRAMEWORK-COORDINATION-006",
       "title": "Make the legacy dashboard replaceable without losing framework-router behavior",
       "section": "yellow",
-      "status": "queued",
+      "status": "in_progress",
       "deadline": "2026-07-01",
       "owner": "gateway.shell_boundary",
       "summary": "Framework routing, permissions, context, persistence, model discovery, and status traces must live behind Gateway sockets so a rebuilt Shell or CLI can use the same behavior without copying dashboard cognition.",
-      "progress_note": "This is the architectural safety check that the UI remains a face/lens, not the framework-router brain.",
+      "progress_note": "Added Agent Runtime Shell replaceability guard: framework routing, permission, context, persistence, model, activity, and outcome socket obligations are now enforced from the Gateway-owned /ws/agent-runtime contract and router scope; live socket implementation remains the completion milestone.",
       "created_at": "2026-06-07T04:56:27.538Z",
       "updated_at": "2026-06-07T04:56:27.538Z",
-      "source": "framework_coordination_gap_breakdown"
+      "source": "framework_coordination_gap_breakdown",
+      "last_validation": "npm run -s ops:agent-runtime:shell-replaceability:guard && npm run -s ops:agent-runtime:framework-coordination:guard",
+      "last_artifact": "core/local/artifacts/agent_runtime_shell_replaceability_guard_current.json"
     },
     {
       "id": "V13-FRAMEWORK-COORDINATION-007",

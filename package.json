@@ -694,8 +694,8 @@
     "ops:rust-spine:route": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/ops/rust_spine_microkernel.ts route --component=${COMPONENT:-guard}",
     "ops:rust-workspace-quality:run": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/ops/rust_workspace_quality_gate.ts run --strict=1 --apply=1",
     "ops:rust-workspace-quality:status": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/ops/rust_workspace_quality_gate.ts status",
-    "ops:rust50:conf-003:run": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/compat/legacy_alias_adapter.ts --lane-id=RUNTIME-OPS-RUST50-SPRINT1-BATCH run --enforcer-active=1 --preamble-text=\"ENFORCER RULES ACTIVE \u2014 READ docs/workspace/codex_enforcer.md FIRST.\" --strict=1 --apply=1",
-    "ops:rust50:conf-004:run": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/compat/legacy_alias_adapter.ts --lane-id=RUNTIME-OPS-RUST50-SPRINT1-BATCH run --policy=client/runtime/config/rust50_mega_sprint1_batch_policy.json --enforcer-active=1 --preamble-text=\"ENFORCER RULES ACTIVE \u2014 READ docs/workspace/codex_enforcer.md FIRST.\" --strict=1 --apply=1",
+    "ops:rust50:conf-003:run": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/compat/legacy_alias_adapter.ts --lane-id=RUNTIME-OPS-RUST50-SPRINT1-BATCH run --enforcer-active=1 --preamble-text=\"ENFORCER RULES ACTIVE — READ docs/workspace/codex_enforcer.md FIRST.\" --strict=1 --apply=1",
+    "ops:rust50:conf-004:run": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/compat/legacy_alias_adapter.ts --lane-id=RUNTIME-OPS-RUST50-SPRINT1-BATCH run --policy=client/runtime/config/rust50_mega_sprint1_batch_policy.json --enforcer-active=1 --preamble-text=\"ENFORCER RULES ACTIVE — READ docs/workspace/codex_enforcer.md FIRST.\" --strict=1 --apply=1",
     "ops:rust50:conf-004:status": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/compat/legacy_alias_adapter.ts --lane-id=RUNTIME-OPS-RUST50-SPRINT1-BATCH status --policy=client/runtime/config/rust50_mega_sprint1_batch_policy.json",
     "ops:rust50:gate": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/ops/rust50_migration_program.ts run --id=V6-RUST50-007 --apply=1 --strict=1",
     "ops:rust50:list": "node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/ops/rust50_migration_program.ts list",
@@ -1248,7 +1248,8 @@
     "ops:agent-runtime:live-work:eval": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_live_work_eval.ts",
     "ops:agent-runtime:framework-capability:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_framework_capability_guard.ts",
     "ops:agent-runtime:working-directory-parity:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_working_directory_parity_guard.ts",
-    "ops:agent-runtime:transport-migration-pressure:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_transport_migration_pressure_guard.ts"
+    "ops:agent-runtime:transport-migration-pressure:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_transport_migration_pressure_guard.ts",
+    "ops:agent-runtime:shell-replaceability:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_shell_replaceability_guard.ts"
   },
   "version": "0.4.0"
 }

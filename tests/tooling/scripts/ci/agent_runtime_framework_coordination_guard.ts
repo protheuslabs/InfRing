@@ -52,6 +52,11 @@ const GATES = [
     coverage_scope: 'selectable_projection_subset',
   },
   {
+    id: 'shell_replaceability',
+    script: 'tests/tooling/scripts/ci/agent_runtime_shell_replaceability_guard.ts',
+    coverage_scope: 'gateway_socket_contract',
+  },
+  {
     id: 'route_structured_transport',
     script: 'tests/tooling/scripts/ci/agent_runtime_route_structured_transport_guard.ts',
     coverage_scope: 'adapter_ready_subset',
