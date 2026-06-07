@@ -4142,6 +4142,16 @@
       "artifact_paths": [
         "core/local/artifacts/agent_runtime_route_transcript_persistence_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:activity-projection:guard": {
+      "owner": "validation",
+      "description": "Agent runtime public activity projection guard for semantic status/thinking trace rows.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "script": "ops:agent-runtime:activity-projection:guard",
+      "artifact_paths": [
+        "core/local/artifacts/agent_runtime_activity_projection_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {

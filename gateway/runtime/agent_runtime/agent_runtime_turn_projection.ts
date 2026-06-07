@@ -26,18 +26,96 @@ function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().repla
 function cleanApprovalId(value) { return cleanText(value, 260).replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanReceiptComponent(value, maxLen = 200) { return cleanText(value, maxLen).replace(/[^A-Za-z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown'; }
 
+function parseRawProviderActivityText(value) {
+  const text = cleanDisplayText(value, 12000);
+  if (!text || !/^[{[]/.test(text)) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function firstActivityText(source, keys, maxLen = 500) {
+  const obj = source && typeof source === 'object' ? source : {};
+  for (const key of keys) {
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      const joined = value.map((item) => cleanText(item, 120)).filter(Boolean).join(' ');
+      if (joined) return cleanDisplayText(joined, maxLen);
+    } else {
+      const text = cleanDisplayText(value, maxLen);
+      if (text) return text;
+    }
+  }
+  return '';
+}
+
+function activityStatusPrefix(status) {
+  const cleaned = cleanText(status, 80).toLowerCase();
+  if (/complete|done|success/.test(cleaned)) return 'Completed';
+  if (/fail|error/.test(cleaned)) return 'Failed';
+  return 'Working on';
+}
+
+function compactRawProviderActivityText(raw, event = {}) {
+  const row = raw && typeof raw === 'object' ? raw : {};
+  const item = row.item && typeof row.item === 'object' ? row.item : row;
+  const providerType = cleanText(row.type || row.event_type || row.provider_event_type || event.provider_event_type, 160);
+  const itemType = cleanText(item.type || item.kind || item.name || '', 120).toLowerCase();
+  const status = cleanText(row.status || row.state || item.status || item.state || event.status, 80);
+  const prefix = activityStatusPrefix(status);
+  const command = firstActivityText(item, ['command', 'cmd', 'shell_command', 'argv', 'args'], 800) ||
+    firstActivityText(row, ['command', 'cmd', 'shell_command', 'argv', 'args'], 800);
+  if (command || /command|exec|shell/.test(itemType || providerType)) {
+    return command ? `${prefix} command: ${command}` : `${prefix} a shell command.`;
+  }
+  const pathTarget = firstActivityText(item, ['path', 'file', 'filename', 'target_path', 'target', 'uri'], 500) ||
+    firstActivityText(row, ['path', 'file', 'filename', 'target_path', 'target', 'uri'], 500);
+  if (pathTarget || /file|edit|patch|change|write/.test(itemType || providerType)) {
+    return pathTarget ? `${prefix} file change: ${pathTarget}` : `${prefix} a file change.`;
+  }
+  const tool = firstActivityText(item, ['tool_id', 'tool', 'name', 'function'], 300) ||
+    firstActivityText(row, ['tool_id', 'tool', 'name', 'function'], 300);
+  if (tool || /tool|function/.test(itemType || providerType)) {
+    return tool ? `${prefix} tool: ${tool}` : `${prefix} a tool call.`;
+  }
+  const query = firstActivityText(item, ['query', 'pattern', 'search'], 500) ||
+    firstActivityText(row, ['query', 'pattern', 'search'], 500);
+  if (query || /search|grep|rg/.test(itemType || providerType)) {
+    return query ? `${prefix} search: ${query}` : `${prefix} a workspace search.`;
+  }
+  const provider = providerType.toLowerCase();
+  if (provider.includes('thread.started')) return 'Runtime thread started.';
+  if (provider.includes('turn.started')) return 'Runtime turn started.';
+  if (provider.includes('turn.completed')) return 'Runtime completed the turn.';
+  if (providerType) return `Runtime event: ${providerType}`;
+  return '';
+}
+
 function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
   const event = row && typeof row === 'object' ? row : {};
+  const rawActivity = parseRawProviderActivityText(event.display_text || event.text || event.summary || '');
+  const compactText = rawActivity ? compactRawProviderActivityText(rawActivity, event) : '';
+  const providerEventType = cleanText(
+    event.provider_event_type || event.provider_type || event.event_type || (rawActivity && rawActivity.type),
+    160,
+  );
+  const displayText = cleanDisplayText(
+    compactText || event.display_text || event.text || event.summary || '',
+    4000,
+  );
   return {
     type: 'agent_activity_event',
     activity_kind: cleanText(event.activity_kind || event.kind || event.type, 80) || 'activity',
-    provider_event_type: cleanText(event.provider_event_type || event.provider_type || event.event_type, 160),
+    provider_event_type: providerEventType,
     source: cleanText(event.source || 'external_cli_stream', 120),
     sequence_no: Number(event.sequence_no || index + 1) || index + 1,
     item_id: cleanText(event.item_id || event.itemId || '', 200),
     status: cleanText(event.status || '', 80),
-    text: cleanDisplayText(event.text || event.display_text || event.summary || '', 4000),
-    display_text: cleanDisplayText(event.display_text || event.text || event.summary || '', 4000),
+    text: displayText,
+    display_text: displayText,
     receipt_ref: cleanText(event.receipt_ref || '', 240),
     result_ref: cleanText(event.result_ref || '', 240),
     engine_id: cleanEngineId(event.engine_id || defaults.engineId),

@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-07T05:17:56.047Z
+Updated: 2026-06-07T05:19:55.920Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -108,12 +108,12 @@ Updated: 2026-06-07T05:17:56.047Z
   progress_note: `Current risk: model lists can be stale or placeholder-driven instead of accurately reflecting Codex, Claude, Grok, or provider availability.`
 
 - `V13-FRAMEWORK-COORDINATION-003` — Project external runtime activity into clean semantic thinking/status traces
-  status: `queued`
+  status: `in_progress`
   section: `yellow`
   owner: `gateway.observability`
   deadline: `2026-06-21`
   summary: Normalize Codex, Claude Code, Grok Code, OpenClaw, Hermes, and native runtime activity into concise user-facing status rows without raw JSON noise, duplicate rows, or forced started/finished/done sandwich text.
-  progress_note: `Current status text is improved but still below native framework quality and needs consistent semantic projection across engines.`
+  progress_note: `Gateway activity projection now compacts raw provider JSON events into semantic trace titles and has a public route guard proving command/file-change/thread/turn events do not leak raw payload text into chat-facing activity rows.`
 - `HYGIENE-RUST-UNUSED-IMPORTS` — Remove unused Rust imports in narrow batches
   owner: `codex`
   deadline: `2026-05-19`

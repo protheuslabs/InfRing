@@ -1238,7 +1238,8 @@
     "ops:agent-runtime:context-continuity:eval": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_context_continuity_eval.ts",
     "ops:agent-runtime:approval-pause-resume:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_route_approval_lifecycle_guard.ts",
     "ops:agent-runtime:transcript-persistence:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_transcript_persistence_parity_guard.ts",
-    "ops:agent-runtime:route-transcript-persistence:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_route_transcript_persistence_guard.ts"
+    "ops:agent-runtime:route-transcript-persistence:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_route_transcript_persistence_guard.ts",
+    "ops:agent-runtime:activity-projection:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_activity_projection_guard.ts"
   },
   "version": "0.4.0"
 }
