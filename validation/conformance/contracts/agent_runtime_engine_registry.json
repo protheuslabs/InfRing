@@ -114,6 +114,11 @@
         "inherit_active_infring_provider_when_unconfigured": false,
         "shell_secret_exposure": "forbidden",
         "gateway_context_field": "model_provider_context"
+      },
+      "prompt_text_compatibility": {
+        "status": "not_primary_transport",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Prompt text must not be the canonical context transport for this engine."
       }
     },
     {
@@ -284,6 +289,13 @@
         "inherit_active_infring_provider_when_unconfigured": false,
         "shell_secret_exposure": "forbidden",
         "gateway_context_field": "model_provider_context"
+      },
+      "prompt_text_compatibility": {
+        "status": "transitional",
+        "retire_by": "2026-07-05",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Prompt text may only be rendered from AgentRuntimeStructuredTurn and must not become provider authority.",
+        "next_step": "Replace prompt preamble with Codex structured stdin/session payload when stable CLI/API transport is available; keep prompt text as rendered fallback only."
       }
     },
     {
@@ -435,6 +447,13 @@
         "inherit_active_infring_provider_when_unconfigured": false,
         "shell_secret_exposure": "forbidden",
         "gateway_context_field": "model_provider_context"
+      },
+      "prompt_text_compatibility": {
+        "status": "transitional",
+        "retire_by": "2026-07-05",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Prompt text may only be rendered from AgentRuntimeStructuredTurn and must not become provider authority.",
+        "next_step": "Map AgentRuntimeStructuredTurn into Claude Code native session/tool context once a stable structured transport is exposed; keep prompt text as rendered fallback only."
       }
     },
     {
@@ -549,6 +568,13 @@
         "inherit_active_infring_provider_when_unconfigured": false,
         "shell_secret_exposure": "forbidden",
         "gateway_context_field": "model_provider_context"
+      },
+      "prompt_text_compatibility": {
+        "status": "transitional",
+        "retire_by": "2026-07-05",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Prompt text may only be rendered from AgentRuntimeStructuredTurn and must not become provider authority.",
+        "next_step": "Map AgentRuntimeStructuredTurn into Grok Code structured/session transport after provider availability and API shape stabilize; keep prompt text as rendered fallback only."
       }
     },
     {
@@ -617,6 +643,11 @@
         "inherit_active_infring_provider_when_unconfigured": true,
         "shell_secret_exposure": "forbidden",
         "gateway_context_field": "model_provider_context"
+      },
+      "prompt_text_compatibility": {
+        "status": "not_primary_transport",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Prompt text must not be the canonical context transport for this engine."
       }
     },
     {
@@ -735,6 +766,11 @@
         "inherit_active_infring_provider_when_unconfigured": true,
         "shell_secret_exposure": "forbidden",
         "gateway_context_field": "model_provider_context"
+      },
+      "prompt_text_compatibility": {
+        "status": "not_primary_transport",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Prompt text must not be the canonical context transport for this engine."
       }
     },
     {
@@ -880,6 +916,13 @@
         "inherit_active_infring_provider_when_unconfigured": true,
         "shell_secret_exposure": "forbidden",
         "gateway_context_field": "model_provider_context"
+      },
+      "prompt_text_compatibility": {
+        "status": "transitional",
+        "retire_by": "2026-07-05",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Prompt text may only be rendered from AgentRuntimeStructuredTurn and must not become provider authority.",
+        "next_step": "Graduate the safe one-shot bridge to the Hermes HTTP/socket schema using AgentRuntimeStructuredTurn as the canonical payload."
       }
     },
     {
@@ -947,6 +990,11 @@
         "inherit_active_infring_provider_when_unconfigured": true,
         "shell_secret_exposure": "forbidden",
         "gateway_context_field": "model_provider_context"
+      },
+      "prompt_text_compatibility": {
+        "status": "not_primary_transport",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Prompt text must not be the canonical context transport for this engine."
       }
     },
     {
@@ -1010,6 +1058,11 @@
         "inherit_active_infring_provider_when_unconfigured": true,
         "shell_secret_exposure": "forbidden",
         "gateway_context_field": "model_provider_context"
+      },
+      "prompt_text_compatibility": {
+        "status": "not_primary_transport",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Prompt text must not be the canonical context transport for this engine."
       }
     }
   ],

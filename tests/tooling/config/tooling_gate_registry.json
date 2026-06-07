@@ -4239,6 +4239,17 @@
       "artifacts": [
         "core/local/artifacts/agent_runtime_working_directory_parity_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:transport-migration-pressure:guard": {
+      "command": "ops:agent-runtime:transport-migration-pressure:guard",
+      "description": "Agent Runtime structured transport migration pressure guard.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_sec": 60,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_transport_migration_pressure_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {
