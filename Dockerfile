@@ -16,7 +16,9 @@ RUN npm run -s runtime:dist:dashboard:build
 
 FROM rust:1.89-alpine AS rust-builder
 WORKDIR /app
-RUN apk add --no-cache build-base musl-dev pkgconfig openssl-dev
+RUN apk add --no-cache build-base musl-dev pkgconfig openssl-dev \
+  && ln -sf /usr/bin/gcc /usr/bin/x86_64-linux-musl-gcc \
+  && x86_64-linux-musl-gcc --version >/dev/null
 COPY . .
 RUN cargo build --release --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops --bin infringd
 
