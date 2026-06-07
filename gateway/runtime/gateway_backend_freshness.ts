@@ -1,4 +1,8 @@
 #!/usr/bin/env tsx
+// Layer ownership: gateway/runtime::backend-freshness.
+//
+// Gateway owns backend freshness detection for compatibility hosts.
+
 'use strict';
 
 const fs = require('node:fs');
@@ -106,8 +110,16 @@ function backendFreshnessSnapshot(flags, options = {}) {
   };
 }
 
+function createGatewayBackendFreshnessSnapshot(options = {}) {
+  return (flags) => backendFreshnessSnapshot(flags, {
+    ...options,
+    env: typeof options.env === 'function' ? options.env() : options.env,
+  });
+}
+
 module.exports = {
   backendFreshnessSnapshot,
+  createGatewayBackendFreshnessSnapshot,
   backendListenerPids,
   backendProcessStartMs,
   backendSpawnEnv,

@@ -4,7 +4,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
-const { createHash } = require('node:crypto');
 const { spawn } = require('node:child_process');
 const {
   ROOT,
@@ -46,6 +45,20 @@ const {
   gatewayNowIso: nowIso,
 } = require('../../gateway/runtime/gateway_timing.ts');
 const {
+  waitForGatewayBackendDown: waitForBackendDown,
+  stopStaleGatewayBackend: stopStaleBackend,
+} = require('../../gateway/runtime/gateway_backend_lifecycle.ts');
+const {
+  writeGatewayJson: writeJson,
+  writeGatewayJsonIfMissing: writeJsonIfMissing,
+  appendGatewayJsonl: appendJsonl,
+  deterministicGatewayReceiptHash: deterministicReceiptHash,
+} = require('../../gateway/runtime/gateway_artifacts.ts');
+const {
+  gatewayStatusPayloadWithBootStage: statusPayloadWithBootStage,
+  createGatewayDashboardVersionProjection,
+} = require('../../gateway/runtime/gateway_status_projection.ts');
+const {
   gatewayRequestTraceId: requestTraceId,
   gatewayRequestTraceBoundary: requestTraceBoundary,
   sanitizeGatewayTraceId: sanitizeTraceId,
@@ -71,10 +84,10 @@ const {
   proxyGatewayUpgrade,
 } = require('../../gateway/runtime/gateway_http_boundary.ts');
 const {
-  backendFreshnessSnapshot: backendFreshnessSnapshotFromProcess,
   backendSpawnEnv: backendSpawnEnvForRoot,
+  createGatewayBackendFreshnessSnapshot,
   shouldRestartStaleBackend,
-} = require('./dashboard_backend_freshness.ts');
+} = require('../../gateway/runtime/gateway_backend_freshness.ts');
 const {
   normalizeAgentRuntimeTurnInput,
 } = require('../../gateway/runtime/agent_runtime_input_normalizer.ts');
@@ -161,6 +174,15 @@ const BACKEND_PORT_OFFSET = 1000;
 const DASHBOARD_SHUTDOWN_EXIT_DELAY_DEFAULT_MS = 180;
 const DASHBOARD_SHUTDOWN_EXIT_DELAY_MIN_MS = 80;
 const DASHBOARD_SHUTDOWN_EXIT_DELAY_MAX_MS = 5000;
+const {
+  currentDashboardBuildInfo,
+  mergeDashboardVersionPayload,
+} = createGatewayDashboardVersionProjection({
+  staticDir: STATIC_DIR,
+  readBuildVersionInfo,
+  platform: process.platform,
+  arch: process.arch,
+});
 const agentRuntimeWorkspaceStore = createAgentRuntimeWorkspaceStore({ root: ROOT, statusDir: STATUS_DIR });
 const {
   normalizeAgentRuntimeWorkspacePath,
@@ -374,33 +396,6 @@ function parseFlags(argv = []) {
   out.apiPort = out.apiPort || defaultApiPort(out.port);
   if (out.apiPort === out.port) out.apiPort = defaultApiPort(out.port + 1);
   return out;
-}
-function ensureDir(dirPath) { fs.mkdirSync(dirPath, { recursive: true }); }
-function writeJson(filePath, value) { ensureDir(path.dirname(filePath)); fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8'); }
-function writeJsonIfMissing(filePath, value) {
-  if (fs.existsSync(filePath)) return false;
-  writeJson(filePath, value);
-  return true;
-}
-function appendJsonl(filePath, value) {
-  ensureDir(path.dirname(filePath));
-  fs.appendFileSync(filePath, `${JSON.stringify(value)}\n`, 'utf8');
-}
-function appendBoundedJsonl(filePath, value, maxRows) {
-  ensureDir(path.dirname(filePath));
-  let rows = [];
-  try {
-    rows = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  } catch {}
-  rows.push(JSON.stringify(value));
-  fs.writeFileSync(filePath, `${rows.slice(-Math.max(1, maxRows || 1)).join('\n')}\n`, 'utf8');
-}
-function deterministicReceiptHash(value) {
-  try {
-    return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-  } catch {
-    return '';
-  }
 }
 function readRecentActionRows(limit = TROUBLESHOOTING_MAX_RECENT) {
   const historyPath = path.resolve(STATUS_DIR, 'actions', 'history.jsonl');
@@ -646,76 +641,11 @@ function assertDashboardSurfaceLocked() {
 }
 
 function backendSpawnEnv() { return backendSpawnEnvForRoot(ROOT, process.env); }
-function backendFreshnessSnapshot(flags) {
-  return backendFreshnessSnapshotFromProcess(flags, { root: ROOT, resolveBinary, env: backendSpawnEnv() });
-}
-async function waitForBackendDown(flags, timeoutMs = 6000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!(await backendHealth(flags, 800))) return true;
-    await sleep(150);
-  }
-  return !(await backendHealth(flags, 800));
-}
-async function stopStaleBackend(flags, freshness) {
-  const rows = freshness && Array.isArray(freshness.listener_pids) ? freshness.listener_pids : [];
-  const pids = rows.map((row) => Number(row && row.pid)).filter((pid) => Number.isInteger(pid) && pid > 0);
-  if (!pids.length) return false;
-  for (const pid of pids) {
-    try { process.kill(pid, 'SIGTERM'); } catch {}
-  }
-  if (await waitForBackendDown(flags)) return true;
-  for (const pid of pids) {
-    try { process.kill(pid, 'SIGKILL'); } catch {}
-  }
-  return waitForBackendDown(flags);
-}
-async function statusPayloadWithBootStage(flags) {
-  const startedAt = Date.now();
-  const healthOk = await backendHealth(flags, 1200);
-  if (!healthOk) {
-    return {
-      ok: false,
-      error: 'backend_unreachable',
-      connected: false,
-      connection_state: 'disconnected',
-      boot_stage: 'backend_unreachable',
-      backend_health_ok: false,
-      status_latency_ms: Date.now() - startedAt,
-      retry_after_ms: 1000,
-    };
-  }
-  try {
-    const status = await fetchBackendJson(flags, '/api/status', 1800);
-    const base = (status && typeof status === 'object') ? status : {};
-    const connected = base.connected !== false;
-    const degraded = !!base.degraded || base.ok === false;
-    const out = {
-      ...base,
-      ok: connected,
-      connected,
-      degraded,
-      connection_state: connected ? 'connected' : 'disconnected',
-      boot_stage: cleanText(base.boot_stage || base.last_stage || (degraded ? 'status_degraded' : 'ready'), 60),
-      backend_health_ok: true,
-      status_latency_ms: Date.now() - startedAt,
-    };
-    if (!out.error && degraded) out.error = 'status_degraded';
-    return out;
-  } catch {
-    return {
-      ok: true,
-      degraded: true,
-      warning: 'status_unavailable',
-      connected: true,
-      connection_state: 'connected',
-      boot_stage: 'backend_ready_status_probe_timeout',
-      backend_health_ok: true,
-      status_latency_ms: Date.now() - startedAt,
-      retry_after_ms: 1000,
-    };
-  }
-}
+const backendFreshnessSnapshot = createGatewayBackendFreshnessSnapshot({
+  root: ROOT,
+  resolveBinary,
+  env: backendSpawnEnv,
+});
 function spawnBackend(flags) {
   const laneArgs = ['dashboard-ui', 'serve', `--host=${flags.apiHost}`, `--port=${flags.apiPort}`, `--team=${flags.team}`, `--refresh-ms=${flags.refreshMs}`];
   const env = backendSpawnEnv();
@@ -757,27 +687,6 @@ function parseLastJson(stdout) {
     } catch {}
   }
   return null;
-}
-function currentDashboardBuildInfo() {
-  return readBuildVersionInfo(STATIC_DIR);
-}
-function mergeDashboardVersionPayload(payload) {
-  const base = (payload && typeof payload === 'object' && !Array.isArray(payload)) ? payload : {};
-  const build = currentDashboardBuildInfo();
-  const version = cleanText(build && build.version, 120) || '0.0.0';
-  const tag = cleanText(build && build.tag, 120) || `v${version}`;
-  const source = cleanText(build && build.source, 80) || 'fallback_default';
-  return {
-    ...base,
-    ok: base.ok !== false,
-    version,
-    tag,
-    version_tag: tag,
-    source,
-    version_source: source,
-    platform: base.platform || process.platform,
-    arch: base.arch || process.arch,
-  };
 }
 function dashboardSystemActionArgs(action, payload = {}) {
   const normalized = cleanText(action, 40).toLowerCase();

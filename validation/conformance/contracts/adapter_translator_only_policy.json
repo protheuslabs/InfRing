@@ -49,12 +49,6 @@
       "allowed_until": "2026-07-01"
     },
     {
-      "path": "adapters/runtime/dashboard_backend_freshness.ts",
-      "reason": "Legacy dashboard host freshness helper.",
-      "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
-      "allowed_until": "2026-07-01"
-    },
-    {
       "path": "adapters/runtime/infring_setup_wizard.ts",
       "reason": "Legacy setup/onboarding helper outside the stable adapter translator role.",
       "retirement_todo": "ALPINE-PURGE",
