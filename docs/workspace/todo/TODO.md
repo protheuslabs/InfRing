@@ -311,3 +311,5 @@ Updated: 2026-06-07T05:28:02.648Z
 - Progress: Wired `ops:agent-runtime:engine-scorecard` and upgraded it to consume cross-framework real-work replay evidence.
 
 - Progress: Expanded context continuity proof to OpenClaw and Hermes Agent; refreshed scorecard confirms both receive the same continuity fact and universal core-tool grants.
+
+- Progress: Expanded context continuity proof to every registered engine; remaining scorecard gaps are now live-work/replay sampling rather than shared-context injection.

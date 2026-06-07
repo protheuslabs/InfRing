@@ -161,7 +161,17 @@ async function main() {
   if (!promptPreview.includes('Universal InfRing core tools') || !promptPreview.includes('memory.read')) violations.push({ kind: 'adapter_prompt_missing_universal_tool_grants' });
 
   const router = createAgentRuntimeRouter({ root: ROOT, disableTraceWriter: true });
-  const engines = ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'openclaw', 'hermes_agent'];
+  const engines = [
+    'infring_native',
+    'codex_cli',
+    'claude_code',
+    'grok_code',
+    'openclaw',
+    'hermes_agent',
+    'openhands',
+    'openfang',
+    'custom_socket_engine',
+  ];
   const results = [];
   for (const engineId of engines) {
     router.registerAdapter(engineId, makeContinuityProbeAdapter(engineId, buildPromptWithContext));

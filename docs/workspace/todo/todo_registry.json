@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-07T05:39:12.015Z",
+  "updated_at": "2026-06-07T05:40:23.298Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -259,8 +259,8 @@
       "work_gate": "real_work",
       "real_work_score": 5,
       "status": "in_progress",
-      "updated_at": "2026-06-07T05:39:12.015Z",
-      "progress_note": "Expanded context-continuity eval to OpenClaw and Hermes Agent; refreshed engine scorecard now shows both receive the shared continuity fact and universal core-tool grants through the same context contract.",
+      "updated_at": "2026-06-07T05:40:23.298Z",
+      "progress_note": "Expanded context-continuity eval to all registered engines, including OpenHands, OpenFang, and custom socket engines; scorecard now identifies remaining gaps as live-work/replay sampling rather than context continuity.",
       "last_validation": "npm run -s ops:agent-runtime:context-continuity:eval && npm run -s ops:agent-runtime:engine-scorecard"
     },
     {
@@ -358,8 +358,8 @@
       "work_gate": "real_work",
       "real_work_score": 4,
       "status": "in_progress",
-      "updated_at": "2026-06-07T05:39:12.015Z",
-      "progress_note": "Expanded context-continuity eval to OpenClaw and Hermes Agent; refreshed engine scorecard now shows both receive the shared continuity fact and universal core-tool grants through the same context contract.",
+      "updated_at": "2026-06-07T05:40:23.298Z",
+      "progress_note": "Expanded context-continuity eval to all registered engines, including OpenHands, OpenFang, and custom socket engines; scorecard now identifies remaining gaps as live-work/replay sampling rather than context continuity.",
       "last_validation": "npm run -s ops:agent-runtime:context-continuity:eval && npm run -s ops:agent-runtime:engine-scorecard",
       "last_artifact": "core/local/artifacts/agent_runtime_engine_scorecard_current.json"
     },
@@ -475,9 +475,9 @@
       "deadline": "2026-07-05",
       "owner": "validation.gateway",
       "summary": "Create repeatable validation that runs small real tasks through at least native, Codex, Claude Code, and one open framework, proving context continuity, approval flow, persistence, status traces, and receipts.",
-      "progress_note": "Expanded context-continuity eval to OpenClaw and Hermes Agent; refreshed engine scorecard now shows both receive the shared continuity fact and universal core-tool grants through the same context contract.",
+      "progress_note": "Expanded context-continuity eval to all registered engines, including OpenHands, OpenFang, and custom socket engines; scorecard now identifies remaining gaps as live-work/replay sampling rather than context continuity.",
       "created_at": "2026-06-07T04:56:27.538Z",
-      "updated_at": "2026-06-07T05:39:12.015Z",
+      "updated_at": "2026-06-07T05:40:23.298Z",
       "source": "framework_coordination_gap_breakdown",
       "last_artifact": "core/local/artifacts/agent_runtime_framework_coordination_guard_current.json",
       "last_validation": "npm run -s ops:agent-runtime:context-continuity:eval && npm run -s ops:agent-runtime:engine-scorecard"
