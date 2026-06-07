@@ -468,6 +468,9 @@ if (exists(dashboardPath)) {
   if (/function\s+(?:scheduleDashboardHostExit|scheduleGatewayHostExit)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_host_lifecycle', dashboardPath, 'Legacy dashboard host must not define Gateway host lifecycle scheduling locally.');
   }
+  if (/let\s+cleaned\s*=\s*false|process\.on\s*\(\s*['"]SIG(?:INT|TERM)['"]|process\.on\s*\(\s*['"]exit['"]|backend\.child\.kill\s*\(|server\.close\s*\(\s*\)/.test(dashboard)) {
+    push('dashboard_owns_gateway_server_cleanup', dashboardPath, 'Legacy dashboard host must delegate server cleanup and signal wiring to gateway/** host lifecycle helpers.');
+  }
   if (/function\s+(?:discoverSiblingAltDashboardSurfaces|assertNoAlternateDashboardSurfaces|assertSingleDashboardRoot|assertDashboardSurfaceLocked)\b|const\s+(?:FORBIDDEN_ALT_DASHBOARD_DIRS|SIBLING_ALT_DASHBOARD_PATTERN)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_dashboard_surface_lock', dashboardPath, 'Legacy dashboard host must not define Gateway dashboard surface lock policy locally.');
   }

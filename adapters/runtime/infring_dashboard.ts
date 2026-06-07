@@ -125,6 +125,7 @@ const dashboardHostStatus = createGatewayDashboardHostStatusController({
   statusPath: STATUS_PATH,
 });
 const {
+  createGatewayHostCleanup,
   scheduleGatewayHostExit,
 } = createGatewayHostLifecycleController({
   normalizeExitDelayMs: normalizeShutdownExitDelayMs,
@@ -321,16 +322,11 @@ async function runServe(flags) {
   server.on('clientError', (_error, socket) => {
     try { socket.destroy(); } catch {}
   });
-  let cleaned = false;
-  const cleanup = () => {
-    if (cleaned) return;
-    cleaned = true;
-    try { server.close(); } catch {}
-    if (backend.child && backend.child.exitCode == null) { try { backend.child.kill('SIGTERM'); } catch {} }
-  };
-  process.on('SIGINT', cleanup);
-  process.on('SIGTERM', cleanup);
-  process.on('exit', cleanup);
+  const cleanup = createGatewayHostCleanup({
+    server,
+    backend,
+    processTarget: process,
+  });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(flags.port, flags.host, () => {

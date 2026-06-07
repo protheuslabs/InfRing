@@ -37,7 +37,32 @@ function createGatewayHostLifecycleController(options = {}) {
     };
   }
 
+  function createGatewayHostCleanup(args = {}) {
+    const server = args.server || null;
+    const backend = args.backend || {};
+    const processTarget = args.processTarget || null;
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      try {
+        if (server && typeof server.close === 'function') server.close();
+      } catch {}
+      try {
+        const child = backend && backend.child ? backend.child : null;
+        if (child && child.exitCode == null && typeof child.kill === 'function') child.kill('SIGTERM');
+      } catch {}
+    };
+    if (processTarget && typeof processTarget.on === 'function') {
+      processTarget.on('SIGINT', cleanup);
+      processTarget.on('SIGTERM', cleanup);
+      processTarget.on('exit', cleanup);
+    }
+    return cleanup;
+  }
+
   return {
+    createGatewayHostCleanup,
     scheduleGatewayHostExit,
   };
 }
