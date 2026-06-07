@@ -49,6 +49,9 @@ const {
   createGatewayDashboardSurfaceLock,
 } = require('../../gateway/runtime/gateway_dashboard_surface_lock.ts');
 const {
+  createGatewayBackendHostLauncher,
+} = require('../../gateway/runtime/gateway_backend_host_launcher.ts');
+const {
   createGatewayNativeOrchestrationClient,
 } = require('../../gateway/runtime/gateway_native_orchestration_client.ts');
 const {
@@ -94,11 +97,6 @@ const {
   proxyGatewayHttpRequest,
   proxyGatewayUpgrade,
 } = require('../../gateway/runtime/gateway_http_boundary.ts');
-const {
-  backendSpawnEnv: backendSpawnEnvForRoot,
-  createGatewayBackendFreshnessSnapshot,
-  shouldRestartStaleBackend,
-} = require('../../gateway/runtime/gateway_backend_freshness.ts');
 const {
   normalizeAgentRuntimeTurnInput,
 } = require('../../gateway/runtime/agent_runtime_input_normalizer.ts');
@@ -554,40 +552,18 @@ function runSnapshotWithCompatBootstrap(args, options) {
   }
   return writeBridgeOutput(out);
 }
-function backendSpawnEnv() { return backendSpawnEnvForRoot(ROOT, process.env); }
-const backendFreshnessSnapshot = createGatewayBackendFreshnessSnapshot({
+const {
+  backendFreshnessSnapshot,
+  ensureBackend,
+} = createGatewayBackendHostLauncher({
   root: ROOT,
   resolveBinary,
-  env: backendSpawnEnv,
+  spawnProcess: spawn,
+  env: () => process.env,
+  backendHealth,
+  stdout: process.stdout,
+  stderr: process.stderr,
 });
-function spawnBackend(flags) {
-  const laneArgs = ['dashboard-ui', 'serve', `--host=${flags.apiHost}`, `--port=${flags.apiPort}`, `--team=${flags.team}`, `--refresh-ms=${flags.refreshMs}`];
-  const env = backendSpawnEnv();
-  const bin = resolveBinary({ env });
-  if (!bin) throw new Error('dashboard_backend_binary_missing');
-  const child = spawn(bin, laneArgs, { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
-  if (child.stdout) child.stdout.on('data', (chunk) => process.stdout.write(chunk));
-  if (child.stderr) child.stderr.on('data', (chunk) => process.stderr.write(chunk));
-  return child;
-}
-async function ensureBackend(flags) {
-  if (await backendHealth(flags, 1500)) {
-    const freshness = backendFreshnessSnapshot(flags);
-    if (!freshness.stale) return { child: null, reused: true, freshness };
-    if (!shouldRestartStaleBackend()) return { child: null, reused: true, freshness };
-    const stopped = await stopStaleBackend(flags, freshness);
-    if (!stopped) return { child: null, reused: true, freshness: { ...freshness, restart_failed: true } };
-  }
-  const child = spawnBackend(flags);
-  const deadline = Date.now() + flags.apiReadyTimeoutMs;
-  while (Date.now() < deadline) {
-    if (await backendHealth(flags, 1500)) return { child, reused: false, freshness: backendFreshnessSnapshot(flags) };
-    if (child.exitCode != null) throw new Error(`dashboard_backend_exit:${child.exitCode}`);
-    await sleep(250);
-  }
-  try { child.kill('SIGTERM'); } catch {}
-  throw new Error('dashboard_backend_timeout');
-}
 function parseLastJson(stdout) {
   const lines = String(stdout || '')
     .split('\n')
