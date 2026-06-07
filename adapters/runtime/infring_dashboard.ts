@@ -29,6 +29,9 @@ const {
   createGatewaySystemRouteAssembly,
 } = require('../../gateway/runtime/gateway_system_route_assembly.ts');
 const {
+  createGatewayHostLifecycleController,
+} = require('../../gateway/runtime/gateway_host_lifecycle.ts');
+const {
   normalizeGatewayShutdownExitDelayMs: normalizeShutdownExitDelayMs,
   normalizeGatewayArgs: normalizeArgs,
   parseGatewayHostFlags: parseFlags,
@@ -118,6 +121,13 @@ const {
   hasPrimaryDashboardUi,
 });
 const {
+  scheduleGatewayHostExit,
+} = createGatewayHostLifecycleController({
+  normalizeExitDelayMs: normalizeShutdownExitDelayMs,
+  setTimeout,
+  exitProcess: (code) => process.exit(code),
+});
+const {
   handleAgentRuntimeWorkspaceRoute,
   handleAgentRuntimeApprovalRoute,
   handleShellSocketAgentRuntimeOverlayRoute,
@@ -160,8 +170,7 @@ const {
   readJsonBody,
   sendJson,
   onHostShutdownAccepted: (body) => {
-    const exitDelayMs = normalizeShutdownExitDelayMs(body && body.exit_delay_ms);
-    scheduleDashboardHostExit(cleanup, exitDelayMs);
+    scheduleGatewayHostExit(cleanup, body && body.exit_delay_ms);
   },
 });
 
@@ -187,15 +196,6 @@ const {
   stdout: process.stdout,
   stderr: process.stderr,
 });
-function scheduleDashboardHostExit(cleanup, normalizedDelayMs) {
-  const waitMs = normalizeShutdownExitDelayMs(normalizedDelayMs);
-  setTimeout(() => {
-    try { cleanup(); } catch {}
-    setTimeout(() => {
-      try { process.exit(0); } catch {}
-    }, 0);
-  }, waitMs);
-}
 async function runServe(flags) {
   assertDashboardSurfaceLocked();
   let dashboardHtml = buildPrimaryDashboardHtml(STATIC_DIR);

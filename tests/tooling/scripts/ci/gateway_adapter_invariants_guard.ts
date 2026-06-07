@@ -387,6 +387,9 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/gateway_host_config.ts')")) {
     push('dashboard_not_using_gateway_host_config', dashboardPath, 'Legacy dashboard host must delegate CLI flag parsing and host config defaults to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_host_lifecycle.ts')")) {
+    push('dashboard_not_using_gateway_host_lifecycle', dashboardPath, 'Legacy dashboard host must delegate host lifecycle scheduling to gateway/** with injected process authority.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_dashboard_surface_lock.ts')")) {
     push('dashboard_not_using_gateway_dashboard_surface_lock', dashboardPath, 'Legacy dashboard host must delegate dashboard surface lock policy to gateway/**.');
   }
@@ -446,6 +449,9 @@ if (exists(dashboardPath)) {
   }
   if (/function\s+(?:parsePositiveInt|normalizeShutdownExitDelayMs|normalizeArgs|defaultApiPort|parseFlags)\b|const\s+(?:DEFAULT_HOST|DEFAULT_PORT|DEFAULT_TEAM|DEFAULT_REFRESH_MS|DEFAULT_BACKEND_READY_TIMEOUT_MS|BACKEND_PORT_OFFSET|DASHBOARD_SHUTDOWN_EXIT_DELAY_(?:DEFAULT|MIN|MAX)_MS)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_host_config', dashboardPath, 'Legacy dashboard host must not define Gateway host config parsing or defaults locally.');
+  }
+  if (/function\s+(?:scheduleDashboardHostExit|scheduleGatewayHostExit)\b/.test(dashboard)) {
+    push('dashboard_owns_gateway_host_lifecycle', dashboardPath, 'Legacy dashboard host must not define Gateway host lifecycle scheduling locally.');
   }
   if (/function\s+(?:discoverSiblingAltDashboardSurfaces|assertNoAlternateDashboardSurfaces|assertSingleDashboardRoot|assertDashboardSurfaceLocked)\b|const\s+(?:FORBIDDEN_ALT_DASHBOARD_DIRS|SIBLING_ALT_DASHBOARD_PATTERN)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_dashboard_surface_lock', dashboardPath, 'Legacy dashboard host must not define Gateway dashboard surface lock policy locally.');
