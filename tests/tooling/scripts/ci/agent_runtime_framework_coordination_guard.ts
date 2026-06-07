@@ -57,6 +57,11 @@ const GATES = [
     coverage_scope: 'gateway_socket_contract',
   },
   {
+    id: 'socket_live_handler',
+    script: 'tests/tooling/scripts/ci/agent_runtime_socket_live_handler_guard.ts',
+    coverage_scope: 'gateway_socket_handler',
+  },
+  {
     id: 'route_structured_transport',
     script: 'tests/tooling/scripts/ci/agent_runtime_route_structured_transport_guard.ts',
     coverage_scope: 'adapter_ready_subset',

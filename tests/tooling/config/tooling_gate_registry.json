@@ -4261,6 +4261,17 @@
       "artifacts": [
         "core/local/artifacts/agent_runtime_shell_replaceability_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:socket-live-handler:guard": {
+      "command": "ops:agent-runtime:socket-live-handler:guard",
+      "description": "Agent Runtime Gateway socket live-handler guard for /ws/agent-runtime semantics before host upgrade wiring.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_sec": 60,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_socket_live_handler_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {
