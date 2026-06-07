@@ -1236,7 +1236,8 @@
     "ops:agent-runtime-engine:conformance:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_engine_conformance_guard.ts",
     "ops:agent-runtime:context-boundary:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/context_authority_boundary_guard.ts",
     "ops:agent-runtime:context-continuity:eval": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_context_continuity_eval.ts",
-    "ops:agent-runtime:approval-pause-resume:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_route_approval_lifecycle_guard.ts"
+    "ops:agent-runtime:approval-pause-resume:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_route_approval_lifecycle_guard.ts",
+    "ops:agent-runtime:transcript-persistence:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_transcript_persistence_parity_guard.ts"
   },
   "version": "0.4.0"
 }

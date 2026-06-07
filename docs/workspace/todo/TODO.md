@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-07T00:02:27.302Z
+Updated: 2026-06-07T05:13:41.849Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -22,12 +22,12 @@ Updated: 2026-06-07T00:02:27.302Z
 ## Red Section (Do Immediately)
 
 - `V13-FRAMEWORK-COORDINATION-002` — Make framework context and persistence identical for native and external engines
-  status: `queued`
+  status: `in_progress`
   section: `red`
   owner: `gateway.kernel_context`
   deadline: `2026-06-14`
   summary: All engines, including InfRing native, Codex, Claude Code, Grok Code, OpenClaw, and Hermes, should receive the same bounded context pack, save turns through the same backend persistence path, and reload conversation state consistently.
-  progress_note: `Current failure mode: external-engine turns have shown weaker message persistence and inconsistent conversation continuity compared with native turns.`
+  progress_note: `Added deterministic Gateway transcript persistence parity guard: native and external engine turns are appended through the same store, reloaded into a bounded session projection, and materialized into the same context-pack shape before Shell rendering.`
 
 - `V13-FRAMEWORK-COORDINATION-001` — Pause and resume external runtime turns through approval-gated tool calls
   status: `in_progress`
