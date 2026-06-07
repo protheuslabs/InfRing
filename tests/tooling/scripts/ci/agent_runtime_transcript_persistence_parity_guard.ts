@@ -50,7 +50,7 @@ async function main() {
 
   const statusDir = fs.mkdtempSync(path.join(os.tmpdir(), 'infring-agent-runtime-transcript-parity-'));
   const store = createAgentRuntimeTranscriptStore({ statusDir, maxRecords: 32, windowLimit: 80 });
-  const engines = ['infring_native', 'codex_cli'];
+  const engines = ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'openclaw', 'hermes_agent'];
   const violations = [];
 
   engines.forEach((engineId, index) => {
@@ -86,18 +86,21 @@ async function main() {
   const mergedText = rowText(rows);
 
   assertCondition(violations, merged && merged.agent_runtime_transcript_overlay, 'transcript_overlay_missing');
-  assertCondition(violations, rows.length === 4, 'unexpected_transcript_row_count', { row_count: rows.length });
+  assertCondition(violations, rows.length === engines.length * 2, 'unexpected_transcript_row_count', {
+    expected_row_count: engines.length * 2,
+    row_count: rows.length,
+  });
   assertCondition(violations, mergedText.includes(CONTINUITY_KEY), 'continuity_key_missing_from_merged_projection');
   assertCondition(violations, rows.every((row) => row && row.projection_owner === 'gateway.runtime.agent_runtime_transcript'), 'projection_owner_not_gateway_owned');
   assertCondition(violations, rows.every((row) => row && row.source === 'agent_runtime_socket'), 'transcript_source_not_agent_runtime_socket');
   assertCondition(violations, rows.every((row) => cleanText(row.trace_id, 200)), 'trace_id_missing_from_transcript_row');
   assertCondition(violations, rows.every((row) => cleanText(row.detail_ref, 240)), 'detail_ref_missing_from_transcript_row');
-  assertCondition(violations, rowsForEngine(rows, 'infring_native').length === 2, 'native_engine_rows_missing_or_extra', {
-    native_row_count: rowsForEngine(rows, 'infring_native').length,
-  });
-  assertCondition(violations, rowsForEngine(rows, 'codex_cli').length === 2, 'external_engine_rows_missing_or_extra', {
-    external_row_count: rowsForEngine(rows, 'codex_cli').length,
-  });
+  for (const engineId of engines) {
+    assertCondition(violations, rowsForEngine(rows, engineId).length === 2, 'engine_rows_missing_or_extra', {
+      engine_id: engineId,
+      engine_row_count: rowsForEngine(rows, engineId).length,
+    });
+  }
   assertCondition(violations, Buffer.byteLength(JSON.stringify(merged), 'utf8') <= 65536, 'merged_projection_exceeds_default_gateway_budget', {
     byte_length: Buffer.byteLength(JSON.stringify(merged), 'utf8'),
   });
@@ -121,7 +124,10 @@ async function main() {
     .filter(Boolean));
 
   assertCondition(violations, contextPack && contextPack.type === 'agent_runtime_context_pack', 'context_pack_not_materialized');
-  assertCondition(violations, Number(contextPack.row_count) === 4, 'context_pack_row_count_mismatch', { row_count: contextPack.row_count });
+  assertCondition(violations, Number(contextPack.row_count) === engines.length * 2, 'context_pack_row_count_mismatch', {
+    expected_row_count: engines.length * 2,
+    row_count: contextPack.row_count,
+  });
   assertCondition(violations, fragmentText.includes(CONTINUITY_KEY), 'continuity_key_missing_from_context_pack');
   assertCondition(violations, sourceKinds.has('user_message'), 'context_pack_missing_user_message_source_kind');
   assertCondition(violations, sourceKinds.has('assistant_message'), 'context_pack_missing_assistant_message_source_kind');
