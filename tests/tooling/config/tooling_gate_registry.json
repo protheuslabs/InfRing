@@ -4295,6 +4295,18 @@
         "core/local/artifacts/agent_runtime_socket_live_gateway_guard_current.json"
       ],
       "notes": "Live/process-level guard: requires a running Gateway host or explicit INFRING_GATEWAY_HOST/INFRING_GATEWAY_PORT target."
+    },
+    "ops:agent-runtime:socket-disposable-gateway:guard": {
+      "command": "ops:agent-runtime:socket-disposable-gateway:guard",
+      "description": "Agent Runtime disposable Gateway /ws/agent-runtime WebSocket guard that starts and tears down its own host process.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_sec": 45,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_socket_disposable_gateway_guard_current.json"
+      ],
+      "notes": "Release-safe live/process guard: starts a disposable Gateway host on a temporary port and restores dashboard status after probing."
     }
   },
   "ops:eval:issue-authority:guard": {

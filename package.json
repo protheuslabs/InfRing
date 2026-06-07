@@ -1252,7 +1252,8 @@
     "ops:agent-runtime:shell-replaceability:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_shell_replaceability_guard.ts",
     "ops:agent-runtime:socket-live-handler:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_live_handler_guard.ts",
     "ops:agent-runtime:socket-upgrade-transport:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_upgrade_transport_guard.ts",
-    "ops:agent-runtime:socket-live-gateway:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_live_gateway_guard.ts"
+    "ops:agent-runtime:socket-live-gateway:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_live_gateway_guard.ts",
+    "ops:agent-runtime:socket-disposable-gateway:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_disposable_gateway_guard.ts"
   },
   "version": "0.4.0"
 }

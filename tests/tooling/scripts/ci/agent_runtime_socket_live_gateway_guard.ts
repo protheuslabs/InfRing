@@ -29,6 +29,9 @@ function ensureDir(filePath) {
 }
 
 function readStatusTarget() {
+  if (process.env.INFRING_GATEWAY_HOST || process.env.INFRING_GATEWAY_PORT || process.env.INFRING_DASHBOARD_PORT) {
+    return { host: DEFAULT_HOST, port: DEFAULT_PORT, source: 'explicit_env' };
+  }
   try {
     const status = JSON.parse(fs.readFileSync(STATUS_PATH, 'utf8'));
     const url = status && status.url ? new URL(status.url) : null;
