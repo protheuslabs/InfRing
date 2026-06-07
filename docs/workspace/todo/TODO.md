@@ -41,13 +41,13 @@ Updated: 2026-06-07T00:02:27.302Z
   work_gate: `reliability`
   real_work_score: `5`
   summary: Remove the remaining Alpine boot/runtime dependency once the retirement guard is green.
-- `GATEWAY-PHYSICAL-REROOT` — Re-root Gateway boundary code out of adapters
+- `GATEWAY-PHYSICAL-REROOT` — Retire legacy Gateway adapter host and shims
   owner: `codex`
   deadline: `2026-06-10`
   source_family: `Gateway Physical Domain Cleanup`
   work_gate: `reliability`
   real_work_score: `5`
-  summary: Move Gateway socket hosts, ingress normalization, payload budgets, permission entrypoints, and runtime route authority into gateway/** while leaving adapters/** as translator-only provider/framework bridges behind Gateway sockets.
+  summary: Re-root phase is complete: Gateway route, status, startup, lifecycle, request-boundary, and Agent Runtime assembly logic now lives under gateway/**. Remaining work is retiring the thin legacy dashboard host and compatibility adapter shims before the allowed window closes.
 
 ## Yellow Section (Do Soon)
 - `HYGIENE-RUST-UNUSED-IMPORTS` — Remove unused Rust imports in narrow batches

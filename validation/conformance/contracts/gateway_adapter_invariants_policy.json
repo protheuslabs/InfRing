@@ -8,7 +8,7 @@
   "declared_legacy_compatibility_hosts": [
     {
       "path": "adapters/runtime/infring_dashboard.ts",
-      "reason": "Legacy dashboard host currently serves Gateway routes while physical Gateway re-root is pending.",
+      "reason": "Thin legacy dashboard host delegates Gateway route, status, startup, lifecycle, request-boundary, and Agent Runtime assembly logic to gateway/** while compatibility retirement remains pending.",
       "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
       "allowed_until": "2026-07-01"
     }

@@ -264,14 +264,17 @@
     },
     {
       "id": "GATEWAY-PHYSICAL-REROOT",
-      "title": "Re-root Gateway boundary code out of adapters",
-      "section": "red",
+      "title": "Retire legacy Gateway adapter host and shims",
+      "section": "yellow",
       "owner": "codex",
       "deadline": "2026-06-10",
       "source_family": "Gateway Physical Domain Cleanup",
-      "summary": "Move Gateway socket hosts, ingress normalization, payload budgets, permission entrypoints, and runtime route authority into gateway/** while leaving adapters/** as translator-only provider/framework bridges behind Gateway sockets.",
+      "summary": "Re-root phase is complete: Gateway route, status, startup, lifecycle, request-boundary, and Agent Runtime assembly logic now lives under gateway/**. Remaining work is retiring the thin legacy dashboard host and compatibility adapter shims before the allowed window closes.",
       "work_gate": "reliability",
-      "real_work_score": 5
+      "real_work_score": 5,
+      "status": "in_progress",
+      "updated_at": "2026-06-07T04:32:05.522Z",
+      "progress_note": "Thin-host audit passed: gateway_adapter_invariants_guard has zero violations and no inline policy-shaped Gateway route/proxy/status/static/backend assembly remains in adapters/runtime/infring_dashboard.ts. Remaining debt is compatibility retirement/deletion."
     },
     {
       "id": "AGENT-RUNTIME-SOCKET-LIVE",
