@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-07T05:35:20.603Z",
+  "updated_at": "2026-06-07T05:37:05.032Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -355,7 +355,12 @@
       "source_family": "Unified Agent Runtime Framework",
       "summary": "Track each runtime engine against the same capabilities: discovery, model catalog, context continuity, useful work, approval pausing, universal tools, durable receipts, activity traces, error injection, and reload persistence.",
       "work_gate": "real_work",
-      "real_work_score": 4
+      "real_work_score": 4,
+      "status": "in_progress",
+      "updated_at": "2026-06-07T05:37:05.032Z",
+      "progress_note": "Wired engine usefulness scorecard into npm/tooling registry and upgraded it to consume cross-framework real-work replay evidence.",
+      "last_validation": "ops:agent-runtime:engine-scorecard",
+      "last_artifact": "core/local/artifacts/agent_runtime_engine_scorecard_current.json"
     },
     {
       "id": "AGENT-RUNTIME-UNIFIED-ERROR-INJECTION",

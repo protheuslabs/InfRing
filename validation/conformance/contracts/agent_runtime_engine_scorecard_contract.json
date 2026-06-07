@@ -1,9 +1,9 @@
 {
   "type": "agent_runtime_engine_scorecard_contract",
   "schema_version": 1,
-  "version": "2026-06-06",
+  "version": "2026-06-07",
   "owner": "assurance.validation",
-  "status": "contracted",
+  "status": "enforced",
   "purpose": "Track each selectable runtime engine against the same usefulness and reliability capabilities so InfRing can compare native and external engines without dashboard-owned judgment.",
   "engine_registry": "validation/conformance/contracts/agent_runtime_engine_registry.json",
   "turn_outcome_contract": "validation/conformance/contracts/agent_runtime_turn_outcome_contract.json",
@@ -26,7 +26,8 @@
     "durable_receipts",
     "activity_trace",
     "structured_transport",
-    "error_projection"
+    "error_projection",
+    "real_work_replay"
   ],
   "evidence_inputs": {
     "registry": "validation/conformance/contracts/agent_runtime_engine_registry.json",
@@ -34,7 +35,8 @@
     "context_continuity": "core/local/artifacts/agent_runtime_context_continuity_eval_current.json",
     "live_work": "core/local/artifacts/agent_runtime_live_work_eval_current.json",
     "structured_transport": "core/local/artifacts/agent_runtime_structured_transport_eval_current.json",
-    "hard_failure_injection": "core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json"
+    "hard_failure_injection": "core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json",
+    "real_work_replay": "core/local/artifacts/agent_runtime_real_work_replay_guard_current.json"
   },
   "score_policy": {
     "pass": 1,

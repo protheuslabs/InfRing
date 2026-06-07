@@ -4193,6 +4193,17 @@
       "artifacts": [
         "core/local/artifacts/agent_runtime_framework_coordination_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:engine-scorecard": {
+      "command": "ops:agent-runtime:engine-scorecard",
+      "description": "Generate the agent runtime engine parity and usefulness scorecard from Gateway/Validation evidence.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_seconds": 60,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_engine_scorecard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {

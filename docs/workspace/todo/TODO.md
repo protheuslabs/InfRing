@@ -307,3 +307,5 @@ Updated: 2026-06-07T05:28:02.648Z
 - Treat Markdown as a rendered operator surface, not the canonical mutation target.
 
 - Progress: Integrated OpenClaw/Hermes private schema contracts and model-provider inheritance policy; `ops:agent-runtime-engine:conformance:guard` passes.
+
+- Progress: Wired `ops:agent-runtime:engine-scorecard` and upgraded it to consume cross-framework real-work replay evidence.
