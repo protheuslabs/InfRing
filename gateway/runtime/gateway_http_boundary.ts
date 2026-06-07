@@ -9,6 +9,7 @@
 'use strict';
 
 const http = require('node:http');
+const { sanitizeGatewayTraceId } = require('./gateway_trace_boundary.ts');
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -75,6 +76,46 @@ function filterGatewayProxyHeaders(headers, host, traceId = '') {
   out.host = host;
   if (traceId) out['x-infring-trace-id'] = traceId;
   return out;
+}
+
+function gatewayBackendBase(flags) {
+  return `http://${flags.apiHost}:${flags.apiPort}`;
+}
+
+function gatewayBackendFetchOptions(options = {}, traceId = '') {
+  const cleanTraceId = sanitizeGatewayTraceId(traceId);
+  const source = options && typeof options === 'object' ? options : {};
+  const headers = { ...(source.headers || {}) };
+  if (cleanTraceId) headers['x-infring-trace-id'] = cleanTraceId;
+  return {
+    cache: 'no-store',
+    ...source,
+    headers,
+  };
+}
+
+async function fetchGatewayBackend(flags, pathname, options = {}, timeoutMs = 15000, traceId = '') {
+  const requestOptions = gatewayBackendFetchOptions(options, traceId);
+  return fetch(`${gatewayBackendBase(flags)}${pathname}`, {
+    ...requestOptions,
+    signal: requestOptions.signal || AbortSignal.timeout(timeoutMs),
+  });
+}
+
+async function fetchGatewayBackendJson(flags, pathname, timeoutMs = 15000, traceId = '') {
+  const res = await fetchGatewayBackend(flags, pathname, {}, timeoutMs, traceId);
+  if (!res.ok) throw new Error(`backend_http_${pathname}_${res.status}`);
+  return await res.json();
+}
+
+async function postGatewayBackendJson(flags, pathname, body, timeoutMs = 15000, traceId = '') {
+  const res = await fetchGatewayBackend(flags, pathname, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  }, timeoutMs, traceId);
+  if (!res.ok) throw new Error(`backend_http_${pathname}_${res.status}`);
+  return await res.json();
 }
 
 function gatewayProxyTargetFromOptions(options = {}) {
@@ -156,6 +197,10 @@ module.exports = {
   sendGatewayJson,
   readGatewayJsonBody,
   filterGatewayProxyHeaders,
+  gatewayBackendBase,
+  fetchGatewayBackend,
+  fetchGatewayBackendJson,
+  postGatewayBackendJson,
   proxyGatewayHttpRequest,
   proxyGatewayUpgrade,
 };

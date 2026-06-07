@@ -46,6 +46,10 @@ const {
 const {
   sendGatewayJson: sendJson,
   readGatewayJsonBody: readJsonBody,
+  gatewayBackendBase: backendBase,
+  fetchGatewayBackend: fetchBackend,
+  fetchGatewayBackendJson: fetchBackendJson,
+  postGatewayBackendJson: postBackendJson,
   proxyGatewayHttpRequest,
   proxyGatewayUpgrade,
 } = require('../../gateway/runtime/gateway_http_boundary.ts');
@@ -880,36 +884,7 @@ function assertDashboardSurfaceLocked() {
   assertNoAlternateDashboardSurfaces();
   assertSingleDashboardRoot();
 }
-function backendBase(flags) { return `http://${flags.apiHost}:${flags.apiPort}`; }
 async function sleep(ms) { await new Promise((resolve) => setTimeout(resolve, ms)); }
-async function fetchBackend(flags, pathname, init = {}, timeoutMs = 15000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try { return await fetch(`${backendBase(flags)}${pathname}`, { ...init, signal: controller.signal }); }
-  finally { clearTimeout(timer); }
-}
-async function fetchBackendJson(flags, pathname, timeoutMs = 15000, traceId = '') {
-  const cleanTraceId = sanitizeTraceId(traceId);
-  const init = cleanTraceId
-    ? { cache: 'no-store', headers: { 'x-infring-trace-id': cleanTraceId } }
-    : { cache: 'no-store' };
-  const res = await fetchBackend(flags, pathname, init, timeoutMs);
-  if (!res.ok) throw new Error(`backend_http_${pathname}_${res.status}`);
-  return res.json();
-}
-async function postBackendJson(flags, pathname, body, timeoutMs = 15000, traceId = '') {
-  const cleanTraceId = sanitizeTraceId(traceId);
-  const headers = { 'content-type': 'application/json' };
-  if (cleanTraceId) headers['x-infring-trace-id'] = cleanTraceId;
-  const res = await fetchBackend(flags, pathname, {
-    method: 'POST',
-    cache: 'no-store',
-    headers,
-    body: JSON.stringify(body || {}),
-  }, timeoutMs);
-  if (!res.ok) throw new Error(`backend_http_${pathname}_${res.status}`);
-  return res.json();
-}
 function createGatewayNativeOrchestrationClient(flags) {
   return {
     async healthCheck(ctx) {
