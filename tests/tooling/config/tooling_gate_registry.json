@@ -4216,6 +4216,18 @@
         "core/local/artifacts/agent_runtime_live_work_eval_current.json"
       ],
       "notes": "This is live and may contact local/CLI providers. Use -- --engines=adapter-ready to sample all live-selectable engines."
+    },
+    "ops:agent-runtime:framework-capability:guard": {
+      "command": "ops:agent-runtime:framework-capability:guard",
+      "description": "Prevent regressions in real external-framework capability mapping discovered by live Codex, Claude Code, and Grok Code comparative tests.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_seconds": 60,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_framework_capability_guard_current.json"
+      ],
+      "notes": "Local non-provider guard: checks adapter args, Gateway-approved native tool mapping, and compact provider-failure projection."
     }
   },
   "ops:eval:issue-authority:guard": {

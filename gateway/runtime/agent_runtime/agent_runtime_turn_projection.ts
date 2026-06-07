@@ -9,6 +9,7 @@
 
 'use strict';
 
+const path = require('node:path');
 const { normalizeAgentRuntimeTurnInput: defaultNormalizeAgentRuntimeTurnInput } = require('../agent_runtime_input_normalizer.ts');
 const { buildUniversalToolGrants: defaultBuildUniversalToolGrants } = require('./universal_core_tools.ts');
 const { buildAgentRuntimeStructuredTurn: defaultBuildAgentRuntimeStructuredTurn } = require('./agent_runtime_structured_transport.ts');
@@ -25,6 +26,11 @@ function cleanDisplayText(value, maxLen = 24000) { return stripTerminalControls(
 function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanApprovalId(value) { return cleanText(value, 260).replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanReceiptComponent(value, maxLen = 200) { return cleanText(value, maxLen).replace(/[^A-Za-z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown'; }
+function cleanWorkingDirectory(value) {
+  const raw = String(value == null ? '' : value).replace(/\0/g, '').trim();
+  if (!raw || raw.startsWith('~')) return '';
+  return path.resolve(raw);
+}
 
 function parseRawProviderActivityText(value) {
   const text = cleanDisplayText(value, 12000);
@@ -711,7 +717,13 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       };
     }
     const workspace = deps.loadAgentRuntimeWorkspace ? deps.loadAgentRuntimeWorkspace(traceId) : { workspace_dir: root, active_workspace: root };
-    const activeWorkspaceDir = workspace.workspace_dir || workspace.active_workspace || root;
+    const requestWorkspaceDir = cleanWorkingDirectory(
+      body.working_directory ||
+        body.current_working_directory ||
+        body.present_working_directory ||
+        body.cwd,
+    );
+    const activeWorkspaceDir = requestWorkspaceDir || workspace.workspace_dir || workspace.active_workspace || root;
     const modelProviderContext = normalizeModelProviderContext(body, engineId);
     const router = deps.createRouter({
       liveDispatch: true,
@@ -963,6 +975,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       agent_id: agentId,
       session_id: sessionId,
       turn_id: turnId,
+      working_directory: activeWorkspaceDir,
       cwd: activeWorkspaceDir,
       workspace_dir: activeWorkspaceDir,
       active_workspace: workspace,
@@ -1006,6 +1019,17 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       engine_id: cleanEngineId(pendingPermissionRequest.engine_id || engineId),
       session_id: cleanText(pendingPermissionRequest.session_id || sessionId, 200),
       turn_id: cleanText(pendingPermissionRequest.turn_id || turnId, 200),
+      working_directory: cleanText(
+        pendingPermissionRequest.working_directory ||
+          pendingPermissionRequest.current_working_directory ||
+          pendingPermissionRequest.present_working_directory ||
+          pendingPermissionRequest.cwd ||
+          turnMessage.working_directory ||
+          turnMessage.cwd ||
+          turnMessage.workspace_dir ||
+          '',
+        1000,
+      ),
       tool_call_ref: cleanText(pendingPermissionRequest.tool_call_ref, 240),
       tool_id: cleanText(pendingPermissionRequest.tool_id, 120),
       capability: cleanText(pendingPermissionRequest.capability, 160),

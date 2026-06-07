@@ -35,6 +35,7 @@ function createGrokCodeEngineAdapter(options = {}) {
     },
     runArgs: (prompt, ctx) => {
       const modelArg = selectedRuntimeModelArg(ctx, ['grok_code', 'grok', 'xai']);
+      const mutationGrant = mutationGrantActive(ctx);
       return [
         '--disable-web-search',
         '--experimental-memory',
@@ -42,7 +43,8 @@ function createGrokCodeEngineAdapter(options = {}) {
         '--output-format',
         'streaming-json',
         '--permission-mode',
-        mutationGrantActive(ctx) ? 'acceptEdits' : 'default',
+        mutationGrant ? 'acceptEdits' : 'default',
+        ...(mutationGrant ? ['--always-approve'] : []),
         ...(modelArg ? ['--model', modelArg] : []),
         '--verbatim',
         '--single',

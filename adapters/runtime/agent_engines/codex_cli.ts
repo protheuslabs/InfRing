@@ -45,6 +45,7 @@ function createCodexCliEngineAdapter(options = {}) {
       return [
         'exec',
         '--json',
+        '--skip-git-repo-check',
         '--sandbox',
         codexSandboxMode(ctx),
         '--ignore-rules',

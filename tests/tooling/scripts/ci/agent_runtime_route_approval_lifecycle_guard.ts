@@ -59,8 +59,8 @@ function createFakeApprovalRuntimeAdapter(artifactRel, artifactText) {
 
 async function main() {
   const scratchDir = path.join(ROOT, 'core', 'local', 'artifacts', 'agent-runtime-route-approval-lifecycle-scratch');
-  const artifactRel = 'core/local/artifacts/agent-runtime-route-approval-lifecycle-scratch/tmp/route-level-approval.txt';
-  const artifactAbs = path.join(ROOT, artifactRel);
+  const artifactRel = 'tmp/route-level-approval.txt';
+  const artifactAbs = path.join(scratchDir, artifactRel);
   const artifactText = 'route approval lifecycle proof\n';
   try { fs.rmSync(scratchDir, { recursive: true, force: true }); } catch {}
 

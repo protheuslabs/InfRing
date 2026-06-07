@@ -61,6 +61,11 @@ const GATES = [
     script: 'tests/tooling/scripts/ci/agent_runtime_real_work_replay_guard.ts',
     coverage_scope: 'full_engine_registry',
   },
+  {
+    id: 'framework_capability_regressions',
+    script: 'tests/tooling/scripts/ci/agent_runtime_framework_capability_guard.ts',
+    coverage_scope: 'adapter_capability_policy',
+  },
 ];
 
 function preview(value) {

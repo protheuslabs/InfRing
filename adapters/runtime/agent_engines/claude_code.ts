@@ -38,13 +38,15 @@ function createClaudeCodeEngineAdapter(options = {}) {
     // continuity is supplied through the Gateway-owned bounded context pack.
     runArgs: (prompt, ctx) => {
       const modelArg = selectedRuntimeModelArg(ctx, ['claude_code', 'claude', 'anthropic']);
+      const mutationGrant = mutationGrantActive(ctx);
       return [
         '--print',
         '--output-format',
         'stream-json',
         '--verbose',
         '--permission-mode',
-        mutationGrantActive(ctx) ? 'acceptEdits' : 'default',
+        mutationGrant ? 'acceptEdits' : 'default',
+        ...(mutationGrant ? ['--allowedTools', 'Read,Write,Edit,Bash'] : []),
         ...(modelArg ? ['--model', modelArg] : []),
         '--include-partial-messages',
         '--include-hook-events',

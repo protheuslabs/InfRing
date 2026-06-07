@@ -71,6 +71,18 @@ function baseEvent(ctx, type, defaultEngineId) {
   };
 }
 
+function requestWorkingDirectory(ctx) {
+  const message = (ctx && ctx.message) || {};
+  return cleanString(
+    message.working_directory ||
+      message.current_working_directory ||
+      message.present_working_directory ||
+      message.cwd ||
+      '',
+    1000,
+  );
+}
+
 function stableRef(prefix, ctx, defaultEngineId) {
   const event = baseEvent(ctx, 'ref', defaultEngineId);
   const trace = event.trace_id || 'missing-trace';
@@ -759,12 +771,46 @@ function cliRuntimeFailureText(engineId, run, timeoutMs) {
   if (run && run.timed_out) {
     return `${cleanEngine} did not finish within ${timeoutSeconds}s. The external runtime process was stopped by the InfRing Gateway turn timeout.`;
   }
-  const stderr = cleanDisplayString(run && run.stderr, 4000);
+  const combined = cleanDisplayString([
+    run && run.stderr,
+    run && run.stdout,
+  ].filter(Boolean).join('\n'), 12000);
+  const lower = combined.toLowerCase();
+  if (
+    lower.includes('quota') ||
+    lower.includes('credit') ||
+    lower.includes('billing') ||
+    lower.includes('subscription') ||
+    lower.includes('payment required') ||
+    lower.includes('insufficient balance')
+  ) {
+    const reason = (combined.match(/(?:error_message=|message['"]?\s*:\s*['"]?)([^\n"}]+)/i) || [])[1] ||
+      (combined.match(/(supergrok[^\n]+required|subscription[^\n]+required|quota[^\n]+|billing[^\n]+|credit[^\n]+)/i) || [])[1] ||
+      'quota, billing, subscription, or credit state prevented the external runtime from running';
+    return `${cleanEngine} external runtime provider is unavailable: ${cleanString(reason, 400)}.`;
+  }
+  const stderr = dedupeFailureLines(run && run.stderr, 4000);
   if (stderr) return stderr;
-  const stdout = cleanDisplayString(run && run.stdout, 4000);
+  const stdout = dedupeFailureLines(run && run.stdout, 4000);
   if (stdout) return stdout;
   const exitCode = run && run.exit_code != null ? String(run.exit_code) : 'unknown';
   return `${cleanEngine} exited without a usable assistant response (exit_code=${exitCode}).`;
+}
+
+function dedupeFailureLines(value, max = 4000) {
+  const lines = cleanDisplayString(value, max * 2).split(/\n+/);
+  const out = [];
+  const seen = new Set();
+  for (const line of lines) {
+    const text = cleanDisplayString(line, 800);
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+    if (out.length >= 24) break;
+  }
+  return cleanDisplayString(out.join('\n'), max);
 }
 
 function classifyCliRuntimeFailureCode(engineId, run, failureText) {
@@ -1309,6 +1355,7 @@ function buildPermissionRequestFromDenials(denials, ctx, defaultEngineId) {
     engine_id: base.engine_id,
     session_id: base.session_id,
     turn_id: turnId,
+    working_directory: requestWorkingDirectory(ctx),
     tool_call_ref: `external-permission-denial/${toolId}/${base.trace_id || 'trace'}/${turnId}`,
     tool_id: toolId,
     capability: toolId === 'artifact.create_propose'
@@ -1357,6 +1404,7 @@ function buildPermissionRequestFromProposal(proposal, ctx, defaultEngineId) {
     engine_id: base.engine_id,
     session_id: base.session_id,
     turn_id: turnId,
+    working_directory: requestWorkingDirectory(ctx),
     tool_call_ref: `external-tool-proposal/${toolId}/${base.trace_id || 'trace'}/${turnId}`,
     tool_id: toolId,
     capability: toolId === 'artifact.create_propose'
@@ -1650,7 +1698,7 @@ function createCliRuntimeEngineAdapter(options = {}) {
     });
     const parsed = parseCliActivityOutput(run.stdout, run.stderr, ctx, engineId);
     const failureText = run.ok ? '' : cliRuntimeFailureText(engineId, run, turnTimeoutMs);
-    const outputText = parsed.output_text || failureText;
+    const outputText = run.ok ? (parsed.output_text || failureText) : failureText;
     const errorCode = run.ok ? '' : classifyCliRuntimeFailureCode(engineId, run, failureText);
     return {
       ...baseEvent(ctx, 'turn.complete', engineId),

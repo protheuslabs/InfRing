@@ -23,6 +23,11 @@ function cleanDisplayText(value, maxLen = 24000) { return stripTerminalControls(
 function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanApprovalId(value) { return cleanText(value, 260).replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanReceiptComponent(value, maxLen = 200) { return cleanText(value, maxLen).replace(/[^A-Za-z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown'; }
+function cleanWorkingDirectory(value) {
+  const raw = String(value == null ? '' : value).replace(/\0/g, '').trim();
+  if (!raw || raw.startsWith('~')) return '';
+  return path.resolve(raw);
+}
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -89,24 +94,29 @@ function createAgentRuntimeApprovalStore(options = {}) {
     return out;
   }
 
-  function resolveAgentRuntimeArtifactPath(rawPath) {
+  function resolveAgentRuntimeArtifactPath(rawPath, workingDirectory) {
+    const baseDir = cleanWorkingDirectory(workingDirectory) || root;
     const value = String(rawPath == null ? '' : rawPath).replace(/\\/g, '/').trim();
     if (!value) throw new Error('artifact_path_required');
-    if (path.isAbsolute(value) || value.startsWith('~') || value.includes('\0')) throw new Error('artifact_path_must_be_repo_relative');
+    if (path.isAbsolute(value) || value.startsWith('~') || value.includes('\0')) throw new Error('artifact_path_must_be_workspace_relative');
     const normalized = path.posix.normalize(value).replace(/^\/+/, '');
-    if (!normalized || normalized === '.' || normalized.startsWith('../') || normalized.includes('/../')) throw new Error('artifact_path_escapes_repo');
-    const target = path.resolve(root, normalized);
-    const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
-    if (target !== root && !target.startsWith(rootWithSep)) throw new Error('artifact_path_escapes_repo');
-    if (target === root) throw new Error('artifact_path_must_name_file');
-    return { target, relativePath: path.relative(root, target).replace(/\\/g, '/') };
+    if (!normalized || normalized === '.' || normalized.startsWith('../') || normalized.includes('/../')) throw new Error('artifact_path_escapes_workspace');
+    const target = path.resolve(baseDir, normalized);
+    const baseWithSep = baseDir.endsWith(path.sep) ? baseDir : baseDir + path.sep;
+    if (target !== baseDir && !target.startsWith(baseWithSep)) throw new Error('artifact_path_escapes_workspace');
+    if (target === baseDir) throw new Error('artifact_path_must_name_file');
+    return {
+      target,
+      relativePath: path.relative(baseDir, target).replace(/\\/g, '/'),
+      workingDirectory: baseDir,
+    };
   }
 
   function executeAgentRuntimeApprovedProposal(traceId, approvalId, body) {
     const toolId = cleanText(body && body.tool_id, 120);
     if (toolId !== 'artifact.create_propose') return null;
     const args = sanitizeAgentRuntimeProposalArguments(body && (body.proposal_arguments || body.arguments));
-    const resolved = resolveAgentRuntimeArtifactPath(args.path);
+    const resolved = resolveAgentRuntimeArtifactPath(args.path, body && body.working_directory);
     const content = cleanDisplayText(args.content || '', 262144);
     ensureDir(path.dirname(resolved.target));
     fs.writeFileSync(resolved.target, content, 'utf8');
@@ -120,6 +130,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
       tool_id: toolId,
       effect: 'artifact_written',
       path: resolved.relativePath,
+      working_directory: resolved.workingDirectory,
       bytes,
       sha256: digest,
       mime_type: cleanText(args.mime_type || 'text/plain', 120),
@@ -144,6 +155,12 @@ function createAgentRuntimeApprovalStore(options = {}) {
       engine_id: cleanEngineId(source.engine_id),
       session_id: cleanText(source.session_id, 200),
       turn_id: cleanText(source.turn_id, 200),
+      working_directory: cleanWorkingDirectory(
+        source.working_directory ||
+          source.current_working_directory ||
+          source.present_working_directory ||
+          source.cwd,
+      ),
       tool_call_ref: cleanText(source.tool_call_ref, 240),
       tool_id: toolId,
       capability: cleanText(source.capability, 160),
@@ -211,6 +228,15 @@ function createAgentRuntimeApprovalStore(options = {}) {
       engine_id: cleanEngineId((body && body.engine_id) || (pending && pending.engine_id)),
       session_id: cleanText((body && body.session_id) || (pending && pending.session_id), 200),
       tool_call_ref: cleanText((body && body.tool_call_ref) || (pending && pending.tool_call_ref), 240),
+      working_directory: cleanWorkingDirectory(
+        (body && (
+          body.working_directory ||
+          body.current_working_directory ||
+          body.present_working_directory ||
+          body.cwd
+        )) ||
+          (pending && pending.working_directory),
+      ),
     };
     let executionResult = null;
     if (decision !== 'deny') {
@@ -270,6 +296,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
       tool_call_ref: cleanText(decisionBody && decisionBody.tool_call_ref, 240),
       engine_id: cleanEngineId(decisionBody && decisionBody.engine_id),
       session_id: cleanText(decisionBody && decisionBody.session_id, 200),
+      working_directory: cleanWorkingDirectory(decisionBody && decisionBody.working_directory),
       gatekeeper_kind: cleanText((body && body.gatekeeper_kind) || (pending && pending.gatekeeper_kind) || 'user', 80) || 'user',
       decided_at: nowIso(),
       pending_request_found: !!pending,

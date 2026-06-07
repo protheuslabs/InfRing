@@ -283,6 +283,15 @@ function normalizeGatewayEvent(event, message, fallbackType) {
         engine_id: normalizedProposal.engine_id,
         session_id: normalizedProposal.session_id,
         turn_id: normalizedProposal.turn_id,
+        working_directory: cleanString(
+          (message && (
+            message.working_directory ||
+            message.current_working_directory ||
+            message.present_working_directory ||
+            message.cwd
+          )) || '',
+          1000,
+        ),
         tool_call_ref: normalizedProposal.tool_call_ref,
         tool_id: normalizedProposal.tool_id,
         capability: normalizedProposal.capability,
