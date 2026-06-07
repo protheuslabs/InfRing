@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-07T05:14:30.176Z
+Updated: 2026-06-07T05:17:56.047Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -27,7 +27,7 @@ Updated: 2026-06-07T05:14:30.176Z
   owner: `gateway.kernel_context`
   deadline: `2026-06-14`
   summary: All engines, including InfRing native, Codex, Claude Code, Grok Code, OpenClaw, and Hermes, should receive the same bounded context pack, save turns through the same backend persistence path, and reload conversation state consistently.
-  progress_note: `Expanded deterministic Gateway transcript persistence parity guard across native, Codex, Claude Code, Grok Code, OpenClaw, and Hermes engine IDs; all must append through the same store, reload into a bounded projection, and feed the same context-pack materializer.`
+  progress_note: `Public Gateway turn-route transcript persistence guard now proves route submission -> Gateway transcript overlay -> bounded budget -> context preview reload across six engines, and the runtime no longer duplicates user rows in raw transcript persistence after dispatch.`
 
 - `V13-FRAMEWORK-COORDINATION-001` — Pause and resume external runtime turns through approval-gated tool calls
   status: `in_progress`

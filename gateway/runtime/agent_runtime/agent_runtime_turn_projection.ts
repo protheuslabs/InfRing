@@ -1023,7 +1023,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
         traceId,
         turnId,
         engineId,
-        userText: text,
+        userText: '',
         assistantText: persistedAssistantOutput,
         pendingPermissionRequest: projectedPendingPermission,
       });

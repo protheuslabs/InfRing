@@ -4132,6 +4132,16 @@
       "artifact_paths": [
         "core/local/artifacts/agent_runtime_transcript_persistence_parity_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:route-transcript-persistence:guard": {
+      "owner": "validation",
+      "description": "Agent runtime public turn route transcript persistence and context preview guard.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "script": "ops:agent-runtime:route-transcript-persistence:guard",
+      "artifact_paths": [
+        "core/local/artifacts/agent_runtime_route_transcript_persistence_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {
