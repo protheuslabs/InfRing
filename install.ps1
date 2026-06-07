@@ -548,6 +548,9 @@ trap {
       $reason = [string]$_.Exception.Message
     }
   } catch {}
+  try {
+    Write-Host ("[infring install] failure reason: {0}" -f $reason)
+  } catch {}
   Write-InstallFailureSummary -FailureReason $reason -ExitCode "1"
   throw
 }
@@ -3182,7 +3185,15 @@ function Invoke-RepairWorkspaceState {
       }
     }
   }
-  New-Item -ItemType Directory -Force -Path (Join-Path $workspaceRoot "local/state") | Out-Null
+  try {
+    New-Item -ItemType Directory -Force -Path (Join-Path $workspaceRoot "local/state") -ErrorAction Stop | Out-Null
+  } catch {
+    $stateRecreateReason = "unknown"
+    try {
+      if ($_.Exception -and $_.Exception.Message) { $stateRecreateReason = [string]$_.Exception.Message }
+    } catch {}
+    Write-Host ("[infring install] repair warning: failed to recreate local/state ({0})" -f $stateRecreateReason)
+  }
 }
 
 if ($VerifyInstallSummaryContract) {

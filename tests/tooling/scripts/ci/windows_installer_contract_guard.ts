@@ -357,9 +357,20 @@ function run(argv: string[]): number {
     ok:
       source.includes('Test-Path -LiteralPath $abs')
       && source.includes('Remove-Item -Force -Recurse -LiteralPath $abs -ErrorAction Stop')
-      && source.includes('repair warning: failed to remove stale runtime path: $rel ($cleanupReason)'),
+      && source.includes('repair warning: failed to remove stale runtime path: $rel ($cleanupReason)')
+      && source.includes('New-Item -ItemType Directory -Force -Path (Join-Path $workspaceRoot "local/state") -ErrorAction Stop')
+      && source.includes('repair warning: failed to recreate local/state ({0})'),
     detail:
-      'repair workspace cleanup must be diagnostic and non-fatal when Windows refuses to delete stale generated runtime paths',
+      'repair workspace cleanup and local/state recreation must be diagnostic and non-fatal when Windows refuses stale generated runtime paths',
+  });
+
+  checks.push({
+    id: 'windows_install_script_exception_reason_visible_contract',
+    ok:
+      source.includes('[infring install] failure reason: {0}')
+      && source.includes('Write-InstallFailureSummary -FailureReason $reason -ExitCode "1"'),
+    detail:
+      'installer exceptions must print a visible failure reason before the recovery summary so CI does not collapse to ScriptHalted',
   });
 
   checks.push({
