@@ -37,7 +37,7 @@
     "owner_of_boundary": "gateway",
     "source_domain": "shell_or_external_client_projection",
     "target_domain": "gateway.agent_runtime_router",
-    "implementation_status": "contracted_not_live"
+    "implementation_status": "live"
   },
   "gateway_only_invariant": {
     "shell_to_gateway_only": true,

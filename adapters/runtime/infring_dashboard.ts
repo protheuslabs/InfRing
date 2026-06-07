@@ -165,6 +165,7 @@ const {
   handleShellSocketAgentRuntimeOverlayRoute,
   handleAgentRuntimeEngineRoute,
   handleAgentRuntimeTurnRoute,
+  agentRuntimeSocketTransport,
 } = createGatewayAgentRuntimeRouteAssembly({
   root: ROOT,
   statusDir: STATUS_DIR,
@@ -280,7 +281,15 @@ async function runServe(flags) {
     }
   });
   server.on('upgrade', (req, socket, head) => {
-    dashboardRequestBoundary.handleDashboardUpgrade({ req, socket, head, wsBridge, flags, requestTraceId });
+    dashboardRequestBoundary.handleDashboardUpgrade({
+      req,
+      socket,
+      head,
+      agentRuntimeSocketTransport,
+      wsBridge,
+      flags,
+      requestTraceId,
+    });
   });
   server.on('clientError', dashboardRequestBoundary.handleClientError);
   const cleanup = createGatewayHostCleanup({

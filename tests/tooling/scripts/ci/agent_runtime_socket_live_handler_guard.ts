@@ -14,6 +14,7 @@ const path = require('node:path');
 const ROOT = process.cwd();
 const OUT_JSON = path.join(ROOT, 'core/local/artifacts/agent_runtime_socket_live_handler_guard_current.json');
 const SCRATCH_DIR = path.join(ROOT, 'core/local/artifacts/agent-runtime-socket-live-handler-scratch');
+const DASHBOARD_HOST_PATH = path.join(ROOT, 'adapters/runtime/infring_dashboard.ts');
 const AGENT_ID = 'agent-runtime-socket-live-handler-agent';
 const SESSION_ID = 'agent-runtime-socket-live-handler-session';
 const ENGINE_ID = 'codex_cli';
@@ -101,6 +102,29 @@ function eventTypes(events) {
   return events.map((event) => clean(event && event.type, 120)).filter(Boolean);
 }
 
+function dashboardHostUpgradeWiring() {
+  let source = '';
+  try {
+    source = fs.readFileSync(DASHBOARD_HOST_PATH, 'utf8');
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'missing_host_source',
+      error: clean(error && error.message ? error.message : error, 400),
+    };
+  }
+  const assemblyExportsTransport = /createGatewayAgentRuntimeRouteAssembly\([\s\S]*?\)[\s\S]*?agentRuntimeSocketTransport/.test(source) ||
+    /\{\s*[\s\S]*?agentRuntimeSocketTransport[\s\S]*?\}\s*=\s*createGatewayAgentRuntimeRouteAssembly\(/.test(source);
+  const upgradePassesTransport = /handleDashboardUpgrade\(\{\s*[\s\S]*?agentRuntimeSocketTransport[\s\S]*?\}\)/.test(source);
+  return {
+    ok: assemblyExportsTransport && upgradePassesTransport,
+    status: assemblyExportsTransport && upgradePassesTransport ? 'live' : 'pending',
+    assembly_exports_transport: assemblyExportsTransport,
+    upgrade_passes_transport: upgradePassesTransport,
+    host_path: path.relative(ROOT, DASHBOARD_HOST_PATH),
+  };
+}
+
 async function main() {
   try { fs.rmSync(SCRATCH_DIR, { recursive: true, force: true }); } catch {}
   const { createGatewayAgentRuntimeRouteAssembly } = require(path.join(ROOT, 'gateway/runtime/agent_runtime/agent_runtime_route_assembly.ts'));
@@ -185,6 +209,8 @@ async function main() {
     'error',
   ];
   const violations = [];
+  const hostWiring = dashboardHostUpgradeWiring();
+  if (!hostWiring.ok) violations.push({ kind: 'host_upgrade_transport_not_wired', host_wiring: hostWiring });
   for (const type of required) {
     if (!types.includes(type)) violations.push({ kind: 'missing_socket_event_type', type });
   }
@@ -210,7 +236,8 @@ async function main() {
     generated_at: new Date().toISOString(),
     mode: 'deterministic_gateway_socket_handler',
     canonical_socket_route: '/ws/agent-runtime',
-    host_upgrade_wiring: 'pending',
+    host_upgrade_wiring: hostWiring.status,
+    host_upgrade_wiring_probe: hostWiring,
     engine_id: ENGINE_ID,
     trace_id: traceId,
     event_count: allEvents.length,
