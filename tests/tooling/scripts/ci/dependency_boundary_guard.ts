@@ -248,7 +248,7 @@ export function run(rawArgs: Record<string, unknown> = {}): Record<string, unkno
   for (const dir of includeDirs) {
     files.push(...listFiles(path.join(ROOT, dir), includeExt, excludeContains));
   }
-  const filesRel = files.map((filePath) => rel(filePath));
+  const filesRel = files.map((filePath) => rel(filePath)).sort((left, right) => left.localeCompare(right));
   const filesSorted = filesRel.every((filePath, index) => index === 0 || filePath.localeCompare(filesRel[index - 1]) >= 0);
   const filesUnique = new Set(filesRel).size === filesRel.length;
   checks.push({

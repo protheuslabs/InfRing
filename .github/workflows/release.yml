@@ -2,6 +2,8 @@ name: Release GA
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -139,7 +141,7 @@ jobs:
             process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
 NODE
           else
-            cargo run --quiet --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops -- release-semver-contract run --strict=1 --write=1 --channel=${{ steps.channel.outputs.release_channel }} > /tmp/release-plan.json
+            node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/ops/release_semver_contract.ts run --strict=1 --write=1 --channel=${{ steps.channel.outputs.release_channel }} > /tmp/release-plan.json
           fi
           cat /tmp/release-plan.json
           RELEASE_READY="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("/tmp/release-plan.json","utf8"));process.stdout.write(p.release_ready?"1":"0");')"
@@ -690,7 +692,7 @@ NODE
 
       - name: Publish GA release
         if: steps.semver.outputs.release_ready == '1'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.semver.outputs.tag }}
           name: Infring ${{ steps.semver.outputs.tag }} (${{ steps.semver.outputs.release_channel }})

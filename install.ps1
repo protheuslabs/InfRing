@@ -3167,9 +3167,19 @@ function Invoke-RepairWorkspaceState {
   $cleanup = @("client/runtime/local", "client/tmp", "core/local/tmp", "local/state")
   foreach ($rel in $cleanup) {
     $abs = Join-Path $workspaceRoot $rel
-    if (Test-Path $abs) {
-      Remove-Item -Force -Recurse $abs
-      Write-Host "[infring install] repair removed stale runtime path: $rel"
+    if (Test-Path -LiteralPath $abs) {
+      try {
+        Remove-Item -Force -Recurse -LiteralPath $abs -ErrorAction Stop
+        Write-Host "[infring install] repair removed stale runtime path: $rel"
+      } catch {
+        $cleanupReason = "unknown"
+        try {
+          if ($_ -and $_.Exception -and $_.Exception.Message) {
+            $cleanupReason = [string]$_.Exception.Message
+          }
+        } catch {}
+        Write-Host "[infring install] repair warning: failed to remove stale runtime path: $rel ($cleanupReason)"
+      }
     }
   }
   New-Item -ItemType Directory -Force -Path (Join-Path $workspaceRoot "local/state") | Out-Null
