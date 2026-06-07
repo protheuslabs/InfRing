@@ -13,27 +13,15 @@ const {
 } = require('./run_infring_ops.ts');
 const { buildPrimaryDashboardHtml, hasPrimaryDashboardUi, readBuildVersionInfo, readPrimaryDashboardAsset } = require('./dashboard_asset_router.ts');
 const { createAgentWsBridge } = require('../../gateway/runtime/sockets/agent_ws/agent_ws_bridge.ts');
-const { loadAgentRuntimeEngineRegistry } = require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts');
 const {
-  createGatewayAgentRuntimeRouterAssembly,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_router_assembly.ts');
-const {
-  ingestAgentRuntimeContextProjection,
-  appendAgentRuntimeTurnAtoms,
-  materializeAgentRuntimeContextPack,
-  loadAgentRuntimeContextRows,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_context_store.ts');
-const { materializeKernelAgentRuntimeContextPack } = require('../../gateway/runtime/agent_runtime/agent_runtime_kernel_context_bridge.ts');
-const { buildUniversalToolGrants } = require('../../gateway/runtime/agent_runtime/universal_core_tools.ts');
+  createGatewayAgentRuntimeRouteAssembly,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_route_assembly.ts');
 const { createInfringNativeEngineAdapter } = require('./agent_engines/infring_native.ts');
 const { createCodexCliEngineAdapter } = require('./agent_engines/codex_cli.ts');
 const { createClaudeCodeEngineAdapter } = require('./agent_engines/claude_code.ts');
 const { createGrokCodeEngineAdapter } = require('./agent_engines/grok_code.ts');
 const { createOpenClawEngineAdapter } = require('./agent_engines/openclaw.ts');
 const { createHermesAgentEngineAdapter } = require('./agent_engines/hermes_agent.ts');
-const {
-  createShellSocketAgentRuntimeOverlayRouteHandler,
-} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_agent_runtime_overlay_routes.ts');
 const {
   createShellSocketCoreRouteHandler,
 } = require('../../gateway/runtime/sockets/shell_socket/shell_socket_core_routes.ts');
@@ -103,51 +91,6 @@ const {
   proxyGatewayHttpRequest,
   proxyGatewayUpgrade,
 } = require('../../gateway/runtime/gateway_http_boundary.ts');
-const {
-  normalizeAgentRuntimeTurnInput,
-} = require('../../gateway/runtime/agent_runtime_input_normalizer.ts');
-const {
-  createAgentRuntimeWorkspaceStore,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_workspace.ts');
-const {
-  createAgentRuntimeWorkspaceRouteHandler,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_workspace_routes.ts');
-const {
-  createAgentRuntimeApprovalStore,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_approvals.ts');
-const {
-  createAgentRuntimeApprovalRouteHandler,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_approval_routes.ts');
-const {
-  createAgentRuntimeReceiptStore,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_receipts.ts');
-const {
-  createAgentRuntimeTranscriptStore,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_transcripts.ts');
-const {
-  createAgentRuntimeSessionStateStore,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_session_state.ts');
-const {
-  createAgentRuntimeEngineProjectionStore,
-  findAgentRuntimeEngine,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_engine_projections.ts');
-const {
-  createAgentRuntimeEngineRouteHandler,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_engine_routes.ts');
-const {
-  createAgentRuntimeTurnProjectionStore,
-  sanitizeAgentRuntimeActivityEvent,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts');
-const {
-  createAgentRuntimeTurnRouteHandler,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_turn_routes.ts');
-const {
-  createAgentRuntimeContextPreviewProjectionStore,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_context_preview.ts');
-const {
-  AGENT_RUNTIME_CONTEXT_FANOUT_TARGET,
-  buildAgentRuntimeContextPack,
-} = require('../../gateway/runtime/agent_runtime/agent_runtime_context_pack.ts');
 
 const DASHBOARD_DIR = path.resolve(ROOT, 'client', 'runtime', 'systems', 'ui');
 const CANONICAL_STATIC_DIR = path.resolve(DASHBOARD_DIR, 'infring_static');
@@ -178,17 +121,19 @@ const {
   staticDir: STATIC_DIR,
   hasPrimaryDashboardUi,
 });
-const agentRuntimeWorkspaceStore = createAgentRuntimeWorkspaceStore({ root: ROOT, statusDir: STATUS_DIR });
 const {
-  normalizeAgentRuntimeWorkspacePath,
-  loadAgentRuntimeWorkspace,
-} = agentRuntimeWorkspaceStore;
-const {
-  createAdapterMap: createAgentRuntimeEngineAdapterMap,
-  createRouter: createDashboardAgentRuntimeRouter,
-} = createGatewayAgentRuntimeRouterAssembly({
+  handleAgentRuntimeWorkspaceRoute,
+  handleAgentRuntimeApprovalRoute,
+  handleShellSocketAgentRuntimeOverlayRoute,
+  handleAgentRuntimeEngineRoute,
+  handleAgentRuntimeTurnRoute,
+} = createGatewayAgentRuntimeRouteAssembly({
   root: ROOT,
-  normalizeWorkspacePath: normalizeAgentRuntimeWorkspacePath,
+  statusDir: STATUS_DIR,
+  readJsonBody,
+  sendJson,
+  fetchBackendJson,
+  createNativeOrchestrationClient: createGatewayNativeOrchestrationClient,
   adapterFactories: {
     infring_native: createInfringNativeEngineAdapter,
     codex_cli: createCodexCliEngineAdapter,
@@ -197,41 +142,6 @@ const {
     openclaw: createOpenClawEngineAdapter,
     hermes_agent: createHermesAgentEngineAdapter,
   },
-});
-const {
-  handleAgentRuntimeWorkspaceRoute,
-} = createAgentRuntimeWorkspaceRouteHandler({
-  workspaceStore: agentRuntimeWorkspaceStore,
-  readJsonBody,
-  sendJson,
-});
-const agentRuntimeApprovalStore = createAgentRuntimeApprovalStore({ root: ROOT });
-const {
-  sanitizeAgentRuntimeProposalArguments,
-  recordAgentRuntimePendingApproval,
-  mergeAgentRuntimeApprovalPermissionPolicy,
-} = agentRuntimeApprovalStore;
-const {
-  handleAgentRuntimeApprovalRoute,
-} = createAgentRuntimeApprovalRouteHandler({
-  approvalStore: agentRuntimeApprovalStore,
-  readJsonBody,
-  sendJson,
-});
-const agentRuntimeReceiptStore = createAgentRuntimeReceiptStore({ root: ROOT });
-const {
-  recordAgentRuntimeTurnReceipts,
-} = agentRuntimeReceiptStore;
-const agentRuntimeTranscriptStore = createAgentRuntimeTranscriptStore({ statusDir: STATUS_DIR });
-const {
-  appendAgentRuntimeTranscriptTurn,
-} = agentRuntimeTranscriptStore;
-const {
-  handleShellSocketAgentRuntimeOverlayRoute,
-} = createShellSocketAgentRuntimeOverlayRouteHandler({
-  transcriptStore: agentRuntimeTranscriptStore,
-  fetchBackendJson,
-  sendJson,
 });
 const {
   handleShellSocketCoreRoute,
@@ -267,73 +177,6 @@ const {
     const exitDelayMs = normalizeShutdownExitDelayMs(body && body.exit_delay_ms);
     scheduleDashboardHostExit(cleanup, exitDelayMs);
   },
-});
-const agentRuntimeSessionStateStore = createAgentRuntimeSessionStateStore({
-  statusDir: STATUS_DIR,
-  loadRegistry: () => loadAgentRuntimeEngineRegistry(ROOT),
-  findEngine: findAgentRuntimeEngine,
-});
-const {
-  loadAgentRuntimeSelection,
-  saveAgentRuntimeSelection,
-  agentRuntimeSteerProjection,
-  drainAgentRuntimeSteeringInterventions,
-} = agentRuntimeSessionStateStore;
-const agentRuntimeEngineProjectionStore = createAgentRuntimeEngineProjectionStore({
-  root: ROOT,
-  loadRegistry: () => loadAgentRuntimeEngineRegistry(ROOT),
-  createAdapterMap: createAgentRuntimeEngineAdapterMap,
-  loadSelection: loadAgentRuntimeSelection,
-  saveSelection: saveAgentRuntimeSelection,
-});
-const {
-  handleAgentRuntimeEngineRoute,
-} = createAgentRuntimeEngineRouteHandler({
-  engineProjectionStore: agentRuntimeEngineProjectionStore,
-  selectEngine: agentRuntimeEngineProjectionStore.agentRuntimeSelectionProjection,
-  readJsonBody,
-  sendJson,
-});
-const agentRuntimeTurnProjectionStore = createAgentRuntimeTurnProjectionStore({
-  root: ROOT,
-  contextFanoutTarget: AGENT_RUNTIME_CONTEXT_FANOUT_TARGET,
-  normalizeAgentRuntimeTurnInput,
-  loadAgentRuntimeEngineRegistry: () => loadAgentRuntimeEngineRegistry(ROOT),
-  findAgentRuntimeEngine,
-  loadAgentRuntimeWorkspace,
-  createRouter: createDashboardAgentRuntimeRouter,
-  sanitizeAgentRuntimeActivityEvent,
-  appendAgentRuntimeTranscriptTurn,
-  appendAgentRuntimeTurnAtoms,
-  ingestAgentRuntimeContextProjection,
-  loadAgentRuntimeContextRows,
-  materializeKernelAgentRuntimeContextPack,
-  materializeAgentRuntimeContextPack,
-  buildAgentRuntimeContextPack,
-  mergeAgentRuntimeApprovalPermissionPolicy,
-  buildUniversalToolGrants,
-  drainAgentRuntimeSteeringInterventions,
-  sanitizeAgentRuntimeProposalArguments,
-  recordAgentRuntimePendingApproval,
-  recordAgentRuntimeTurnReceipts,
-});
-const agentRuntimeContextPreviewProjectionStore = createAgentRuntimeContextPreviewProjectionStore({
-  root: ROOT,
-  loadAgentRuntimeContextRows,
-  materializeKernelAgentRuntimeContextPack,
-  materializeAgentRuntimeContextPack,
-  buildAgentRuntimeContextPack,
-  buildUniversalToolGrants,
-});
-const {
-  handleAgentRuntimeTurnRoute,
-} = createAgentRuntimeTurnRouteHandler({
-  turnProjectionStore: agentRuntimeTurnProjectionStore,
-  contextPreviewProjectionStore: agentRuntimeContextPreviewProjectionStore,
-  steer: agentRuntimeSteerProjection,
-  createNativeOrchestrationClient: createGatewayNativeOrchestrationClient,
-  readJsonBody,
-  sendJson,
 });
 
 const {

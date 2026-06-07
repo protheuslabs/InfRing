@@ -258,17 +258,24 @@ for (const rel of adapterFiles) {
 const dashboardPath = 'adapters/runtime/infring_dashboard.ts';
 if (exists(dashboardPath)) {
   const dashboard = read(dashboardPath);
+  const usesAgentRuntimeRouteAssembly = dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_route_assembly.ts')");
   if (!dashboard.includes("require('../../gateway/runtime/sockets/agent_ws/agent_ws_bridge.ts')")) {
     push('dashboard_not_using_gateway_agent_ws_bridge', dashboardPath, 'Legacy dashboard host must delegate Agent WebSocket bridge behavior to gateway/**.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts')")) {
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts')") && !usesAgentRuntimeRouteAssembly) {
     push('dashboard_not_using_gateway_agent_runtime_router', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime routing to gateway/**.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_router_assembly.ts')")) {
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_router_assembly.ts')") && !usesAgentRuntimeRouteAssembly) {
     push('dashboard_not_using_gateway_agent_runtime_router_assembly', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime router assembly to gateway/**.');
+  }
+  if (!usesAgentRuntimeRouteAssembly) {
+    push('dashboard_not_using_gateway_agent_runtime_route_assembly', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime route/store/projection assembly to gateway/**.');
   }
   if (/createAgentRuntimeRouter\s*\(|router\.registerAdapter\s*\(|function\s+(?:createAgentRuntimeEngineAdapterMap|createDashboardAgentRuntimeRouter)\b/.test(dashboard)) {
     push('dashboard_owns_agent_runtime_router_assembly', dashboardPath, 'Legacy dashboard host must not assemble Agent Runtime routers locally; provider adapter factories may be injected into gateway/** router assembly.');
+  }
+  if (/createAgentRuntime(?:WorkspaceStore|ApprovalStore|ReceiptStore|TranscriptStore|SessionStateStore|EngineProjectionStore|TurnProjectionStore|ContextPreviewProjectionStore|WorkspaceRouteHandler|ApprovalRouteHandler|EngineRouteHandler|TurnRouteHandler)\s*\(|createShellSocketAgentRuntimeOverlayRouteHandler\s*\(/.test(dashboard)) {
+    push('dashboard_owns_agent_runtime_route_assembly', dashboardPath, 'Legacy dashboard host must not assemble Agent Runtime stores, projections, or route handlers locally; provider adapter factories may be injected into gateway/** route assembly.');
   }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_system_routes.ts')")) {
     push('dashboard_not_using_gateway_system_routes', dashboardPath, 'Legacy dashboard host must delegate Gateway system routes to gateway/**.');
@@ -279,7 +286,7 @@ if (exists(dashboardPath)) {
   if (/pathname\s*===\s*['"]\/api\/system\/release-check['"]|pathname\s*===\s*['"]\/api\/config['"]|pathname\s*===\s*['"]\/api\/config\/schema['"]|pathname\s*===\s*['"]\/api\/auth\/check['"]|pathname\s*===\s*['"]\/api\/system\/restart['"]|pathname\s*===\s*['"]\/api\/system\/update['"]|pathname\s*===\s*['"]\/api\/system\/shutdown['"]|\/api\/update\/check\$\{qs\}/.test(dashboard)) {
     push('dashboard_owns_gateway_system_release_check', dashboardPath, 'Legacy dashboard host must not shape Gateway system release-check route directly.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/sockets/shell_socket/shell_socket_agent_runtime_overlay_routes.ts')")) {
+  if (!dashboard.includes("require('../../gateway/runtime/sockets/shell_socket/shell_socket_agent_runtime_overlay_routes.ts')") && !usesAgentRuntimeRouteAssembly) {
     push('dashboard_not_using_gateway_shell_socket_agent_runtime_overlay_routes', dashboardPath, 'Legacy dashboard host must delegate Shell Socket Agent Runtime overlay routes to gateway/**.');
   }
   if (!/handleShellSocketAgentRuntimeOverlayRoute\s*\(/.test(dashboard)) {
@@ -297,7 +304,7 @@ if (exists(dashboardPath)) {
   if (/isShellSocket(?:CommandIngress|StatusProjection|EvalIssueIngress|LifecycleIngress)Path|shellSocket(?:CommandIngress|StatusProjection|EvalIssueIngress|LifecycleIngress)\s*\(/.test(dashboard)) {
     push('dashboard_owns_shell_socket_core_routes', dashboardPath, 'Legacy dashboard host must not shape Shell Socket status/command/eval/lifecycle routes directly.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_approval_routes.ts')")) {
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_approval_routes.ts')") && !usesAgentRuntimeRouteAssembly) {
     push('dashboard_not_using_gateway_approval_routes', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime approval decision routes to gateway/**.');
   }
   if (!/handleAgentRuntimeApprovalRoute\s*\(/.test(dashboard)) {
@@ -306,7 +313,7 @@ if (exists(dashboardPath)) {
   if (/agentRuntimeApprovalDecisionProjection\s*\(/.test(dashboard)) {
     push('dashboard_owns_approval_route_projection', dashboardPath, 'Legacy dashboard host must not call approval decision projections directly.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_engine_routes.ts')")) {
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_engine_routes.ts')") && !usesAgentRuntimeRouteAssembly) {
     push('dashboard_not_using_gateway_engine_routes', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime engine menu/selection routes to gateway/**.');
   }
   if (!dashboard.includes('handleAgentRuntimeEngineRoute')) {
@@ -315,7 +322,7 @@ if (exists(dashboardPath)) {
   if (/agentRuntimeEnginesProjection\s*\(|agentRuntimeEngineInstallProjection\s*\(/.test(dashboard)) {
     push('dashboard_owns_engine_route_projection', dashboardPath, 'Legacy dashboard host must not call engine route projections directly.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_turn_routes.ts')")) {
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_turn_routes.ts')") && !usesAgentRuntimeRouteAssembly) {
     push('dashboard_not_using_gateway_turn_routes', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime turn/stream/steer/context-preview routes to gateway/**.');
   }
   if (!/handleAgentRuntimeTurnRoute\s*\(/.test(dashboard)) {
@@ -324,7 +331,7 @@ if (exists(dashboardPath)) {
   if (/agentRuntimeTurnProjection\s*\(|agentRuntimeContextPackPreviewProjection\s*\(/.test(dashboard)) {
     push('dashboard_owns_turn_route_projection', dashboardPath, 'Legacy dashboard host must not call turn/context-preview route projections directly.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_workspace_routes.ts')")) {
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_workspace_routes.ts')") && !usesAgentRuntimeRouteAssembly) {
     push('dashboard_not_using_gateway_workspace_routes', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime workspace routes to gateway/**.');
   }
   if (!dashboard.includes('handleAgentRuntimeWorkspaceRoute')) {
@@ -429,13 +436,13 @@ if (exists(dashboardPath)) {
   if (/function\s+(?:discoverSiblingAltDashboardSurfaces|assertNoAlternateDashboardSurfaces|assertSingleDashboardRoot|assertDashboardSurfaceLocked)\b|const\s+(?:FORBIDDEN_ALT_DASHBOARD_DIRS|SIBLING_ALT_DASHBOARD_PATTERN)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_dashboard_surface_lock', dashboardPath, 'Legacy dashboard host must not define Gateway dashboard surface lock policy locally.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/universal_core_tools.ts')")) {
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/universal_core_tools.ts')") && !usesAgentRuntimeRouteAssembly) {
     push('dashboard_not_using_gateway_universal_tools', dashboardPath, 'Legacy dashboard host must delegate universal tool grant policy to gateway/**.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime_input_normalizer.ts')")) {
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime_input_normalizer.ts')") && !usesAgentRuntimeRouteAssembly) {
     push('dashboard_not_using_gateway_normalizer', dashboardPath, 'Legacy dashboard host must delegate input normalization to gateway/**.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_context_pack.ts')")) {
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_context_pack.ts')") && !usesAgentRuntimeRouteAssembly) {
     push('dashboard_not_using_gateway_context_pack', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime context-pack construction to gateway/**.');
   }
   if (/function\s+normalizeAgentRuntimeTurnInput|function\s+materializeAgentRuntimeLargeTextAttachment|INFRING_AGENT_RUNTIME_LARGE_TEXT_ATTACHMENT_/.test(dashboard)) {
