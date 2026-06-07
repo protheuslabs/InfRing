@@ -5,10 +5,14 @@
     "apps",
     "client",
     "core",
+    "gateway",
+    "install",
+    "observability",
     "orchestration",
     "packages",
     "shell",
-    "tests"
+    "tests",
+    "validation"
   ],
   "root_rules": {
     "adapters": {
@@ -74,6 +78,45 @@
       ],
       "notes": "Rust-first authority substrate. C/C++ only for low-level and hardware-adjacent paths."
     },
+    "gateway": {
+      "allowed_extensions": [
+        "ts",
+        "tsx",
+        "js",
+        "jsx",
+        "py",
+        "sh",
+        "json",
+        "yaml",
+        "yml"
+      ],
+      "notes": "External boundary membrane and socket ingress/egress surfaces; no Kernel authority ownership."
+    },
+    "install": {
+      "allowed_extensions": [
+        "ps1",
+        "sh",
+        "ts",
+        "js",
+        "json"
+      ],
+      "notes": "Installer and bootstrap support modules; operational entrypoint support, not runtime authority."
+    },
+    "observability": {
+      "allowed_extensions": [
+        "ts",
+        "tsx",
+        "js",
+        "jsx",
+        "py",
+        "sh",
+        "rs",
+        "json",
+        "yaml",
+        "yml"
+      ],
+      "notes": "First-class live-evidence domain for telemetry, health, traces, Sentinel evidence streams, and runtime findings."
+    },
     "orchestration": {
       "target_extensions": [
         "rs",
@@ -105,7 +148,9 @@
       "allowed_extensions": [
         "json",
         "md",
-        "ts"
+        "ts",
+        "css",
+        "html"
       ],
       "notes": "Canonical Shell Socket contracts, thin socket clients, and headless plug probes. No legacy dashboard substrate or runtime authority."
     },
@@ -117,28 +162,45 @@
         "jsx",
         "py",
         "rs",
-        "sh"
+        "sh",
+        "html"
       ],
       "notes": "Integration, regression, and CI tooling verification surfaces."
+    },
+    "validation": {
+      "allowed_extensions": [
+        "rs",
+        "ts",
+        "tsx",
+        "js",
+        "jsx",
+        "py",
+        "sh",
+        "html",
+        "css",
+        "scss"
+      ],
+      "notes": "First-class controlled-proof domain for tests, evals, benchmarks, conformance guards, regression suites, release gates, and scorecards."
     }
   },
   "runtime_exceptions": [
-    "scripts/",
-    "examples/",
-    "setup/",
     "benchmarks/",
-    "docs/",
-    "local/",
-    "tools/",
-    "core/local/",
     "client/local/",
+    "core/layer1/memory_runtime/adaptive/",
+    "core/local/",
     "core/local/artifacts/",
+    "docs/",
+    "examples/",
+    "local/",
     "local/state/",
+    "node_modules/",
     "planes/",
     "proofs/",
-    "xtask/",
-    "core/layer1/memory_runtime/adaptive/",
-    "node_modules/"
+    "references/",
+    "scripts/",
+    "setup/",
+    "tools/",
+    "xtask/"
   ],
   "ignore_path_prefixes": [
     "client/runtime/local/",
