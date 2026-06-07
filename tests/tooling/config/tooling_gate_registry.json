@@ -4185,7 +4185,7 @@
     },
     "ops:agent-runtime:framework-coordination:guard": {
       "command": "ops:agent-runtime:framework-coordination:guard",
-      "description": "Roll up agent runtime framework coordination guards for approvals, continuity, transcript persistence, activity projection, model projection, structured transport, and real-work replay.",
+      "description": "Roll up agent runtime framework coordination guards for approvals, continuity, transcript persistence, activity projection, model projection, socket transport, disposable live Gateway proof, structured transport, and real-work replay.",
       "owner": "validation",
       "layer": "gateway",
       "category": "agent_runtime",

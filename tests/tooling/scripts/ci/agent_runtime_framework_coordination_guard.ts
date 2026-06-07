@@ -67,6 +67,11 @@ const GATES = [
     coverage_scope: 'gateway_socket_transport',
   },
   {
+    id: 'socket_disposable_gateway',
+    script: 'tests/tooling/scripts/ci/agent_runtime_socket_disposable_gateway_guard.ts',
+    coverage_scope: 'gateway_disposable_host_socket_transport',
+  },
+  {
     id: 'route_structured_transport',
     script: 'tests/tooling/scripts/ci/agent_runtime_route_structured_transport_guard.ts',
     coverage_scope: 'adapter_ready_subset',
