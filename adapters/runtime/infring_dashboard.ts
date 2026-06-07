@@ -50,6 +50,9 @@ const {
   stripGatewayTerminalControls: stripTerminalControls,
   cleanGatewayText: cleanText,
   cleanGatewayDisplayText: cleanDisplayText,
+  cleanGatewayEngineId: cleanEngineId,
+  cleanGatewayApprovalId: cleanApprovalId,
+  cleanGatewayPathText: cleanPathText,
 } = require('../../gateway/runtime/gateway_text_boundary.ts');
 const {
   sendGatewayJson: sendJson,
@@ -286,9 +289,6 @@ const {
 });
 
 function nowIso() { return new Date().toISOString(); }
-function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
-function cleanApprovalId(value) { return cleanText(value, 260).replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, ''); }
-function cleanPathText(value, maxLen = 1200) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/\n+/g, ' ').trim().slice(0, maxLen); }
 
 function createAgentRuntimeEngineAdapterMap(options = {}) {
   const liveDispatch = options.liveDispatch === true;

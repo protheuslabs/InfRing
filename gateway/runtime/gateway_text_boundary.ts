@@ -26,8 +26,32 @@ function cleanGatewayDisplayText(value, maxLen = 24000) {
     .slice(0, maxLen);
 }
 
+function cleanGatewayEngineId(value) {
+  return cleanGatewayText(value, 120)
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function cleanGatewayApprovalId(value) {
+  return cleanGatewayText(value, 260)
+    .replace(/[^a-zA-Z0-9_.:-]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function cleanGatewayPathText(value, maxLen = 1200) {
+  return stripGatewayTerminalControls(value)
+    .replace(/\r\n/g, '\n')
+    .replace(/\n+/g, ' ')
+    .trim()
+    .slice(0, maxLen);
+}
+
 module.exports = {
   stripGatewayTerminalControls,
   cleanGatewayText,
   cleanGatewayDisplayText,
+  cleanGatewayEngineId,
+  cleanGatewayApprovalId,
+  cleanGatewayPathText,
 };

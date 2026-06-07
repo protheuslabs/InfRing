@@ -339,7 +339,7 @@ if (exists(dashboardPath)) {
   if (/function\s+(?:sanitizeTraceId|requestTraceId|requestTraceBoundary)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_trace_boundary', dashboardPath, 'Legacy dashboard host must not define Gateway trace boundary helpers locally.');
   }
-  if (/function\s+(?:stripTerminalControls|cleanText|cleanDisplayText)\b/.test(dashboard)) {
+  if (/function\s+(?:stripTerminalControls|cleanText|cleanDisplayText|cleanEngineId|cleanApprovalId|cleanPathText)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_text_boundary', dashboardPath, 'Legacy dashboard host must not define Gateway text boundary helpers locally.');
   }
   if (/gateway_boundary:\s*['"]adapters\.runtime\.infring_dashboard['"]/.test(dashboard)) {
