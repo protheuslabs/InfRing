@@ -4,7 +4,8 @@
 // Deterministic engine-switch context continuity eval. This does not launch
 // external providers; it proves that Gateway/router messages can carry the same
 // Kernel-materialized context pack across native and external engine IDs, and
-// that CLI prompt rendering exposes the remembered fact to every engine.
+// that prompt/structured compatibility rendering exposes the remembered fact to
+// every selected engine.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -160,7 +161,7 @@ async function main() {
   if (!promptPreview.includes('Universal InfRing core tools') || !promptPreview.includes('memory.read')) violations.push({ kind: 'adapter_prompt_missing_universal_tool_grants' });
 
   const router = createAgentRuntimeRouter({ root: ROOT, disableTraceWriter: true });
-  const engines = ['infring_native', 'codex_cli', 'claude_code', 'grok_code'];
+  const engines = ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'openclaw', 'hermes_agent'];
   const results = [];
   for (const engineId of engines) {
     router.registerAdapter(engineId, makeContinuityProbeAdapter(engineId, buildPromptWithContext));

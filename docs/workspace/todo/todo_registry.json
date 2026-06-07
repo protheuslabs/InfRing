@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-07T05:37:05.032Z",
+  "updated_at": "2026-06-07T05:39:12.015Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -259,8 +259,9 @@
       "work_gate": "real_work",
       "real_work_score": 5,
       "status": "in_progress",
-      "updated_at": "2026-06-03T18:37:16.449Z",
-      "progress_note": "In progress: added deterministic no-provider context continuity eval across native, Codex, Claude Code, and Grok Code engine IDs. Remaining: add opt-in live provider continuity eval when engines are locally available."
+      "updated_at": "2026-06-07T05:39:12.015Z",
+      "progress_note": "Expanded context-continuity eval to OpenClaw and Hermes Agent; refreshed engine scorecard now shows both receive the shared continuity fact and universal core-tool grants through the same context contract.",
+      "last_validation": "npm run -s ops:agent-runtime:context-continuity:eval && npm run -s ops:agent-runtime:engine-scorecard"
     },
     {
       "id": "GATEWAY-PHYSICAL-REROOT",
@@ -357,9 +358,9 @@
       "work_gate": "real_work",
       "real_work_score": 4,
       "status": "in_progress",
-      "updated_at": "2026-06-07T05:37:05.032Z",
-      "progress_note": "Wired engine usefulness scorecard into npm/tooling registry and upgraded it to consume cross-framework real-work replay evidence.",
-      "last_validation": "ops:agent-runtime:engine-scorecard",
+      "updated_at": "2026-06-07T05:39:12.015Z",
+      "progress_note": "Expanded context-continuity eval to OpenClaw and Hermes Agent; refreshed engine scorecard now shows both receive the shared continuity fact and universal core-tool grants through the same context contract.",
+      "last_validation": "npm run -s ops:agent-runtime:context-continuity:eval && npm run -s ops:agent-runtime:engine-scorecard",
       "last_artifact": "core/local/artifacts/agent_runtime_engine_scorecard_current.json"
     },
     {
@@ -474,11 +475,12 @@
       "deadline": "2026-07-05",
       "owner": "validation.gateway",
       "summary": "Create repeatable validation that runs small real tasks through at least native, Codex, Claude Code, and one open framework, proving context continuity, approval flow, persistence, status traces, and receipts.",
-      "progress_note": "Added framework-coordination rollup guard command covering approval lifecycle, continuity, transcript persistence, activity projection, model projection, structured transport, and real-work replay proofs.",
+      "progress_note": "Expanded context-continuity eval to OpenClaw and Hermes Agent; refreshed engine scorecard now shows both receive the shared continuity fact and universal core-tool grants through the same context contract.",
       "created_at": "2026-06-07T04:56:27.538Z",
-      "updated_at": "2026-06-07T05:31:38.005Z",
+      "updated_at": "2026-06-07T05:39:12.015Z",
       "source": "framework_coordination_gap_breakdown",
-      "last_artifact": "core/local/artifacts/agent_runtime_framework_coordination_guard_current.json"
+      "last_artifact": "core/local/artifacts/agent_runtime_framework_coordination_guard_current.json",
+      "last_validation": "npm run -s ops:agent-runtime:context-continuity:eval && npm run -s ops:agent-runtime:engine-scorecard"
     }
   ]
 }
