@@ -4162,6 +4162,16 @@
       "artifact_paths": [
         "core/local/artifacts/agent_runtime_model_projection_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:route-structured-transport:guard": {
+      "owner": "validation",
+      "description": "Agent runtime public route structured transport matrix guard.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "script": "ops:agent-runtime:route-structured-transport:guard",
+      "artifact_paths": [
+        "core/local/artifacts/agent_runtime_route_structured_transport_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {

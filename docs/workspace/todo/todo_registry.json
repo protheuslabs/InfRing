@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-07T05:24:49.153Z",
+  "updated_at": "2026-06-07T05:26:06.315Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -446,11 +446,11 @@
       "id": "V13-FRAMEWORK-COORDINATION-007",
       "title": "Graduate external engine transport from prompt-text compatibility toward structured transport",
       "section": "yellow",
-      "status": "queued",
+      "status": "in_progress",
       "deadline": "2026-07-05",
       "owner": "gateway.agent_runtime",
       "summary": "Keep prompt-text context hydration as compatibility only, then move capable engines toward structured JSON context, refs, receipts, tool proposals, and eventually lower-token native context transfer.",
-      "progress_note": "Current risk: transitional prompt-text context packs become permanent load-bearing infrastructure.",
+      "progress_note": "Added public Gateway route matrix guard proving every selected runtime engine receives AgentRuntimeStructuredTurn, context_pack.structured_transport refs match, prompt-text compatibility is explicitly transitional, and no model-provider secrets enter structured payloads.",
       "created_at": "2026-06-07T04:56:27.538Z",
       "updated_at": "2026-06-07T04:56:27.538Z",
       "source": "framework_coordination_gap_breakdown"

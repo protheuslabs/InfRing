@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-07T05:24:49.153Z
+Updated: 2026-06-07T05:26:06.315Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -76,12 +76,12 @@ Updated: 2026-06-07T05:24:49.153Z
   progress_note: `Acceptance should measure useful task completion, not merely adapter discovery or fixture-backed route shape.`
 
 - `V13-FRAMEWORK-COORDINATION-007` — Graduate external engine transport from prompt-text compatibility toward structured transport
-  status: `queued`
+  status: `in_progress`
   section: `yellow`
   owner: `gateway.agent_runtime`
   deadline: `2026-07-05`
   summary: Keep prompt-text context hydration as compatibility only, then move capable engines toward structured JSON context, refs, receipts, tool proposals, and eventually lower-token native context transfer.
-  progress_note: `Current risk: transitional prompt-text context packs become permanent load-bearing infrastructure.`
+  progress_note: `Added public Gateway route matrix guard proving every selected runtime engine receives AgentRuntimeStructuredTurn, context_pack.structured_transport refs match, prompt-text compatibility is explicitly transitional, and no model-provider secrets enter structured payloads.`
 
 - `V13-FRAMEWORK-COORDINATION-006` — Make the legacy dashboard replaceable without losing framework-router behavior
   status: `queued`
