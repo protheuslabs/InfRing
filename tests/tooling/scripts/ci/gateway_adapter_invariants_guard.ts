@@ -348,7 +348,10 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes('proxyGatewayHttpRequest') || !dashboard.includes('proxyGatewayUpgrade')) {
     push('dashboard_not_using_gateway_proxy_helpers', dashboardPath, 'Legacy dashboard host must delegate backend HTTP and WebSocket proxy mechanics to gateway/**.');
   }
-  if (/function\s+(?:sendJson|readJsonBody|filteredHeaders|ignoreStreamErrors|backendBase|fetchBackend|fetchBackendJson|postBackendJson|proxyToBackend|proxyUpgrade)\b|const\s+HOP_BY_HOP\b|http\.request\s*\(/.test(dashboard)) {
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_native_orchestration_client.ts')")) {
+    push('dashboard_not_using_gateway_native_orchestration_client', dashboardPath, 'Legacy dashboard host must construct native orchestration clients through gateway/**.');
+  }
+  if (/function\s+(?:sendJson|readJsonBody|filteredHeaders|ignoreStreamErrors|backendBase|fetchBackend|fetchBackendJson|postBackendJson|proxyToBackend|proxyUpgrade|createGatewayNativeOrchestrationClient)\b|const\s+HOP_BY_HOP\b|http\.request\s*\(/.test(dashboard)) {
     push('dashboard_owns_gateway_http_boundary', dashboardPath, 'Legacy dashboard host must not define Gateway HTTP boundary helpers locally.');
   }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/universal_core_tools.ts')")) {
