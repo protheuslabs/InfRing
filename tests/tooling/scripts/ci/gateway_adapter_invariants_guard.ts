@@ -399,6 +399,9 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/gateway_dashboard_static_responses.ts')")) {
     push('dashboard_not_using_gateway_dashboard_static_responses', dashboardPath, 'Legacy dashboard host must delegate dashboard static/status/version response shaping to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_dashboard_host_request_boundary.ts')")) {
+    push('dashboard_not_using_gateway_dashboard_host_request_boundary', dashboardPath, 'Legacy dashboard host must delegate request/proxy/upgrade boundary response shaping to gateway/**.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_dashboard_surface_lock.ts')")) {
     push('dashboard_not_using_gateway_dashboard_surface_lock', dashboardPath, 'Legacy dashboard host must delegate dashboard surface lock policy to gateway/**.');
   }
@@ -439,13 +442,18 @@ if (exists(dashboardPath)) {
     push('dashboard_not_using_gateway_socket_error_classifier', dashboardPath, 'Legacy dashboard host must delegate transient socket error classification to gateway/**.');
   }
   if (!dashboard.includes('proxyGatewayHttpRequest') || !dashboard.includes('proxyGatewayUpgrade')) {
-    push('dashboard_not_using_gateway_proxy_helpers', dashboardPath, 'Legacy dashboard host must delegate backend HTTP and WebSocket proxy mechanics to gateway/**.');
+    if (!dashboard.includes("require('../../gateway/runtime/gateway_dashboard_host_request_boundary.ts')")) {
+      push('dashboard_not_using_gateway_proxy_helpers', dashboardPath, 'Legacy dashboard host must delegate backend HTTP and WebSocket proxy mechanics to gateway/**.');
+    }
   }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_native_orchestration_client.ts')")) {
     push('dashboard_not_using_gateway_native_orchestration_client', dashboardPath, 'Legacy dashboard host must construct native orchestration clients through gateway/**.');
   }
   if (/function\s+(?:sendJson|readJsonBody|filteredHeaders|ignoreStreamErrors|isTransientSocketError|backendBase|backendHealth|fetchBackend|fetchBackendJson|postBackendJson|proxyToBackend|proxyUpgrade|createGatewayNativeOrchestrationClient)\b|const\s+HOP_BY_HOP\b|http\.request\s*\(/.test(dashboard)) {
     push('dashboard_owns_gateway_http_boundary', dashboardPath, 'Legacy dashboard host must not define Gateway HTTP boundary helpers locally.');
+  }
+  if (/x-infring-trace-source|x-infring-trace-id|proxyGatewayHttpRequest\s*\(|proxyGatewayUpgrade\s*\(|sendJson\s*\(\s*res\s*,\s*404|infring_dashboard_request_error|server\.on\s*\(\s*['"]clientError['"]\s*,\s*\([^)]*socket|socket\.destroy\s*\(\s*\)|pathname\.startsWith\s*\(\s*['"]\/api\/['"]/.test(dashboard)) {
+    push('dashboard_owns_gateway_dashboard_host_request_boundary', dashboardPath, 'Legacy dashboard host must not shape trace headers, proxy fallback, not-found/error, upgrade, or socket cleanup responses locally.');
   }
   if (/function\s+(?:backendFreshnessSnapshot|waitForBackendDown|stopStaleBackend|statusPayloadWithBootStage|currentDashboardBuildInfo|mergeDashboardVersionPayload)\b|dashboard_backend_freshness\.ts/.test(dashboard)) {
     push('dashboard_owns_gateway_lifecycle_or_status_projection', dashboardPath, 'Legacy dashboard host must not define Gateway backend lifecycle, freshness, or status/version projections locally.');

@@ -38,6 +38,9 @@ const {
   createGatewayDashboardStaticResponseController,
 } = require('../../gateway/runtime/gateway_dashboard_static_responses.ts');
 const {
+  createGatewayDashboardHostRequestBoundary,
+} = require('../../gateway/runtime/gateway_dashboard_host_request_boundary.ts');
+const {
   normalizeGatewayShutdownExitDelayMs: normalizeShutdownExitDelayMs,
   normalizeGatewayArgs: normalizeArgs,
   parseGatewayHostFlags: parseFlags,
@@ -70,7 +73,6 @@ const {
 } = require('../../gateway/runtime/gateway_status_projection.ts');
 const {
   gatewayRequestTraceId: requestTraceId,
-  gatewayRequestTraceBoundary: requestTraceBoundary,
   sanitizeGatewayTraceId: sanitizeTraceId,
 } = require('../../gateway/runtime/gateway_trace_boundary.ts');
 const {
@@ -89,8 +91,6 @@ const {
   fetchGatewayBackendJson: fetchBackendJson,
   postGatewayBackendJson: postBackendJson,
   gatewayBackendHealth: backendHealth,
-  proxyGatewayHttpRequest,
-  proxyGatewayUpgrade,
 } = require('../../gateway/runtime/gateway_http_boundary.ts');
 
 const DASHBOARD_DIR = path.resolve(ROOT, 'client', 'runtime', 'systems', 'ui');
@@ -134,6 +134,9 @@ const dashboardStaticResponses = createGatewayDashboardStaticResponseController(
   fetchBackendJson,
   sendJson,
   mergeDashboardVersionPayload,
+});
+const dashboardRequestBoundary = createGatewayDashboardHostRequestBoundary({
+  sendJson,
 });
 const {
   createGatewayHostCleanup,
@@ -244,8 +247,7 @@ async function runServe(flags) {
     const requestUrl = new URL(req.url || '/', `http://${flags.host}:${flags.port}`);
     const pathname = requestUrl.pathname;
     const traceId = requestTraceId(req);
-    try { res.setHeader('x-infring-trace-id', traceId); } catch {}
-    try { res.setHeader('x-infring-trace-source', requestTraceBoundary(req).source || 'unknown'); } catch {}
+    dashboardRequestBoundary.applyTraceHeaders(req, res, traceId);
     try {
       if (await dashboardStaticResponses.handleGatewayDashboardStaticRoute({ req, res, pathname, flags })) return;
       if (await handleGatewaySystemRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
@@ -255,33 +257,16 @@ async function runServe(flags) {
       if (await handleAgentRuntimeEngineRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeWorkspaceRoute({ req, res, pathname, traceId })) return;
       if (await handleShellSocketCoreRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
-      if (pathname === '/healthz' || pathname.startsWith('/api/')) {
-        return void await proxyGatewayHttpRequest(req, res, {
-          apiHost: flags.apiHost,
-          apiPort: flags.apiPort,
-          requestTraceId,
-        });
-      }
-      sendJson(res, 404, { ok: false, type: 'infring_dashboard_not_found', path: pathname });
+      if (await dashboardRequestBoundary.proxyDashboardBackendRoute({ req, res, pathname, flags, requestTraceId })) return;
+      dashboardRequestBoundary.sendDashboardNotFound(res, pathname);
     } catch (error) {
-      const message = cleanText(error && error.message ? error.message : String(error), 260);
-      const statusCode = message === 'request_body_invalid_json' || message === 'request_body_too_large' ? 400 : 500;
-      sendJson(res, statusCode, { ok: false, type: 'infring_dashboard_request_error', trace_id: traceId, error: message });
+      dashboardRequestBoundary.sendDashboardRequestError(res, error, traceId);
     }
   });
   server.on('upgrade', (req, socket, head) => {
-    if (wsBridge.tryHandle(req, socket, head)) return;
-    const pathname = new URL(req.url || '/', `http://${flags.host}:${flags.port}`).pathname;
-    if (!pathname.startsWith('/api/')) { socket.destroy(); return; }
-    proxyGatewayUpgrade(req, socket, head, {
-      apiHost: flags.apiHost,
-      apiPort: flags.apiPort,
-      requestTraceId,
-    });
+    dashboardRequestBoundary.handleDashboardUpgrade({ req, socket, head, wsBridge, flags, requestTraceId });
   });
-  server.on('clientError', (_error, socket) => {
-    try { socket.destroy(); } catch {}
-  });
+  server.on('clientError', dashboardRequestBoundary.handleClientError);
   const cleanup = createGatewayHostCleanup({
     server,
     backend,

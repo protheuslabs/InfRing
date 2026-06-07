@@ -120,6 +120,7 @@
     "gateway/runtime/gateway_host_lifecycle.ts",
     "gateway/runtime/gateway_dashboard_host_status.ts",
     "gateway/runtime/gateway_dashboard_static_responses.ts",
+    "gateway/runtime/gateway_dashboard_host_request_boundary.ts",
     "gateway/runtime/gateway_backend_startup_state.ts",
     "gateway/runtime/agent_runtime/agent_runtime_transcripts.ts",
     "gateway/runtime/agent_runtime/agent_runtime_session_state.ts",
