@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-06T23:52:39.256Z",
+  "updated_at": "2026-06-07T00:02:27.302Z",
   "historical_snapshot": {
     "preserved_archive_path": "docs/workspace/todo/TODO_ARCHIVE_LEGACY.md",
     "total_rows": 4145,
@@ -1083,6 +1083,19 @@
       "real_work_score": 5,
       "completed_at": "2026-06-06T23:52:39.253Z",
       "completion_note": "Gateway system-action routes now fail closed for successful mutating restart/shutdown/applied-update responses without receipts; dry-run update projects receipt_required=false; ops:gateway:system-action-authority:guard passes."
+    },
+    {
+      "id": "AGENT-RUNTIME-APPROVAL-PAUSE-RESUME",
+      "title": "Make approval gates pause and resume runtime turns",
+      "section": "yellow",
+      "owner": "codex",
+      "deadline": "2026-06-17",
+      "source_family": "Unified Agent Runtime Framework",
+      "summary": "When Codex, Claude Code, Grok Code, native Infring, or socket engines hit a gated action, Gateway should create a permission request, pause the turn, wait for the user or future gatekeeper decision, and resume or fail with a durable decision receipt instead of letting the agent finish blocked.",
+      "work_gate": "reliability",
+      "real_work_score": 5,
+      "completed_at": "2026-06-07T00:02:27.301Z",
+      "completion_note": "Gateway approval turns now project permission_required pauses with resume tokens; approval decisions emit bounded decision receipts and resolve stored requests via ops:agent-runtime:approval-pause-resume:guard."
     }
   ]
 }
