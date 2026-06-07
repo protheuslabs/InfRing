@@ -345,8 +345,11 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/gateway_backend_lifecycle.ts')")) {
     push('dashboard_not_using_gateway_backend_lifecycle', dashboardPath, 'Legacy dashboard host must delegate backend lifecycle wait/stop decisions to gateway/**.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/gateway_backend_freshness.ts')")) {
-    push('dashboard_not_using_gateway_backend_freshness', dashboardPath, 'Legacy dashboard host must delegate backend freshness detection to gateway/**.');
+  if (
+    !dashboard.includes("require('../../gateway/runtime/gateway_backend_freshness.ts')")
+    && !dashboard.includes("require('../../gateway/runtime/gateway_backend_host_launcher.ts')")
+  ) {
+    push('dashboard_not_using_gateway_backend_freshness', dashboardPath, 'Legacy dashboard host must delegate backend freshness detection to gateway/**, either directly or through the Gateway backend host launcher.');
   }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_status_projection.ts')")) {
     push('dashboard_not_using_gateway_status_projection', dashboardPath, 'Legacy dashboard host must delegate status/version projections to gateway/**.');
@@ -362,6 +365,9 @@ if (exists(dashboardPath)) {
   }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_backend_host_launcher.ts')")) {
     push('dashboard_not_using_gateway_backend_host_launcher', dashboardPath, 'Legacy dashboard host must delegate backend launch orchestration to gateway/**.');
+  }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_troubleshooting_bootstrap.ts')")) {
+    push('dashboard_not_using_gateway_troubleshooting_bootstrap', dashboardPath, 'Legacy dashboard host must delegate troubleshooting bootstrap projection to gateway/**.');
   }
   if (/function\s+(?:sanitizeTraceId|requestTraceId|requestTraceBoundary)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_trace_boundary', dashboardPath, 'Legacy dashboard host must not define Gateway trace boundary helpers locally.');
@@ -404,6 +410,9 @@ if (exists(dashboardPath)) {
   }
   if (/function\s+(?:backendSpawnEnv|spawnBackend|ensureBackend)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_backend_host_launcher', dashboardPath, 'Legacy dashboard host must not define Gateway backend host launcher helpers locally.');
+  }
+  if (/function\s+(?:readRecentActionRows|summarizeBootstrapActionRow|bootstrapRecentWorkflowEntries|writeBridgeOutput|bootstrapTroubleshootingFromSnapshot|runSnapshotWithCompatBootstrap)\b/.test(dashboard)) {
+    push('dashboard_owns_gateway_troubleshooting_bootstrap', dashboardPath, 'Legacy dashboard host must not define Gateway troubleshooting bootstrap helpers locally.');
   }
   if (/function\s+(?:dashboardSystemActionArgs|dashboardSystemActionEnv|runDashboardSystemAction|dispatchDashboardSystemAction)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_system_actions', dashboardPath, 'Legacy dashboard host must not define Gateway system action helpers locally.');
