@@ -46,6 +46,9 @@ const {
   createGatewayBackendHostLauncher,
 } = require('../../gateway/runtime/gateway_backend_host_launcher.ts');
 const {
+  createGatewayBackendStartupStateController,
+} = require('../../gateway/runtime/gateway_backend_startup_state.ts');
+const {
   createGatewayTroubleshootingBootstrap,
 } = require('../../gateway/runtime/gateway_troubleshooting_bootstrap.ts');
 const {
@@ -197,47 +200,18 @@ const {
   stdout: process.stdout,
   stderr: process.stderr,
 });
+const {
+  createBackendStartupState,
+} = createGatewayBackendStartupStateController({
+  backendHealth,
+  ensureBackend,
+  backendFreshnessSnapshot,
+});
 async function runServe(flags) {
   assertDashboardSurfaceLocked();
   let dashboardHtml = buildPrimaryDashboardHtml(STATIC_DIR);
   if (!dashboardHtml.trim()) throw new Error('primary_dashboard_html_empty');
-  const backend = {
-    child: null,
-    reused: false,
-    ready: await backendHealth(flags, 1500),
-    freshness: null,
-    startup_error: '',
-  };
-  let backendStartPromise = null;
-  if (!backend.ready) {
-    backendStartPromise = ensureBackend(flags)
-      .then((result) => {
-        backend.child = result && result.child ? result.child : null;
-        backend.reused = !!(result && result.reused);
-        backend.ready = true;
-        backend.freshness = result && result.freshness ? result.freshness : null;
-        backend.startup_error = '';
-        return result;
-      })
-      .catch((error) => {
-        backend.ready = false;
-        backend.startup_error = cleanText(error && error.message ? error.message : String(error), 200);
-        return null;
-      });
-  } else {
-    try {
-      const result = await ensureBackend(flags);
-      backend.child = result && result.child ? result.child : null;
-      backend.reused = !!(result && result.reused);
-      backend.ready = true;
-      backend.freshness = result && result.freshness ? result.freshness : null;
-      backend.startup_error = '';
-    } catch (error) {
-      backend.reused = true;
-      backend.freshness = backendFreshnessSnapshot(flags);
-      backend.startup_error = cleanText(error && error.message ? error.message : String(error), 200);
-    }
-  }
+  const { backend, backendStartPromise } = await createBackendStartupState(flags);
   const wsBridge = createAgentWsBridge({ flags, cleanText, fetchBackend, fetchBackendJson });
   const status = dashboardHostStatus.createDashboardHostStatus({
     flags,

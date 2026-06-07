@@ -402,6 +402,9 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/gateway_backend_host_launcher.ts')")) {
     push('dashboard_not_using_gateway_backend_host_launcher', dashboardPath, 'Legacy dashboard host must delegate backend launch orchestration to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_backend_startup_state.ts')")) {
+    push('dashboard_not_using_gateway_backend_startup_state', dashboardPath, 'Legacy dashboard host must delegate backend startup state assembly to gateway/**.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_troubleshooting_bootstrap.ts')")) {
     push('dashboard_not_using_gateway_troubleshooting_bootstrap', dashboardPath, 'Legacy dashboard host must delegate troubleshooting bootstrap projection to gateway/**.');
   }
@@ -449,6 +452,9 @@ if (exists(dashboardPath)) {
   }
   if (/function\s+(?:backendSpawnEnv|spawnBackend|ensureBackend)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_backend_host_launcher', dashboardPath, 'Legacy dashboard host must not define Gateway backend host launcher helpers locally.');
+  }
+  if (/const\s+backend\s*=\s*{[\s\S]{0,260}startup_error|let\s+backendStartPromise\s*=|ensureBackend\s*\(\s*flags\s*\)\s*\.then/.test(dashboard)) {
+    push('dashboard_owns_gateway_backend_startup_state', dashboardPath, 'Legacy dashboard host must not assemble backend startup state or promise lifecycle locally.');
   }
   if (/function\s+(?:readRecentActionRows|summarizeBootstrapActionRow|bootstrapRecentWorkflowEntries|writeBridgeOutput|bootstrapTroubleshootingFromSnapshot|runSnapshotWithCompatBootstrap)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_troubleshooting_bootstrap', dashboardPath, 'Legacy dashboard host must not define Gateway troubleshooting bootstrap helpers locally.');
