@@ -20,7 +20,7 @@ urlencoding = "2.1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 uuid = { version = "1.10", features = ["v4", "serde"] }
 tokio = { version = "1.48", features = ["rt-multi-thread", "time"] }
-async-nats = "0.39"
+async-nats = "0.49.1"
 futures = "0.3"
 
 [dev-dependencies]
