@@ -4283,6 +4283,18 @@
       "artifacts": [
         "core/local/artifacts/agent_runtime_socket_upgrade_transport_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:socket-live-gateway:guard": {
+      "command": "ops:agent-runtime:socket-live-gateway:guard",
+      "description": "Agent Runtime live Gateway /ws/agent-runtime WebSocket client guard against an actual running host process.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_sec": 20,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_socket_live_gateway_guard_current.json"
+      ],
+      "notes": "Live/process-level guard: requires a running Gateway host or explicit INFRING_GATEWAY_HOST/INFRING_GATEWAY_PORT target."
     }
   },
   "ops:eval:issue-authority:guard": {
