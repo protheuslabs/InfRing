@@ -312,7 +312,12 @@
       "source_family": "Unified Agent Runtime Framework",
       "summary": "Create live evals that ask each selectable runtime to perform practical agent work through InfRing, such as creating a small app, editing a file, reading prior context, using approved tools, and reporting receipts, then score whether it actually worked.",
       "work_gate": "real_work",
-      "real_work_score": 5
+      "real_work_score": 5,
+      "status": "in_progress",
+      "updated_at": "2026-06-07T05:48:44.940Z",
+      "progress_note": "Live useful-work eval is now registry-aware: adapter-ready/selectable expands to all five live-selectable engines, registry/all can sample all nine registered engines, and plan-only mode proves coverage without contacting live providers.",
+      "last_validation": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_live_work_eval.ts --plan-only --engines=adapter-ready --out-json=/tmp/infring-agent-runtime-live-work-plan.json",
+      "last_artifact": "/tmp/infring-agent-runtime-live-work-plan.json"
     },
     {
       "id": "INFRING-NATIVE-RUNTIME-PARITY",

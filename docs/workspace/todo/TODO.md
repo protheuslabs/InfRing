@@ -199,12 +199,14 @@ Updated: 2026-06-07T05:28:02.648Z
   real_work_score: `4`
   summary: Track each runtime engine against the same capabilities: discovery, model catalog, context continuity, useful work, approval pausing, universal tools, durable receipts, activity traces, error injection, and reload persistence.
 - `AGENT-RUNTIME-LIVE-WORK-EVALS` — Add live useful-work evals for every selectable runtime
+  status: `in_progress`
   owner: `codex`
   deadline: `2026-06-17`
   source_family: `Unified Agent Runtime Framework`
   work_gate: `real_work`
   real_work_score: `5`
   summary: Create live evals that ask each selectable runtime to perform practical agent work through InfRing, such as creating a small app, editing a file, reading prior context, using approved tools, and reporting receipts, then score whether it actually worked.
+  progress_note: `Live useful-work eval is now registry-aware: adapter-ready/selectable expands to all five live-selectable engines, registry/all can sample all nine registered engines, and plan-only mode proves coverage without contacting live providers.`
 - `AGENT-RUNTIME-MEMORY-BRIDGE` — Bridge unified memory into runtime context
   owner: `codex`
   deadline: `2026-06-17`

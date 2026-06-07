@@ -221,6 +221,10 @@ function main() {
     not_ready: rows.filter((row) => row.classification === 'not_ready').length,
     latest_live_work_engine: clean(liveWork.engine_id, 120),
     sampled_live_work_engines: Array.isArray(liveWork.sampled_engines) ? liveWork.sampled_engines.map((item: any) => clean(item, 120)).filter(Boolean) : [clean(liveWork.engine_id, 120)].filter(Boolean),
+    live_work_registry_engine_count: Number(liveWork.registry_engine_count) || 0,
+    live_work_live_selectable_engines: Array.isArray(liveWork.live_selectable_engines) ? liveWork.live_selectable_engines.map((item: any) => clean(item, 120)).filter(Boolean) : [],
+    live_work_unsampled_registry_engines: Array.isArray(liveWork.unsampled_registry_engines) ? liveWork.unsampled_registry_engines.map((item: any) => clean(item, 120)).filter(Boolean) : [],
+    live_work_unsampled_live_selectable_engines: Array.isArray(liveWork.unsampled_live_selectable_engines) ? liveWork.unsampled_live_selectable_engines.map((item: any) => clean(item, 120)).filter(Boolean) : [],
     sampled_real_work_replay_engines: Array.isArray(realWorkReplay.engines_tested) ? realWorkReplay.engines_tested.map((item: any) => clean(item, 120)).filter(Boolean) : [],
     live_work_working_directory: clean(liveWork.working_directory, 500),
     sampled_live_work_working_directories: Array.from(new Set(

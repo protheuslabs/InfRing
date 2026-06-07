@@ -8,7 +8,8 @@ import path from 'node:path';
 type JsonObject = Record<string, any>;
 
 const ROOT = process.cwd();
-const OUT_JSON = path.join(ROOT, 'core', 'local', 'artifacts', 'agent_runtime_live_work_eval_current.json');
+const DEFAULT_OUT_JSON = path.join(ROOT, 'core', 'local', 'artifacts', 'agent_runtime_live_work_eval_current.json');
+const ENGINE_REGISTRY_PATH = path.join(ROOT, 'validation', 'conformance', 'contracts', 'agent_runtime_engine_registry.json');
 
 function argValue(name: string, fallback = ''): string {
   const prefix = `${name}=`;
@@ -23,6 +24,73 @@ function argList(name: string, fallback: string): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function registryRows(): JsonObject[] {
+  try {
+    const registry = JSON.parse(fs.readFileSync(ENGINE_REGISTRY_PATH, 'utf8'));
+    return Array.isArray(registry && registry.engines) ? registry.engines : [];
+  } catch {
+    return [];
+  }
+}
+
+function registryEngineIds(rows: JsonObject[]): string[] {
+  return rows
+    .map((row) => clean(row && row.engine_id, 120))
+    .filter(Boolean);
+}
+
+function unique(values: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const cleaned = clean(value, 120);
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+  }
+  return out;
+}
+
+function isLiveSelectableRegistryRow(row: JsonObject): boolean {
+  const status = clean(row && row.status, 160);
+  return status === 'adapter_seam_ready' || status === 'safe_cli_bridge';
+}
+
+function resolveEngineSelection(rawEngines: string[], primaryEngine: string, rows: JsonObject[]): { engines: string[]; selection: JsonObject } {
+  const normalized = unique(rawEngines.length ? rawEngines : [primaryEngine]);
+  const registryIds = registryEngineIds(rows);
+  const selectable = rows
+    .filter(isLiveSelectableRegistryRow)
+    .map((row) => clean(row.engine_id, 120))
+    .filter(Boolean);
+  const aliases = new Set(normalized.map((value) => value.toLowerCase()));
+  if (aliases.has('registry') || aliases.has('all')) {
+    return {
+      engines: registryIds,
+      selection: {
+        mode: 'registry_all',
+        warning: 'This may contact every registered engine, including planned adapters.',
+      },
+    };
+  }
+  if (aliases.has('adapter-ready') || aliases.has('adapter_ready') || aliases.has('selectable')) {
+    return {
+      engines: selectable,
+      selection: {
+        mode: 'adapter_ready_or_safe_bridge',
+        rule: 'status in adapter_seam_ready or safe_cli_bridge',
+      },
+    };
+  }
+  return {
+    engines: normalized,
+    selection: {
+      mode: 'explicit',
+      rule: '--engines or --engine',
+    },
+  };
 }
 
 function ensureDir(filePath: string) {
@@ -329,30 +397,99 @@ async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: numbe
 async function main() {
   const baseUrl = argValue('--base-url', process.env.INFRING_AGENT_RUNTIME_EVAL_BASE_URL || 'http://127.0.0.1:4173');
   const primaryEngine = argValue('--engine', process.env.INFRING_AGENT_RUNTIME_EVAL_ENGINE || 'codex_cli');
-  const engines = argList('--engines', process.env.INFRING_AGENT_RUNTIME_EVAL_ENGINES || primaryEngine);
+  const outJson = path.resolve(argValue('--out-json', process.env.INFRING_AGENT_RUNTIME_EVAL_OUT_JSON || DEFAULT_OUT_JSON));
+  const planOnly = argValue('--plan-only', process.env.INFRING_AGENT_RUNTIME_EVAL_PLAN_ONLY || '') === '1';
+  const registry = registryRows();
+  const registryIds = registryEngineIds(registry);
+  const requestedEngines = argList('--engines', process.env.INFRING_AGENT_RUNTIME_EVAL_ENGINES || primaryEngine);
+  const resolvedSelection = resolveEngineSelection(requestedEngines, primaryEngine, registry);
+  const engines = resolvedSelection.engines;
   const timeoutMs = Math.max(30000, Math.min(Number(argValue('--timeout-ms', process.env.INFRING_AGENT_RUNTIME_EVAL_TIMEOUT_MS || '180000')) || 180000, 300000));
   const workingDirectory = normalizePathValue(argValue('--working-directory', process.env.INFRING_AGENT_RUNTIME_EVAL_WORKING_DIRECTORY || ROOT));
+  const liveSelectableEngines = registry
+    .filter(isLiveSelectableRegistryRow)
+    .map((row) => clean(row.engine_id, 120))
+    .filter(Boolean);
+  const sampledSetForPlan = new Set(engines);
+  const unsampledRegistryEnginesForPlan = registryIds.filter((id) => !sampledSetForPlan.has(id));
+  const unsampledLiveSelectableEnginesForPlan = liveSelectableEngines.filter((id) => !sampledSetForPlan.has(id));
+  const sampledPlannedEnginesForPlan = engines.filter((id) => {
+    const row = registry.find((item) => clean(item && item.engine_id, 120) === id) || {};
+    return !isLiveSelectableRegistryRow(row);
+  });
+  if (planOnly) {
+    const report = {
+      ok: engines.length > 0,
+      type: 'agent_runtime_live_work_eval',
+      generated_at: new Date().toISOString(),
+      mode: 'plan_only',
+      base_url: baseUrl,
+      engine_registry_path: 'validation/conformance/contracts/agent_runtime_engine_registry.json',
+      engine_selection: resolvedSelection.selection,
+      requested_engines: requestedEngines,
+      registry_engine_count: registryIds.length,
+      registry_engines: registryIds,
+      live_selectable_engines: liveSelectableEngines,
+      sampled_engines: engines,
+      unsampled_registry_engines: unsampledRegistryEnginesForPlan,
+      unsampled_live_selectable_engines: unsampledLiveSelectableEnginesForPlan,
+      sampled_planned_or_non_live_engines: sampledPlannedEnginesForPlan,
+      engine_count: engines.length,
+      summary: {
+        planned_sample_count: engines.length,
+        sampled_live_selectable: engines.filter((id) => liveSelectableEngines.includes(id)).length,
+        unsampled_live_selectable: unsampledLiveSelectableEnginesForPlan.length,
+      },
+      engine_results: [],
+      results: {},
+    };
+    ensureDir(outJson);
+    fs.writeFileSync(outJson, `${JSON.stringify(report, null, 2)}\n`);
+    console.log(JSON.stringify(report, null, 2));
+    if (!report.ok) process.exit(1);
+    return;
+  }
   const engineResults = [];
   for (const engineId of engines) {
     engineResults.push(await runEngineEval(baseUrl, engineId, timeoutMs, workingDirectory));
   }
   const primary = engineResults.find((row) => row.engine_id === primaryEngine) || engineResults[0] || null;
+  const sampledEngines = engineResults.map((row) => row.engine_id);
+  const sampledSet = new Set(sampledEngines);
+  const liveSelectableSet = new Set(liveSelectableEngines);
+  const unsampledRegistryEngines = registryIds.filter((id) => !sampledSet.has(id));
+  const unsampledLiveSelectableEngines = liveSelectableEngines.filter((id) => !sampledSet.has(id));
+  const sampledPlannedEngines = sampledEngines.filter((id) => {
+    const row = registry.find((item) => clean(item && item.engine_id, 120) === id) || {};
+    return !isLiveSelectableRegistryRow(row);
+  });
   const report = {
     ok: engineResults.length > 0 && engineResults.every((row) => row.ok),
     type: 'agent_runtime_live_work_eval',
     generated_at: new Date().toISOString(),
     base_url: baseUrl,
+    engine_registry_path: 'validation/conformance/contracts/agent_runtime_engine_registry.json',
+    engine_selection: resolvedSelection.selection,
+    requested_engines: requestedEngines,
+    registry_engine_count: registryIds.length,
+    registry_engines: registryIds,
+    live_selectable_engines: liveSelectableEngines,
+    unsampled_registry_engines: unsampledRegistryEngines,
+    unsampled_live_selectable_engines: unsampledLiveSelectableEngines,
+    sampled_planned_or_non_live_engines: sampledPlannedEngines,
     engine_id: primary ? primary.engine_id : primaryEngine,
     session_id: primary ? primary.session_id : '',
     token: primary ? primary.token : '',
     working_directory: workingDirectory,
     engine_count: engineResults.length,
     engine_results: engineResults,
-    sampled_engines: engineResults.map((row) => row.engine_id),
+    sampled_engines: sampledEngines,
     summary: {
       passed: engineResults.filter((row) => row.ok).length,
       failed: engineResults.filter((row) => !row.ok).length,
       failed_engines: engineResults.filter((row) => !row.ok).map((row) => row.engine_id),
+      sampled_live_selectable: sampledEngines.filter((id) => liveSelectableSet.has(id)).length,
+      unsampled_live_selectable: unsampledLiveSelectableEngines.length,
       classifications: engineResults.reduce((acc: JsonObject, row: JsonObject) => {
         const key = row.classification || 'unknown';
         acc[key] = Number(acc[key] || 0) + 1;
@@ -361,8 +498,8 @@ async function main() {
     },
     results: primary ? primary.results : {},
   };
-  ensureDir(OUT_JSON);
-  fs.writeFileSync(OUT_JSON, `${JSON.stringify(report, null, 2)}\n`);
+  ensureDir(outJson);
+  fs.writeFileSync(outJson, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
   if (!report.ok) process.exit(1);
 }

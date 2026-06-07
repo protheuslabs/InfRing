@@ -4204,6 +4204,18 @@
       "artifacts": [
         "core/local/artifacts/agent_runtime_engine_scorecard_current.json"
       ]
+    },
+    "ops:agent-runtime:live-work:eval": {
+      "command": "ops:agent-runtime:live-work:eval",
+      "description": "Run live useful-work evals against the Gateway agent runtime route for selected engines; supports explicit engines and adapter-ready registry aliases.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_seconds": 300,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_live_work_eval_current.json"
+      ],
+      "notes": "This is live and may contact local/CLI providers. Use -- --engines=adapter-ready to sample all live-selectable engines."
     }
   },
   "ops:eval:issue-authority:guard": {
