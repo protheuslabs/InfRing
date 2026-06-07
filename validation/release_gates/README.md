@@ -10,4 +10,6 @@ Canonical release-gate definitions now live here instead of under test harness p
 - `proof_packs/` contains generated release proof-pack snapshots and historical proof-pack evidence owned by Validation release gates.
 - Temporary compatibility mirrors should be declared only if release-gate migration debt is reintroduced; there are no active release-gate mirror registries right now.
 
+Manual/live operator evidence may be included as optional proof-pack evidence when it depends on a running host process rather than deterministic CI setup. For example, `ops:agent-runtime:socket-live-gateway:guard` proves the live Gateway process accepts `/ws/agent-runtime` and emits bounded `engine.list.result` plus `heartbeat` events, but it must remain manual/live-only unless the release lane explicitly starts a disposable Gateway host first.
+
 Harnesses may live under `tests/tooling/**`, but release-gate truth should be read from this subdomain.

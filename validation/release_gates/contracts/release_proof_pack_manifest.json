@@ -346,6 +346,7 @@
     "local/workspace/reports/LAYER3_CONTRACT_GUARD_CURRENT.md",
     "local/workspace/reports/NODE_CRITICAL_PATH_INVENTORY_CURRENT.md",
     "local/workspace/reports/AGENT_SURFACE_STATUS_GUARD_CURRENT.md",
+    "core/local/artifacts/agent_runtime_socket_live_gateway_guard_current.json",
     "local/workspace/reports/RUNTIME_BOUNDEDNESS_INSPECT_RICH_CURRENT.md",
     "local/workspace/reports/RUNTIME_BOUNDEDNESS_INSPECT_PURE_CURRENT.md",
     "local/workspace/reports/RUNTIME_BOUNDEDNESS_INSPECT_TINY-MAX_CURRENT.md",
