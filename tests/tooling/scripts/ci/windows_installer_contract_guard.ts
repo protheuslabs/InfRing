@@ -353,6 +353,16 @@ function run(argv: string[]): number {
   });
 
   checks.push({
+    id: 'windows_install_script_repair_workspace_cleanup_fail_soft_contract',
+    ok:
+      source.includes('Test-Path -LiteralPath $abs')
+      && source.includes('Remove-Item -Force -Recurse -LiteralPath $abs -ErrorAction Stop')
+      && source.includes('repair warning: failed to remove stale runtime path: $rel ($cleanupReason)'),
+    detail:
+      'repair workspace cleanup must be diagnostic and non-fatal when Windows refuses to delete stale generated runtime paths',
+  });
+
+  checks.push({
     id: 'windows_install_script_repair_wrapper_floor_fail_closed_contract',
     ok:
       source.includes('$requiredWrappers = @(')
