@@ -14,9 +14,22 @@ const path = require('node:path');
 const ROOT = process.cwd();
 const OUT_JSON = path.join(ROOT, 'core/local/artifacts/agent_runtime_real_work_replay_guard_current.json');
 const SCRATCH_DIR = path.join(ROOT, 'core/local/artifacts/agent-runtime-real-work-replay-scratch');
+const ENGINE_REGISTRY_PATH = path.join(ROOT, 'validation/conformance/contracts/agent_runtime_engine_registry.json');
 const AGENT_ID = 'agent-runtime-real-work-replay-agent';
 const SESSION_ID = 'agent-runtime-real-work-replay-session';
-const ENGINES = ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'openclaw', 'hermes_agent'];
+
+function loadRegistryRows() {
+  try {
+    const registry = JSON.parse(fs.readFileSync(ENGINE_REGISTRY_PATH, 'utf8'));
+    const rows = Array.isArray(registry && registry.engines) ? registry.engines : [];
+    return rows.filter((row) => row && clean(row.engine_id, 120));
+  } catch {
+    return [];
+  }
+}
+
+const ENGINE_ROWS = loadRegistryRows();
+const ENGINES = ENGINE_ROWS.map((row) => clean(row.engine_id, 120)).filter(Boolean);
 
 function clean(value, max = 4000) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -93,6 +106,19 @@ function artifactHtml(engineId) {
     '</html>',
     '',
   ].join('\n');
+}
+
+function registryRowFor(engineId) {
+  return ENGINE_ROWS.find((row) => clean(row && row.engine_id, 120) === engineId) || {};
+}
+
+function isExpectedPlannedUnavailable(engineId, turnPayload) {
+  const row = registryRowFor(engineId);
+  const status = clean(row && row.status, 160);
+  const output = clean(turnPayload && turnPayload.output_preview, 1000).toLowerCase();
+  return status.includes('planned_adapter') &&
+    clean(turnPayload && turnPayload.status, 120) === 'failed_with_reason' &&
+    (output.includes('no live adapter') || output.includes('unavailable'));
 }
 
 function createRealWorkAdapter(engineId) {
@@ -198,8 +224,29 @@ async function runEngineReplay(assembly, engineId, index) {
 
   const relPath = artifactRelPath(engineId);
   const quality = artifactQuality(relPath, engineId);
+  const replayOk = !!(
+    turnHandled === true &&
+    turnRes.statusCode === 200 &&
+    turnPayload.status === 'permission_required' &&
+    turnPayload.pending_permission === true &&
+    request &&
+    request.status === 'paused_pending_approval' &&
+    request.turn_status === 'permission_required' &&
+    request.source === 'gateway_universal_tool_proposal_normalizer' &&
+    request.proposal_arguments_ref &&
+    !request.proposal_arguments &&
+    decisionHandled === true &&
+    decisionRes.statusCode === 200 &&
+    decisionRes.payload &&
+    decisionRes.payload.ok === true &&
+    decisionRes.payload.durable_effect_executed === true &&
+    decisionRes.payload.pending_request_found === true &&
+    quality.ok
+  );
+  const expectedUnavailable = isExpectedPlannedUnavailable(engineId, turnPayload);
   return {
     engine_id: engineId,
+    registry_status: clean(registryRowFor(engineId).status, 160),
     trace_id: traceId,
     session_id: sessionId,
     artifact_rel_path: relPath,
@@ -229,25 +276,9 @@ async function runEngineReplay(assembly, engineId, index) {
       decision_receipt_hash_present: !!(decisionRes.payload && decisionRes.payload.decision_receipt && decisionRes.payload.decision_receipt.receipt_hash),
     },
     artifact_quality: quality,
-    ok: !!(
-      turnHandled === true &&
-      turnRes.statusCode === 200 &&
-      turnPayload.status === 'permission_required' &&
-      turnPayload.pending_permission === true &&
-      request &&
-      request.status === 'paused_pending_approval' &&
-      request.turn_status === 'permission_required' &&
-      request.source === 'gateway_universal_tool_proposal_normalizer' &&
-      request.proposal_arguments_ref &&
-      !request.proposal_arguments &&
-      decisionHandled === true &&
-      decisionRes.statusCode === 200 &&
-      decisionRes.payload &&
-      decisionRes.payload.ok === true &&
-      decisionRes.payload.durable_effect_executed === true &&
-      decisionRes.payload.pending_request_found === true &&
-      quality.ok
-    ),
+    expected_unavailable: expectedUnavailable,
+    replay_status: replayOk ? 'passed' : expectedUnavailable ? 'expected_planned_adapter_unavailable' : 'failed',
+    ok: replayOk,
   };
 }
 
@@ -278,13 +309,14 @@ async function main() {
     results.push(await runEngineReplay(assembly, ENGINES[index], index + 1));
   }
 
+  const previewEngine = ENGINES.includes('codex_cli') ? 'codex_cli' : ENGINES[0];
   const merged = assembly.agentRuntimeTranscriptStore.mergeAgentRuntimeTranscriptPayload({
     type: 'session_projection',
-    session_id: `${SESSION_ID}-${safeEngineId(ENGINES[1])}`,
+    session_id: `${SESSION_ID}-${safeEngineId(previewEngine)}`,
     message_window: { rows: [], total_count: 0 },
   }, {
     agentId: AGENT_ID,
-    sessionId: `${SESSION_ID}-${safeEngineId(ENGINES[1])}`,
+    sessionId: `${SESSION_ID}-${safeEngineId(previewEngine)}`,
     limit: 80,
   });
   const previewRes = makeResponse();
@@ -293,8 +325,8 @@ async function main() {
       method: 'POST',
       __body: {
         agent_id: AGENT_ID,
-        session_id: `${SESSION_ID}-${safeEngineId(ENGINES[1])}`,
-        engine_id: ENGINES[1],
+        session_id: `${SESSION_ID}-${safeEngineId(previewEngine)}`,
+        engine_id: previewEngine,
       },
     },
     res: previewRes,
@@ -305,7 +337,7 @@ async function main() {
 
   const violations = [];
   for (const result of results) {
-    if (!result.ok) {
+    if (!result.ok && !result.expected_unavailable) {
       violations.push({
         kind: 'engine_real_work_replay_failed',
         engine_id: result.engine_id,
@@ -340,8 +372,10 @@ async function main() {
     type: 'agent_runtime_real_work_replay_guard',
     generated_at: new Date().toISOString(),
     mode: 'deterministic_public_gateway_route_approval_artifact_replay',
+    engine_registry_path: 'validation/conformance/contracts/agent_runtime_engine_registry.json',
     engines_tested: ENGINES,
     successful_engine_count: results.filter((row) => row.ok).length,
+    expected_unavailable_count: results.filter((row) => row.expected_unavailable).length,
     results,
     transcript_probe: {
       overlay: merged && merged.agent_runtime_transcript_overlay ? merged.agent_runtime_transcript_overlay : null,

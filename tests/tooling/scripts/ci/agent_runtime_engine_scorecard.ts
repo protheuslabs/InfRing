@@ -84,8 +84,15 @@ function classify(score: number): string {
 function nextActions(engineId: string, caps: Record<string, ReturnType<typeof capability>>): string[] {
   const out: string[] = [];
   if (caps.context_continuity.status !== 'pass') out.push('Run or fix context continuity eval for this engine.');
-  if (caps.live_work_completion.status !== 'pass') out.push('Run live work eval through Gateway for this engine.');
-  if (caps.real_work_replay && caps.real_work_replay.status !== 'pass') out.push('Add this engine to the cross-framework real-work replay proof.');
+  if (caps.live_work_completion.status !== 'pass') {
+    if (caps.real_work_replay && caps.real_work_replay.status === 'partial') {
+      out.push('Attach a live adapter before expecting useful work completion for this planned engine.');
+    } else {
+      out.push('Run live work eval through Gateway for this engine.');
+    }
+  }
+  if (caps.real_work_replay && caps.real_work_replay.status === 'not_sampled') out.push('Add this engine to the cross-framework real-work replay proof.');
+  if (caps.real_work_replay && caps.real_work_replay.status === 'fail') out.push('Fix the cross-framework real-work replay failure for this engine.');
   if (caps.approval_pause.status !== 'pass') out.push('Verify gated tool proposal pauses and resumes through Gateway approval route.');
   if (caps.durable_receipts.status !== 'pass') out.push('Ensure terminal projections include Gateway receipt refs.');
   if (caps.activity_trace.status !== 'pass') out.push('Normalize activity into bounded user-facing trace rows.');
@@ -121,6 +128,7 @@ function main() {
     const liveApplies = liveWorkApplies(liveWork, engineId) || replayApplies;
     const liveRow = liveWorkResult(liveWork, engineId);
     const liveResults = liveRow && liveRow.results || {};
+    const replayExpectedUnavailable = replayApplies && replayRow?.expected_unavailable === true;
     const replayCompletionOk = replayApplies && replayRow?.ok === true && replayRow?.artifact_quality?.ok === true;
     const replayApprovalOk = replayApplies && replayRow?.turn?.pending_permission === true && replayRow?.permission_request?.present === true && replayRow?.decision?.ok === true;
     const replayReceiptsOk = replayApplies && replayRow?.decision?.decision_receipt_hash_present === true;
@@ -140,7 +148,16 @@ function main() {
       model_catalog_metadata: capability(hasModelMetadata(engine) || engineId === 'infring_native' ? 'pass' : 'partial', hasModelMetadata(engine) ? 'Model discovery/catalog metadata present.' : 'Model metadata not explicit enough.'),
       context_continuity: capability(continuity && continuity.ok === true ? 'pass' : 'not_sampled', continuity ? clean(continuity.output_preview || 'Continuity eval row present.', 500) : 'No context continuity evidence row for this engine.'),
       live_work_completion: capability(liveCompletionOk ? 'pass' : liveApplies ? 'fail' : 'not_sampled', liveApplies ? `Latest live work eval targeted ${engineId}.` : 'Latest live work eval did not target this engine.'),
-      real_work_replay: capability(replayRow && replayRow.ok === true ? 'pass' : 'not_sampled', replayRow ? 'Cross-framework real-work replay covered this engine.' : 'Cross-framework real-work replay has not sampled this engine.'),
+      real_work_replay: capability(
+        replayRow && replayRow.ok === true ? 'pass' : replayExpectedUnavailable ? 'partial' : replayRow ? 'fail' : 'not_sampled',
+        replayRow && replayRow.ok === true
+          ? 'Cross-framework real-work replay completed for this engine.'
+          : replayExpectedUnavailable
+            ? 'Cross-framework real-work replay sampled this planned engine and confirmed no live adapter is attached yet.'
+            : replayRow
+              ? 'Cross-framework real-work replay sampled this engine but failed.'
+              : 'Cross-framework real-work replay has not sampled this engine.',
+      ),
       approval_pause: capability(liveApprovalOk ? 'pass' : liveApplies ? 'fail' : 'not_sampled', liveApplies ? 'Latest live work eval included approval pause and decision.' : 'Approval pause not sampled for this engine.'),
       durable_receipts: capability(liveReceiptsOk ? 'pass' : liveApplies ? 'fail' : 'partial', liveReceiptsOk ? 'Latest live work eval returned receipt refs.' : 'Receipt evidence comes from contract/conformance, not live engine sample.'),
       activity_trace: capability(liveActivityOk ? 'pass' : liveApplies ? 'fail' : 'partial', liveActivityOk ? 'Latest live work eval returned bounded activity trace.' : 'Activity trace evidence comes from contract/conformance, not live engine sample.'),
@@ -189,7 +206,7 @@ function main() {
         working_directory: clean(replayRow.working_directory || realWorkReplay.working_directory || 'gateway_real_work_replay_scratch', 500),
         observed_working_directory: clean(replayRow.observed_working_directory || replayRow.artifact_rel_path, 500),
         working_directory_observation_source: clean(replayRow.working_directory_observation_source || 'agent_runtime_real_work_replay_guard', 120),
-        classification: clean(replayRow.ok ? 'real_work_replay_ok' : 'real_work_replay_failed', 160),
+        classification: clean(replayRow.ok ? 'real_work_replay_ok' : replayRow.expected_unavailable ? 'expected_planned_adapter_unavailable' : 'real_work_replay_failed', 160),
       } : null,
       capabilities: caps,
       next_actions: nextActions(engineId, caps),
