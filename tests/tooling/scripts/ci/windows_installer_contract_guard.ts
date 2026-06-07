@@ -225,7 +225,10 @@ function run(argv: string[]): number {
       && source.includes('"bootstrap_only_profile") -contains [string]$script:InstallRuntimeContractStatus')
       && source.includes('status=$installOutcome')
       && source.includes('runtime_installed = [bool]$runtimeInstalled')
-      && source.includes('Installation incomplete: runtime pending.'),
+      && source.includes('Installation incomplete: runtime pending.')
+      && source.includes('cargo_unusable_after_rustup_default')
+      && source.includes('cargo_unusable_auto_rustup_disabled')
+      && source.includes('rustup_missing_for_cargo_repair'),
     detail:
       'Windows full-mode onboarding fallback must complete as bootstrap-only runtime-pending outcome instead of claiming full runtime success',
   });

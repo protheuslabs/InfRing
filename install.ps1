@@ -3358,7 +3358,10 @@ if ($InstallPure) {
         $missingPrebuiltWithNoMsvc -or
         ($opsFailureReason -eq "msvc_tools_still_missing_after_bootstrap") -or
         ($opsFailureReason -eq "msvc_tools_missing_auto_bootstrap_disabled") -or
-        ($opsFailureReason -eq "msvc_tools_missing_no_reachable_prebuilt_asset")
+        ($opsFailureReason -eq "msvc_tools_missing_no_reachable_prebuilt_asset") -or
+        ($opsFailureReason -eq "cargo_unusable_after_rustup_default") -or
+        ($opsFailureReason -eq "cargo_unusable_auto_rustup_disabled") -or
+        ($opsFailureReason -eq "rustup_missing_for_cargo_repair")
       )
     )
     if ($allowBootstrapOnlyFallback) {
