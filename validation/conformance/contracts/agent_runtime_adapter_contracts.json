@@ -10,7 +10,8 @@
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-008",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-009",
     "V13-AGENT-RUNTIME-ENGINE-SOCKET-010",
-    "V13-AGENT-RUNTIME-ENGINE-SOCKET-014"
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-014",
+    "V13-AGENT-RUNTIME-ENGINE-SOCKET-020"
   ],
   "policy_refs": [
     "docs/workspace/SRS.md",
@@ -112,7 +113,15 @@
       "context_transport_mode": "native_session_bridge",
       "transport_migration_status": "native_target",
       "transitional_prompt_text_allowed": false,
-      "structured_transport_target": "native_session_bridge"
+      "structured_transport_target": "native_session_bridge",
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": false,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "codex_cli",
@@ -165,7 +174,15 @@
       "transitional_prompt_text_allowed": true,
       "structured_transport_target": "structured_json",
       "prompt_text_compat_retirement_signal": "provider exposes stable structured turn/session API or InfRing ships provider-specific structured bridge",
-      "prompt_text_compat_risk": "Prompt preambles and text-parsed proposals can become load-bearing if not guarded."
+      "prompt_text_compat_risk": "Prompt preambles and text-parsed proposals can become load-bearing if not guarded.",
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": true,
+        "framework_native_models": true,
+        "inherit_active_infring_provider_when_unconfigured": false,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "claude_code",
@@ -217,7 +234,15 @@
       "transitional_prompt_text_allowed": true,
       "structured_transport_target": "structured_json",
       "prompt_text_compat_retirement_signal": "provider exposes stable structured turn/session API or InfRing ships provider-specific structured bridge",
-      "prompt_text_compat_risk": "Prompt preambles and text-parsed proposals can become load-bearing if not guarded."
+      "prompt_text_compat_risk": "Prompt preambles and text-parsed proposals can become load-bearing if not guarded.",
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": true,
+        "framework_native_models": true,
+        "inherit_active_infring_provider_when_unconfigured": false,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "grok_code",
@@ -269,7 +294,15 @@
       "transitional_prompt_text_allowed": true,
       "structured_transport_target": "structured_json",
       "prompt_text_compat_retirement_signal": "provider exposes stable structured turn/session API or InfRing ships provider-specific structured bridge",
-      "prompt_text_compat_risk": "Prompt preambles and text-parsed proposals can become load-bearing if not guarded."
+      "prompt_text_compat_risk": "Prompt preambles and text-parsed proposals can become load-bearing if not guarded.",
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": true,
+        "framework_native_models": true,
+        "inherit_active_infring_provider_when_unconfigured": false,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "openhands",
@@ -312,7 +345,15 @@
       "context_transport_mode": "structured_json",
       "transport_migration_status": "planned_structured_target",
       "transitional_prompt_text_allowed": false,
-      "structured_transport_target": "structured_json"
+      "structured_transport_target": "structured_json",
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": true,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "openclaw",
@@ -333,9 +374,12 @@
         "custom_location_allowed": true,
         "override_url_config_key": "agent_runtimes.openclaw.url",
         "env_vars": [
-          "INFRING_OPENCLAW_URL"
+          "INFRING_OPENCLAW_URL",
+          "INFRING_OPENCLAW_COMMAND",
+          "INFRING_OPENCLAW_WORKSPACE"
         ],
         "default_urls": [
+          "http://127.0.0.1:18789",
           "http://127.0.0.1:8787"
         ],
         "authority_order": [
@@ -344,7 +388,24 @@
           "environment_variable",
           "default_url_probe",
           "missing_installable"
-        ]
+        ],
+        "override_config_key": "agent_runtimes.openclaw.command",
+        "override_workspace_config_key": "agent_runtimes.openclaw.workspace",
+        "path_commands": [
+          "openclaw"
+        ],
+        "default_paths": [
+          "~/.infring/external_runtimes/openclaw/bin/openclaw",
+          "~/.infring/external_runtimes/openclaw/openclaw.mjs",
+          "~/.local/bin/openclaw"
+        ],
+        "managed_workspace_policy": {
+          "upstream_default_workspace": "~/.openclaw/workspace",
+          "upstream_default_preserved_for_new_openclaw_instances": true,
+          "infring_managed_default_home": "~/.infring/external_runtimes/openclaw",
+          "infring_managed_default_workspace": "~/.infring/external_runtimes/openclaw/workspace",
+          "current_infring_workspace_forbidden_as_openclaw_home": true
+        }
       },
       "universal_tool_posture": {
         "receives_gateway_grants": true,
@@ -354,7 +415,110 @@
       "context_transport_mode": "structured_json",
       "transport_migration_status": "planned_structured_target",
       "transitional_prompt_text_allowed": false,
-      "structured_transport_target": "structured_json"
+      "structured_transport_target": "structured_json",
+      "reference_repo_path": "references/coding-agent-systems/openclaw",
+      "reference_repo_head": "36d9241cf7d6a79d30094bb2d7c313f60ebd9f64",
+      "private_schema_contract": "validation/conformance/contracts/agent_runtime_private_schemas/openclaw.json",
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": true,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
+    },
+    {
+      "engine_id": "hermes_agent",
+      "private_contract_kind": "http_service_protocol",
+      "adapter_path": "adapters/runtime/agent_engines/hermes_agent/**",
+      "reference_repo_path": "references/coding-agent-systems/hermes-agent",
+      "transport_binding": "http_or_cli_safe_oneshot_adapter",
+      "status": "safe_cli_bridge",
+      "public_socket_schema_fork_allowed": false,
+      "raw_payload_default_allowed": false,
+      "kernel_direct_access_allowed": false,
+      "shell_direct_access_allowed": false,
+      "adapter_specific_schema_scope": "private_adapter_only",
+      "canonical_event_mapping_required": true,
+      "health_projection_required": true,
+      "download_or_config_projection_required": true,
+      "notes": "Hermes Agent is modeled as a Gateway-adapted runtime engine. Its CLI/dashboard schemas stay private to the adapter and must normalize into the canonical Agent Runtime Socket.",
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_url_config_key": "agent_runtimes.hermes_agent.url",
+        "env_vars": [
+          "INFRING_HERMES_AGENT_URL",
+          "HERMES_DASHBOARD_URL",
+          "INFRING_HERMES_AGENT_COMMAND",
+          "INFRING_HERMES_AGENT_HOME"
+        ],
+        "default_urls": [
+          "http://127.0.0.1:9119"
+        ],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "path_discovery",
+          "default_url_probe",
+          "missing_installable"
+        ],
+        "override_config_key": "agent_runtimes.hermes_agent.command",
+        "override_home_config_key": "agent_runtimes.hermes_agent.home",
+        "path_commands": [
+          "hermes"
+        ],
+        "default_paths": [
+          "~/.local/bin/hermes",
+          "~/.hermes/bin/hermes",
+          "%LOCALAPPDATA%\\hermes\\bin\\hermes.exe"
+        ],
+        "infring_managed_override_paths": [
+          "~/.infring/external_runtimes/hermes_agent/venv/bin/hermes",
+          "%LOCALAPPDATA%\\InfRing\\external_runtimes\\hermes_agent\\venv\\Scripts\\hermes.exe"
+        ],
+        "override_note": "Default paths are upstream/user install locations only. InfRing-managed or cloned/runtime-local paths must be selected through user override, config, or environment variable."
+      },
+      "universal_tool_posture": {
+        "receives_gateway_grants": true,
+        "direct_execution_allowed": false,
+        "proposal_shape": "infring_universal_tool_proposal"
+      },
+      "context_transport_mode": "prompt_text_compat",
+      "transport_migration_status": "transitional_safe_oneshot_bridge",
+      "transitional_prompt_text_allowed": true,
+      "structured_transport_target": "structured_json",
+      "reference_repo_head": "6f6eb871d83415fe2980f3483cc41a435ba22196",
+      "private_schema_contract": "validation/conformance/contracts/agent_runtime_private_schemas/hermes_agent.json",
+      "safe_bridge_policy": {
+        "bridge_mode": "cli_safe_oneshot",
+        "default_toolsets": "safe",
+        "forbidden_toolsets": [
+          "*",
+          "all",
+          "terminal",
+          "file",
+          "debugging",
+          "hermes-cli",
+          "hermes-acp",
+          "hermes-telegram",
+          "hermes-discord",
+          "hermes-whatsapp",
+          "hermes-slack"
+        ],
+        "mutating_tool_bridge_ready": false,
+        "approval_mediation_required_for_mutating_tools": true
+      },
+      "prompt_text_compat_retirement_signal": "replace_safe_oneshot_prompt_bridge_with_mediated_structured_or_native_approval_bridge",
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": true,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "openfang",
@@ -396,7 +560,15 @@
       "context_transport_mode": "structured_json",
       "transport_migration_status": "planned_structured_target",
       "transitional_prompt_text_allowed": false,
-      "structured_transport_target": "structured_json"
+      "structured_transport_target": "structured_json",
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": true,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     },
     {
       "engine_id": "custom_socket_engine",
@@ -435,7 +607,15 @@
       "context_transport_mode": "structured_json",
       "transport_migration_status": "planned_structured_target",
       "transitional_prompt_text_allowed": false,
-      "structured_transport_target": "structured_json"
+      "structured_transport_target": "structured_json",
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": false,
+        "framework_native_models": false,
+        "inherit_active_infring_provider_when_unconfigured": true,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
     }
   ],
   "discovery_policy": {
@@ -476,5 +656,26 @@
     "prompt_text_compat_retirement_target": "structured_json",
     "new_adapters_must_not_default_to_prompt_text_compat": true,
     "migration_report_required": true
+  },
+  "model_provider_inheritance_policy": {
+    "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+    "owner": "gateway_agent_runtime_socket",
+    "rule": "Framework runtimes may inherit the active InfRing LLM provider/model only through Gateway-owned non-secret projections and adapter-owned credential materialization.",
+    "precedence": [
+      "framework_native_auth_and_model_config",
+      "framework_specific_model_selection_from_llm_menu",
+      "inherited_active_infring_provider_model",
+      "fail_closed_auth_required_or_config_required"
+    ],
+    "shell_rules": [
+      "Shell may display framework-aware model rows and selected provider/model labels.",
+      "Shell must not receive, persist, or transmit raw API keys or secret values.",
+      "Shell selection is advisory until Gateway attaches a model_provider_context to the turn."
+    ],
+    "adapter_rules": [
+      "Adapters translate model_provider_context into engine-specific args or environment only when the provider is allowlisted.",
+      "Adapters must prefer framework native auth when present, then explicit engine selection, then inherited InfRing provider/model.",
+      "Adapters must emit auth_required or config_required instead of guessing credentials."
+    ]
   }
 }

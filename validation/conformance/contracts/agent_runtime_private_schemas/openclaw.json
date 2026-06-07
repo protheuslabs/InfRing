@@ -1,0 +1,166 @@
+{
+  "type": "agent_runtime_private_schema_contract",
+  "schema_version": 1,
+  "version": "2026-06-05",
+  "engine_id": "openclaw",
+  "display_name": "OpenClaw",
+  "owner": "validation.agent_runtime",
+  "status": "planned_adapter_schema",
+  "public_socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
+  "structured_transport_contract": "validation/conformance/contracts/agent_runtime_structured_transport_contract.json",
+  "reference_repo": {
+    "path": "references/coding-agent-systems/openclaw",
+    "remote": "https://github.com/openclaw/openclaw.git",
+    "head": "36d9241cf7d6a79d30094bb2d7c313f60ebd9f64",
+    "shallow": false
+  },
+  "private_schema_scope": {
+    "public_socket_schema_fork_allowed": false,
+    "private_framework_payloads_visible_to_shell_by_default": false,
+    "kernel_direct_access_allowed": false,
+    "shell_direct_access_allowed": false,
+    "adapter_role": "Translate OpenClaw gateway/CLI/session protocol into the canonical Agent Runtime Socket."
+  },
+  "upstream_runtime": {
+    "package_name": "openclaw",
+    "cli_executable": "openclaw",
+    "documented_setup_commands": [
+      "npm install -g openclaw@latest",
+      "openclaw onboard --install-daemon"
+    ],
+    "documented_gateway_commands": [
+      "openclaw gateway status",
+      "openclaw gateway stop",
+      "openclaw gateway --port 18789 --verbose"
+    ],
+    "documented_gateway_port": 18789,
+    "upstream_default_workspace": "~/.openclaw/workspace",
+    "workspace_config_key": "agents.defaults.workspace"
+  },
+  "infring_managed_location_policy": {
+    "upstream_default_preserved_for_new_openclaw_instances": true,
+    "infring_integration_must_not_use_upstream_default_as_managed_workspace": true,
+    "infring_managed_default_home": "~/.infring/external_runtimes/openclaw",
+    "infring_managed_default_workspace": "~/.infring/external_runtimes/openclaw/workspace",
+    "current_infring_workspace_forbidden_as_openclaw_home": true,
+    "reason": "This InfRing checkout lives under ~/.openclaw; InfRing-managed OpenClaw runtime state must not collide with the InfRing workspace while upstream OpenClaw keeps ~/.openclaw/workspace as its ordinary new-instance default."
+  },
+  "discovery_schema": {
+    "authority_order": [
+      "user_override",
+      "config_value",
+      "environment_variable",
+      "path_discovery",
+      "default_location_probe",
+      "default_url_probe",
+      "missing_installable"
+    ],
+    "config_keys": {
+      "url": "agent_runtimes.openclaw.url",
+      "command": "agent_runtimes.openclaw.command",
+      "workspace": "agent_runtimes.openclaw.workspace"
+    },
+    "env_vars": [
+      "INFRING_OPENCLAW_URL",
+      "INFRING_OPENCLAW_COMMAND",
+      "INFRING_OPENCLAW_WORKSPACE"
+    ],
+    "path_commands": [
+      "openclaw"
+    ],
+    "default_paths": [
+      "~/.infring/external_runtimes/openclaw/bin/openclaw",
+      "~/.infring/external_runtimes/openclaw/openclaw.mjs",
+      "~/.local/bin/openclaw"
+    ],
+    "default_urls": [
+      "http://127.0.0.1:18789",
+      "http://127.0.0.1:8787"
+    ],
+    "health_probe_candidates": [
+      {
+        "method": "GET",
+        "path": "/health"
+      },
+      {
+        "method": "GET",
+        "path": "/api/health"
+      },
+      {
+        "method": "GET",
+        "path": "/status"
+      },
+      {
+        "method": "GET",
+        "path": "/api/status"
+      }
+    ],
+    "availability_rule": "Default URL/path matches are probes only; Gateway must receive a bounded successful health projection before the engine becomes selectable."
+  },
+  "structured_turn_mapping": {
+    "input_contract": "AgentRuntimeStructuredTurn",
+    "context_transport_mode": "structured_json",
+    "turn_submission_candidates": [
+      {
+        "kind": "gateway_client_or_websocket",
+        "source_hint": "packages/gateway-client and packages/gateway-protocol in the OpenClaw reference repo",
+        "status": "requires_live_adapter_analysis"
+      },
+      {
+        "kind": "cli_gateway_fallback",
+        "command_shape": "openclaw gateway ... plus runtime session/message API",
+        "status": "fallback_only_until_private_protocol_bound"
+      }
+    ],
+    "required_normalized_outputs": [
+      "activity.started",
+      "activity.updated",
+      "tool.proposed",
+      "permission.requested",
+      "artifact.proposed",
+      "assistant.output.delta",
+      "turn.completed",
+      "turn.failed"
+    ],
+    "forbidden_default_outputs": [
+      "external_framework_transcript",
+      "raw_tool_result",
+      "raw_gateway_payload",
+      "raw_approval_token"
+    ]
+  },
+  "approval_and_tool_policy": {
+    "universal_tool_grants_required": true,
+    "engines_may_propose_tool_calls": true,
+    "engines_may_not_execute_universal_tools_directly": true,
+    "durable_effects_require_gateway_or_kernel_receipts": true,
+    "write_outside_infring_workspace_requires_approval": true,
+    "write_outside_selected_openclaw_workspace_requires_approval": true
+  },
+  "payload_budget": {
+    "default_event_max_bytes": 65536,
+    "raw_private_payload_storage": "evidence_ref_only",
+    "shell_projection": "bounded_activity_rows_plus_detail_refs"
+  },
+  "model_provider_inheritance": {
+    "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+    "public_socket_secret_policy": "no_api_keys_or_secret_paths_in_public_payloads",
+    "adapter_materialization": "private_adapter_may_translate_gateway_model_provider_context_into_env_or_framework_config",
+    "allowed_inherited_env": [
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "XAI_API_KEY",
+      "GROK_API_KEY",
+      "OPENROUTER_API_KEY",
+      "GOOGLE_API_KEY",
+      "GEMINI_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "MISTRAL_API_KEY",
+      "COHERE_API_KEY",
+      "GROQ_API_KEY",
+      "OLLAMA_HOST",
+      "LLAMA_CPP_SERVER_URL"
+    ],
+    "fail_closed": "auth_required_or_config_required_when_no_framework_native_or_inherited_provider_is_available"
+  }
+}

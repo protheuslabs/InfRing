@@ -305,3 +305,5 @@ Updated: 2026-06-07T05:28:02.648Z
 - When an item in this file is completed, remove it from this live board and append it to [TODO_ARCHIVE.md](/Users/jay/.openclaw/workspace/docs/workspace/todo/TODO_ARCHIVE.md) through the scripted flow.
 - Do not let completed rows accumulate here again.
 - Treat Markdown as a rendered operator surface, not the canonical mutation target.
+
+- Progress: Integrated OpenClaw/Hermes private schema contracts and model-provider inheritance policy; `ops:agent-runtime-engine:conformance:guard` passes.
