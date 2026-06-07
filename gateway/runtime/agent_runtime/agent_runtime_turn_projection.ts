@@ -44,6 +44,8 @@ function firstActivityText(source, keys, maxLen = 500) {
     if (Array.isArray(value)) {
       const joined = value.map((item) => cleanText(item, 120)).filter(Boolean).join(' ');
       if (joined) return cleanDisplayText(joined, maxLen);
+    } else if (value && typeof value === 'object') {
+      continue;
     } else {
       const text = cleanDisplayText(value, maxLen);
       if (text) return text;
@@ -62,26 +64,50 @@ function activityStatusPrefix(status) {
 function compactRawProviderActivityText(raw, event = {}) {
   const row = raw && typeof raw === 'object' ? raw : {};
   const item = row.item && typeof row.item === 'object' ? row.item : row;
+  const input = item.input && typeof item.input === 'object'
+    ? item.input
+    : row.input && typeof row.input === 'object'
+      ? row.input
+      : {};
+  const args = item.args && typeof item.args === 'object'
+    ? item.args
+    : row.args && typeof row.args === 'object'
+      ? row.args
+      : {};
+  const toolObj = item.tool && typeof item.tool === 'object'
+    ? item.tool
+    : row.tool && typeof row.tool === 'object'
+      ? row.tool
+      : {};
   const providerType = cleanText(row.type || row.event_type || row.provider_event_type || event.provider_event_type, 160);
   const itemType = cleanText(item.type || item.kind || item.name || '', 120).toLowerCase();
   const status = cleanText(row.status || row.state || item.status || item.state || event.status, 80);
   const prefix = activityStatusPrefix(status);
   const command = firstActivityText(item, ['command', 'cmd', 'shell_command', 'argv', 'args'], 800) ||
+    firstActivityText(input, ['command', 'cmd', 'shell_command', 'argv', 'args'], 800) ||
+    firstActivityText(args, ['command', 'cmd', 'shell_command', 'argv', 'args'], 800) ||
     firstActivityText(row, ['command', 'cmd', 'shell_command', 'argv', 'args'], 800);
   if (command || /command|exec|shell/.test(itemType || providerType)) {
     return command ? `${prefix} command: ${command}` : `${prefix} a shell command.`;
   }
-  const pathTarget = firstActivityText(item, ['path', 'file', 'filename', 'target_path', 'target', 'uri'], 500) ||
-    firstActivityText(row, ['path', 'file', 'filename', 'target_path', 'target', 'uri'], 500);
+  const pathTarget = firstActivityText(item, ['path', 'file', 'filename', 'file_path', 'target_path', 'target', 'uri'], 500) ||
+    firstActivityText(input, ['path', 'file', 'filename', 'file_path', 'target_path', 'target', 'uri'], 500) ||
+    firstActivityText(args, ['path', 'file', 'filename', 'file_path', 'target_path', 'target', 'uri'], 500) ||
+    firstActivityText(row, ['path', 'file', 'filename', 'file_path', 'target_path', 'target', 'uri'], 500);
   if (pathTarget || /file|edit|patch|change|write/.test(itemType || providerType)) {
     return pathTarget ? `${prefix} file change: ${pathTarget}` : `${prefix} a file change.`;
   }
   const tool = firstActivityText(item, ['tool_id', 'tool', 'name', 'function'], 300) ||
+    firstActivityText(toolObj, ['tool_id', 'name', 'function'], 300) ||
+    firstActivityText(input, ['tool_id', 'tool', 'name', 'function'], 300) ||
+    firstActivityText(args, ['tool_id', 'tool', 'name', 'function'], 300) ||
     firstActivityText(row, ['tool_id', 'tool', 'name', 'function'], 300);
   if (tool || /tool|function/.test(itemType || providerType)) {
     return tool ? `${prefix} tool: ${tool}` : `${prefix} a tool call.`;
   }
   const query = firstActivityText(item, ['query', 'pattern', 'search'], 500) ||
+    firstActivityText(input, ['query', 'pattern', 'search'], 500) ||
+    firstActivityText(args, ['query', 'pattern', 'search'], 500) ||
     firstActivityText(row, ['query', 'pattern', 'search'], 500);
   if (query || /search|grep|rg/.test(itemType || providerType)) {
     return query ? `${prefix} search: ${query}` : `${prefix} a workspace search.`;

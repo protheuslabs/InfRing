@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-07T05:19:55.920Z
+Updated: 2026-06-07T05:21:58.429Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -113,7 +113,7 @@ Updated: 2026-06-07T05:19:55.920Z
   owner: `gateway.observability`
   deadline: `2026-06-21`
   summary: Normalize Codex, Claude Code, Grok Code, OpenClaw, Hermes, and native runtime activity into concise user-facing status rows without raw JSON noise, duplicate rows, or forced started/finished/done sandwich text.
-  progress_note: `Gateway activity projection now compacts raw provider JSON events into semantic trace titles and has a public route guard proving command/file-change/thread/turn events do not leak raw payload text into chat-facing activity rows.`
+  progress_note: `Gateway activity projection now covers Codex-, Claude-, Grok-, OpenClaw-, and Hermes-shaped raw provider event fixtures, including nested input/args/tool fields, so chat-facing trace rows stay semantic without Shell cognition.`
 - `HYGIENE-RUST-UNUSED-IMPORTS` — Remove unused Rust imports in narrow batches
   owner: `codex`
   deadline: `2026-05-19`

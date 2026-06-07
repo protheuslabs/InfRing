@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-07T05:19:55.920Z",
+  "updated_at": "2026-06-07T05:21:58.429Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -398,7 +398,7 @@
       "deadline": "2026-06-21",
       "owner": "gateway.observability",
       "summary": "Normalize Codex, Claude Code, Grok Code, OpenClaw, Hermes, and native runtime activity into concise user-facing status rows without raw JSON noise, duplicate rows, or forced started/finished/done sandwich text.",
-      "progress_note": "Gateway activity projection now compacts raw provider JSON events into semantic trace titles and has a public route guard proving command/file-change/thread/turn events do not leak raw payload text into chat-facing activity rows.",
+      "progress_note": "Gateway activity projection now covers Codex-, Claude-, Grok-, OpenClaw-, and Hermes-shaped raw provider event fixtures, including nested input/args/tool fields, so chat-facing trace rows stay semantic without Shell cognition.",
       "created_at": "2026-06-07T04:56:27.538Z",
       "updated_at": "2026-06-07T04:56:27.538Z",
       "source": "framework_coordination_gap_breakdown"
