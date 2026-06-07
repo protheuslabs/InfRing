@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-07T05:43:07.628Z",
+  "updated_at": "2026-06-07T05:44:58.645Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -358,9 +358,9 @@
       "work_gate": "real_work",
       "real_work_score": 4,
       "status": "in_progress",
-      "updated_at": "2026-06-07T05:43:07.628Z",
-      "progress_note": "Real-work replay now derives its engine matrix from the registry, samples all nine registered engines, records six passing real-work engines and three expected planned-adapter unavailable engines, and the scorecard reports planned-unavailable engines accurately.",
-      "last_validation": "npm run -s ops:agent-runtime:real-work-replay:guard && npm run -s ops:agent-runtime:engine-scorecard && npm run -s ops:agent-runtime:framework-coordination:guard",
+      "updated_at": "2026-06-07T05:44:58.645Z",
+      "progress_note": "Framework coordination rollup now enforces coverage metadata: full-registry proofs must cover all nine registered engines, and subset proofs must declare scoped partial coverage so green gates cannot hide partial matrices.",
+      "last_validation": "npm run -s ops:agent-runtime:framework-coordination:guard",
       "last_artifact": "core/local/artifacts/agent_runtime_engine_scorecard_current.json"
     },
     {
@@ -475,12 +475,12 @@
       "deadline": "2026-07-05",
       "owner": "validation.gateway",
       "summary": "Create repeatable validation that runs small real tasks through at least native, Codex, Claude Code, and one open framework, proving context continuity, approval flow, persistence, status traces, and receipts.",
-      "progress_note": "Real-work replay now derives its engine matrix from the registry, samples all nine registered engines, records six passing real-work engines and three expected planned-adapter unavailable engines, and the scorecard reports planned-unavailable engines accurately.",
+      "progress_note": "Framework coordination rollup now enforces coverage metadata: full-registry proofs must cover all nine registered engines, and subset proofs must declare scoped partial coverage so green gates cannot hide partial matrices.",
       "created_at": "2026-06-07T04:56:27.538Z",
-      "updated_at": "2026-06-07T05:43:07.628Z",
+      "updated_at": "2026-06-07T05:44:58.645Z",
       "source": "framework_coordination_gap_breakdown",
       "last_artifact": "core/local/artifacts/agent_runtime_framework_coordination_guard_current.json",
-      "last_validation": "npm run -s ops:agent-runtime:real-work-replay:guard && npm run -s ops:agent-runtime:engine-scorecard && npm run -s ops:agent-runtime:framework-coordination:guard"
+      "last_validation": "npm run -s ops:agent-runtime:framework-coordination:guard"
     }
   ]
 }

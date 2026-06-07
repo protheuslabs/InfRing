@@ -24,34 +24,42 @@ const GATES = [
   {
     id: 'approval_lifecycle',
     script: 'tests/tooling/scripts/ci/agent_runtime_route_approval_lifecycle_guard.ts',
+    coverage_scope: 'single_route_lifecycle',
   },
   {
     id: 'context_continuity',
     script: 'tests/tooling/scripts/ci/agent_runtime_context_continuity_eval.ts',
+    coverage_scope: 'full_engine_registry',
   },
   {
     id: 'transcript_persistence_parity',
     script: 'tests/tooling/scripts/ci/agent_runtime_transcript_persistence_parity_guard.ts',
+    coverage_scope: 'adapter_ready_subset',
   },
   {
     id: 'route_transcript_persistence',
     script: 'tests/tooling/scripts/ci/agent_runtime_route_transcript_persistence_guard.ts',
+    coverage_scope: 'adapter_ready_subset',
   },
   {
     id: 'activity_projection',
     script: 'tests/tooling/scripts/ci/agent_runtime_activity_projection_guard.ts',
+    coverage_scope: 'provider_fixture_subset',
   },
   {
     id: 'model_projection',
     script: 'tests/tooling/scripts/ci/agent_runtime_model_projection_guard.ts',
+    coverage_scope: 'selectable_projection_subset',
   },
   {
     id: 'route_structured_transport',
     script: 'tests/tooling/scripts/ci/agent_runtime_route_structured_transport_guard.ts',
+    coverage_scope: 'adapter_ready_subset',
   },
   {
     id: 'real_work_replay',
     script: 'tests/tooling/scripts/ci/agent_runtime_real_work_replay_guard.ts',
+    coverage_scope: 'full_engine_registry',
   },
 ];
 
@@ -82,6 +90,60 @@ function parseJsonCandidate(text) {
   }
 }
 
+function cleanEngineId(value) {
+  return String(value == null ? '' : value)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
+function uniqueEngineIds(values) {
+  const out = [];
+  const seen = new Set();
+  for (const value of Array.isArray(values) ? values : []) {
+    const id = cleanEngineId(value);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+function loadRegistryEngineIds() {
+  try {
+    const registry = JSON.parse(fs.readFileSync(path.join(ROOT, 'validation/conformance/contracts/agent_runtime_engine_registry.json'), 'utf8'));
+    return uniqueEngineIds((Array.isArray(registry && registry.engines) ? registry.engines : []).map((row) => row && row.engine_id));
+  } catch {
+    return [];
+  }
+}
+
+function engineIdsFromParsed(parsed) {
+  if (!parsed || typeof parsed !== 'object') return [];
+  const candidates = [];
+  if (Array.isArray(parsed.engines_tested)) candidates.push(...parsed.engines_tested);
+  if (Array.isArray(parsed.sampled_real_work_replay_engines)) candidates.push(...parsed.sampled_real_work_replay_engines);
+  if (Array.isArray(parsed.engines)) {
+    for (const row of parsed.engines) candidates.push(row && typeof row === 'object' ? row.engine_id : row);
+  }
+  for (const key of ['results', 'turn_results', 'rows', 'captures']) {
+    if (!Array.isArray(parsed[key])) continue;
+    for (const row of parsed[key]) candidates.push(row && typeof row === 'object' ? row.engine_id : row);
+  }
+  return uniqueEngineIds(candidates);
+}
+
+function parsedMeta(parsed) {
+  const engines = engineIdsFromParsed(parsed);
+  return {
+    type: cleanEngineId(parsed && (parsed.type || parsed.kind)),
+    engine_ids: engines,
+    engine_count: engines.length,
+    expected_unavailable_count: Number(parsed && parsed.expected_unavailable_count) || 0,
+    successful_engine_count: Number(parsed && parsed.successful_engine_count) || 0,
+  };
+}
+
 function runGate(gate) {
   const startedAt = Date.now();
   const child = childProcess.spawnSync(
@@ -110,6 +172,8 @@ function runGate(gate) {
     timed_out: Boolean(timedOut),
     duration_ms: Date.now() - startedAt,
     parsed_ok: parsed && typeof parsed.ok === 'boolean' ? parsed.ok : null,
+    coverage_scope: gate.coverage_scope,
+    parsed_meta: parsedMeta(parsed),
     stdout_preview: preview(child.stdout),
     stderr_preview: preview(child.stderr),
     error: child.error
@@ -121,12 +185,60 @@ function runGate(gate) {
   };
 }
 
+function buildCoverageReport(gateResults) {
+  const registryEngineIds = loadRegistryEngineIds();
+  const registrySet = new Set(registryEngineIds);
+  const checks = [];
+  const failures = [];
+  for (const gate of gateResults) {
+    const engineIds = uniqueEngineIds(gate.parsed_meta && gate.parsed_meta.engine_ids);
+    const missing = registryEngineIds.filter((id) => !engineIds.includes(id));
+    const extra = engineIds.filter((id) => !registrySet.has(id));
+    let ok = true;
+    let note = '';
+    if (gate.coverage_scope === 'full_engine_registry') {
+      ok = missing.length === 0 && extra.length === 0 && registryEngineIds.length > 0;
+      note = 'Must cover every engine registered in agent_runtime_engine_registry.json.';
+    } else if (gate.coverage_scope && gate.coverage_scope.endsWith('_subset')) {
+      ok = engineIds.length > 0 && extra.length === 0;
+      note = 'Scoped subset proof: partial coverage is allowed only because this guard declares its subset scope.';
+    } else {
+      ok = true;
+      note = 'Single-route or non-matrix proof.';
+    }
+    const row = {
+      id: gate.id,
+      scope: gate.coverage_scope,
+      ok,
+      engine_count: engineIds.length,
+      engine_ids: engineIds,
+      missing_registry_engine_ids: gate.coverage_scope === 'full_engine_registry' ? missing : [],
+      extra_engine_ids: extra,
+      note,
+    };
+    checks.push(row);
+    if (!ok) failures.push(row);
+  }
+  return {
+    ok: failures.length === 0,
+    registry_engine_count: registryEngineIds.length,
+    registry_engine_ids: registryEngineIds,
+    checks,
+    failures,
+  };
+}
+
 function main() {
   const startedAt = Date.now();
   const gateResults = GATES.map(runGate);
+  const coverage = buildCoverageReport(gateResults);
   const failures = gateResults.filter((gate) => !gate.ok);
+  const allFailures = [
+    ...failures.map((gate) => ({ kind: 'gate_failed', id: gate.id, gate })),
+    ...coverage.failures.map((row) => ({ kind: 'coverage_failed', id: row.id, coverage: row })),
+  ];
   const report = {
-    ok: failures.length === 0,
+    ok: allFailures.length === 0,
     generated_at: new Date().toISOString(),
     kind: 'agent_runtime_framework_coordination_guard',
     version: 1,
@@ -140,19 +252,25 @@ function main() {
     summary: {
       gate_count: gateResults.length,
       pass_count: gateResults.length - failures.length,
-      failure_count: failures.length,
+      failure_count: allFailures.length,
       duration_ms: Date.now() - startedAt,
     },
+    coverage,
     gates: gateResults,
-    failures: failures.map((gate) => ({
-      id: gate.id,
-      script: gate.script,
-      status: gate.status,
-      signal: gate.signal,
-      timed_out: gate.timed_out,
-      stderr_preview: gate.stderr_preview,
-      stdout_preview: gate.stdout_preview,
-    })),
+    failures: allFailures.map((failure) => {
+      if (failure.kind === 'coverage_failed') return failure;
+      const gate = failure.gate;
+      return {
+        kind: failure.kind,
+        id: gate.id,
+        script: gate.script,
+        status: gate.status,
+        signal: gate.signal,
+        timed_out: gate.timed_out,
+        stderr_preview: gate.stderr_preview,
+        stdout_preview: gate.stdout_preview,
+      };
+    }),
   };
 
   fs.mkdirSync(path.dirname(ARTIFACT_PATH), { recursive: true });
