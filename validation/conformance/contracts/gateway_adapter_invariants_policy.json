@@ -116,6 +116,7 @@
     "gateway/runtime/agent_runtime/agent_runtime_workspace_routes.ts",
     "gateway/runtime/agent_runtime/agent_runtime_approvals.ts",
     "gateway/runtime/gateway_system_routes.ts",
+    "gateway/runtime/gateway_system_route_assembly.ts",
     "gateway/runtime/agent_runtime/agent_runtime_transcripts.ts",
     "gateway/runtime/agent_runtime/agent_runtime_session_state.ts",
     "gateway/runtime/agent_runtime/agent_runtime_engine_projections.ts",

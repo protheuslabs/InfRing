@@ -26,11 +26,8 @@ const {
   createGatewayShellSocketCoreRouteAssembly,
 } = require('../../gateway/runtime/sockets/shell_socket/shell_socket_core_route_assembly.ts');
 const {
-  createGatewaySystemRouteHandler,
-} = require('../../gateway/runtime/gateway_system_routes.ts');
-const {
-  createGatewayDashboardSystemActionDispatcher,
-} = require('../../gateway/runtime/gateway_system_actions.ts');
+  createGatewaySystemRouteAssembly,
+} = require('../../gateway/runtime/gateway_system_route_assembly.ts');
 const {
   normalizeGatewayShutdownExitDelayMs: normalizeShutdownExitDelayMs,
   normalizeGatewayArgs: normalizeArgs,
@@ -151,26 +148,17 @@ const {
   fetchBackendJson,
 });
 const {
-  runDashboardSystemAction,
-  dispatchDashboardSystemAction,
-} = createGatewayDashboardSystemActionDispatcher({
+  handleGatewaySystemRoute,
+} = createGatewaySystemRouteAssembly({
   root: ROOT,
   env: () => process.env,
   invokeInfringOpsViaBridge,
   resolveBinary,
   spawnProcess: spawn,
-});
-const {
-  handleGatewaySystemRoute,
-} = createGatewaySystemRouteHandler({
   fetchBackendJson,
   fetchBackend,
   readJsonBody,
   sendJson,
-  legacyHostFallback: (action, body) => {
-    if (action === 'update') return runDashboardSystemAction('update', body);
-    return dispatchDashboardSystemAction(action, body);
-  },
   onHostShutdownAccepted: (body) => {
     const exitDelayMs = normalizeShutdownExitDelayMs(body && body.exit_delay_ms);
     scheduleDashboardHostExit(cleanup, exitDelayMs);
