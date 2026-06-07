@@ -4182,6 +4182,17 @@
       "artifact_paths": [
         "core/local/artifacts/agent_runtime_real_work_replay_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:framework-coordination:guard": {
+      "command": "ops:agent-runtime:framework-coordination:guard",
+      "description": "Roll up agent runtime framework coordination guards for approvals, continuity, transcript persistence, activity projection, model projection, structured transport, and real-work replay.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_seconds": 180,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_framework_coordination_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {

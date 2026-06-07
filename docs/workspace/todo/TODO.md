@@ -241,6 +241,8 @@ Updated: 2026-06-07T05:28:02.648Z
   real_work_score: `5`
   summary: Route InfRing Native through the same engine_id, context envelope, available_models, activity event, permission request, artifact ref, and receipt surfaces used by external engines so native orchestration is swappable rather than special-cased.
 
+- Progress: Added `ops:agent-runtime:framework-coordination:guard` as a rollup for approval, context, transcript, activity, model, structured transport, and real-work replay proofs.
+
 ## White Section (Do At Leisure)
 - `TRACE-IMPL` — Implement end-to-end unified trace_id propagation
   owner: `unassigned`

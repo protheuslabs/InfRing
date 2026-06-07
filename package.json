@@ -1242,7 +1242,8 @@
     "ops:agent-runtime:activity-projection:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_activity_projection_guard.ts",
     "ops:agent-runtime:model-projection:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_model_projection_guard.ts",
     "ops:agent-runtime:route-structured-transport:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_route_structured_transport_guard.ts",
-    "ops:agent-runtime:real-work-replay:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_real_work_replay_guard.ts"
+    "ops:agent-runtime:real-work-replay:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_real_work_replay_guard.ts",
+    "ops:agent-runtime:framework-coordination:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_framework_coordination_guard.ts"
   },
   "version": "0.4.0"
 }

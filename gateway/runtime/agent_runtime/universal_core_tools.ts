@@ -206,7 +206,8 @@ function renderUniversalToolGrantPromptSection(grants) {
   const tools = Array.isArray(pack && pack.tools) ? pack.tools : [];
   if (!tools.length) return '';
   const lines = [
-    'Host app universal tool request notes:',
+    'Universal InfRing core tools:',
+    '- These are host-provided core tool grants shared across native and external agent runtimes.',
     '- These are interoperability notes for proposing host-side reads or durable effects from an external runtime.',
     '- You may write one of these proposal JSON objects when needed. Do not claim the proposal executed.',
     '- The host app validates proposals. Durable effects happen only after approval and emit receipts.',
