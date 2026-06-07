@@ -38,6 +38,9 @@ const {
   createGatewaySystemRouteHandler,
 } = require('../../gateway/runtime/gateway_system_routes.ts');
 const {
+  createGatewayDashboardSystemActionDispatcher,
+} = require('../../gateway/runtime/gateway_system_actions.ts');
+const {
   createGatewayNativeOrchestrationClient,
 } = require('../../gateway/runtime/gateway_native_orchestration_client.ts');
 const {
@@ -231,6 +234,16 @@ const {
   fetchBackend,
   fetchBackendJson,
   statusPayloadWithBootStage,
+});
+const {
+  runDashboardSystemAction,
+  dispatchDashboardSystemAction,
+} = createGatewayDashboardSystemActionDispatcher({
+  root: ROOT,
+  env: () => process.env,
+  invokeInfringOpsViaBridge,
+  resolveBinary,
+  spawnProcess: spawn,
 });
 const {
   handleGatewaySystemRoute,
@@ -688,103 +701,6 @@ function parseLastJson(stdout) {
   }
   return null;
 }
-function dashboardSystemActionArgs(action, payload = {}) {
-  const normalized = cleanText(action, 40).toLowerCase();
-  const body = (payload && typeof payload === 'object' && !Array.isArray(payload)) ? payload : {};
-  if (normalized === 'restart') return ['restart', '--json'];
-  if (normalized === 'shutdown') return ['stop', '--json'];
-  if (normalized === 'update') {
-    const args = ['update', '--json'];
-    if (body.force === true) args.push('--force');
-    if (body.apply !== false) args.push('--apply');
-    return args;
-  }
-  throw new Error(`unknown_dashboard_system_action:${normalized}`);
-}
-function dashboardSystemActionEnv() {
-  return {
-    ...process.env,
-    INFRING_ROOT: ROOT,
-    INFRING_OPS_ALLOW_STALE: process.env.INFRING_OPS_ALLOW_STALE || '1',
-    INFRING_NPM_ALLOW_STALE: process.env.INFRING_NPM_ALLOW_STALE || '1',
-  };
-}
-function runDashboardSystemAction(action, payload = {}) {
-  const args = dashboardSystemActionArgs(action, payload);
-  const run =
-    invokeInfringOpsViaBridge(args, {
-      allowProcessFallback: false,
-      unknownDomainFallback: false,
-    }) || {
-      status: 1,
-      stdout: '',
-      stderr: 'resident_ipc_bridge_unavailable',
-      payload: null,
-    };
-  const status = Number.isFinite(Number(run.status)) ? Number(run.status) : 1;
-  const receipt = (run && run.payload && typeof run.payload === 'object') ? run.payload : parseLastJson(run.stdout);
-  const ok = status === 0 && (!receipt || receipt.ok !== false);
-  const error = ok
-    ? ''
-    : cleanText(
-        (receipt && receipt.error) || run.stderr || run.stdout || `${cleanText(action, 40).toLowerCase()}_failed`,
-        260,
-      );
-  return {
-    ok,
-    type: 'dashboard_system_action',
-    action: cleanText(action, 40).toLowerCase(),
-    command: args[0],
-    args: args.slice(1),
-    exit_code: status,
-    payload: receipt || null,
-    error,
-  };
-}
-function dispatchDashboardSystemAction(action, payload = {}) {
-  const args = dashboardSystemActionArgs(action, payload);
-  const env = dashboardSystemActionEnv();
-  const bin = resolveBinary({ env });
-  if (!bin) {
-    return {
-      ok: false,
-      type: 'dashboard_system_action',
-      action: cleanText(action, 40).toLowerCase(),
-      command: '',
-      args: args.slice(1),
-      error: 'dashboard_backend_binary_missing',
-    };
-  }
-  try {
-    const child = spawn(bin, args, {
-      cwd: ROOT,
-      env,
-      detached: true,
-      stdio: 'ignore',
-    });
-    if (child && typeof child.unref === 'function') child.unref();
-    return {
-      ok: true,
-      type: 'dashboard_system_action',
-      action: cleanText(action, 40).toLowerCase(),
-      command: path.basename(bin),
-      args: args.slice(1),
-      dispatch_mode: 'detached_subprocess',
-      pid: Number(child && child.pid) || 0,
-      payload: null,
-      error: '',
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      type: 'dashboard_system_action',
-      action: cleanText(action, 40).toLowerCase(),
-      command: path.basename(String(bin || '')),
-      args: args.slice(1),
-      error: cleanText(error && error.message ? error.message : String(error), 260),
-    };
-  }
-}
 function scheduleDashboardHostExit(cleanup, normalizedDelayMs = DASHBOARD_SHUTDOWN_EXIT_DELAY_DEFAULT_MS) {
   const waitMs = normalizeShutdownExitDelayMs(normalizedDelayMs);
   setTimeout(() => {
@@ -1005,7 +921,6 @@ module.exports = {
   cleanText,
   backendFreshnessSnapshot,
   currentDashboardBuildInfo,
-  dashboardSystemActionArgs,
   isTransientSocketError,
   mergeDashboardVersionPayload,
   normalizeArgs,

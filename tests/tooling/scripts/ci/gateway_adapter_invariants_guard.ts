@@ -351,6 +351,9 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/gateway_status_projection.ts')")) {
     push('dashboard_not_using_gateway_status_projection', dashboardPath, 'Legacy dashboard host must delegate status/version projections to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_system_actions.ts')")) {
+    push('dashboard_not_using_gateway_system_actions', dashboardPath, 'Legacy dashboard host must delegate system action argument/env/result projection to gateway/**.');
+  }
   if (/function\s+(?:sanitizeTraceId|requestTraceId|requestTraceBoundary)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_trace_boundary', dashboardPath, 'Legacy dashboard host must not define Gateway trace boundary helpers locally.');
   }
@@ -389,6 +392,9 @@ if (exists(dashboardPath)) {
   }
   if (/function\s+(?:backendFreshnessSnapshot|waitForBackendDown|stopStaleBackend|statusPayloadWithBootStage|currentDashboardBuildInfo|mergeDashboardVersionPayload)\b|dashboard_backend_freshness\.ts/.test(dashboard)) {
     push('dashboard_owns_gateway_lifecycle_or_status_projection', dashboardPath, 'Legacy dashboard host must not define Gateway backend lifecycle, freshness, or status/version projections locally.');
+  }
+  if (/function\s+(?:dashboardSystemActionArgs|dashboardSystemActionEnv|runDashboardSystemAction|dispatchDashboardSystemAction)\b/.test(dashboard)) {
+    push('dashboard_owns_gateway_system_actions', dashboardPath, 'Legacy dashboard host must not define Gateway system action helpers locally.');
   }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/universal_core_tools.ts')")) {
     push('dashboard_not_using_gateway_universal_tools', dashboardPath, 'Legacy dashboard host must delegate universal tool grant policy to gateway/**.');
