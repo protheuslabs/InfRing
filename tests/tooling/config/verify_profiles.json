@@ -168,6 +168,7 @@
         "ops:shell:long-chat-ram:guard",
         "ops:node-critical-path:inventory",
         "ops:agent-surface:status:guard",
+        "ops:agent-runtime:framework-coordination:guard",
         "ops:orchestration:contract:guard",
         "ops:orchestration:hidden-state:guard",
         "ops:orchestration:gateway-fallback:guard",
