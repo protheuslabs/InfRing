@@ -35,6 +35,9 @@ const {
   createGatewayDashboardHostStatusController,
 } = require('../../gateway/runtime/gateway_dashboard_host_status.ts');
 const {
+  createGatewayDashboardStaticResponseController,
+} = require('../../gateway/runtime/gateway_dashboard_static_responses.ts');
+const {
   normalizeGatewayShutdownExitDelayMs: normalizeShutdownExitDelayMs,
   normalizeGatewayArgs: normalizeArgs,
   parseGatewayHostFlags: parseFlags,
@@ -124,6 +127,14 @@ const dashboardHostStatus = createGatewayDashboardHostStatusController({
   staticDir: STATIC_DIR,
   statusPath: STATUS_PATH,
 });
+const dashboardStaticResponses = createGatewayDashboardStaticResponseController({
+  staticDir: STATIC_DIR,
+  buildPrimaryDashboardHtml,
+  readPrimaryDashboardAsset,
+  fetchBackendJson,
+  sendJson,
+  mergeDashboardVersionPayload,
+});
 const {
   createGatewayHostCleanup,
   scheduleGatewayHostExit,
@@ -210,7 +221,7 @@ const {
 });
 async function runServe(flags) {
   assertDashboardSurfaceLocked();
-  let dashboardHtml = buildPrimaryDashboardHtml(STATIC_DIR);
+  const dashboardHtml = dashboardStaticResponses.loadDashboardHtml();
   if (!dashboardHtml.trim()) throw new Error('primary_dashboard_html_empty');
   const { backend, backendStartPromise } = await createBackendStartupState(flags);
   const wsBridge = createAgentWsBridge({ flags, cleanText, fetchBackend, fetchBackendJson });
@@ -236,33 +247,7 @@ async function runServe(flags) {
     try { res.setHeader('x-infring-trace-id', traceId); } catch {}
     try { res.setHeader('x-infring-trace-source', requestTraceBoundary(req).source || 'unknown'); } catch {}
     try {
-      if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/dashboard-classic' || pathname === '/dashboard-shell')) {
-        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-        res.end(req.method === 'HEAD' ? '' : 'dashboard_surface_retired');
-        return;
-      }
-      if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/') {
-        res.writeHead(302, { location: '/dashboard', 'cache-control': 'no-store' });
-        res.end();
-        return;
-      }
-      if (
-        (req.method === 'GET' || req.method === 'HEAD') &&
-        (pathname === '/dashboard' || pathname === '/dashboard/' || (pathname.startsWith('/dashboard/') && !path.extname(pathname)))
-      ) {
-        dashboardHtml = buildPrimaryDashboardHtml(STATIC_DIR) || dashboardHtml;
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        res.end(req.method === 'HEAD' ? '' : dashboardHtml);
-        return;
-      }
-      if (req.method === 'GET' && pathname === '/api/status') {
-        const status = mergeDashboardVersionPayload(await statusPayloadWithBootStage(flags));
-        return void sendJson(res, 200, status);
-      }
-      if (req.method === 'GET' && pathname === '/api/version') {
-        const versionPayload = await fetchBackendJson(flags, '/api/version', 4000).catch(() => ({ ok: true }));
-        return void sendJson(res, 200, mergeDashboardVersionPayload(versionPayload));
-      }
+      if (await dashboardStaticResponses.handleGatewayDashboardStaticRoute({ req, res, pathname, flags })) return;
       if (await handleGatewaySystemRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
       if (await handleShellSocketAgentRuntimeOverlayRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
       if (await handleAgentRuntimeTurnRoute({ req, res, pathname, traceId, flags })) return;
@@ -270,31 +255,6 @@ async function runServe(flags) {
       if (await handleAgentRuntimeEngineRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeWorkspaceRoute({ req, res, pathname, traceId })) return;
       if (await handleShellSocketCoreRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
-      if (req.method === 'GET') {
-        const agentSessionsMatch = pathname.match(/^\/api\/agents\/([^/]+)\/sessions$/);
-        if (agentSessionsMatch) {
-          const rawAgentId = String(agentSessionsMatch[1] || '').trim();
-          let decodedAgentId = rawAgentId;
-          try { decodedAgentId = decodeURIComponent(rawAgentId); } catch {}
-          const normalizedAgentId = cleanText(decodedAgentId, 120).toLowerCase();
-          if (normalizedAgentId === 'system') {
-            return void sendJson(res, 200, {
-              ok: true,
-              agent_id: 'system',
-              sessions: [],
-              system_thread: true,
-            });
-          }
-        }
-      }
-      if (req.method === 'GET') {
-        const asset = readPrimaryDashboardAsset(STATIC_DIR, pathname);
-        if (asset) {
-          res.writeHead(200, { 'content-type': asset.contentType, 'cache-control': 'no-store' });
-          res.end(asset.body);
-          return;
-        }
-      }
       if (pathname === '/healthz' || pathname.startsWith('/api/')) {
         return void await proxyGatewayHttpRequest(req, res, {
           apiHost: flags.apiHost,
@@ -360,10 +320,8 @@ module.exports = {
   mergeDashboardVersionPayload,
   normalizeArgs,
   parseFlags,
-  dispatchDashboardSystemAction,
   run,
-  runDashboardSystemAction,
-  scheduleDashboardHostExit,
+  scheduleGatewayHostExit,
 };
 if (require.main === module) {
   process.on('uncaughtException', (error) => {

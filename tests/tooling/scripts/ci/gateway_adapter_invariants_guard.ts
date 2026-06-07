@@ -396,6 +396,9 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/gateway_dashboard_host_status.ts')")) {
     push('dashboard_not_using_gateway_dashboard_host_status', dashboardPath, 'Legacy dashboard host must delegate dashboard host status projection/persistence to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_dashboard_static_responses.ts')")) {
+    push('dashboard_not_using_gateway_dashboard_static_responses', dashboardPath, 'Legacy dashboard host must delegate dashboard static/status/version response shaping to gateway/**.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_dashboard_surface_lock.ts')")) {
     push('dashboard_not_using_gateway_dashboard_surface_lock', dashboardPath, 'Legacy dashboard host must delegate dashboard surface lock policy to gateway/**.');
   }
@@ -449,6 +452,9 @@ if (exists(dashboardPath)) {
   }
   if (/const\s+status\s*=\s*{|\bfunction\s+persistStatus\b|ensureDir\s*\(\s*STATUS_DIR\s*\)|writeJson\s*\(\s*STATUS_PATH\s*,/.test(dashboard)) {
     push('dashboard_owns_gateway_dashboard_host_status', dashboardPath, 'Legacy dashboard host must not assemble or persist dashboard host status locally.');
+  }
+  if (/pathname\s*===\s*['"]\/dashboard['"]|pathname\s*===\s*['"]\/dashboard-classic['"]|pathname\s*===\s*['"]\/api\/status['"]|pathname\s*===\s*['"]\/api\/version['"]|readPrimaryDashboardAsset\s*\(\s*STATIC_DIR|buildPrimaryDashboardHtml\s*\(\s*STATIC_DIR/.test(dashboard)) {
+    push('dashboard_owns_gateway_dashboard_static_responses', dashboardPath, 'Legacy dashboard host must not shape dashboard HTML/static/status/version responses locally.');
   }
   if (/function\s+(?:backendSpawnEnv|spawnBackend|ensureBackend)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_backend_host_launcher', dashboardPath, 'Legacy dashboard host must not define Gateway backend host launcher helpers locally.');
