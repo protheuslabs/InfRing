@@ -99,7 +99,8 @@
     "gateway/runtime/sockets/shell_socket/shell_socket_core_routes.ts",
     "gateway/runtime/sockets/shell_socket/shell_socket_status_projection.ts",
     "gateway/runtime/sockets/shell_socket/shell_socket_eval_issue_ingress.ts",
-    "gateway/runtime/sockets/shell_socket/shell_socket_lifecycle_ingress.ts"
+    "gateway/runtime/sockets/shell_socket/shell_socket_lifecycle_ingress.ts",
+    "gateway/runtime/sockets/shell_socket/shell_socket_core_route_assembly.ts"
   ],
   "canonical_gateway_agent_runtime_modules": [
     "gateway/runtime/agent_runtime/agent_runtime_router.ts",

@@ -295,11 +295,18 @@ if (exists(dashboardPath)) {
   if (/legacyAgentSessionMatch|mergeAgentRuntimeTranscriptPayload\s*\(|agentRuntimeTranscriptFilterFromShellSocketPath\s*\(|shellSocketChatProjection\s*\(/.test(dashboard)) {
     push('dashboard_owns_shell_socket_agent_runtime_overlay', dashboardPath, 'Legacy dashboard host must not shape Shell Socket Agent Runtime transcript overlay responses directly.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/sockets/shell_socket/shell_socket_core_routes.ts')")) {
+  const usesShellSocketCoreRouteAssembly = dashboard.includes("require('../../gateway/runtime/sockets/shell_socket/shell_socket_core_route_assembly.ts')");
+  if (!dashboard.includes("require('../../gateway/runtime/sockets/shell_socket/shell_socket_core_routes.ts')") && !usesShellSocketCoreRouteAssembly) {
     push('dashboard_not_using_gateway_shell_socket_core_routes', dashboardPath, 'Legacy dashboard host must delegate Shell Socket status/command/eval/lifecycle routes to gateway/**.');
+  }
+  if (!usesShellSocketCoreRouteAssembly) {
+    push('dashboard_not_using_gateway_shell_socket_core_route_assembly', dashboardPath, 'Legacy dashboard host must delegate Shell Socket core route assembly to gateway/**.');
   }
   if (!/handleShellSocketCoreRoute\s*\(/.test(dashboard)) {
     push('dashboard_shell_socket_core_route_handler_missing', dashboardPath, 'Legacy dashboard host must call the Gateway-owned Shell Socket core route handler.');
+  }
+  if (/createShellSocketCoreRouteHandler\s*\(/.test(dashboard)) {
+    push('dashboard_owns_shell_socket_core_route_assembly', dashboardPath, 'Legacy dashboard host must not assemble Shell Socket core routes locally.');
   }
   if (/isShellSocket(?:CommandIngress|StatusProjection|EvalIssueIngress|LifecycleIngress)Path|shellSocket(?:CommandIngress|StatusProjection|EvalIssueIngress|LifecycleIngress)\s*\(/.test(dashboard)) {
     push('dashboard_owns_shell_socket_core_routes', dashboardPath, 'Legacy dashboard host must not shape Shell Socket status/command/eval/lifecycle routes directly.');

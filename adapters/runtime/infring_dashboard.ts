@@ -23,8 +23,8 @@ const { createGrokCodeEngineAdapter } = require('./agent_engines/grok_code.ts');
 const { createOpenClawEngineAdapter } = require('./agent_engines/openclaw.ts');
 const { createHermesAgentEngineAdapter } = require('./agent_engines/hermes_agent.ts');
 const {
-  createShellSocketCoreRouteHandler,
-} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_core_routes.ts');
+  createGatewayShellSocketCoreRouteAssembly,
+} = require('../../gateway/runtime/sockets/shell_socket/shell_socket_core_route_assembly.ts');
 const {
   createGatewaySystemRouteHandler,
 } = require('../../gateway/runtime/gateway_system_routes.ts');
@@ -63,7 +63,6 @@ const {
   deterministicGatewayReceiptHash: deterministicReceiptHash,
 } = require('../../gateway/runtime/gateway_artifacts.ts');
 const {
-  gatewayStatusPayloadWithBootStage: statusPayloadWithBootStage,
   createGatewayDashboardVersionProjection,
 } = require('../../gateway/runtime/gateway_status_projection.ts');
 const {
@@ -145,12 +144,11 @@ const {
 });
 const {
   handleShellSocketCoreRoute,
-} = createShellSocketCoreRouteHandler({
+} = createGatewayShellSocketCoreRouteAssembly({
   readJsonBody,
   sendJson,
   fetchBackend,
   fetchBackendJson,
-  statusPayloadWithBootStage,
 });
 const {
   runDashboardSystemAction,
