@@ -20,6 +20,22 @@ Updated: 2026-06-07T00:02:27.302Z
 - white: 8
 
 ## Red Section (Do Immediately)
+
+- `V13-FRAMEWORK-COORDINATION-002` — Make framework context and persistence identical for native and external engines
+  status: `queued`
+  section: `red`
+  owner: `gateway.kernel_context`
+  deadline: `2026-06-14`
+  summary: All engines, including InfRing native, Codex, Claude Code, Grok Code, OpenClaw, and Hermes, should receive the same bounded context pack, save turns through the same backend persistence path, and reload conversation state consistently.
+  progress_note: `Current failure mode: external-engine turns have shown weaker message persistence and inconsistent conversation continuity compared with native turns.`
+
+- `V13-FRAMEWORK-COORDINATION-001` — Pause and resume external runtime turns through approval-gated tool calls
+  status: `in_progress`
+  section: `red`
+  owner: `gateway`
+  deadline: `2026-06-14`
+  summary: External frameworks must not end a turn when a write/tool action needs permission. Gateway should hold the turn, emit a permission request, resume or deny based on the gate decision, and preserve receipts regardless of engine.
+  progress_note: `Gateway now emits an explicit bounded permission.requested activity event when an Agent Runtime turn pauses for approval, alongside the permission_required final projection. Route lifecycle guard requires that user-facing permission activity before approving and applying the effect.`
 - `SHELL-CLEANUP` — Finish the Shell source-of-truth cleanup
   owner: `unassigned`
   deadline: `2026-05-07`
@@ -50,6 +66,54 @@ Updated: 2026-06-07T00:02:27.302Z
   summary: Re-root phase is complete: Gateway route, status, startup, lifecycle, request-boundary, and Agent Runtime assembly logic now lives under gateway/**. Remaining work is retiring the thin legacy dashboard host and compatibility adapter shims before the allowed window closes.
 
 ## Yellow Section (Do Soon)
+
+- `V13-FRAMEWORK-COORDINATION-008` — Add cross-framework real-work replay proof for the coordinating face
+  status: `queued`
+  section: `yellow`
+  owner: `validation.gateway`
+  deadline: `2026-07-05`
+  summary: Create repeatable validation that runs small real tasks through at least native, Codex, Claude Code, and one open framework, proving context continuity, approval flow, persistence, status traces, and receipts.
+  progress_note: `Acceptance should measure useful task completion, not merely adapter discovery or fixture-backed route shape.`
+
+- `V13-FRAMEWORK-COORDINATION-007` — Graduate external engine transport from prompt-text compatibility toward structured transport
+  status: `queued`
+  section: `yellow`
+  owner: `gateway.agent_runtime`
+  deadline: `2026-07-05`
+  summary: Keep prompt-text context hydration as compatibility only, then move capable engines toward structured JSON context, refs, receipts, tool proposals, and eventually lower-token native context transfer.
+  progress_note: `Current risk: transitional prompt-text context packs become permanent load-bearing infrastructure.`
+
+- `V13-FRAMEWORK-COORDINATION-006` — Make the legacy dashboard replaceable without losing framework-router behavior
+  status: `queued`
+  section: `yellow`
+  owner: `gateway.shell_boundary`
+  deadline: `2026-07-01`
+  summary: Framework routing, permissions, context, persistence, model discovery, and status traces must live behind Gateway sockets so a rebuilt Shell or CLI can use the same behavior without copying dashboard cognition.
+  progress_note: `This is the architectural safety check that the UI remains a face/lens, not the framework-router brain.`
+
+- `V13-FRAMEWORK-COORDINATION-005` — Retire remaining Gateway adapter compatibility shims
+  status: `in_progress`
+  section: `yellow`
+  owner: `gateway.validation`
+  deadline: `2026-07-01`
+  summary: Finish retiring declared Gateway compatibility shims under adapters/** after callers move to canonical gateway/** modules, while keeping adapter code translator-only.
+  progress_note: `Shell Socket shims were retired; remaining debt includes the thin legacy dashboard host, agent_ws_bridge client-loader shim, and Agent Runtime compatibility shims.`
+
+- `V13-FRAMEWORK-COORDINATION-004` — Implement real per-framework model discovery and selection
+  status: `queued`
+  section: `yellow`
+  owner: `gateway.provider_discovery`
+  deadline: `2026-06-21`
+  summary: The model menu should ask the active runtime for its available models when the framework owns model selection, otherwise fall back to InfRing provider discovery. Placeholder labels like default must not appear as models.
+  progress_note: `Current risk: model lists can be stale or placeholder-driven instead of accurately reflecting Codex, Claude, Grok, or provider availability.`
+
+- `V13-FRAMEWORK-COORDINATION-003` — Project external runtime activity into clean semantic thinking/status traces
+  status: `queued`
+  section: `yellow`
+  owner: `gateway.observability`
+  deadline: `2026-06-21`
+  summary: Normalize Codex, Claude Code, Grok Code, OpenClaw, Hermes, and native runtime activity into concise user-facing status rows without raw JSON noise, duplicate rows, or forced started/finished/done sandwich text.
+  progress_note: `Current status text is improved but still below native framework quality and needs consistent semantic projection across engines.`
 - `HYGIENE-RUST-UNUSED-IMPORTS` — Remove unused Rust imports in narrow batches
   owner: `codex`
   deadline: `2026-05-19`

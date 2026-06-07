@@ -561,13 +561,20 @@ const openclawPath = 'adapters/runtime/agent_engines/openclaw.ts';
 const hermesAgentPath = 'adapters/runtime/agent_engines/hermes_agent.ts';
 const liveTurnSmokePath = 'tests/tooling/scripts/ci/agent_runtime_cli_live_turn_smoke.ts';
 const contextContinuityEvalPath = 'tests/tooling/scripts/ci/agent_runtime_context_continuity_eval.ts';
+const routeApprovalLifecycleGuardPath = 'tests/tooling/scripts/ci/agent_runtime_route_approval_lifecycle_guard.ts';
 const tracePath = 'gateway/runtime/agent_runtime/agent_runtime_trace_writer.ts';
 const discoveryPath = 'adapters/runtime/agent_engines/discovery.ts';
 const contextStorePath = 'gateway/runtime/agent_runtime/agent_runtime_context_store.ts';
 const kernelContextBridgePath = 'gateway/runtime/agent_runtime/agent_runtime_kernel_context_bridge.ts';
 const universalCoreToolsPath = 'gateway/runtime/agent_runtime/universal_core_tools.ts';
+const approvalStorePath = 'gateway/runtime/agent_runtime/agent_runtime_approvals.ts';
 const turnProjectionPath = 'gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts';
 const contextPreviewPath = 'gateway/runtime/agent_runtime/agent_runtime_context_preview.ts';
+const routeAssemblyPath = 'gateway/runtime/agent_runtime/agent_runtime_route_assembly.ts';
+const turnRoutesPath = 'gateway/runtime/agent_runtime/agent_runtime_turn_routes.ts';
+const engineRoutesPath = 'gateway/runtime/agent_runtime/agent_runtime_engine_routes.ts';
+const engineProjectionsPath = 'gateway/runtime/agent_runtime/agent_runtime_engine_projections.ts';
+const contextPackPath = 'gateway/runtime/agent_runtime/agent_runtime_context_pack.ts';
 const kernelContextMaterializerPath = 'core/layer2/memory/src/bin/agent_runtime_context_materializer.rs';
 const dashboardPath = 'adapters/runtime/infring_dashboard.ts';
 const chatSendPartPath = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/200-send-pipeline.part01.ts';
@@ -579,8 +586,14 @@ if (!exists(discoveryPath)) violations.push({ kind: 'discovery_module_missing', 
 if (!exists(contextStorePath)) violations.push({ kind: 'context_store_module_missing', path: contextStorePath });
 if (!exists(kernelContextBridgePath)) violations.push({ kind: 'kernel_context_bridge_module_missing', path: kernelContextBridgePath });
 if (!exists(universalCoreToolsPath)) violations.push({ kind: 'universal_core_tools_module_missing', path: universalCoreToolsPath });
+if (!exists(approvalStorePath)) violations.push({ kind: 'approval_store_module_missing', path: approvalStorePath });
 if (!exists(turnProjectionPath)) violations.push({ kind: 'turn_projection_module_missing', path: turnProjectionPath });
 if (!exists(contextPreviewPath)) violations.push({ kind: 'context_preview_module_missing', path: contextPreviewPath });
+if (!exists(routeAssemblyPath)) violations.push({ kind: 'route_assembly_module_missing', path: routeAssemblyPath });
+if (!exists(turnRoutesPath)) violations.push({ kind: 'turn_routes_module_missing', path: turnRoutesPath });
+if (!exists(engineRoutesPath)) violations.push({ kind: 'engine_routes_module_missing', path: engineRoutesPath });
+if (!exists(engineProjectionsPath)) violations.push({ kind: 'engine_projections_module_missing', path: engineProjectionsPath });
+if (!exists(contextPackPath)) violations.push({ kind: 'context_pack_module_missing', path: contextPackPath });
 if (!exists(kernelContextMaterializerPath)) violations.push({ kind: 'kernel_context_materializer_bin_missing', path: kernelContextMaterializerPath });
 if (!exists(cliRuntimePath)) violations.push({ kind: 'cli_runtime_module_missing', path: cliRuntimePath });
 if (!exists(claudePath)) violations.push({ kind: 'claude_adapter_module_missing', path: claudePath });
@@ -684,6 +697,128 @@ if (exists(universalCoreToolsPath)) {
     if (badProposal.ok || badProposal.error_code !== 'universal_tool_not_granted') violations.push({ kind: 'universal_core_tool_unknown_proposal_not_denied', result: badProposal });
   }
 }
+if (exists(approvalStorePath)) {
+  const approvalRoot = path.join(ROOT, 'core', 'local', 'artifacts', 'agent-runtime-approval-conformance');
+  const artifactRel = 'tmp/router-approval-lifecycle.txt';
+  const artifactAbs = path.join(approvalRoot, artifactRel);
+  try { fs.rmSync(approvalRoot, { recursive: true, force: true }); } catch {}
+  try {
+    const approvals = require(path.join(ROOT, approvalStorePath));
+    if (typeof approvals.createAgentRuntimeApprovalStore !== 'function') {
+      violations.push({ kind: 'approval_store_factory_missing', path: approvalStorePath });
+    } else {
+      const store = approvals.createAgentRuntimeApprovalStore({ root: approvalRoot });
+      if (typeof store.recordAgentRuntimePendingApproval !== 'function' || typeof store.agentRuntimeApprovalDecisionProjection !== 'function') {
+        violations.push({ kind: 'approval_store_lifecycle_methods_missing', path: approvalStorePath });
+      } else {
+        const pending = store.recordAgentRuntimePendingApproval({
+          type: 'permission.requested',
+          approval_id: 'approval_conformance_artifact_create',
+          trace_id: 'trace-approval-conformance',
+          request_id: 'request-approval-conformance',
+          engine_id: 'codex_cli',
+          session_id: 'session-approval-conformance',
+          turn_id: 'turn-approval-conformance',
+          tool_call_ref: 'tool-proposal/artifact.create_propose/trace-approval-conformance/turn-approval-conformance',
+          tool_id: 'artifact.create_propose',
+          capability: 'propose_artifact_create',
+          reason: 'conformance approval lifecycle artifact write',
+          argument_keys: ['path', 'mime_type', 'content'],
+          proposal_arguments: {
+            path: artifactRel,
+            mime_type: 'text/plain',
+            content: 'approval lifecycle conformance proof\n',
+          },
+          gatekeeper_kind: 'user',
+          source: 'gateway_universal_tool_proposal_normalizer',
+        });
+        const decision = store.agentRuntimeApprovalDecisionProjection('trace-approval-conformance', 'approval_conformance_artifact_create', {
+          decision: 'allow_once',
+        });
+        const wroteArtifact = fs.existsSync(artifactAbs) && fs.readFileSync(artifactAbs, 'utf8').includes('approval lifecycle conformance proof');
+        if (
+          !pending ||
+          pending.turn_status !== 'permission_required' ||
+          pending.status !== 'paused_pending_approval' ||
+          !pending.resume_token ||
+          !pending.proposal_arguments_ref ||
+          pending.proposal_arguments ||
+          !decision ||
+          decision.ok !== true ||
+          decision.pending_request_found !== true ||
+          decision.resume_token !== pending.resume_token ||
+          decision.durable_effect_executed !== true ||
+          !decision.decision_receipt ||
+          !decision.decision_receipt.receipt_hash ||
+          !wroteArtifact
+        ) {
+          violations.push({ kind: 'approval_store_pause_decision_effect_lifecycle_broken', pending, decision, wroteArtifact });
+        }
+        const allowOnce = store.agentRuntimeApprovalDecisionProjection('trace-approval-conformance', 'approval_conformance_allow_once', {
+          decision: 'allow_once',
+          tool_id: 'memory.write_propose',
+          engine_id: 'codex_cli',
+          session_id: 'session-approval-conformance',
+        });
+        const allowOncePolicy = store.mergeAgentRuntimeApprovalPermissionPolicy({}, 'session-approval-conformance', 'codex_cli');
+        const allowOncePolicyAfterConsume = store.mergeAgentRuntimeApprovalPermissionPolicy({}, 'session-approval-conformance', 'codex_cli');
+        const alwaysPending = store.recordAgentRuntimePendingApproval({
+          type: 'permission.requested',
+          approval_id: 'approval_conformance_always_allow',
+          trace_id: 'trace-approval-conformance',
+          request_id: 'request-approval-conformance',
+          engine_id: 'codex_cli',
+          session_id: 'session-approval-conformance',
+          turn_id: 'turn-approval-conformance-always',
+          tool_call_ref: 'tool-proposal/memory.write_propose/trace-approval-conformance/turn-approval-conformance-always',
+          tool_id: 'memory.write_propose',
+          capability: 'propose_memory_write',
+          reason: 'conformance always allow grant',
+          argument_keys: ['summary'],
+          proposal_arguments: { summary: 'always allow proof' },
+          gatekeeper_kind: 'user',
+          source: 'gateway_universal_tool_proposal_normalizer',
+        });
+        const alwaysDecision = store.agentRuntimeApprovalDecisionProjection('trace-approval-conformance', 'approval_conformance_always_allow', {
+          decision: 'always_allow_tool_call',
+        });
+        const reloadedStore = approvals.createAgentRuntimeApprovalStore({ root: approvalRoot });
+        const alwaysPolicy = reloadedStore.mergeAgentRuntimeApprovalPermissionPolicy({}, 'session-approval-conformance', 'codex_cli');
+        const wrongSessionPolicy = reloadedStore.mergeAgentRuntimeApprovalPermissionPolicy({}, 'different-session', 'codex_cli');
+        if (
+          !allowOnce ||
+          allowOnce.ok !== true ||
+          !Array.isArray(allowOncePolicy.always_allowed_tool_calls) ||
+          !allowOncePolicy.always_allowed_tool_calls.includes('memory.write_propose') ||
+          (Array.isArray(allowOncePolicyAfterConsume.always_allowed_tool_calls) && allowOncePolicyAfterConsume.always_allowed_tool_calls.includes('memory.write_propose')) ||
+          !alwaysPending ||
+          !alwaysDecision ||
+          alwaysDecision.ok !== true ||
+          alwaysDecision.decision !== 'always_allow_tool_call' ||
+          !Array.isArray(alwaysPolicy.always_allowed_tool_calls) ||
+          !alwaysPolicy.always_allowed_tool_calls.includes('memory.write_propose') ||
+          (Array.isArray(wrongSessionPolicy.always_allowed_tool_calls) && wrongSessionPolicy.always_allowed_tool_calls.includes('memory.write_propose'))
+        ) {
+          violations.push({
+            kind: 'approval_store_always_allow_policy_lifecycle_broken',
+            allowOnce,
+            allowOncePolicy,
+            allowOncePolicyAfterConsume,
+            alwaysPending,
+            alwaysDecision,
+            alwaysPolicy,
+            wrongSessionPolicy,
+          });
+        }
+      }
+    }
+  } catch (error) {
+    violations.push({ kind: 'approval_store_lifecycle_probe_failed', path: approvalStorePath, error: String(error && error.message || error) });
+  } finally {
+    try { fs.rmSync(approvalRoot, { recursive: true, force: true }); } catch {}
+  }
+}
+if (!exists(routeApprovalLifecycleGuardPath)) violations.push({ kind: 'route_approval_lifecycle_guard_missing', path: routeApprovalLifecycleGuardPath });
 if (exists(contextContinuityEvalPath)) {
   const evalSource = fs.readFileSync(path.join(ROOT, contextContinuityEvalPath), 'utf8');
   for (const marker of ['materializeKernelAgentRuntimeContextPack', 'buildPromptWithContext', 'infring_native', 'codex_cli', 'claude_code', 'grok_code', 'brass-otter-713']) {
@@ -695,15 +830,22 @@ if (exists(dashboardPath)) {
   const dashboardSource = fs.readFileSync(path.join(ROOT, dashboardPath), 'utf8');
   const turnProjectionSource = exists(turnProjectionPath) ? fs.readFileSync(path.join(ROOT, turnProjectionPath), 'utf8') : '';
   const contextPreviewSource = exists(contextPreviewPath) ? fs.readFileSync(path.join(ROOT, contextPreviewPath), 'utf8') : '';
+  const routeAssemblySource = exists(routeAssemblyPath) ? fs.readFileSync(path.join(ROOT, routeAssemblyPath), 'utf8') : '';
+  const turnRoutesSource = exists(turnRoutesPath) ? fs.readFileSync(path.join(ROOT, turnRoutesPath), 'utf8') : '';
+  const engineRoutesSource = exists(engineRoutesPath) ? fs.readFileSync(path.join(ROOT, engineRoutesPath), 'utf8') : '';
+  const engineProjectionsSource = exists(engineProjectionsPath) ? fs.readFileSync(path.join(ROOT, engineProjectionsPath), 'utf8') : '';
+  const contextPackSource = exists(contextPackPath) ? fs.readFileSync(path.join(ROOT, contextPackPath), 'utf8') : '';
   const turnProjectionCombinedSource = `${dashboardSource}\n${turnProjectionSource}`;
   const contextProjectionCombinedSource = `${dashboardSource}\n${contextPreviewSource}`;
-	  if (!dashboardSource.includes('/api/shell-socket/agent-runtime/turn')) violations.push({ kind: 'dashboard_agent_runtime_turn_route_missing', path: dashboardPath });
-	  if (!dashboardSource.includes('agentRuntimeEngineInstallProjection')) violations.push({ kind: 'dashboard_agent_runtime_install_projection_missing', path: dashboardPath });
-	  if (!dashboardSource.includes('agentRuntimeInstallMatch') || !dashboardSource.includes('/install')) violations.push({ kind: 'dashboard_agent_runtime_install_route_missing', path: dashboardPath });
-	  if (!dashboardSource.includes('output_text') || !dashboardSource.includes('display_text')) violations.push({ kind: 'dashboard_agent_runtime_formatted_output_projection_missing', path: dashboardPath });
-	  if (!dashboardSource.includes('buildAgentRuntimeContextPack') || !dashboardSource.includes('AGENT_RUNTIME_CONTEXT_FANOUT_TARGET = 7')) violations.push({ kind: 'dashboard_agent_runtime_context_pack_builder_missing', path: dashboardPath });
+  const routeBoundarySource = `${dashboardSource}\n${routeAssemblySource}\n${turnRoutesSource}\n${engineRoutesSource}\n${engineProjectionsSource}`;
+  const projectionBoundarySource = `${dashboardSource}\n${routeAssemblySource}\n${turnProjectionSource}\n${contextPreviewSource}\n${contextPackSource}`;
+	  if (!routeBoundarySource.includes('/api/shell-socket/agent-runtime/turn')) violations.push({ kind: 'dashboard_agent_runtime_turn_route_missing', path: turnRoutesPath });
+	  if (!routeBoundarySource.includes('agentRuntimeEngineInstallProjection')) violations.push({ kind: 'dashboard_agent_runtime_install_projection_missing', path: engineProjectionsPath });
+	  if (!(routeBoundarySource.includes('agentRuntimeInstallMatch') || routeBoundarySource.includes('installMatch')) || !routeBoundarySource.includes('/install')) violations.push({ kind: 'dashboard_agent_runtime_install_route_missing', path: engineRoutesPath });
+	  if (!projectionBoundarySource.includes('output_text') || !projectionBoundarySource.includes('display_text')) violations.push({ kind: 'dashboard_agent_runtime_formatted_output_projection_missing', path: turnProjectionPath });
+	  if (!projectionBoundarySource.includes('buildAgentRuntimeContextPack') || !projectionBoundarySource.includes('AGENT_RUNTIME_CONTEXT_FANOUT_TARGET = 7')) violations.push({ kind: 'dashboard_agent_runtime_context_pack_builder_missing', path: contextPackPath });
 	  if (!turnProjectionCombinedSource.includes('context_pack: contextPack')) violations.push({ kind: 'dashboard_agent_runtime_context_pack_not_submitted', path: turnProjectionPath });
-	  if (!dashboardSource.includes('ingestAgentRuntimeContextProjection') || !dashboardSource.includes('materializeAgentRuntimeContextPack') || !dashboardSource.includes('appendAgentRuntimeTurnAtoms')) violations.push({ kind: 'dashboard_agent_runtime_context_store_not_wired', path: dashboardPath });
+	  if (!projectionBoundarySource.includes('ingestAgentRuntimeContextProjection') || !projectionBoundarySource.includes('materializeAgentRuntimeContextPack') || !projectionBoundarySource.includes('appendAgentRuntimeTurnAtoms')) violations.push({ kind: 'dashboard_agent_runtime_context_store_not_wired', path: routeAssemblyPath });
 	  if (!contextProjectionCombinedSource.includes('materializeKernelAgentRuntimeContextPack') || !contextProjectionCombinedSource.includes('kernel_materializer_used')) violations.push({ kind: 'dashboard_agent_runtime_kernel_context_bridge_not_wired', path: contextPreviewPath });
 	  for (const marker of ['failed_with_reason', 'timed_out_with_reason', 'status_code: 200']) {
 	    if (!turnProjectionCombinedSource.includes(marker)) violations.push({ kind: 'dashboard_turn_outcome_projection_marker_missing', marker, path: turnProjectionPath });
@@ -717,7 +859,7 @@ if (exists(dashboardPath)) {
 	  for (const factory of ['createOpenClawEngineAdapter', 'createHermesAgentEngineAdapter']) {
 	    if (!dashboardSource.includes(factory)) violations.push({ kind: 'dashboard_socket_runtime_factory_missing', factory, path: dashboardPath });
 	  }
-	  if (!dashboardSource.includes('createHermesAgentEngineAdapter({ liveDispatch, cwd })')) violations.push({ kind: 'dashboard_hermes_live_dispatch_not_forwarded', path: dashboardPath });
+	  if (!dashboardSource.includes('createGatewayAgentRuntimeRouteAssembly') || !dashboardSource.includes('hermes_agent: createHermesAgentEngineAdapter')) violations.push({ kind: 'dashboard_hermes_live_dispatch_not_forwarded', path: dashboardPath });
 }
 if (exists(liveTurnSmokePath)) {
   const liveSmokeSource = fs.readFileSync(path.join(ROOT, liveTurnSmokePath), 'utf8');
@@ -826,6 +968,15 @@ if (exists(routerPath)) {
     );
     if (approvalRequired?.permission_requires_user_approval !== true || approvalRequired?.permission_request?.type !== 'permission.requested' || !approvalRequired?.permission_request?.approval_route) {
       violations.push({ kind: 'router_universal_tool_permission_request_missing', result: approvalRequired });
+    }
+    if (
+      approvalRequired?.permission_request?.turn_status !== 'permission_required' ||
+      approvalRequired?.permission_request?.status !== 'paused_pending_approval' ||
+      approvalRequired?.permission_request?.source !== 'gateway_universal_tool_proposal_normalizer' ||
+      approvalRequired?.permission_request?.resume_strategy !== 'gateway_apply_approved_effect' ||
+      approvalRequired?.permission_request?.proposal_arguments?.summary !== 'x'
+    ) {
+      violations.push({ kind: 'router_universal_tool_permission_pause_resume_payload_incomplete', result: approvalRequired });
     }
     const denied = router.normalizeGatewayEvent(
       { type: 'infring_universal_tool_proposal', tool_id: 'terminal.run', reason: 'bad', arguments: {} },

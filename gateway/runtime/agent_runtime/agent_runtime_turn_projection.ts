@@ -944,8 +944,25 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
     const finalActivityEvents = Array.isArray(turn && turn.activity_events)
       ? turn.activity_events.map((event, index) => sanitizeActivity(event, index, activityDefaults))
       : [];
+    const permissionActivityEvent = projectedPendingPermission
+      ? sanitizeActivity({
+        type: 'permission.requested',
+        activity_kind: 'permission_request',
+        provider_event_type: 'permission.requested',
+        source: 'gateway_runtime_permission_pause',
+        sequence_no: streamedActivityEvents.length + finalActivityEvents.length + 1,
+        item_id: cleanApprovalId(projectedPendingPermission.approval_id),
+        status: 'paused_pending_approval',
+        text: permissionDisplayText,
+        display_text: permissionDisplayText,
+        engine_id: engineId,
+        trace_id: traceId,
+        session_id: sessionId,
+        turn_id: turnId,
+      }, streamedActivityEvents.length + finalActivityEvents.length, activityDefaults)
+      : null;
     const activityDedupe = new Set();
-    const activityEvents = [...streamedActivityEvents, ...finalActivityEvents]
+    const activityEvents = [...streamedActivityEvents, ...finalActivityEvents, permissionActivityEvent]
       .filter((event) => event && (event.display_text || event.provider_event_type))
       .filter((event) => {
         const key = cleanDisplayText(event.display_text, 1000)

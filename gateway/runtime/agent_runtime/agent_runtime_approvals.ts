@@ -45,8 +45,36 @@ function approvalResumeToken(source) {
 
 function createAgentRuntimeApprovalStore(options = {}) {
   const root = path.resolve(options.root || process.cwd());
+  const decisionsPath = path.resolve(
+    options.decisionsPath ||
+      path.join(root, 'local', 'state', 'observability', 'agent_runtime', 'agent_runtime_approval_decisions.jsonl'),
+  );
   const approvalDecisions = new Map();
   const pendingApprovals = new Map();
+
+  function loadPersistedAlwaysAllowedDecisions() {
+    let raw = '';
+    try { raw = fs.readFileSync(decisionsPath, 'utf8'); } catch { return; }
+    for (const line of raw.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      let row = null;
+      try { row = JSON.parse(line); } catch { continue; }
+      if (!row || row.decision !== 'always_allow_tool_call') continue;
+      const approvalId = cleanApprovalId(row.approval_id);
+      const toolId = cleanText(row.tool_id, 120);
+      if (!approvalId || !toolId) continue;
+      approvalDecisions.set(approvalId, row);
+    }
+  }
+
+  function persistApprovalDecision(row) {
+    const source = row && typeof row === 'object' ? row : null;
+    if (!source) return;
+    try {
+      ensureDir(path.dirname(decisionsPath));
+      fs.appendFileSync(decisionsPath, `${JSON.stringify(source)}\n`, 'utf8');
+    } catch {}
+  }
 
   function sanitizeAgentRuntimeProposalArguments(value) {
     const source = value && typeof value === 'object' ? value : {};
@@ -136,6 +164,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
         ? 'gateway_apply_approved_effect'
         : 'grant_then_retry_next_turn',
       created_at: nowIso(),
+      source: cleanText(source.source || 'gateway.runtime.agent_runtime_approvals', 160),
       source_authority: 'gateway.runtime.agent_runtime_approvals',
     };
   }
@@ -261,6 +290,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
     };
     pendingApprovals.delete(id);
     approvalDecisions.set(id, row);
+    persistApprovalDecision(row);
     if (approvalDecisions.size > 200) {
       const firstKey = approvalDecisions.keys().next().value;
       if (firstKey) approvalDecisions.delete(firstKey);
@@ -295,6 +325,8 @@ function createAgentRuntimeApprovalStore(options = {}) {
       always_allowed_tool_calls: Array.from(alwaysAllowed).slice(0, 64),
     };
   }
+
+  loadPersistedAlwaysAllowedDecisions();
 
   return {
     sanitizeAgentRuntimeProposalArguments,

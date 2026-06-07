@@ -126,6 +126,38 @@ function cleanDisplayString(value, max = 2000) {
     .slice(0, max);
 }
 
+function sanitizeUniversalProposalArguments(args, toolId) {
+  const source = args && typeof args === 'object' ? args : {};
+  const cleanToolId = cleanString(toolId, 120);
+  const out = {};
+  if (cleanToolId === 'artifact.create_propose') {
+    const rawPath = cleanString(source.path || source.file || source.filename || source.relative_path || '', 500);
+    if (rawPath) out.path = rawPath;
+    const mimeType = cleanString(source.mime_type || source.content_type || 'text/plain', 120);
+    if (mimeType) out.mime_type = mimeType;
+    if (source.content != null) out.content = cleanDisplayString(source.content, 48000);
+    else if (source.text != null) out.content = cleanDisplayString(source.text, 48000);
+    else if (source.body != null) out.content = cleanDisplayString(source.body, 48000);
+    return out;
+  }
+  for (const key of Object.keys(source).slice(0, 24)) {
+    const cleanKey = cleanString(key, 80);
+    if (!cleanKey) continue;
+    const value = source[key];
+    if (value == null) continue;
+    if (typeof value === 'string') out[cleanKey] = cleanDisplayString(value, 12000);
+    else if (typeof value === 'number' || typeof value === 'boolean') out[cleanKey] = value;
+    else {
+      try {
+        out[cleanKey] = cleanDisplayString(JSON.stringify(value), 12000);
+      } catch {
+        out[cleanKey] = cleanString(value, 1000);
+      }
+    }
+  }
+  return out;
+}
+
 function compactGatewayActivityEvents(events, maxEvents, maxTextBytes) {
   const rows = Array.isArray(events) ? events : [];
   const limit = Math.max(0, Math.min(Number(maxEvents) || 0, rows.length));
@@ -242,6 +274,7 @@ function normalizeGatewayEvent(event, message, fallbackType) {
       const approvalId = cleanString(`approval_${toolId}_${messageTraceId}_${normalizedProposal.turn_id}`, 260)
         .replace(/[^a-zA-Z0-9_.:-]+/g, '_')
         .replace(/^_+|_+$/g, '');
+      const proposalArguments = sanitizeUniversalProposalArguments(proposal.arguments, toolId);
       normalizedProposal.permission_request = {
         type: 'permission.requested',
         approval_id: approvalId,
@@ -255,10 +288,18 @@ function normalizeGatewayEvent(event, message, fallbackType) {
         capability: normalizedProposal.capability,
         reason: normalizedProposal.reason,
         argument_keys: normalizedProposal.argument_keys,
+        proposal_arguments: proposalArguments,
         gatekeeper_kind: normalizedProposal.permission_gatekeeper_kind,
         future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor'],
         decisions: ['allow_once', 'deny', 'always_allow_tool_call'],
         decision_scope: 'tool_call',
+        status: 'paused_pending_approval',
+        turn_status: 'permission_required',
+        pause_reason: normalizedProposal.reason || 'agent_runtime_tool_call_requires_approval',
+        source: 'gateway_universal_tool_proposal_normalizer',
+        resume_strategy: Object.keys(proposalArguments).length
+          ? 'gateway_apply_approved_effect'
+          : 'grant_then_retry_next_turn',
         approval_route: `/api/shell-socket/approvals/${encodeURIComponent(approvalId)}/decision`,
       };
     }
