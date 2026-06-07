@@ -84,6 +84,12 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
   const sendJson = options.sendJson;
   const fetchBackendJson = options.fetchBackendJson;
   const adapterFactories = options.adapterFactories || {};
+  const materializeKernelContextPack = typeof options.materializeKernelAgentRuntimeContextPack === 'function'
+    ? options.materializeKernelAgentRuntimeContextPack
+    : materializeKernelAgentRuntimeContextPack;
+  const materializeGatewayContextPack = typeof options.materializeAgentRuntimeContextPack === 'function'
+    ? options.materializeAgentRuntimeContextPack
+    : materializeAgentRuntimeContextPack;
   const createNativeOrchestrationClient = typeof options.createNativeOrchestrationClient === 'function'
     ? options.createNativeOrchestrationClient
     : createGatewayNativeOrchestrationClient;
@@ -179,8 +185,8 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
     appendAgentRuntimeTurnAtoms,
     ingestAgentRuntimeContextProjection,
     loadAgentRuntimeContextRows,
-    materializeKernelAgentRuntimeContextPack,
-    materializeAgentRuntimeContextPack,
+    materializeKernelAgentRuntimeContextPack: materializeKernelContextPack,
+    materializeAgentRuntimeContextPack: materializeGatewayContextPack,
     buildAgentRuntimeContextPack,
     mergeAgentRuntimeApprovalPermissionPolicy,
     buildUniversalToolGrants,
@@ -192,8 +198,8 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
   const agentRuntimeContextPreviewProjectionStore = createAgentRuntimeContextPreviewProjectionStore({
     root,
     loadAgentRuntimeContextRows,
-    materializeKernelAgentRuntimeContextPack,
-    materializeAgentRuntimeContextPack,
+    materializeKernelAgentRuntimeContextPack: materializeKernelContextPack,
+    materializeAgentRuntimeContextPack: materializeGatewayContextPack,
     buildAgentRuntimeContextPack,
     buildUniversalToolGrants,
   });

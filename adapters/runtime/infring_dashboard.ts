@@ -16,6 +16,12 @@ const { createAgentWsBridge } = require('../../gateway/runtime/sockets/agent_ws/
 const {
   createGatewayAgentRuntimeRouteAssembly,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_route_assembly.ts');
+const {
+  materializeAgentRuntimeContextPack,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_context_store.ts');
+const {
+  materializeKernelAgentRuntimeContextPack,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_kernel_context_bridge.ts');
 const { createInfringNativeEngineAdapter } = require('./agent_engines/infring_native.ts');
 const { createCodexCliEngineAdapter } = require('./agent_engines/codex_cli.ts');
 const { createClaudeCodeEngineAdapter } = require('./agent_engines/claude_code.ts');
@@ -138,6 +144,13 @@ const dashboardStaticResponses = createGatewayDashboardStaticResponseController(
 const dashboardRequestBoundary = createGatewayDashboardHostRequestBoundary({
   sendJson,
 });
+function projectDashboardAgentRuntimeContextAuthority(kernelContext) {
+  return {
+    type: 'agent_runtime_context_authority_projection',
+    source_authority: 'gateway.runtime.agent_runtime_route_assembly',
+    kernel_materializer_used: !!(kernelContext && kernelContext.ok && kernelContext.context_pack),
+  };
+}
 const {
   createGatewayHostCleanup,
   scheduleGatewayHostExit,
@@ -159,6 +172,9 @@ const {
   sendJson,
   fetchBackendJson,
   createNativeOrchestrationClient: createGatewayNativeOrchestrationClient,
+  materializeKernelAgentRuntimeContextPack,
+  materializeAgentRuntimeContextPack,
+  projectContextAuthority: projectDashboardAgentRuntimeContextAuthority,
   adapterFactories: {
     infring_native: createInfringNativeEngineAdapter,
     codex_cli: createCodexCliEngineAdapter,
