@@ -41,6 +41,11 @@ const {
   createGatewayDashboardSystemActionDispatcher,
 } = require('../../gateway/runtime/gateway_system_actions.ts');
 const {
+  normalizeGatewayShutdownExitDelayMs: normalizeShutdownExitDelayMs,
+  normalizeGatewayArgs: normalizeArgs,
+  parseGatewayHostFlags: parseFlags,
+} = require('../../gateway/runtime/gateway_host_config.ts');
+const {
   createGatewayNativeOrchestrationClient,
 } = require('../../gateway/runtime/gateway_native_orchestration_client.ts');
 const {
@@ -168,15 +173,6 @@ const TROUBLESHOOTING_SNAPSHOT_HISTORY_PATH = path.resolve(TROUBLESHOOTING_DIR, 
 const TROUBLESHOOTING_LATEST_EVAL_REPORT_PATH = path.resolve(TROUBLESHOOTING_DIR, 'latest_eval_report.json');
 const TROUBLESHOOTING_DEFAULT_EVAL_MODEL = 'gpt-5.4';
 const TROUBLESHOOTING_MAX_RECENT = 10;
-const DEFAULT_HOST = '127.0.0.1';
-const DEFAULT_PORT = 4173;
-const DEFAULT_TEAM = 'ops';
-const DEFAULT_REFRESH_MS = 2000;
-const DEFAULT_BACKEND_READY_TIMEOUT_MS = 120000;
-const BACKEND_PORT_OFFSET = 1000;
-const DASHBOARD_SHUTDOWN_EXIT_DELAY_DEFAULT_MS = 180;
-const DASHBOARD_SHUTDOWN_EXIT_DELAY_MIN_MS = 80;
-const DASHBOARD_SHUTDOWN_EXIT_DELAY_MAX_MS = 5000;
 const {
   currentDashboardBuildInfo,
   mergeDashboardVersionPayload,
@@ -353,62 +349,6 @@ function createDashboardAgentRuntimeRouter(options = {}) {
   });
   for (const [engineId, adapter] of Object.entries(adapters)) router.registerAdapter(engineId, adapter);
   return router;
-}
-function parsePositiveInt(value, fallback, min = 1, max = 65535) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return fallback;
-  return Math.max(min, Math.min(max, Math.floor(num)));
-}
-function normalizeShutdownExitDelayMs(value) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return DASHBOARD_SHUTDOWN_EXIT_DELAY_DEFAULT_MS;
-  if (!Number.isSafeInteger(Math.floor(num))) return DASHBOARD_SHUTDOWN_EXIT_DELAY_DEFAULT_MS;
-  return Math.max(
-    DASHBOARD_SHUTDOWN_EXIT_DELAY_MIN_MS,
-    Math.min(DASHBOARD_SHUTDOWN_EXIT_DELAY_MAX_MS, Math.floor(num)),
-  );
-}
-function normalizeArgs(argv = process.argv.slice(2)) { return Array.isArray(argv) ? argv.map((token) => String(token || '').trim()).filter(Boolean) : []; }
-function defaultApiPort(port) {
-  if (port + BACKEND_PORT_OFFSET <= 65535) return port + BACKEND_PORT_OFFSET;
-  if (port - BACKEND_PORT_OFFSET >= 1) return port - BACKEND_PORT_OFFSET;
-  return port === 65535 ? 65534 : port + 1;
-}
-function parseFlags(argv = []) {
-  const out = {
-    mode: 'serve',
-    host: DEFAULT_HOST,
-    port: DEFAULT_PORT,
-    team: DEFAULT_TEAM,
-    refreshMs: DEFAULT_REFRESH_MS,
-    pretty: true,
-    apiHost: '',
-    apiPort: 0,
-    apiReadyTimeoutMs: DEFAULT_BACKEND_READY_TIMEOUT_MS,
-    uiMode: cleanText(process.env.INFRING_DASHBOARD_UI || 'primary', 24).toLowerCase(),
-  };
-  let modeSet = false;
-  for (const token of argv) {
-    const value = String(token || '').trim();
-    if (!value) continue;
-    if (!modeSet && !value.startsWith('--')) { out.mode = value.toLowerCase(); modeSet = true; continue; }
-    if (value.startsWith('--host=')) out.host = cleanText(value.slice(7), 100) || DEFAULT_HOST;
-    else if (value.startsWith('--port=')) out.port = parsePositiveInt(value.slice(7), DEFAULT_PORT);
-    else if (value.startsWith('--team=')) out.team = cleanText(value.slice(7), 80) || DEFAULT_TEAM;
-    else if (value.startsWith('--refresh-ms=')) out.refreshMs = parsePositiveInt(value.slice(13), DEFAULT_REFRESH_MS, 800, 60000);
-    else if (value.startsWith('--api-host=')) out.apiHost = cleanText(value.slice(11), 100);
-    else if (value.startsWith('--backend-host=')) out.apiHost = cleanText(value.slice(15), 100);
-    else if (value.startsWith('--api-port=')) out.apiPort = parsePositiveInt(value.slice(11), 0);
-    else if (value.startsWith('--backend-port=')) out.apiPort = parsePositiveInt(value.slice(15), 0);
-    else if (value.startsWith('--api-ready-timeout-ms=')) out.apiReadyTimeoutMs = parsePositiveInt(value.slice(23), DEFAULT_BACKEND_READY_TIMEOUT_MS, 1500, 300000);
-    else if (value.startsWith('--ui=')) out.uiMode = cleanText(value.slice(5), 24).toLowerCase();
-    else if (value === '--pretty=0' || value === '--pretty=false') out.pretty = false;
-  }
-  out.uiMode = 'primary';
-  out.apiHost = out.apiHost || out.host;
-  out.apiPort = out.apiPort || defaultApiPort(out.port);
-  if (out.apiPort === out.port) out.apiPort = defaultApiPort(out.port + 1);
-  return out;
 }
 function readRecentActionRows(limit = TROUBLESHOOTING_MAX_RECENT) {
   const historyPath = path.resolve(STATUS_DIR, 'actions', 'history.jsonl');
@@ -701,7 +641,7 @@ function parseLastJson(stdout) {
   }
   return null;
 }
-function scheduleDashboardHostExit(cleanup, normalizedDelayMs = DASHBOARD_SHUTDOWN_EXIT_DELAY_DEFAULT_MS) {
+function scheduleDashboardHostExit(cleanup, normalizedDelayMs) {
   const waitMs = normalizeShutdownExitDelayMs(normalizedDelayMs);
   setTimeout(() => {
     try { cleanup(); } catch {}

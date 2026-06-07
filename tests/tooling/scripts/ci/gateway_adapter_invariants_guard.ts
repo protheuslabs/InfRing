@@ -354,6 +354,9 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/gateway_system_actions.ts')")) {
     push('dashboard_not_using_gateway_system_actions', dashboardPath, 'Legacy dashboard host must delegate system action argument/env/result projection to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_host_config.ts')")) {
+    push('dashboard_not_using_gateway_host_config', dashboardPath, 'Legacy dashboard host must delegate CLI flag parsing and host config defaults to gateway/**.');
+  }
   if (/function\s+(?:sanitizeTraceId|requestTraceId|requestTraceBoundary)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_trace_boundary', dashboardPath, 'Legacy dashboard host must not define Gateway trace boundary helpers locally.');
   }
@@ -395,6 +398,9 @@ if (exists(dashboardPath)) {
   }
   if (/function\s+(?:dashboardSystemActionArgs|dashboardSystemActionEnv|runDashboardSystemAction|dispatchDashboardSystemAction)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_system_actions', dashboardPath, 'Legacy dashboard host must not define Gateway system action helpers locally.');
+  }
+  if (/function\s+(?:parsePositiveInt|normalizeShutdownExitDelayMs|normalizeArgs|defaultApiPort|parseFlags)\b|const\s+(?:DEFAULT_HOST|DEFAULT_PORT|DEFAULT_TEAM|DEFAULT_REFRESH_MS|DEFAULT_BACKEND_READY_TIMEOUT_MS|BACKEND_PORT_OFFSET|DASHBOARD_SHUTDOWN_EXIT_DELAY_(?:DEFAULT|MIN|MAX)_MS)\b/.test(dashboard)) {
+    push('dashboard_owns_gateway_host_config', dashboardPath, 'Legacy dashboard host must not define Gateway host config parsing or defaults locally.');
   }
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/universal_core_tools.ts')")) {
     push('dashboard_not_using_gateway_universal_tools', dashboardPath, 'Legacy dashboard host must delegate universal tool grant policy to gateway/**.');
