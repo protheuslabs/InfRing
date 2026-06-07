@@ -139,7 +139,7 @@ jobs:
               commits_scanned: 0,
             };
             process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
-NODE
+          NODE
           else
             node client/runtime/lib/ts_entrypoint.ts client/runtime/systems/ops/release_semver_contract.ts run --strict=1 --write=1 --channel=${{ steps.channel.outputs.release_channel }} > /tmp/release-plan.json
           fi
