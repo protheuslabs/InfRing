@@ -68,6 +68,10 @@ function readReleaseWorkflow(root: string): string {
   return fs.readFileSync(path.resolve(root, rel), 'utf8');
 }
 
+function countRegex(source: string, pattern: RegExp): number {
+  return source.match(pattern)?.length ?? 0;
+}
+
 function checkWorkflowNeedleSet(root: string, id: string, needles: string[]): GateCheck {
   const source = readReleaseWorkflow(root);
   const missing = needles.filter((needle) => !source.includes(needle));
@@ -1326,6 +1330,21 @@ function checkReleaseWorkflowReleasePolicyEnforcementContract(root: string): Gat
   };
 }
 
+function checkReleaseWorkflowHeredocIndentContract(root: string): GateCheck {
+  const source = readReleaseWorkflow(root);
+  const heredocOpeners = countRegex(source, /<<'NODE'/g);
+  const indentedClosers = countRegex(source, /^ {2,}NODE$/gm);
+  const nakedClosers = countRegex(source, /^NODE$/gm);
+  const ok = heredocOpeners > 0 && heredocOpeners === indentedClosers && nakedClosers === 0;
+  return {
+    id: 'release_workflow_heredoc_indent_contract',
+    ok,
+    detail: ok
+      ? `heredocs=${heredocOpeners}`
+      : `openers=${heredocOpeners};indented_closers=${indentedClosers};naked_closers=${nakedClosers}`,
+  };
+}
+
 function checkReleaseWorkflowTriggerContract(root: string): GateCheck {
   return checkWorkflowNeedleSet(root, 'release_workflow_trigger_contract', [
     'on:',
@@ -1845,6 +1864,7 @@ function buildReport(root: string) {
     checkReleaseWorkflowProofPackUploadTagPathContract(root),
     checkReleaseWorkflowChannelResolutionContract(root),
     checkReleaseWorkflowReleasePolicyEnforcementContract(root),
+    checkReleaseWorkflowHeredocIndentContract(root),
     checkReleaseWorkflowTriggerContract(root),
     checkReleaseWorkflowPermissionsContract(root),
     checkReleaseWorkflowWindowsPrebuiltJobContract(root),
