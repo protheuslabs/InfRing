@@ -50,13 +50,6 @@
       "allowed_until": "2026-07-01"
     },
     {
-      "path": "adapters/runtime/shell_socket_status_projection.ts",
-      "canonical_path": "gateway/runtime/sockets/shell_socket/shell_socket_status_projection.ts",
-      "reason": "Compatibility import path for old Shell Socket status references while canonical implementation lives in gateway/**.",
-      "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
-      "allowed_until": "2026-07-01"
-    },
-    {
       "path": "adapters/runtime/agent_engines/agent_runtime_router.ts",
       "canonical_path": "gateway/runtime/agent_runtime/agent_runtime_router.ts",
       "reason": "Compatibility import path for old Agent Runtime router references while canonical implementation lives in gateway/**.",
