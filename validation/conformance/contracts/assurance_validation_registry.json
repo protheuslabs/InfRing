@@ -379,6 +379,27 @@
       "self_enforcing": true,
       "harness_only": false,
       "notes": "Pins the combined artifact baseline and prevents inventory/reference-map drift before cleanup waves."
+    },
+    {
+      "id": "validation.agent_runtime_approval_pause_resume",
+      "domain": "validation",
+      "validation_kind": "conformance_guard",
+      "lifecycle_state": "advisory",
+      "signal_class": "behavioral_conformance",
+      "authority_class": "controlled_validation",
+      "owner_of_truth": "validation/conformance/contracts/agent_runtime_turn_outcome_contract.json",
+      "source_refs": [
+        "gateway/runtime/agent_runtime/agent_runtime_approvals.ts",
+        "gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts",
+        "tests/tooling/scripts/ci/agent_runtime_approval_pause_resume_guard.ts",
+        "ops:agent-runtime:approval-pause-resume:guard"
+      ],
+      "evidence_output": [
+        "core/local/artifacts/agent_runtime_approval_pause_resume_guard_current.json"
+      ],
+      "self_enforcing": true,
+      "harness_only": false,
+      "notes": "Ensures Gateway turns pause on gated agent-runtime proposals, expose bounded pending requests, and resolve decisions with resume tokens plus decision receipts."
     }
   ]
 }

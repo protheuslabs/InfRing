@@ -4112,6 +4112,16 @@
         "core/local/artifacts/assurance_artifact_retention_apply_current.json",
         "local/workspace/reports/ASSURANCE_ARTIFACT_RETENTION_APPLY_CURRENT.md"
       ]
+    },
+    "ops:agent-runtime:approval-pause-resume:guard": {
+      "owner": "validation",
+      "description": "Agent runtime approval pause/resume Gateway contract guard.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "script": "ops:agent-runtime:approval-pause-resume:guard",
+      "artifact_paths": [
+        "core/local/artifacts/agent_runtime_approval_pause_resume_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {

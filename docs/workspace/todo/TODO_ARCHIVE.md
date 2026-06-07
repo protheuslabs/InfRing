@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-06T23:52:39.256Z
+Updated: 2026-06-07T00:02:27.302Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,14 @@ Updated: 2026-06-06T23:52:39.256Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `AGENT-RUNTIME-APPROVAL-PAUSE-RESUME` — Make approval gates pause and resume runtime turns
+  completed_at: `2026-06-07T00:02:27.301Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-17`
+  source_family: `Unified Agent Runtime Framework`
+  summary: When Codex, Claude Code, Grok Code, native Infring, or socket engines hit a gated action, Gateway should create a permission request, pause the turn, wait for the user or future gatekeeper decision, and resume or fail with a durable decision receipt instead of letting the agent finish blocked.
+  completion_note: Gateway approval turns now project permission_required pauses with resume tokens; approval decisions emit bounded decision receipts and resolve stored requests via ops:agent-runtime:approval-pause-resume:guard.
 - `SYSTEM-ACTION-AUTHORITY-RECEIPTS` — Replace dashboard system-action fallback with Core receipts
   completed_at: `2026-06-06T23:52:39.253Z`
   previous_section: `yellow`

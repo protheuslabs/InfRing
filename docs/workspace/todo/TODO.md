@@ -1,6 +1,6 @@
 # TODO
 
-Updated: 2026-06-06T23:52:39.256Z
+Updated: 2026-06-07T00:02:27.302Z
 
 ## How To Use This File
 - This is the live operating board, not the historical ledger.
@@ -14,9 +14,9 @@ Updated: 2026-06-06T23:52:39.256Z
 - Deadline promotion policy: items due in <= 7 days belong in Red; items due in <= 14 days belong in Yellow; everything later stays in White unless manually escalated.
 
 ## Rollup
-- active_items: 31
+- active_items: 30
 - red: 4
-- yellow: 19
+- yellow: 18
 - white: 8
 
 ## Red Section (Do Immediately)
@@ -92,13 +92,6 @@ Updated: 2026-06-06T23:52:39.256Z
   work_gate: `real_work`
   real_work_score: `5`
   summary: Render the shared envelope into a consistent bounded adapter preamble for Codex, Claude Code, Grok Code, custom socket engines, and native Infring without engine-specific prompt drift.
-- `AGENT-RUNTIME-APPROVAL-PAUSE-RESUME` — Make approval gates pause and resume runtime turns
-  owner: `codex`
-  deadline: `2026-06-17`
-  source_family: `Unified Agent Runtime Framework`
-  work_gate: `reliability`
-  real_work_score: `5`
-  summary: When Codex, Claude Code, Grok Code, native Infring, or socket engines hit a gated action, Gateway should create a permission request, pause the turn, wait for the user or future gatekeeper decision, and resume or fail with a durable decision receipt instead of letting the agent finish blocked.
 - `AGENT-RUNTIME-CONTEXT-BUILDER` — Build Gateway-owned runtime context assembly
   owner: `codex`
   deadline: `2026-06-17`

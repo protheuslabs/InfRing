@@ -95,10 +95,15 @@
   },
   "approval_pause_resume_rule": {
     "gateway_must_record_pending_request": true,
+    "pending_request_must_include_resume_token": true,
+    "pending_request_must_include_turn_status": "permission_required",
+    "approval_pause_must_include_resume_token": true,
     "shell_may_only_render_request_and_submit_decision": true,
     "shell_may_not_reconstruct_proposal_arguments": true,
     "decision_route_must_resolve_from_gateway_pending_request": true,
     "decision_must_emit_ack_receipt": true,
+    "decision_ack_must_include_decision_receipt": true,
+    "decision_ack_must_include_resume_token": true,
     "allowed_gatekeepers_today": [
       "user"
     ],

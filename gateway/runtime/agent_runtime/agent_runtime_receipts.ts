@@ -115,6 +115,7 @@ function createAgentRuntimeReceiptStore(options = {}) {
     if (pendingPermissionRequest) {
       rows.push(buildReceipt('approval_pause', source, {
         approval_id: cleanText(pendingPermissionRequest.approval_id, 260),
+        resume_token: cleanText(pendingPermissionRequest.resume_token, 260),
         tool_id: cleanText(pendingPermissionRequest.tool_id, 120),
         capability: cleanText(pendingPermissionRequest.capability, 160),
         gatekeeper_kind: cleanText(pendingPermissionRequest.gatekeeper_kind || 'user', 80) || 'user',

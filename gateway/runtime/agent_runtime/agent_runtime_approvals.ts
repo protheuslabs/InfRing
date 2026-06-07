@@ -22,9 +22,25 @@ function stripTerminalControls(value) {
 function cleanDisplayText(value, maxLen = 24000) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim().slice(0, maxLen); }
 function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanApprovalId(value) { return cleanText(value, 260).replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, ''); }
+function cleanReceiptComponent(value, maxLen = 200) { return cleanText(value, maxLen).replace(/[^A-Za-z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown'; }
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+function stableDigest(value) {
+  return createHash('sha256').update(JSON.stringify(value || {})).digest('hex');
+}
+
+function approvalResumeToken(source) {
+  const requested = cleanApprovalId(source && source.resume_token);
+  if (requested) return requested;
+  const approvalId = cleanApprovalId(source && source.approval_id);
+  const traceId = cleanText(source && source.trace_id, 200);
+  const turnId = cleanText(source && source.turn_id, 200);
+  const toolId = cleanText(source && source.tool_id, 120);
+  const digest = stableDigest({ approvalId, traceId, turnId, toolId }).slice(0, 32);
+  return cleanApprovalId(`resume_${digest}`);
 }
 
 function createAgentRuntimeApprovalStore(options = {}) {
@@ -113,6 +129,9 @@ function createAgentRuntimeApprovalStore(options = {}) {
       decisions: ['allow_once', 'deny', 'always_allow_tool_call'],
       decision_scope: 'tool_call',
       status: 'paused_pending_approval',
+      turn_status: 'permission_required',
+      pause_reason: cleanText(source.pause_reason || source.reason || 'agent_runtime_tool_call_requires_approval', 1000),
+      resume_token: approvalResumeToken(source),
       resume_strategy: Object.keys(proposalArguments || {}).length
         ? 'gateway_apply_approved_effect'
         : 'grant_then_retry_next_turn',
@@ -138,6 +157,9 @@ function createAgentRuntimeApprovalStore(options = {}) {
       proposal_arguments: undefined,
       proposal_arguments_ref: `approval-pending/${row.approval_id}/proposal-arguments`,
       proposal_arguments_preview: argumentPreview,
+      resume_token: row.resume_token,
+      turn_status: row.turn_status,
+      pause_reason: row.pause_reason,
       approval_route: `/api/shell-socket/approvals/${encodeURIComponent(row.approval_id)}/decision`,
     };
   }
@@ -176,11 +198,44 @@ function createAgentRuntimeApprovalStore(options = {}) {
         };
       }
     }
+    const resumeToken = approvalResumeToken(pending || decisionBody);
+    const resumeStrategy = pending && pending.resume_strategy
+      ? pending.resume_strategy
+      : executionResult && executionResult.ok
+        ? 'gateway_apply_approved_effect'
+        : 'grant_then_retry_next_turn';
+    const resumeAction = decision === 'deny'
+      ? 'fail_paused_turn_with_denial'
+      : executionResult && executionResult.ok
+        ? 'resume_paused_turn_with_gateway_applied_effect_receipt'
+        : 'resume_next_turn_with_permission_grant';
+    const decisionReceiptBase = {
+      type: 'agent_runtime_approval_decision_receipt',
+      schema_version: 1,
+      receipt_ref: `receipt/agent-runtime-approval-decision/${cleanReceiptComponent(id, 240)}`,
+      trace_id: cleanText(traceId, 200),
+      approval_id: id,
+      resume_token: resumeToken,
+      paused_turn_id: cleanText(pending && pending.turn_id, 200),
+      paused_turn_status: 'permission_required',
+      decision,
+      gatekeeper_kind: cleanText((body && body.gatekeeper_kind) || (pending && pending.gatekeeper_kind) || 'user', 80) || 'user',
+      resume_strategy: resumeStrategy,
+      resume_action: resumeAction,
+      durable_effect_executed: !!(executionResult && executionResult.ok),
+      decided_at: nowIso(),
+      source_authority: 'gateway.runtime.agent_runtime_approvals',
+    };
+    const decisionReceipt = {
+      ...decisionReceiptBase,
+      receipt_hash: stableDigest(decisionReceiptBase),
+    };
     const row = {
       type: 'approval_decision_ack',
       ok: true,
       trace_id: traceId,
       approval_id: id,
+      resume_token: resumeToken,
       decision,
       tool_id: cleanText(decisionBody && decisionBody.tool_id, 120),
       tool_call_ref: cleanText(decisionBody && decisionBody.tool_call_ref, 240),
@@ -190,14 +245,14 @@ function createAgentRuntimeApprovalStore(options = {}) {
       decided_at: nowIso(),
       pending_request_found: !!pending,
       paused_turn_id: cleanText(pending && pending.turn_id, 200),
-      resume_strategy: pending && pending.resume_strategy
-        ? pending.resume_strategy
-        : executionResult && executionResult.ok
-          ? 'gateway_apply_approved_effect'
-          : 'grant_then_retry_next_turn',
-      resumed: decision !== 'deny' && !!(executionResult && executionResult.ok),
+      paused_turn_status: 'permission_required',
+      resume_strategy: resumeStrategy,
+      resume_action: resumeAction,
+      resumed: decision !== 'deny',
       durable_effect_executed: !!(executionResult && executionResult.ok),
       execution_result: executionResult,
+      decision_receipt_ref: decisionReceipt.receipt_ref,
+      decision_receipt: decisionReceipt,
       next_action: decision === 'deny'
         ? 'tool_call_denied'
         : executionResult && executionResult.ok

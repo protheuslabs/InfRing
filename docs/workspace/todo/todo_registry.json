@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-06T23:52:39.256Z",
+  "updated_at": "2026-06-07T00:02:27.302Z",
   "policy": {
     "red_due_in_days_or_less": 7,
     "yellow_due_in_days_or_less": 14,
@@ -281,17 +281,6 @@
       "deadline": "2026-06-17",
       "source_family": "Gateway Physical Domain Cleanup",
       "summary": "Graduate /ws/agent-runtime from contracted_not_live to a live Gateway socket so dashboard, CLI, SDK, and future shells submit turns through the same UI-agnostic boundary instead of adapter-hosted HTTP shims.",
-      "work_gate": "reliability",
-      "real_work_score": 5
-    },
-    {
-      "id": "AGENT-RUNTIME-APPROVAL-PAUSE-RESUME",
-      "title": "Make approval gates pause and resume runtime turns",
-      "section": "yellow",
-      "owner": "codex",
-      "deadline": "2026-06-17",
-      "source_family": "Unified Agent Runtime Framework",
-      "summary": "When Codex, Claude Code, Grok Code, native Infring, or socket engines hit a gated action, Gateway should create a permission request, pause the turn, wait for the user or future gatekeeper decision, and resume or fail with a durable decision receipt instead of letting the agent finish blocked.",
       "work_gate": "reliability",
       "real_work_score": 5
     },
