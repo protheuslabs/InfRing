@@ -47,6 +47,11 @@ const {
   sanitizeGatewayTraceId: sanitizeTraceId,
 } = require('../../gateway/runtime/gateway_trace_boundary.ts');
 const {
+  stripGatewayTerminalControls: stripTerminalControls,
+  cleanGatewayText: cleanText,
+  cleanGatewayDisplayText: cleanDisplayText,
+} = require('../../gateway/runtime/gateway_text_boundary.ts');
+const {
   sendGatewayJson: sendJson,
   readGatewayJsonBody: readJsonBody,
   gatewayBackendBase: backendBase,
@@ -278,13 +283,6 @@ const {
 });
 
 function nowIso() { return new Date().toISOString(); }
-function cleanText(value, maxLen = 200) { return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen); }
-function stripTerminalControls(value) {
-  return String(value == null ? '' : value)
-    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, '')
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-}
-function cleanDisplayText(value, maxLen = 24000) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim().slice(0, maxLen); }
 function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanApprovalId(value) { return cleanText(value, 260).replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanPathText(value, maxLen = 1200) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/\n+/g, ' ').trim().slice(0, maxLen); }

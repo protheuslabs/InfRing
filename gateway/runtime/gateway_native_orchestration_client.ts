@@ -15,20 +15,10 @@ const {
   postGatewayBackendJson: postBackendJson,
 } = require('./gateway_http_boundary.ts');
 const { gatewayRequestTraceId: requestTraceId } = require('./gateway_trace_boundary.ts');
-
-function stripTerminalControls(value) {
-  return String(value == null ? '' : value)
-    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
-}
-
-function cleanText(value, maxLen = 200) {
-  return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen);
-}
-
-function cleanDisplayText(value, maxLen = 24000) {
-  return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim().slice(0, maxLen);
-}
+const {
+  cleanGatewayText: cleanText,
+  cleanGatewayDisplayText: cleanDisplayText,
+} = require('./gateway_text_boundary.ts');
 
 async function backendHealth(flags, timeoutMs = 5000) {
   try {

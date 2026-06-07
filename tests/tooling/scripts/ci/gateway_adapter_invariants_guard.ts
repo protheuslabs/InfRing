@@ -333,8 +333,14 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/gateway_trace_boundary.ts')")) {
     push('dashboard_not_using_gateway_trace_boundary', dashboardPath, 'Legacy dashboard host must delegate trace admission and boundary metadata to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_text_boundary.ts')")) {
+    push('dashboard_not_using_gateway_text_boundary', dashboardPath, 'Legacy dashboard host must delegate boundary text normalization to gateway/**.');
+  }
   if (/function\s+(?:sanitizeTraceId|requestTraceId|requestTraceBoundary)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_trace_boundary', dashboardPath, 'Legacy dashboard host must not define Gateway trace boundary helpers locally.');
+  }
+  if (/function\s+(?:stripTerminalControls|cleanText|cleanDisplayText)\b/.test(dashboard)) {
+    push('dashboard_owns_gateway_text_boundary', dashboardPath, 'Legacy dashboard host must not define Gateway text boundary helpers locally.');
   }
   if (/gateway_boundary:\s*['"]adapters\.runtime\.infring_dashboard['"]/.test(dashboard)) {
     push('dashboard_labels_adapter_as_gateway_boundary', dashboardPath, 'Gateway trace boundary metadata must identify gateway/** authority, not adapter host paths.');
