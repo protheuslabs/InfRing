@@ -4115,12 +4115,12 @@
     },
     "ops:agent-runtime:approval-pause-resume:guard": {
       "owner": "validation",
-      "description": "Agent runtime approval pause/resume Gateway contract guard.",
+      "description": "Agent runtime approval pause/resume public Gateway lifecycle guard.",
       "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
       "timeout_sec": 60,
       "script": "ops:agent-runtime:approval-pause-resume:guard",
       "artifact_paths": [
-        "core/local/artifacts/agent_runtime_approval_pause_resume_guard_current.json"
+        "core/local/artifacts/agent_runtime_route_approval_lifecycle_guard_current.json"
       ]
     }
   },

@@ -372,9 +372,9 @@
       "deadline": "2026-06-14",
       "owner": "gateway",
       "summary": "External frameworks must not end a turn when a write/tool action needs permission. Gateway should hold the turn, emit a permission request, resume or deny based on the gate decision, and preserve receipts regardless of engine.",
-      "progress_note": "Gateway now emits an explicit bounded permission.requested activity event when an Agent Runtime turn pauses for approval, alongside the permission_required final projection. Route lifecycle guard requires that user-facing permission activity before approving and applying the effect.",
+      "progress_note": "Approval pause/resume gate is now wired through the existing npm/tooling gate name to the public Gateway route lifecycle guard, so governance runs the same turn-route -> permission_required -> approval-decision -> artifact-effect -> receipt proof.",
       "created_at": "2026-06-07T04:56:27.538Z",
-      "updated_at": "2026-06-07T05:08:46.227Z",
+      "updated_at": "2026-06-07T05:09:55.746Z",
       "source": "framework_coordination_gap_breakdown"
     },
     {
