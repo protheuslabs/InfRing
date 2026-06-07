@@ -42,6 +42,10 @@ const {
   createGatewayNativeOrchestrationClient,
 } = require('../../gateway/runtime/gateway_native_orchestration_client.ts');
 const {
+  sleepGatewayMs: sleep,
+  gatewayNowIso: nowIso,
+} = require('../../gateway/runtime/gateway_timing.ts');
+const {
   gatewayRequestTraceId: requestTraceId,
   gatewayRequestTraceBoundary: requestTraceBoundary,
   sanitizeGatewayTraceId: sanitizeTraceId,
@@ -57,10 +61,12 @@ const {
 const {
   sendGatewayJson: sendJson,
   readGatewayJsonBody: readJsonBody,
+  isGatewayTransientSocketError: isTransientSocketError,
   gatewayBackendBase: backendBase,
   fetchGatewayBackend: fetchBackend,
   fetchGatewayBackendJson: fetchBackendJson,
   postGatewayBackendJson: postBackendJson,
+  gatewayBackendHealth: backendHealth,
   proxyGatewayHttpRequest,
   proxyGatewayUpgrade,
 } = require('../../gateway/runtime/gateway_http_boundary.ts');
@@ -288,8 +294,6 @@ const {
   sendJson,
 });
 
-function nowIso() { return new Date().toISOString(); }
-
 function createAgentRuntimeEngineAdapterMap(options = {}) {
   const liveDispatch = options.liveDispatch === true;
   const cwd = normalizeAgentRuntimeWorkspacePath(options.cwd || ROOT);
@@ -314,10 +318,6 @@ function createDashboardAgentRuntimeRouter(options = {}) {
   });
   for (const [engineId, adapter] of Object.entries(adapters)) router.registerAdapter(engineId, adapter);
   return router;
-}
-function isTransientSocketError(error) {
-  const code = cleanText(error && error.code ? error.code : '', 40);
-  return code === 'ECONNRESET' || code === 'EPIPE' || code === 'ERR_STREAM_PREMATURE_CLOSE';
 }
 function parsePositiveInt(value, fallback, min = 1, max = 65535) {
   const num = Number(value);
@@ -644,11 +644,7 @@ function assertDashboardSurfaceLocked() {
   assertNoAlternateDashboardSurfaces();
   assertSingleDashboardRoot();
 }
-async function sleep(ms) { await new Promise((resolve) => setTimeout(resolve, ms)); }
 
-async function backendHealth(flags, timeoutMs = 5000) {
-  try { return (await fetchBackend(flags, '/healthz', {}, timeoutMs)).ok; } catch { return false; }
-}
 function backendSpawnEnv() { return backendSpawnEnvForRoot(ROOT, process.env); }
 function backendFreshnessSnapshot(flags) {
   return backendFreshnessSnapshotFromProcess(flags, { root: ROOT, resolveBinary, env: backendSpawnEnv() });

@@ -30,6 +30,11 @@ function ignoreGatewayStreamErrors(stream) {
   stream.on('error', () => {});
 }
 
+function isGatewayTransientSocketError(error) {
+  const code = String(error && error.code ? error.code : '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  return code === 'ECONNRESET' || code === 'EPIPE' || code === 'ERR_STREAM_PREMATURE_CLOSE';
+}
+
 function sendGatewayJson(res, statusCode, value) {
   res.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
@@ -118,6 +123,15 @@ async function postGatewayBackendJson(flags, pathname, body, timeoutMs = 15000, 
   return await res.json();
 }
 
+async function gatewayBackendHealth(flags, timeoutMs = 5000, traceId = '') {
+  try {
+    const res = await fetchGatewayBackend(flags, '/healthz', {}, timeoutMs, traceId);
+    return !!(res && res.ok);
+  } catch {
+    return false;
+  }
+}
+
 function gatewayProxyTargetFromOptions(options = {}) {
   return {
     host: options.apiHost || options.host,
@@ -194,6 +208,7 @@ function proxyGatewayUpgrade(req, socket, head, options = {}) {
 module.exports = {
   HOP_BY_HOP_HEADERS,
   ignoreGatewayStreamErrors,
+  isGatewayTransientSocketError,
   sendGatewayJson,
   readGatewayJsonBody,
   filterGatewayProxyHeaders,
@@ -201,6 +216,7 @@ module.exports = {
   fetchGatewayBackend,
   fetchGatewayBackendJson,
   postGatewayBackendJson,
+  gatewayBackendHealth,
   proxyGatewayHttpRequest,
   proxyGatewayUpgrade,
 };

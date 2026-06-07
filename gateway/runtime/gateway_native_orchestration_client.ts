@@ -10,7 +10,7 @@
 'use strict';
 
 const {
-  fetchGatewayBackend,
+  gatewayBackendHealth: backendHealth,
   fetchGatewayBackendJson: fetchBackendJson,
   postGatewayBackendJson: postBackendJson,
 } = require('./gateway_http_boundary.ts');
@@ -19,15 +19,6 @@ const {
   cleanGatewayText: cleanText,
   cleanGatewayDisplayText: cleanDisplayText,
 } = require('./gateway_text_boundary.ts');
-
-async function backendHealth(flags, timeoutMs = 5000) {
-  try {
-    const res = await fetchGatewayBackend(flags, '/api/healthz', {}, timeoutMs, requestTraceId());
-    return !!(res && res.ok);
-  } catch {
-    return false;
-  }
-}
 
 function createGatewayNativeOrchestrationClient(flags) {
   return {
