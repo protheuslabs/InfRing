@@ -366,8 +366,14 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime_input_normalizer.ts')")) {
     push('dashboard_not_using_gateway_normalizer', dashboardPath, 'Legacy dashboard host must delegate input normalization to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_context_pack.ts')")) {
+    push('dashboard_not_using_gateway_context_pack', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime context-pack construction to gateway/**.');
+  }
   if (/function\s+normalizeAgentRuntimeTurnInput|function\s+materializeAgentRuntimeLargeTextAttachment|INFRING_AGENT_RUNTIME_LARGE_TEXT_ATTACHMENT_/.test(dashboard)) {
     push('dashboard_owns_gateway_input_policy', dashboardPath, 'Legacy dashboard host must not own large-input Gateway policy implementation.');
+  }
+  if (/function\s+(?:buildAgentRuntimeContextPack|estimateContextTokens|cleanContextRole|contextRowText|contextRef|buildSpan)\b|const\s+AGENT_RUNTIME_CONTEXT_(?:HOT_TAIL_COUNT|MAX_ROWS|ROW_TEXT_MAX)\b/.test(dashboard)) {
+    push('dashboard_owns_gateway_context_pack', dashboardPath, 'Legacy dashboard host must not define Agent Runtime context-pack construction locally.');
   }
 }
 
