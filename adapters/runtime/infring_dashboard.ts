@@ -32,6 +32,9 @@ const {
   createGatewayHostLifecycleController,
 } = require('../../gateway/runtime/gateway_host_lifecycle.ts');
 const {
+  createGatewayDashboardHostStatusController,
+} = require('../../gateway/runtime/gateway_dashboard_host_status.ts');
+const {
   normalizeGatewayShutdownExitDelayMs: normalizeShutdownExitDelayMs,
   normalizeGatewayArgs: normalizeArgs,
   parseGatewayHostFlags: parseFlags,
@@ -57,12 +60,6 @@ const {
   stopStaleGatewayBackend: stopStaleBackend,
 } = require('../../gateway/runtime/gateway_backend_lifecycle.ts');
 const {
-  writeGatewayJson: writeJson,
-  writeGatewayJsonIfMissing: writeJsonIfMissing,
-  appendGatewayJsonl: appendJsonl,
-  deterministicGatewayReceiptHash: deterministicReceiptHash,
-} = require('../../gateway/runtime/gateway_artifacts.ts');
-const {
   createGatewayDashboardVersionProjection,
 } = require('../../gateway/runtime/gateway_status_projection.ts');
 const {
@@ -82,7 +79,6 @@ const {
   sendGatewayJson: sendJson,
   readGatewayJsonBody: readJsonBody,
   isGatewayTransientSocketError: isTransientSocketError,
-  gatewayBackendBase: backendBase,
   fetchGatewayBackend: fetchBackend,
   fetchGatewayBackendJson: fetchBackendJson,
   postGatewayBackendJson: postBackendJson,
@@ -119,6 +115,11 @@ const {
   dashboardDir: DASHBOARD_DIR,
   staticDir: STATIC_DIR,
   hasPrimaryDashboardUi,
+});
+const dashboardHostStatus = createGatewayDashboardHostStatusController({
+  root: ROOT,
+  staticDir: STATIC_DIR,
+  statusPath: STATUS_PATH,
 });
 const {
   scheduleGatewayHostExit,
@@ -238,38 +239,16 @@ async function runServe(flags) {
     }
   }
   const wsBridge = createAgentWsBridge({ flags, cleanText, fetchBackend, fetchBackendJson });
-  const status = {
-    ok: true,
-    type: 'infring_dashboard_server',
-    ts: nowIso(),
-    url: `http://${flags.host}:${flags.port}/dashboard`,
-    host: flags.host,
-    port: flags.port,
-    refresh_ms: flags.refreshMs,
-    team: flags.team,
-    authority: 'primary_dashboard_ui_over_rust_core_api',
-    dashboard_ui_mode_requested: flags.uiMode,
-    dashboard_ui_mode_active: 'primary',
-    backend_url: backendBase(flags),
-    backend_reused: backend.reused,
-    backend_ready: backend.ready,
-    backend_freshness: backend.freshness,
-    backend_start_pending: !!backendStartPromise,
-    backend_start_error: '',
-    ws_bridge_enabled: !!wsBridge.ws_enabled,
-    ws_bridge_error: cleanText(wsBridge.ws_error || '', 120),
-    dashboard_static_dir: path.basename(STATIC_DIR),
-    status_path: path.relative(ROOT, STATUS_PATH),
-  };
-  function persistStatus() {
-    status.backend_reused = backend.reused;
-    status.backend_ready = backend.ready;
-    status.backend_freshness = backend.freshness;
-    status.backend_start_pending = !!backendStartPromise && !backend.ready && !backend.startup_error;
-    status.backend_start_error = backend.startup_error;
-    ensureDir(STATUS_DIR);
-    writeJson(STATUS_PATH, status);
-  }
+  const status = dashboardHostStatus.createDashboardHostStatus({
+    flags,
+    backend,
+    backendStartPromise,
+    wsBridge,
+  });
+  const persistStatus = () => dashboardHostStatus.persistDashboardHostStatus(status, {
+    backend,
+    backendStartPromise,
+  });
   if (backendStartPromise) {
     backendStartPromise.finally(() => {
       try { persistStatus(); } catch {}

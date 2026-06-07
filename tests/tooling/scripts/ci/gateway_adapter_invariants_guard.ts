@@ -366,7 +366,10 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/gateway_timing.ts')")) {
     push('dashboard_not_using_gateway_timing', dashboardPath, 'Legacy dashboard host must delegate Gateway lifecycle timing primitives to gateway/**.');
   }
-  if (!dashboard.includes("require('../../gateway/runtime/gateway_artifacts.ts')")) {
+  if (
+    !dashboard.includes("require('../../gateway/runtime/gateway_artifacts.ts')")
+    && !dashboard.includes("require('../../gateway/runtime/gateway_dashboard_host_status.ts')")
+  ) {
     push('dashboard_not_using_gateway_artifacts', dashboardPath, 'Legacy dashboard host must delegate local artifact and receipt primitives to gateway/**.');
   }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_backend_lifecycle.ts')")) {
@@ -389,6 +392,9 @@ if (exists(dashboardPath)) {
   }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_host_lifecycle.ts')")) {
     push('dashboard_not_using_gateway_host_lifecycle', dashboardPath, 'Legacy dashboard host must delegate host lifecycle scheduling to gateway/** with injected process authority.');
+  }
+  if (!dashboard.includes("require('../../gateway/runtime/gateway_dashboard_host_status.ts')")) {
+    push('dashboard_not_using_gateway_dashboard_host_status', dashboardPath, 'Legacy dashboard host must delegate dashboard host status projection/persistence to gateway/**.');
   }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_dashboard_surface_lock.ts')")) {
     push('dashboard_not_using_gateway_dashboard_surface_lock', dashboardPath, 'Legacy dashboard host must delegate dashboard surface lock policy to gateway/**.');
@@ -437,6 +443,9 @@ if (exists(dashboardPath)) {
   }
   if (/function\s+(?:backendFreshnessSnapshot|waitForBackendDown|stopStaleBackend|statusPayloadWithBootStage|currentDashboardBuildInfo|mergeDashboardVersionPayload)\b|dashboard_backend_freshness\.ts/.test(dashboard)) {
     push('dashboard_owns_gateway_lifecycle_or_status_projection', dashboardPath, 'Legacy dashboard host must not define Gateway backend lifecycle, freshness, or status/version projections locally.');
+  }
+  if (/const\s+status\s*=\s*{|\bfunction\s+persistStatus\b|ensureDir\s*\(\s*STATUS_DIR\s*\)|writeJson\s*\(\s*STATUS_PATH\s*,/.test(dashboard)) {
+    push('dashboard_owns_gateway_dashboard_host_status', dashboardPath, 'Legacy dashboard host must not assemble or persist dashboard host status locally.');
   }
   if (/function\s+(?:backendSpawnEnv|spawnBackend|ensureBackend)\b/.test(dashboard)) {
     push('dashboard_owns_gateway_backend_host_launcher', dashboardPath, 'Legacy dashboard host must not define Gateway backend host launcher helpers locally.');
