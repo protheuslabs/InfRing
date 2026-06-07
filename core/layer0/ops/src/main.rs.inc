@@ -4,7 +4,6 @@ use infring_ops_core::{
     configure_low_memory_allocator_env, deterministic_receipt_hash, parse_args, parse_os_args,
     run_runtime_efficiency_floor, status_runtime_efficiency_floor,
 };
-use infring_nexus_core_v1::ops_core as infring_ops_core_v1;
 use serde_json::{json, Value};
 use std::env;
 use std::path::PathBuf;
@@ -788,7 +787,7 @@ fn main() {
             exit_domain!(
                 &cwd,
                 &args,
-                infring_ops_core_v1::command_center_session::run
+                infring_nexus_core_v1::ops_core::command_center_session::run
             );
         }
         "command-list-kernel" => {
@@ -995,14 +994,14 @@ fn main() {
             exit_domain!(
                 &cwd,
                 &args,
-                infring_ops_core_v1::autophagy_auto_approval::run
+                infring_nexus_core_v1::ops_core::autophagy_auto_approval::run
             );
         }
         "adaptive-contract-version-governance" => {
             exit_domain!(
                 &cwd,
                 &args,
-                infring_ops_core_v1::adaptive_contract_version_governance::run
+                infring_nexus_core_v1::ops_core::adaptive_contract_version_governance::run
             );
         }
         "assimilation-controller" => {
@@ -1011,10 +1010,10 @@ fn main() {
             std::process::exit(exit);
         }
         "collector-cache" => {
-            exit_domain!(&cwd, &args, infring_ops_core_v1::collector_cache::run);
+            exit_domain!(&cwd, &args, infring_nexus_core_v1::ops_core::collector_cache::run);
         }
         "contribution-oracle" => {
-            exit_domain!(&cwd, &args, infring_ops_core_v1::contribution_oracle::run);
+            exit_domain!(&cwd, &args, infring_nexus_core_v1::ops_core::contribution_oracle::run);
         }
         "sensory-eyes-intake" => {
             let rest = args.iter().skip(1).cloned().collect::<Vec<_>>();
@@ -1211,7 +1210,7 @@ fn main() {
             exit_domain!(&cwd, &args, infring_ops_core::scale_readiness::run);
         }
         "opendev-dual-agent" => {
-            exit_domain!(&cwd, &args, infring_ops_core_v1::opendev_dual_agent::run);
+            exit_domain!(&cwd, &args, infring_nexus_core_v1::ops_core::opendev_dual_agent::run);
         }
         "company-layer-orchestration" => {
             let mut rest = args.iter().skip(1).cloned().collect::<Vec<_>>();
@@ -1273,81 +1272,81 @@ fn main() {
             exit_domain!(
                 &cwd,
                 &args,
-                infring_ops_core_v1::workspace_gateway_runtime::run
+                infring_nexus_core_v1::ops_core::workspace_gateway_runtime::run
             );
         }
         "p2p-gossip-seed" => {
-            exit_domain!(&cwd, &args, infring_ops_core_v1::p2p_gossip_seed::run);
+            exit_domain!(&cwd, &args, infring_nexus_core_v1::ops_core::p2p_gossip_seed::run);
         }
         "startup-agency-builder" => {
             exit_domain!(
                 &cwd,
                 &args,
-                infring_ops_core_v1::startup_agency_builder::run
+                infring_nexus_core_v1::ops_core::startup_agency_builder::run
             );
         }
         "timeseries-receipt-engine" => {
             exit_domain!(
                 &cwd,
                 &args,
-                infring_ops_core_v1::timeseries_receipt_engine::run
+                infring_nexus_core_v1::ops_core::timeseries_receipt_engine::run
             );
         }
         "webgpu-inference-adapter" => {
             exit_domain!(
                 &cwd,
                 &args,
-                infring_ops_core_v1::webgpu_inference_adapter::run
+                infring_nexus_core_v1::ops_core::webgpu_inference_adapter::run
             );
         }
         "context-doctor" => {
-            exit_domain!(&cwd, &args, infring_ops_core_v1::context_doctor::run);
+            exit_domain!(&cwd, &args, infring_nexus_core_v1::ops_core::context_doctor::run);
         }
         "discord-swarm-orchestration" => {
             exit_domain!(
                 &cwd,
                 &args,
-                infring_ops_core_v1::discord_swarm_orchestration::run
+                infring_nexus_core_v1::ops_core::discord_swarm_orchestration::run
             );
         }
         "bookmark-knowledge-pipeline" => {
             exit_domain!(
                 &cwd,
                 &args,
-                infring_ops_core_v1::bookmark_knowledge_pipeline::run
+                infring_nexus_core_v1::ops_core::bookmark_knowledge_pipeline::run
             );
         }
         "public-api-catalog" => {
-            exit_domain!(&cwd, &args, infring_ops_core_v1::public_api_catalog::run);
+            exit_domain!(&cwd, &args, infring_nexus_core_v1::ops_core::public_api_catalog::run);
         }
         "decentralized-data-marketplace" => {
             exit_domain!(
                 &cwd,
                 &args,
-                infring_ops_core_v1::decentralized_data_marketplace::run
+                infring_nexus_core_v1::ops_core::decentralized_data_marketplace::run
             );
         }
         "autoresearch-loop" => {
-            exit_domain!(&cwd, &args, infring_ops_core_v1::autoresearch_loop::run);
+            exit_domain!(&cwd, &args, infring_nexus_core_v1::ops_core::autoresearch_loop::run);
         }
         "intel-sweep-router" => {
-            exit_domain!(&cwd, &args, infring_ops_core_v1::intel_sweep_router::run);
+            exit_domain!(&cwd, &args, infring_nexus_core_v1::ops_core::intel_sweep_router::run);
         }
         "nexus-internal-comms" => {
-            exit_domain!(&cwd, &args, infring_ops_core_v1::nexus_internal_comms::run);
+            exit_domain!(&cwd, &args, infring_nexus_core_v1::ops_core::nexus_internal_comms::run);
         }
         "gui-drift-manager" => {
-            exit_domain!(&cwd, &args, infring_ops_core_v1::gui_drift_manager::run);
+            exit_domain!(&cwd, &args, infring_nexus_core_v1::ops_core::gui_drift_manager::run);
         }
         "release-gate-canary-rollback-enforcer" => {
             exit_domain!(
                 &cwd,
                 &args,
-                infring_ops_core_v1::release_gate_canary_rollback_enforcer::run
+                infring_nexus_core_v1::ops_core::release_gate_canary_rollback_enforcer::run
             );
         }
         "srs-contract-runtime" => {
-            exit_domain!(&cwd, &args, infring_ops_core_v1::srs_contract_runtime::run);
+            exit_domain!(&cwd, &args, infring_nexus_core_v1::ops_core::srs_contract_runtime::run);
         }
         "release-semver-contract" => {
             let exit = infring_ops_core::infringctl::run(&cwd, &args);

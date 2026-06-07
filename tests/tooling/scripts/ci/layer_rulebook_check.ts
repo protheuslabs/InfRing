@@ -24,30 +24,49 @@ const EXEMPT_CODE_ROOTS = new Set([
   'adapters',
   'apps',
   'benchmarks',
-  'docs',
   'deploy',
+  'docs',
   'examples',
+  'gateway',
+  'install',
+  'observability',
+  'orchestration',
   'packages',
   'planes',
   'proofs',
+  'references',
   'scripts',
   'setup',
+  'shell',
   'surface',
   'tests',
   'tools',
+  'validation',
   'xtask'
 ]);
 const REQUIRED_EXEMPT_CODE_ROOTS = [
   'adapters',
   'apps',
+  'benchmarks',
+  'deploy',
   'docs',
   'examples',
+  'gateway',
+  'install',
+  'observability',
+  'orchestration',
   'packages',
+  'planes',
   'proofs',
+  'references',
   'scripts',
+  'setup',
+  'shell',
   'surface',
   'tests',
-  'tools'
+  'tools',
+  'validation',
+  'xtask'
 ];
 
 function loadTrackedFiles() {
@@ -107,6 +126,14 @@ function isCanonicalPath(pathToken) {
 
 function isCanonicalRootToken(token) {
   return typeof token === 'string' && /^[a-z0-9._-]+$/.test(token);
+}
+
+function hasFlag(args, name) {
+  const normalized = String(name || '').replace(/^-+/, '');
+  return args.some((arg) => {
+    const value = String(arg || '').replace(/^-+/, '');
+    return value === normalized;
+  });
 }
 
 function main() {

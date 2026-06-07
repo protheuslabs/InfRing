@@ -155,11 +155,11 @@ fn aperture_budget_to_policy_value(budget: ApertureBudget) -> Value {
 }
 
 fn current_web_intent(query: &str) -> bool {
-    infring_ops_core_v1::retrieval_policy::current_web_intent_api(query)
+    infring_nexus_core_v1::ops_core::retrieval_policy::current_web_intent_api(query)
 }
 
 fn current_year() -> String {
-    infring_ops_core_v1::retrieval_policy::current_year_api()
+    infring_nexus_core_v1::ops_core::retrieval_policy::current_year_api()
 }
 
 fn candidates_from_structured_search_payload(
@@ -168,7 +168,7 @@ fn candidates_from_structured_search_payload(
     max_rows: usize,
 ) -> Vec<Candidate> {
     candidate_rows_from_policy_value(
-        infring_ops_core_v1::retrieval_policy::candidates_from_structured_search_payload_api(
+        infring_nexus_core_v1::ops_core::retrieval_policy::candidates_from_structured_search_payload_api(
             query, payload, max_rows,
         ),
     )
@@ -180,7 +180,7 @@ fn candidates_from_rendered_search_payload(
     max_rows: usize,
 ) -> Vec<Candidate> {
     candidate_rows_from_policy_value(
-        infring_ops_core_v1::retrieval_policy::candidates_from_rendered_search_payload_api(
+        infring_nexus_core_v1::ops_core::retrieval_policy::candidates_from_rendered_search_payload_api(
             query, payload, max_rows,
         ),
     )
@@ -193,7 +193,7 @@ fn infer_research_facets(
     policy: &Value,
     budget: ApertureBudget,
 ) -> Vec<ResearchFacet> {
-    facets_from_policy_value(infring_ops_core_v1::retrieval_policy::infer_research_facets_api(
+    facets_from_policy_value(infring_nexus_core_v1::ops_core::retrieval_policy::infer_research_facets_api(
         query,
         query_plan,
         &query_metadata.to_value(),
@@ -203,7 +203,7 @@ fn infer_research_facets(
 }
 
 fn coverage_aware_max_evidence(facets: &[ResearchFacet], budget: ApertureBudget) -> usize {
-    infring_ops_core_v1::retrieval_policy::coverage_aware_max_evidence_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::coverage_aware_max_evidence_api(
         &facets_to_policy_value(facets),
         &aperture_budget_to_policy_value(budget),
     )
@@ -216,7 +216,7 @@ fn select_facet_covered_ranked_candidates(
     min_terms: usize,
 ) -> Vec<(Candidate, f64)> {
     ranked_from_policy_value(
-        infring_ops_core_v1::retrieval_policy::select_facet_covered_ranked_candidates_api(
+        infring_nexus_core_v1::ops_core::retrieval_policy::select_facet_covered_ranked_candidates_api(
             &ranked_to_policy_value(&ranked),
             &facets_to_policy_value(facets),
             max_evidence,
@@ -226,7 +226,7 @@ fn select_facet_covered_ranked_candidates(
 }
 
 fn candidate_identity_key(candidate: &Candidate) -> String {
-    infring_ops_core_v1::retrieval_policy::candidate_identity_key_api(&candidate_to_policy_value(
+    infring_nexus_core_v1::ops_core::retrieval_policy::candidate_identity_key_api(&candidate_to_policy_value(
         candidate,
     ))
 }
@@ -236,7 +236,7 @@ fn selected_candidate_coverage_ids(
     candidate: &Candidate,
     min_terms: usize,
 ) -> Vec<String> {
-    infring_ops_core_v1::retrieval_policy::selected_candidate_coverage_ids_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::selected_candidate_coverage_ids_api(
         &facets_to_policy_value(facets),
         &candidate_to_policy_value(candidate),
         min_terms,
@@ -248,7 +248,7 @@ fn candidate_coverage_facets(
     candidate: &Candidate,
     min_terms: usize,
 ) -> Vec<String> {
-    infring_ops_core_v1::retrieval_policy::candidate_coverage_facets_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::candidate_coverage_facets_api(
         &facets_to_policy_value(facets),
         &candidate_to_policy_value(candidate),
         min_terms,
@@ -256,7 +256,7 @@ fn candidate_coverage_facets(
 }
 
 fn candidate_retention_preview_eligible(query: &str, candidate: &Candidate, score: f64) -> bool {
-    infring_ops_core_v1::retrieval_policy::candidate_retention_preview_eligible_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::candidate_retention_preview_eligible_api(
         query,
         &candidate_to_policy_value(candidate),
         score,
@@ -264,11 +264,11 @@ fn candidate_retention_preview_eligible(query: &str, candidate: &Candidate, scor
 }
 
 fn content_rich_text(text: &str) -> bool {
-    infring_ops_core_v1::retrieval_policy::content_rich_text_api(text)
+    infring_nexus_core_v1::ops_core::retrieval_policy::content_rich_text_api(text)
 }
 
 fn source_trust_adjustment(candidate: &Candidate) -> f64 {
-    infring_ops_core_v1::retrieval_policy::source_trust_adjustment_api(&candidate_to_policy_value(
+    infring_nexus_core_v1::ops_core::retrieval_policy::source_trust_adjustment_api(&candidate_to_policy_value(
         candidate,
     ))
 }
@@ -278,7 +278,7 @@ fn redundant_facet_backfill_replacement_index(
     facets: &[ResearchFacet],
     min_terms: usize,
 ) -> Option<usize> {
-    infring_ops_core_v1::retrieval_policy::redundant_facet_backfill_replacement_index_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::redundant_facet_backfill_replacement_index_api(
         &ranked_to_policy_value(selected),
         &facets_to_policy_value(facets),
         min_terms,
@@ -293,7 +293,7 @@ fn evidence_pack_from_ranked_candidates(
     actionable_ranked: &[(Candidate, f64)],
     max_evidence: usize,
 ) -> Value {
-    infring_ops_core_v1::retrieval_policy::evidence_pack_from_ranked_candidates_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::evidence_pack_from_ranked_candidates_api(
         policy,
         query,
         &facets_to_policy_value(facets),
@@ -312,7 +312,7 @@ fn web_tool_quality_report(
     hard_partial_failures: &[String],
     actionable_ranked: &[(Candidate, f64)],
 ) -> Value {
-    infring_ops_core_v1::retrieval_policy::web_tool_quality_report_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::web_tool_quality_report_api(
         query,
         status,
         candidate_count,
@@ -329,7 +329,7 @@ fn cached_web_tool_quality_report(
     partial_failure_details: &Value,
     evidence_refs: &Value,
 ) -> Value {
-    infring_ops_core_v1::retrieval_policy::cached_web_tool_quality_report_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::cached_web_tool_quality_report_api(
         query,
         status,
         partial_failure_details,
@@ -342,18 +342,18 @@ fn web_tool_quality_version() -> &'static str {
 }
 
 fn segment_has_current_signal(text: &str) -> bool {
-    infring_ops_core_v1::retrieval_policy::segment_has_current_signal_api(text)
+    infring_nexus_core_v1::ops_core::retrieval_policy::segment_has_current_signal_api(text)
 }
 
 fn recency_adjustment(query: &str, candidate: &Candidate) -> f64 {
-    infring_ops_core_v1::retrieval_policy::recency_adjustment_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::recency_adjustment_api(
         query,
         &candidate_to_policy_value(candidate),
     )
 }
 
 fn candidate_quality_flags(query: &str, candidate: &Candidate, score: f64) -> Vec<String> {
-    infring_ops_core_v1::retrieval_policy::candidate_quality_flags_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::candidate_quality_flags_api(
         query,
         &candidate_to_policy_value(candidate),
         score,
@@ -368,7 +368,7 @@ fn select_pack_ready_ranked_candidates(
     min_terms: usize,
 ) -> Vec<(Candidate, f64)> {
     ranked_from_policy_value(
-        infring_ops_core_v1::retrieval_policy::select_pack_ready_ranked_candidates_api(
+        infring_nexus_core_v1::ops_core::retrieval_policy::select_pack_ready_ranked_candidates_api(
             query,
             &ranked_to_policy_value(&ranked),
             &facets_to_policy_value(facets),
@@ -383,7 +383,7 @@ fn research_facet_from_metadata_text(
     index: usize,
     kind: &str,
 ) -> Option<ResearchFacet> {
-    let value = infring_ops_core_v1::retrieval_policy::research_facet_from_metadata_text_api(
+    let value = infring_nexus_core_v1::ops_core::retrieval_policy::research_facet_from_metadata_text_api(
         text, index, kind,
     );
     (!value.is_null()).then(|| facet_from_policy_value(&value))
@@ -391,7 +391,7 @@ fn research_facet_from_metadata_text(
 
 fn assign_distinctive_facet_terms(facets: &mut [ResearchFacet]) {
     let updated = facets_from_policy_value(
-        infring_ops_core_v1::retrieval_policy::assign_distinctive_facet_terms_api(
+        infring_nexus_core_v1::ops_core::retrieval_policy::assign_distinctive_facet_terms_api(
             &facets_to_policy_value(facets),
         ),
     );
@@ -405,7 +405,7 @@ fn candidate_matches_facet(
     candidate: &Candidate,
     min_terms: usize,
 ) -> bool {
-    infring_ops_core_v1::retrieval_policy::candidate_matches_facet_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::candidate_matches_facet_api(
         &facet_to_policy_value(facet),
         &candidate_to_policy_value(candidate),
         min_terms,
@@ -418,7 +418,7 @@ fn coverage_aware_score(
     candidate: &Candidate,
     min_terms: usize,
 ) -> f64 {
-    infring_ops_core_v1::retrieval_policy::coverage_aware_score_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::coverage_aware_score_api(
         query,
         &facets_to_policy_value(facets),
         &candidate_to_policy_value(candidate),
@@ -435,7 +435,7 @@ fn backfill_missing_facet_ranked_candidates(
     min_terms: usize,
     allow_low_confidence: bool,
 ) -> usize {
-    let value = infring_ops_core_v1::retrieval_policy::backfill_missing_facet_ranked_candidates_api(
+    let value = infring_nexus_core_v1::ops_core::retrieval_policy::backfill_missing_facet_ranked_candidates_api(
         query,
         &ranked_to_policy_value(selected),
         &ranked_to_policy_value(supplemental_pool),
@@ -456,7 +456,7 @@ fn truncate_candidates_preserving_facet_coverage(
     min_terms: usize,
 ) {
     *candidates = candidate_rows_from_policy_value(
-        infring_ops_core_v1::retrieval_policy::truncate_candidates_preserving_facet_coverage_api(
+        infring_nexus_core_v1::ops_core::retrieval_policy::truncate_candidates_preserving_facet_coverage_api(
             query,
             &facets_to_policy_value(facets),
             &candidates_to_policy_value(candidates),
@@ -472,7 +472,7 @@ fn evidence_coverage_from_ranked_candidates(
     evidence_ranked: &[(Candidate, f64)],
     min_terms: usize,
 ) -> Value {
-    infring_ops_core_v1::retrieval_policy::evidence_coverage_from_ranked_candidates_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::evidence_coverage_from_ranked_candidates_api(
         query,
         &facets_to_policy_value(facets),
         &ranked_to_policy_value(evidence_ranked),
@@ -486,7 +486,7 @@ fn ranked_evidence_covers_all_facets(
     evidence_ranked: &[(Candidate, f64)],
     min_terms: usize,
 ) -> bool {
-    infring_ops_core_v1::retrieval_policy::ranked_evidence_covers_all_facets_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::ranked_evidence_covers_all_facets_api(
         query,
         &facets_to_policy_value(facets),
         &ranked_to_policy_value(evidence_ranked),
@@ -501,7 +501,7 @@ fn evidence_selection_diagnostics(
     evidence_ranked: &[(Candidate, f64)],
     limit: usize,
 ) -> Value {
-    infring_ops_core_v1::retrieval_policy::evidence_selection_diagnostics_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::evidence_selection_diagnostics_api(
         query,
         &ranked_to_policy_value(ranked_pool),
         &ranked_to_policy_value(actionable_ranked_pool),
@@ -518,7 +518,7 @@ fn coverage_gap_recovery_queries(
     candidates: &[Candidate],
     budget: ApertureBudget,
 ) -> Vec<String> {
-    infring_ops_core_v1::retrieval_policy::coverage_gap_recovery_queries_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::coverage_gap_recovery_queries_api(
         policy,
         query,
         existing_queries,
@@ -536,7 +536,7 @@ fn claim_gap_recovery_queries(
     candidates: &[Candidate],
     budget: ApertureBudget,
 ) -> Vec<String> {
-    infring_ops_core_v1::retrieval_policy::claim_gap_recovery_queries_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::claim_gap_recovery_queries_api(
         policy,
         query,
         existing_queries,
@@ -553,7 +553,7 @@ fn broad_current_research_lacks_synthesis_breadth(
     candidates: &[Candidate],
     budget: ApertureBudget,
 ) -> bool {
-    infring_ops_core_v1::retrieval_policy::broad_current_research_lacks_synthesis_breadth_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::broad_current_research_lacks_synthesis_breadth_api(
         policy,
         query,
         &query_metadata.to_value(),
@@ -563,7 +563,7 @@ fn broad_current_research_lacks_synthesis_breadth(
 }
 
 fn candidate_has_non_evidence_payload(candidate: &Candidate) -> bool {
-    infring_ops_core_v1::retrieval_policy::candidate_has_non_evidence_payload_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::candidate_has_non_evidence_payload_api(
         &candidate_to_policy_value(candidate),
     )
 }
@@ -573,7 +573,7 @@ fn candidate_counts_as_query_usable_evidence(
     candidate: &Candidate,
     score: f64,
 ) -> bool {
-    infring_ops_core_v1::retrieval_policy::candidate_counts_as_query_usable_evidence_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::candidate_counts_as_query_usable_evidence_api(
         query,
         &candidate_to_policy_value(candidate),
         score,
@@ -581,29 +581,29 @@ fn candidate_counts_as_query_usable_evidence(
 }
 
 fn has_pack_ready_synthesis_candidate(query: &str, candidates: &[Candidate]) -> bool {
-    infring_ops_core_v1::retrieval_policy::has_pack_ready_synthesis_candidate_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::has_pack_ready_synthesis_candidate_api(
         query,
         &candidates_to_policy_value(candidates),
     )
 }
 
 fn has_pack_ready_synthesis_source_quality(query: &str, candidates: &[Candidate]) -> bool {
-    infring_ops_core_v1::retrieval_policy::has_pack_ready_synthesis_source_quality_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::has_pack_ready_synthesis_source_quality_api(
         query,
         &candidates_to_policy_value(candidates),
     )
 }
 
 fn claim_hint_normalized_snippet(snippet: &str) -> String {
-    infring_ops_core_v1::retrieval_policy::claim_hint_normalized_snippet_api(snippet)
+    infring_nexus_core_v1::ops_core::retrieval_policy::claim_hint_normalized_snippet_api(snippet)
 }
 
 fn claim_text_is_synthesis_safe(text: &str) -> bool {
-    infring_ops_core_v1::retrieval_policy::claim_text_is_synthesis_safe_api(text)
+    infring_nexus_core_v1::ops_core::retrieval_policy::claim_text_is_synthesis_safe_api(text)
 }
 
 fn looks_like_link_directory_or_aggregator_shell(text: &str) -> bool {
-    infring_ops_core_v1::retrieval_policy::looks_like_link_directory_or_aggregator_shell_api(text)
+    infring_nexus_core_v1::ops_core::retrieval_policy::looks_like_link_directory_or_aggregator_shell_api(text)
 }
 
 fn evidence_claims_from_pack(
@@ -611,7 +611,7 @@ fn evidence_claims_from_pack(
     evidence_pack: &Value,
     limit: usize,
 ) -> Value {
-    infring_ops_core_v1::retrieval_policy::evidence_claims_from_pack_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::evidence_claims_from_pack_api(
         &query_metadata.to_value(),
         evidence_pack,
         limit,
@@ -623,7 +623,7 @@ fn evidence_pack_quality_report(
     evidence_pack: &Value,
     evidence_coverage: &Value,
 ) -> Value {
-    infring_ops_core_v1::retrieval_policy::evidence_pack_quality_report_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::evidence_pack_quality_report_api(
         policy,
         evidence_pack,
         evidence_coverage,
@@ -636,7 +636,7 @@ fn source_class_coverage_from_evidence_pack(
     evidence_pack: &Value,
     evidence_coverage: &Value,
 ) -> Value {
-    infring_ops_core_v1::retrieval_policy::source_class_coverage_from_evidence_pack_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::source_class_coverage_from_evidence_pack_api(
         policy,
         query,
         evidence_pack,
@@ -650,7 +650,7 @@ fn source_class_coverage_from_ranked_candidates(
     actionable_ranked: &[(Candidate, f64)],
     evidence_coverage: &Value,
 ) -> Value {
-    infring_ops_core_v1::retrieval_policy::source_class_coverage_from_ranked_candidates_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::source_class_coverage_from_ranked_candidates_api(
         policy,
         query,
         &ranked_to_policy_value(actionable_ranked),
@@ -672,7 +672,7 @@ fn retrieval_broker_report(
     source_class_coverage: &Value,
     evidence_pack_quality: &Value,
 ) -> Value {
-    infring_ops_core_v1::retrieval_policy::retrieval_broker_report_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::retrieval_broker_report_api(
         status,
         submitted_query_plan,
         executed_query_plan,
@@ -689,11 +689,11 @@ fn retrieval_broker_report(
 }
 
 fn page_extraction_link_has_article_like_path(link: &str) -> bool {
-    infring_ops_core_v1::retrieval_policy::page_extraction_link_has_article_like_path_api(link)
+    infring_nexus_core_v1::ops_core::retrieval_policy::page_extraction_link_has_article_like_path_api(link)
 }
 
 fn candidate_looks_like_relevant_discovery_hub(query: &str, candidate: &Candidate) -> bool {
-    infring_ops_core_v1::retrieval_policy::candidate_looks_like_relevant_discovery_hub_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::candidate_looks_like_relevant_discovery_hub_api(
         query,
         &candidate_to_policy_value(candidate),
     )
@@ -701,14 +701,14 @@ fn candidate_looks_like_relevant_discovery_hub(query: &str, candidate: &Candidat
 
 fn page_extraction_link_candidate_with_context(link: &str, context: &str) -> Candidate {
     candidate_from_policy_value(
-        &infring_ops_core_v1::retrieval_policy::page_extraction_link_candidate_with_context_api(
+        &infring_nexus_core_v1::ops_core::retrieval_policy::page_extraction_link_candidate_with_context_api(
             link, context,
         ),
     )
 }
 
 fn fallback_link_score_with_context(query: &str, link: &str, context: &str) -> f64 {
-    infring_ops_core_v1::retrieval_policy::fallback_link_score_with_context_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::fallback_link_score_with_context_api(
         query, link, context,
     )
 }
@@ -719,7 +719,7 @@ fn ranked_payload_links_for_fallback_with_context_and_min_score(
     max_links: usize,
     min_score: f64,
 ) -> Vec<(String, String)> {
-    infring_ops_core_v1::retrieval_policy::ranked_payload_links_for_fallback_with_context_and_min_score_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::ranked_payload_links_for_fallback_with_context_and_min_score_api(
         query,
         payload,
         max_links,
@@ -745,7 +745,7 @@ fn ranked_payload_links_for_fallback(
     payload: &Value,
     max_links: usize,
 ) -> Vec<String> {
-    infring_ops_core_v1::retrieval_policy::ranked_payload_links_for_fallback_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::ranked_payload_links_for_fallback_api(
         query, payload, max_links,
     )
 }
@@ -758,7 +758,7 @@ fn comparison_guard_failure_artifacts(
     provider_results: &[Value],
     max_results: usize,
 ) -> (Value, Option<String>) {
-    let value = infring_ops_core_v1::retrieval_policy::comparison_guard_failure_artifacts_api(
+    let value = infring_nexus_core_v1::ops_core::retrieval_policy::comparison_guard_failure_artifacts_api(
         query,
         comparison_entities,
         &ranked_to_policy_value(actionable_ranked),
@@ -781,7 +781,7 @@ fn comparison_partial_preserves_actionable_evidence(
     actionable_ranked: &[(Candidate, f64)],
     retained_ranked: &[(Candidate, f64)],
 ) -> bool {
-    infring_ops_core_v1::retrieval_policy::comparison_partial_preserves_actionable_evidence_api(
+    infring_nexus_core_v1::ops_core::retrieval_policy::comparison_partial_preserves_actionable_evidence_api(
         query,
         comparison_entities,
         &ranked_to_policy_value(actionable_ranked),
