@@ -76,6 +76,7 @@ const {
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_engine_routes.ts');
 const {
   createAgentRuntimeTurnProjectionStore,
+  sanitizeAgentRuntimeActivityEvent,
 } = require('../../gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts');
 const {
   createAgentRuntimeTurnRouteHandler,
@@ -540,27 +541,6 @@ function createDashboardAgentRuntimeRouter(options = {}) {
   for (const [engineId, adapter] of Object.entries(adapters)) router.registerAdapter(engineId, adapter);
   return router;
 }
-function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
-  const event = row && typeof row === 'object' ? row : {};
-  return {
-    type: 'agent_activity_event',
-    activity_kind: cleanText(event.activity_kind || event.kind || event.type, 80) || 'activity',
-    provider_event_type: cleanText(event.provider_event_type || event.provider_type || event.event_type, 160),
-    source: cleanText(event.source || 'external_cli_stream', 120),
-    sequence_no: Number(event.sequence_no || index + 1) || index + 1,
-    item_id: cleanText(event.item_id || event.itemId || '', 200),
-    status: cleanText(event.status || '', 80),
-    text: cleanDisplayText(event.text || event.display_text || event.summary || '', 4000),
-    display_text: cleanDisplayText(event.display_text || event.text || event.summary || '', 4000),
-    receipt_ref: cleanText(event.receipt_ref || '', 240),
-    result_ref: cleanText(event.result_ref || '', 240),
-    engine_id: cleanEngineId(event.engine_id || defaults.engineId),
-    trace_id: cleanText(event.trace_id || defaults.traceId, 200),
-    session_id: cleanText(event.session_id || defaults.sessionId, 200),
-    turn_id: cleanText(event.turn_id || defaults.turnId, 200),
-  };
-}
-
 function isTransientSocketError(error) {
   const code = cleanText(error && error.code ? error.code : '', 40);
   return code === 'ECONNRESET' || code === 'EPIPE' || code === 'ERR_STREAM_PREMATURE_CLOSE';
