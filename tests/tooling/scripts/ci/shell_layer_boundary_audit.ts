@@ -71,6 +71,9 @@ function main() {
   const allowedNonWrapperRoots = Array.isArray(policy.allowed_non_wrapper_roots)
     ? policy.allowed_non_wrapper_roots.map((v) => String(v).replace(/\\/g, '/'))
     : [];
+  const allowedNonWrapperBudgetExemptRoots = Array.isArray(policy.allowed_non_wrapper_budget_exempt_roots)
+    ? policy.allowed_non_wrapper_budget_exempt_roots.map((v) => String(v).replace(/\\/g, '/'))
+    : [];
 
   const files = [];
   for (const scanRoot of scanRoots) {
@@ -79,6 +82,8 @@ function main() {
 
   let wrapperCount = 0;
   const allowedNonWrapperPaths = [];
+  const allowedNonWrapperBudgetedPaths = [];
+  const allowedNonWrapperBudgetExemptPaths = [];
   const allowedNonWrapperForbiddenMarkerPaths = [];
   const violations = [];
 
@@ -98,6 +103,11 @@ function main() {
     }
     if (allowedNonWrapper.has(rp) || startsWithAny(rp, allowedNonWrapperRoots)) {
       allowedNonWrapperPaths.push(rp);
+      if (startsWithAny(rp, allowedNonWrapperBudgetExemptRoots)) {
+        allowedNonWrapperBudgetExemptPaths.push(rp);
+      } else {
+        allowedNonWrapperBudgetedPaths.push(rp);
+      }
       if (forbiddenWrapperMarkers.length > 0) {
         allowedNonWrapperForbiddenMarkerPaths.push({
           file: rp,
@@ -121,12 +131,12 @@ function main() {
     Number.isFinite(rawAllowedLimit) && rawAllowedLimit >= 0
       ? rawAllowedLimit
       : Number.MAX_SAFE_INTEGER;
-  const limitOk = allowedNonWrapperPaths.length <= allowedLimit;
+  const limitOk = allowedNonWrapperBudgetedPaths.length <= allowedLimit;
   if (!limitOk) {
     violations.push({
       file: '*',
       reason: 'allowed_non_wrapper_count_exceeds_policy_limit',
-      detail: `${allowedNonWrapperPaths.length} > ${allowedLimit}`,
+      detail: `${allowedNonWrapperBudgetedPaths.length} > ${allowedLimit}`,
     });
   }
 
@@ -139,12 +149,16 @@ function main() {
       scanned_files: files.length,
       wrapper_count: wrapperCount,
       allowed_non_wrapper_count: allowedNonWrapperPaths.length,
+      allowed_non_wrapper_budgeted_count: allowedNonWrapperBudgetedPaths.length,
+      allowed_non_wrapper_budget_exempt_count: allowedNonWrapperBudgetExemptPaths.length,
       allowed_non_wrapper_limit: allowedLimit,
       allowed_non_wrapper_forbidden_marker_count: allowedNonWrapperForbiddenMarkerPaths.length,
       violation_count: violations.length,
       pass: violations.length === 0,
     },
     allowed_non_wrapper_paths: allowedNonWrapperPaths.sort(),
+    allowed_non_wrapper_budgeted_paths: allowedNonWrapperBudgetedPaths.sort(),
+    allowed_non_wrapper_budget_exempt_paths: allowedNonWrapperBudgetExemptPaths.sort(),
     allowed_non_wrapper_forbidden_marker_paths: allowedNonWrapperForbiddenMarkerPaths,
     violations,
   };

@@ -108,5 +108,8 @@
   "allowed_non_wrapper_roots": [
     "client/runtime/systems/ui/infring_static/"
   ],
+  "allowed_non_wrapper_budget_exempt_roots": [
+    "client/runtime/systems/ui/infring_static/"
+  ],
   "max_allowed_non_wrapper_count": 400
 }
