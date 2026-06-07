@@ -62,6 +62,11 @@ const GATES = [
     coverage_scope: 'full_engine_registry',
   },
   {
+    id: 'working_directory_parity',
+    script: 'tests/tooling/scripts/ci/agent_runtime_working_directory_parity_guard.ts',
+    coverage_scope: 'adapter_ready_subset',
+  },
+  {
     id: 'framework_capability_regressions',
     script: 'tests/tooling/scripts/ci/agent_runtime_framework_capability_guard.ts',
     coverage_scope: 'adapter_capability_policy',

@@ -1244,6 +1244,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       pending_permission: !!projectedPendingPermission,
       pending_permission_request: projectedPendingPermission,
       permission_request: projectedPendingPermission,
+      approval_pause_active: !!projectedPendingPermission,
       approval_pause: projectedPendingPermission ? {
         type: 'agent_runtime_approval_pause',
         status: 'paused_pending_approval',
