@@ -62,6 +62,9 @@ const {
   createAgentRuntimeSocketHandler,
 } = require('./agent_runtime_socket_handler.ts');
 const {
+  createAgentRuntimeSocketTransport,
+} = require('./agent_runtime_socket_transport.ts');
+const {
   createAgentRuntimeContextPreviewProjectionStore,
 } = require('./agent_runtime_context_preview.ts');
 const {
@@ -225,6 +228,9 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
     steer: agentRuntimeSteerProjection,
     createNativeOrchestrationClient,
   });
+  const agentRuntimeSocketTransport = createAgentRuntimeSocketTransport({
+    socketHandler: agentRuntimeSocketHandler,
+  });
 
   return {
     agentRuntimeWorkspaceStore,
@@ -241,7 +247,9 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
     handleAgentRuntimeEngineRoute,
     handleAgentRuntimeTurnRoute,
     agentRuntimeSocketHandler,
+    agentRuntimeSocketTransport,
     handleAgentRuntimeSocketMessage: agentRuntimeSocketHandler.handleAgentRuntimeSocketMessage,
+    handleAgentRuntimeSocketUpgrade: agentRuntimeSocketTransport.handleUpgrade,
   };
 }
 

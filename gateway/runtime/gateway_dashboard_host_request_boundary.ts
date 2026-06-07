@@ -77,9 +77,15 @@ function createGatewayDashboardHostRequestBoundary(options = {}) {
     const socket = args.socket;
     const head = args.head;
     const wsBridge = args.wsBridge || null;
+    const agentRuntimeSocketTransport = args.agentRuntimeSocketTransport || null;
     const flags = args.flags || {};
     const requestTraceId = args.requestTraceId;
     if (!req || !socket) return false;
+    if (
+      agentRuntimeSocketTransport &&
+      typeof agentRuntimeSocketTransport.handleUpgrade === 'function' &&
+      agentRuntimeSocketTransport.handleUpgrade({ req, socket, head, flags })
+    ) return true;
     if (wsBridge && typeof wsBridge.tryHandle === 'function' && wsBridge.tryHandle(req, socket, head)) return true;
     const pathname = new URL(req.url || '/', `http://${flags.host}:${flags.port}`).pathname;
     if (!String(pathname || '').startsWith('/api/')) {

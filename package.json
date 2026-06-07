@@ -1250,7 +1250,8 @@
     "ops:agent-runtime:working-directory-parity:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_working_directory_parity_guard.ts",
     "ops:agent-runtime:transport-migration-pressure:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_transport_migration_pressure_guard.ts",
     "ops:agent-runtime:shell-replaceability:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_shell_replaceability_guard.ts",
-    "ops:agent-runtime:socket-live-handler:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_live_handler_guard.ts"
+    "ops:agent-runtime:socket-live-handler:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_live_handler_guard.ts",
+    "ops:agent-runtime:socket-upgrade-transport:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_upgrade_transport_guard.ts"
   },
   "version": "0.4.0"
 }

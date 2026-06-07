@@ -4272,6 +4272,17 @@
       "artifacts": [
         "core/local/artifacts/agent_runtime_socket_live_handler_guard_current.json"
       ]
+    },
+    "ops:agent-runtime:socket-upgrade-transport:guard": {
+      "command": "ops:agent-runtime:socket-upgrade-transport:guard",
+      "description": "Agent Runtime Gateway /ws/agent-runtime upgrade transport guard using a local WebSocket handshake through the Gateway request boundary.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_sec": 60,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_socket_upgrade_transport_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {
