@@ -221,7 +221,7 @@ function createUnknownGuardModule() {
       mode_contract: modeContract,
       mode_help_reason: modeHelp.reason,
       mode_valid_commands: modeHelp.commands,
-      runtime_manifest_rel: 'client/runtime/config/install_runtime_manifest_v1.txt',
+      runtime_manifest_rel: 'install_runtime_manifest_v1',
       required_optional_surface_matrix: requiredOptionalSurfaceMatrix,
       noninteractive_opt_in_required: true,
       noninteractive_opt_in_command: 'infring setup --yes --defaults',
