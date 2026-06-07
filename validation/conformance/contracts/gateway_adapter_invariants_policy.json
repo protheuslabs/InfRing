@@ -22,34 +22,6 @@
       "allowed_until": "2026-07-01"
     },
     {
-      "path": "adapters/runtime/shell_socket_chat_projection.ts",
-      "canonical_path": "gateway/runtime/sockets/shell_socket/shell_socket_chat_projection.ts",
-      "reason": "Compatibility import path for old Shell Socket projection references while canonical implementation lives in gateway/**.",
-      "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
-      "allowed_until": "2026-07-01"
-    },
-    {
-      "path": "adapters/runtime/shell_socket_command_ingress.ts",
-      "canonical_path": "gateway/runtime/sockets/shell_socket/shell_socket_command_ingress.ts",
-      "reason": "Compatibility import path for old Shell Socket command-ingress references while canonical implementation lives in gateway/**.",
-      "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
-      "allowed_until": "2026-07-01"
-    },
-    {
-      "path": "adapters/runtime/shell_socket_eval_issue_ingress.ts",
-      "canonical_path": "gateway/runtime/sockets/shell_socket/shell_socket_eval_issue_ingress.ts",
-      "reason": "Compatibility import path for old Shell Socket eval/issue references while canonical implementation lives in gateway/**.",
-      "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
-      "allowed_until": "2026-07-01"
-    },
-    {
-      "path": "adapters/runtime/shell_socket_lifecycle_ingress.ts",
-      "canonical_path": "gateway/runtime/sockets/shell_socket/shell_socket_lifecycle_ingress.ts",
-      "reason": "Compatibility import path for old Shell Socket lifecycle references while canonical implementation lives in gateway/**.",
-      "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
-      "allowed_until": "2026-07-01"
-    },
-    {
       "path": "adapters/runtime/agent_engines/agent_runtime_router.ts",
       "canonical_path": "gateway/runtime/agent_runtime/agent_runtime_router.ts",
       "reason": "Compatibility import path for old Agent Runtime router references while canonical implementation lives in gateway/**.",
