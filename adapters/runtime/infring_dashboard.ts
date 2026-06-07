@@ -13,7 +13,10 @@ const {
 } = require('./run_infring_ops.ts');
 const { buildPrimaryDashboardHtml, hasPrimaryDashboardUi, readBuildVersionInfo, readPrimaryDashboardAsset } = require('./dashboard_asset_router.ts');
 const { createAgentWsBridge } = require('../../gateway/runtime/sockets/agent_ws/agent_ws_bridge.ts');
-const { loadAgentRuntimeEngineRegistry, createAgentRuntimeRouter } = require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts');
+const { loadAgentRuntimeEngineRegistry } = require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts');
+const {
+  createGatewayAgentRuntimeRouterAssembly,
+} = require('../../gateway/runtime/agent_runtime/agent_runtime_router_assembly.ts');
 const {
   ingestAgentRuntimeContextProjection,
   appendAgentRuntimeTurnAtoms,
@@ -181,6 +184,21 @@ const {
   loadAgentRuntimeWorkspace,
 } = agentRuntimeWorkspaceStore;
 const {
+  createAdapterMap: createAgentRuntimeEngineAdapterMap,
+  createRouter: createDashboardAgentRuntimeRouter,
+} = createGatewayAgentRuntimeRouterAssembly({
+  root: ROOT,
+  normalizeWorkspacePath: normalizeAgentRuntimeWorkspacePath,
+  adapterFactories: {
+    infring_native: createInfringNativeEngineAdapter,
+    codex_cli: createCodexCliEngineAdapter,
+    claude_code: createClaudeCodeEngineAdapter,
+    grok_code: createGrokCodeEngineAdapter,
+    openclaw: createOpenClawEngineAdapter,
+    hermes_agent: createHermesAgentEngineAdapter,
+  },
+});
+const {
   handleAgentRuntimeWorkspaceRoute,
 } = createAgentRuntimeWorkspaceRouteHandler({
   workspaceStore: agentRuntimeWorkspaceStore,
@@ -318,31 +336,6 @@ const {
   sendJson,
 });
 
-function createAgentRuntimeEngineAdapterMap(options = {}) {
-  const liveDispatch = options.liveDispatch === true;
-  const cwd = normalizeAgentRuntimeWorkspacePath(options.cwd || ROOT);
-  return {
-    infring_native: createInfringNativeEngineAdapter({
-      liveDispatch,
-      orchestrationClient: options.nativeOrchestrationClient || options.orchestrationClient,
-    }),
-    codex_cli: createCodexCliEngineAdapter({ liveDispatch, cwd }),
-    claude_code: createClaudeCodeEngineAdapter({ liveDispatch, cwd }),
-    grok_code: createGrokCodeEngineAdapter({ liveDispatch, cwd }),
-    openclaw: createOpenClawEngineAdapter({ liveDispatch, cwd }),
-    hermes_agent: createHermesAgentEngineAdapter({ liveDispatch, cwd }),
-  };
-}
-function createDashboardAgentRuntimeRouter(options = {}) {
-  const router = createAgentRuntimeRouter({ root: ROOT, disableTraceWriter: options.disableTraceWriter === true });
-  const adapters = createAgentRuntimeEngineAdapterMap({
-    liveDispatch: options.liveDispatch === true,
-    nativeOrchestrationClient: options.nativeOrchestrationClient,
-    cwd: options.cwd,
-  });
-  for (const [engineId, adapter] of Object.entries(adapters)) router.registerAdapter(engineId, adapter);
-  return router;
-}
 const {
   runSnapshotWithCompatBootstrap,
 } = createGatewayTroubleshootingBootstrap({

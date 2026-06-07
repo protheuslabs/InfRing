@@ -264,6 +264,12 @@ if (exists(dashboardPath)) {
   if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_router.ts')")) {
     push('dashboard_not_using_gateway_agent_runtime_router', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime routing to gateway/**.');
   }
+  if (!dashboard.includes("require('../../gateway/runtime/agent_runtime/agent_runtime_router_assembly.ts')")) {
+    push('dashboard_not_using_gateway_agent_runtime_router_assembly', dashboardPath, 'Legacy dashboard host must delegate Agent Runtime router assembly to gateway/**.');
+  }
+  if (/createAgentRuntimeRouter\s*\(|router\.registerAdapter\s*\(|function\s+(?:createAgentRuntimeEngineAdapterMap|createDashboardAgentRuntimeRouter)\b/.test(dashboard)) {
+    push('dashboard_owns_agent_runtime_router_assembly', dashboardPath, 'Legacy dashboard host must not assemble Agent Runtime routers locally; provider adapter factories may be injected into gateway/** router assembly.');
+  }
   if (!dashboard.includes("require('../../gateway/runtime/gateway_system_routes.ts')")) {
     push('dashboard_not_using_gateway_system_routes', dashboardPath, 'Legacy dashboard host must delegate Gateway system routes to gateway/**.');
   }
