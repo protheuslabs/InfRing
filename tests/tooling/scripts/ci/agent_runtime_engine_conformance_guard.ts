@@ -570,6 +570,7 @@ const contextStorePath = 'gateway/runtime/agent_runtime/agent_runtime_context_st
 const kernelContextBridgePath = 'gateway/runtime/agent_runtime/agent_runtime_kernel_context_bridge.ts';
 const universalCoreToolsPath = 'gateway/runtime/agent_runtime/universal_core_tools.ts';
 const approvalStorePath = 'gateway/runtime/agent_runtime/agent_runtime_approvals.ts';
+const cliRuntimeAdapterPath = 'adapters/runtime/agent_engines/cli_runtime_adapter.ts';
 const turnProjectionPath = 'gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts';
 const contextPreviewPath = 'gateway/runtime/agent_runtime/agent_runtime_context_preview.ts';
 const routeAssemblyPath = 'gateway/runtime/agent_runtime/agent_runtime_route_assembly.ts';
@@ -700,6 +701,52 @@ if (exists(universalCoreToolsPath)) {
     if (badProposal.ok || badProposal.error_code !== 'universal_tool_not_granted') violations.push({ kind: 'universal_core_tool_unknown_proposal_not_denied', result: badProposal });
   }
 }
+if (!exists(cliRuntimeAdapterPath)) {
+  violations.push({ kind: 'cli_runtime_adapter_missing', path: cliRuntimeAdapterPath });
+} else {
+  try {
+    const cliAdapter = require(path.join(ROOT, cliRuntimeAdapterPath));
+    if (typeof cliAdapter.parseCliActivityOutput !== 'function') {
+      violations.push({ kind: 'cli_runtime_adapter_parse_export_missing', path: cliRuntimeAdapterPath });
+    } else {
+      const permissionText = 'Permission required: Create a simple standalone todo app in the workspace; Codex currently has read-only filesystem access.';
+      const parsedPermission = cliAdapter.parseCliActivityOutput(
+        permissionText,
+        '',
+        {
+          message: {
+            trace_id: 'trace-cli-permission-text-conformance',
+            request_id: 'request-cli-permission-text-conformance',
+            engine_id: 'codex_cli',
+            session_id: 'session-cli-permission-text-conformance',
+            turn_id: 'turn-cli-permission-text-conformance',
+            working_directory: ROOT,
+          },
+        },
+        'codex_cli',
+      );
+      const request = parsedPermission && parsedPermission.permission_request;
+      if (
+        !request ||
+        request.type !== 'permission.requested' ||
+        request.status !== 'paused_pending_approval' ||
+        request.turn_status !== 'permission_required' ||
+        request.resume_strategy !== 'grant_then_retry_next_turn' ||
+        request.tool_id !== 'artifact.create_propose' ||
+        !String(request.reason || '').includes('Permission required')
+      ) {
+        violations.push({
+          kind: 'cli_runtime_permission_text_not_normalized_to_approval_pause',
+          path: cliRuntimeAdapterPath,
+          result: parsedPermission,
+        });
+      }
+    }
+  } catch (error) {
+    violations.push({ kind: 'cli_runtime_permission_text_probe_failed', path: cliRuntimeAdapterPath, error: String(error && error.message || error) });
+  }
+}
+
 if (exists(approvalStorePath)) {
   const approvalRoot = path.join(ROOT, 'core', 'local', 'artifacts', 'agent-runtime-approval-conformance');
   const artifactRel = 'tmp/router-approval-lifecycle.txt';

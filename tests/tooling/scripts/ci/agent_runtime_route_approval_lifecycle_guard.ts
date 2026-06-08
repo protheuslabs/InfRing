@@ -9,6 +9,7 @@ const path = require('path');
 const ROOT = process.cwd();
 const OUT_JSON = path.join(ROOT, 'core', 'local', 'artifacts', 'agent_runtime_route_approval_lifecycle_guard_current.json');
 const { createGatewayAgentRuntimeRouteAssembly } = require(path.join(ROOT, 'gateway/runtime/agent_runtime/agent_runtime_route_assembly.ts'));
+const { parseCliActivityOutput } = require(path.join(ROOT, 'adapters/runtime/agent_engines/cli_runtime_adapter.ts'));
 
 function ensureDir(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -50,6 +51,32 @@ function createFakeApprovalRuntimeAdapter(artifactRel, artifactText) {
         content: artifactText,
       },
     }),
+    stream_events: async ({ message }) => ({ type: 'heartbeat', trace_id: message && message.trace_id, status: 'ok' }),
+    cancel_turn: async ({ message }) => ({ type: 'turn.cancelled', trace_id: message && message.trace_id, status: 'cancelled' }),
+    collect_artifacts: async ({ message }) => ({ type: 'artifact.list', trace_id: message && message.trace_id, artifacts: [] }),
+    emit_receipts: async ({ message }) => ({ type: 'receipt.created', trace_id: message && message.trace_id, receipt_refs: [] }),
+  };
+}
+
+function createFakeTextPermissionRuntimeAdapter(permissionText) {
+  return {
+    health_check: async ({ message }) => ({
+      type: 'engine.health.result',
+      trace_id: message && message.trace_id,
+      status: 'available',
+      discovery_source: 'route_approval_lifecycle_guard_text_permission_adapter',
+    }),
+    start_session: async ({ message }) => ({
+      type: 'session.started',
+      trace_id: message && message.trace_id,
+      status: 'started',
+    }),
+    submit_turn: async ({ message }) => parseCliActivityOutput(
+      permissionText,
+      '',
+      { message },
+      message && message.engine_id || 'codex_cli',
+    ),
     stream_events: async ({ message }) => ({ type: 'heartbeat', trace_id: message && message.trace_id, status: 'ok' }),
     cancel_turn: async ({ message }) => ({ type: 'turn.cancelled', trace_id: message && message.trace_id, status: 'cancelled' }),
     collect_artifacts: async ({ message }) => ({ type: 'artifact.list', trace_id: message && message.trace_id, artifacts: [] }),
@@ -140,7 +167,70 @@ async function main() {
 
   const decisionPayload = decisionRes.payload || {};
   const wroteArtifact = fs.existsSync(artifactAbs) && fs.readFileSync(artifactAbs, 'utf8').includes(artifactText.trim());
-  const ok = !!(
+  const textPermission = 'Permission required: Create a simple standalone todo app in the workspace; Codex currently has read-only filesystem access.';
+  const textSent = [];
+  const textAssembly = createGatewayAgentRuntimeRouteAssembly({
+    root: ROOT,
+    statusDir: path.join(scratchDir, 'text-permission-state'),
+    adapterFactories: {
+      codex_cli: () => createFakeTextPermissionRuntimeAdapter(textPermission),
+    },
+    readJsonBody: async (req) => req && req.__body || {},
+    sendJson: (res, statusCode, payload) => {
+      res.statusCode = statusCode;
+      res.payload = payload;
+      textSent.push({ statusCode, payload });
+    },
+    fetchBackendJson: async () => ({}),
+    createNativeOrchestrationClient: () => ({}),
+  });
+
+  const textTraceId = `validation:agent-runtime-route-text-permission:${Date.now()}`;
+  const textTurnReq = {
+    method: 'POST',
+    __body: {
+      agent_id: 'agent-runtime-route-text-permission-guard',
+      session_id: 'route-text-permission-session',
+      conversation_id: 'route-text-permission-session',
+      engine_id: 'codex_cli',
+      message: 'make a simple todo app',
+      input_text: 'make a simple todo app',
+      working_directory: scratchDir,
+      test_probe: true,
+    },
+  };
+  const textTurnRes = makeResponse();
+  const textTurnHandled = await textAssembly.handleAgentRuntimeTurnRoute({
+    req: textTurnReq,
+    res: textTurnRes,
+    pathname: '/api/shell-socket/agent-runtime/turn',
+    traceId: textTraceId,
+    flags: {},
+  });
+  const textTurnPayload = textTurnRes.payload || {};
+  const textRequest = textTurnPayload.pending_permission_request || textTurnPayload.permission_request || null;
+  const textPermissionActivity = Array.isArray(textTurnPayload.agent_activity_events)
+    ? textTurnPayload.agent_activity_events.find((row) =>
+      row &&
+      row.provider_event_type === 'permission.requested' &&
+      row.status === 'paused_pending_approval' &&
+      String(row.display_text || '').includes('Permission required:')
+    )
+    : null;
+  const textPendingListReq = { method: 'GET', __body: {} };
+  const textPendingListRes = makeResponse();
+  const textPendingListHandled = await textAssembly.handleAgentRuntimeApprovalRoute({
+    req: textPendingListReq,
+    res: textPendingListRes,
+    pathname: '/api/shell-socket/approvals/pending',
+    traceId: textTraceId,
+  });
+  const textPendingListPayload = textPendingListRes.payload || {};
+  const listedTextPending = Array.isArray(textPendingListPayload.pending_requests)
+    ? textPendingListPayload.pending_requests.find((row) => row && textRequest && row.approval_id === textRequest.approval_id)
+    : null;
+
+  const proposalOk = !!(
     turnHandled === true &&
     turnRes.statusCode === 200 &&
     turnPayload.status === 'permission_required' &&
@@ -172,6 +262,30 @@ async function main() {
     decisionPayload.decision_receipt.receipt_hash &&
     wroteArtifact
   );
+  const textPermissionOk = !!(
+    textTurnHandled === true &&
+    textTurnRes.statusCode === 200 &&
+    textTurnPayload.status === 'permission_required' &&
+    textTurnPayload.pending_permission === true &&
+    textTurnPayload.approval_pause &&
+    textRequest &&
+    textRequest.turn_status === 'permission_required' &&
+    textRequest.status === 'paused_pending_approval' &&
+    textRequest.source === 'external_cli_permission_denial_normalizer' &&
+    textRequest.resume_strategy === 'grant_then_retry_next_turn' &&
+    textRequest.tool_id === 'artifact.create_propose' &&
+    textRequest.proposal_arguments_ref &&
+    !textRequest.proposal_arguments &&
+    textPermissionActivity &&
+    textPendingListHandled === true &&
+    textPendingListRes.statusCode === 200 &&
+    textPendingListPayload.ok === true &&
+    textPendingListPayload.pending_count >= 1 &&
+    listedTextPending &&
+    listedTextPending.projection_kind === 'permission_request' &&
+    listedTextPending.resume_strategy === 'grant_then_retry_next_turn'
+  );
+  const ok = proposalOk && textPermissionOk;
 
   const report = {
     ok,
@@ -205,15 +319,43 @@ async function main() {
       decision_receipt_hash_present: !!(decisionPayload.decision_receipt && decisionPayload.decision_receipt.receipt_hash),
       wrote_artifact: wroteArtifact,
     },
+    text_permission_probe: {
+      turn_handled: textTurnHandled,
+      turn_status_code: textTurnRes.statusCode,
+      turn_status: clean(textTurnPayload.status, 120),
+      pending_permission: textTurnPayload.pending_permission === true,
+      approval_route: clean(textRequest && textRequest.approval_route, 300),
+      pending_request_source: clean(textRequest && textRequest.source, 160),
+      resume_strategy: clean(textRequest && textRequest.resume_strategy, 160),
+      tool_id: clean(textRequest && textRequest.tool_id, 160),
+      shell_projection_bounded: !!(textRequest && textRequest.proposal_arguments_ref && !textRequest.proposal_arguments),
+      permission_activity_emitted: !!textPermissionActivity,
+      pending_list_handled: textPendingListHandled,
+      pending_list_status_code: textPendingListRes.statusCode,
+      pending_list_count: Number(textPendingListPayload.pending_count) || 0,
+      pending_list_contains_request: !!listedTextPending,
+      text_sent_count: textSent.length,
+    },
     failures: [],
   };
   if (!ok) {
-    report.failures.push({
-      kind: 'route_level_approval_pause_decision_effect_lifecycle_broken',
-      turn_payload_status: clean(turnPayload.status, 120),
-      decision_payload_status: clean(decisionPayload.type || decisionPayload.error, 240),
-      sent_count: sent.length,
-    });
+    if (!proposalOk) {
+      report.failures.push({
+        kind: 'route_level_approval_pause_decision_effect_lifecycle_broken',
+        turn_payload_status: clean(turnPayload.status, 120),
+        decision_payload_status: clean(decisionPayload.type || decisionPayload.error, 240),
+        sent_count: sent.length,
+      });
+    }
+    if (!textPermissionOk) {
+      report.failures.push({
+        kind: 'route_level_text_permission_pause_lifecycle_broken',
+        text_turn_payload_status: clean(textTurnPayload.status, 120),
+        text_pending_source: clean(textRequest && textRequest.source, 160),
+        text_resume_strategy: clean(textRequest && textRequest.resume_strategy, 160),
+        text_sent_count: textSent.length,
+      });
+    }
   }
 
   ensureDir(OUT_JSON);

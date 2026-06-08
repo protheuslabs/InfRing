@@ -1324,6 +1324,8 @@ function permissionDeniedText(value) {
     lower.includes('approval to edit') ||
     lower.includes('requires permission') ||
     lower.includes('requires approval') ||
+    lower.includes('permission required') ||
+    lower.includes('permission is required') ||
     lower.includes('approval required') ||
     lower.includes('needs approval') ||
     lower.includes('need approval') ||
@@ -1331,7 +1333,10 @@ function permissionDeniedText(value) {
     lower.includes('need permission') ||
     lower.includes('blocked by permission') ||
     lower.includes('blocked by sandbox') ||
+    lower.includes('requires write permission') ||
     lower.includes('read-only sandbox') ||
+    lower.includes('read-only filesystem') ||
+    lower.includes('read only filesystem') ||
     lower.includes('read only sandbox') ||
     lower.includes('sandbox is read-only') ||
     lower.includes('sandbox is read only') ||
@@ -1450,6 +1455,10 @@ function buildPermissionRequestFromDenials(denials, ctx, defaultEngineId) {
         : 'request_permission',
     reason: cleanDisplayString(text || 'External runtime requested permission to continue.', 1000),
     argument_keys: [],
+    status: 'paused_pending_approval',
+    turn_status: 'permission_required',
+    pause_reason: cleanDisplayString(text || 'External runtime requested permission to continue.', 1000),
+    resume_strategy: 'grant_then_retry_next_turn',
     gatekeeper_kind: 'user',
     future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor'],
     decisions: ['allow_once', 'deny', 'always_allow_tool_call'],

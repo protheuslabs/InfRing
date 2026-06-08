@@ -1103,6 +1103,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       status: 'paused_pending_approval',
       turn_status: 'permission_required',
       pause_reason: cleanText(pendingPermissionRequest.pause_reason || pendingPermissionRequest.reason || 'agent_runtime_tool_call_requires_approval', 1000),
+      resume_strategy: cleanText(pendingPermissionRequest.resume_strategy || 'grant_then_retry_next_turn', 120),
       source: cleanText(pendingPermissionRequest.source || '', 160),
       resume_token: cleanApprovalId(pendingPermissionRequest.resume_token),
       future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor', 'admin_agent'],

@@ -146,6 +146,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
     const toolId = cleanText(source.tool_id, 120);
     const traceId = cleanText(source.trace_id, 200);
     const proposalArguments = sanitizeAgentRuntimeProposalArguments(source.proposal_arguments || source.arguments);
+    const explicitResumeStrategy = cleanText(source.resume_strategy, 120);
     return {
       type: 'agent_runtime_pending_approval',
       schema_version: 1,
@@ -179,9 +180,9 @@ function createAgentRuntimeApprovalStore(options = {}) {
       turn_status: 'permission_required',
       pause_reason: cleanText(source.pause_reason || source.reason || 'agent_runtime_tool_call_requires_approval', 1000),
       resume_token: approvalResumeToken(source),
-      resume_strategy: Object.keys(proposalArguments || {}).length
+      resume_strategy: explicitResumeStrategy || (Object.keys(proposalArguments || {}).length
         ? 'gateway_apply_approved_effect'
-        : 'grant_then_retry_next_turn',
+        : 'grant_then_retry_next_turn'),
       created_at: nowIso(),
       source: cleanText(source.source || 'gateway.runtime.agent_runtime_approvals', 160),
       source_authority: 'gateway.runtime.agent_runtime_approvals',
