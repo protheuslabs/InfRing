@@ -222,7 +222,7 @@ function buildNativePlan(framework: AnyJson, task: AnyJson, workDir: string, arg
     attempted: true,
     available: Boolean(command),
     ok: Boolean(command),
-    status: args.live ? "planned" : "planned",
+    status: command ? "planned" : "skipped",
     summary: command
       ? "Native command is available and planned."
       : `No native command found from candidates: ${(native.command_candidates ?? []).join(", ")}`,
@@ -326,7 +326,12 @@ async function postJson(url: string, body: any, timeoutMs: number): Promise<{ ok
 
 async function executeNative(plan: RunOutcome, workDir: string, outDir: string, frameworkId: string, taskId: string, timeoutMs: number, live: boolean): Promise<RunOutcome> {
   if (!plan.attempted || !plan.available || !plan.command) {
-    return plan;
+    return {
+      ...plan,
+      ok: false,
+      status: "skipped",
+      summary: plan.summary || "Native framework command is unavailable."
+    };
   }
   if (!live) {
     const { stdin: _stdin, ...safePlan } = plan;
@@ -394,7 +399,7 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
         projectionOk = false;
       }
       projectionStatus = String(projection.status ?? "");
-      projectionReason = String(projection.reason || projection.error_code || projection.text || "");
+      projectionReason = String(projection.reason || projection.error_code || projection.error || projection.text || "");
     }
   } catch {
     projectionReason = result.text.slice(0, 240);
