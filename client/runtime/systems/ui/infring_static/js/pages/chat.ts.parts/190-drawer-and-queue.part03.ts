@@ -77,6 +77,7 @@
       if (!tool) return '';
       if (tool.running) return 'running...';
       if (tool._detail_loading) return 'loading detail...';
+      if (tool.agent_runtime_activity_trace) return '';
       if (this.isThoughtTool(tool)) return 'thought';
       if (this.isBlockedTool(tool)) return 'blocked';
       if (tool.is_error) return 'error';

@@ -118,20 +118,32 @@
       return chars >= charThreshold || lines >= lineThreshold;
     },
 
-    buildLargePasteMarkdownAttachment(rawText) {
+    buildLargePasteTextAttachment(rawText) {
       if (typeof File !== 'function') return null;
       var text = String(rawText == null ? '' : rawText);
       if (!text.trim()) return null;
       var normalized = text.replace(/\r\n?/g, '\n');
       try {
-        var file = new File([normalized], 'Pasted markdown.md', {
-          type: 'text/markdown;charset=utf-8',
+        var file = new File([normalized], 'pastedtext.txt', {
+          type: 'text/plain;charset=utf-8',
           lastModified: Date.now()
         });
-        return { file: file, preview: '', uploading: false, pasted_markdown: true };
+        return {
+          file: file,
+          preview: '',
+          uploading: false,
+          pasted_text: true,
+          pasted_text_preview: normalized.slice(0, 12000),
+          pasted_text_size: normalized.length
+        };
       } catch (_) {
         return null;
       }
+    },
+
+    // Backward-compat shim for older send-path callers.
+    buildLargePasteMarkdownAttachment(rawText) {
+      return this.buildLargePasteTextAttachment(rawText);
     },
 
     recomputeContextEstimate() {

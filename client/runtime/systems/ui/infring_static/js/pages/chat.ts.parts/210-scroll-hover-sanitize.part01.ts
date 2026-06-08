@@ -402,6 +402,22 @@
       this.endAttachPickerSession();
     },
 
+    handleComposerPaste(event) {
+      if (this.terminalMode) return false;
+      if (!event || !event.clipboardData || typeof event.clipboardData.getData !== 'function') return false;
+      var text = String(event.clipboardData.getData('text/plain') || '');
+      if (!text || !this.shouldConvertLargePasteToAttachment || !this.shouldConvertLargePasteToAttachment(text)) return false;
+      var attachment = this.buildLargePasteTextAttachment && this.buildLargePasteTextAttachment(text);
+      if (!attachment || !attachment.file) return false;
+      if (event && typeof event.preventDefault === 'function') event.preventDefault();
+      if (!Array.isArray(this.attachments)) this.attachments = [];
+      this.attachments.push(attachment);
+      if (typeof InfringToast !== 'undefined' && InfringToast && typeof InfringToast.info === 'function') {
+        InfringToast.info('Large paste moved to pastedtext.txt');
+      }
+      return true;
+    },
+
     addFiles(files) {
       var self = this;
       var acceptedMimeTypes = [

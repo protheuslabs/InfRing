@@ -68,9 +68,8 @@
         return summary;
       }
       if (!doneCount) return summary;
-      summary.text = lastFinishedName ? ('Finished ' + lastFinishedName) : 'Tool steps complete';
+      summary.text = lastFinishedName || 'Tool steps complete';
       var doneBits = [];
-      if (completed > 0) doneBits.push(completed + ' done');
       if (errors > 0) doneBits.push(errors + ' error');
       if (blocked > 0) doneBits.push(blocked + ' blocked');
       if (doneBits.length) summary.text += ' · ' + doneBits.join(', ');
@@ -103,4 +102,3 @@
       if (status) return status;
       return 'Thinking';
     },
-

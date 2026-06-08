@@ -188,6 +188,18 @@
       return text.length > 140 ? text.substring(0, 137) + '...' : text;
     },
 
+    promptQueueSteerActionLabel(item) {
+      var engineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var usesRuntimeSocket = typeof this.shouldUseAgentRuntimeSocketPath === 'function'
+        ? this.shouldUseAgentRuntimeSocketPath(engineId)
+        : false;
+      if (!this.sending) return 'Send';
+      if (!usesRuntimeSocket) return 'Steer';
+      var row = typeof this.activeRuntimeEngineRow === 'function' ? this.activeRuntimeEngineRow() : null;
+      if (row && row.supports_live_steering === true) return 'Steer now';
+      return 'Queue steer';
+    },
+
     removePromptQueueItem(queueId) {
       var id = String(queueId || '').trim();
       if (!id) return;
@@ -291,6 +303,42 @@
           queue_id: id
         });
         return;
+      }
+
+      var selectedRuntimeEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var usesAgentRuntimeSocket = typeof this.shouldUseAgentRuntimeSocketPath === 'function'
+        ? this.shouldUseAgentRuntimeSocketPath(selectedRuntimeEngineId)
+        : false;
+      if (usesAgentRuntimeSocket) {
+        var runtimeAgent = this.ensureValidCurrentAgent({ clear_when_missing: true });
+        if (!runtimeAgent || !runtimeAgent.id) return;
+        try {
+          var steerAck = await InfringAPI.post('/api/shell-socket/agent-runtime/steer', {
+            engine_id: selectedRuntimeEngineId,
+            agent_id: runtimeAgent.id,
+            session_id: String((runtimeAgent && (runtimeAgent.session_id || runtimeAgent.id)) || runtimeAgent.id || ''),
+            text: text,
+            attachments: files,
+            mode: 'auto',
+            priority: 'steer',
+          });
+          this.appendUserChatMessage(text, images, { deferPersist: true });
+          this.messages.push({
+            id: ++msgId,
+            role: 'system',
+            is_notice: true,
+            notice_type: 'info',
+            notice_label: steerAck && steerAck.live_injected ? 'Steer injected into active runtime turn.' : 'Steer queued for next runtime turn.',
+            text: steerAck && steerAck.live_injected ? 'Steer injected into active runtime turn.' : 'Steer queued for next runtime turn.',
+            meta: '',
+            tools: [],
+            system_origin: 'prompt_queue:agent_runtime_steer',
+            ts: Date.now(),
+          });
+          this.scrollToBottom();
+          this.scheduleConversationPersist();
+          return;
+        } catch(_) {}
       }
 
       var wsPayload = { type: 'message', content: text, steer: true, priority: 'steer' };

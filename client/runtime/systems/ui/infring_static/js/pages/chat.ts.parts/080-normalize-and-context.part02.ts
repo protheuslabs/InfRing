@@ -475,8 +475,52 @@
       return false;
     },
 
+    installComposerPlusClickFallback: function() {
+      if (typeof document === 'undefined' || this._composerPlusClickFallbackInstalled) return;
+      this._composerPlusClickFallbackInstalled = true;
+      var self = this;
+      document.addEventListener('click', function(event) {
+        var target = event && event.target;
+        var anchor = target && target.closest ? target.closest('#composer-plus-menu-anchor') : null;
+        if (!anchor) return;
+        var previous = !!self.showAttachMenu;
+        setTimeout(function() {
+          if (!!self.showAttachMenu !== previous) return;
+          if (typeof self.closeComposerMenus === 'function') self.closeComposerMenus({ attach: true });
+          else {
+            self.showModelSwitcher = false;
+            self.showRuntimeSwitcher = false;
+            if (typeof self.closeGitTreeMenu === 'function') self.closeGitTreeMenu();
+            else self.showGitTreeMenu = false;
+          }
+          self.showAttachMenu = !previous;
+          if (self.showAttachMenu && typeof self.loadActiveWorkspaceProjection === 'function') {
+            Promise.resolve(self.loadActiveWorkspaceProjection({ force: false })).catch(function() {});
+          }
+        }, 0);
+      }, true);
+    },
+
+    publishChatPageBridge: function() {
+      if (typeof window === 'undefined') return;
+      window.InfringChatPage = this;
+      try {
+        if (document && document.body) {
+          document.body.__infringChatPage = this;
+          document.body.setAttribute('data-infring-chat-page-bridge', 'ready');
+        }
+        var wrappers = document && document.querySelectorAll ? document.querySelectorAll('.chat-wrapper') : [];
+        for (var i = 0; i < wrappers.length; i += 1) {
+          wrappers[i].__infringChatPage = this;
+          wrappers[i].setAttribute('data-infring-chat-page-bridge', 'ready');
+        }
+      } catch (_) {}
+    },
+
     init() {
       var self = this;
+      this.publishChatPageBridge();
+      this.installComposerPlusClickFallback();
 
       if (typeof window !== 'undefined') {
         var persistedCache = this.loadConversationCache();

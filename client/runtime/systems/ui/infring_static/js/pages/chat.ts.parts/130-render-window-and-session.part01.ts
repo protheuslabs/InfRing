@@ -562,6 +562,9 @@
       if (Array.isArray(payload.messages)) {
         for (var m = 0; m < payload.messages.length; m++) sourceRows.push(payload.messages[m]);
       }
+      if (payload && payload.message_window && Array.isArray(payload.message_window.rows)) {
+        for (var mw = 0; mw < payload.message_window.rows.length; mw++) sourceRows.push(payload.message_window.rows[mw]);
+      }
       if (!sourceRows.length) {
         this.chatInputHistory = [];
         this.terminalInputHistory = [];

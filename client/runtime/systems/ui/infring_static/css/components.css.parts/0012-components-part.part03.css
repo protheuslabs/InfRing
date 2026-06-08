@@ -808,3 +808,34 @@
   font-size: 11px;
   letter-spacing: 0.08em;
 }
+
+
+/* hamburger-fogged-menu-hardening */
+.composer-plus-menu.dashboard-dropdown-surface,
+.model-switcher-dropdown.dashboard-dropdown-surface,
+.chat-branch-menu.dashboard-dropdown-surface,
+.taskbar-text-menu-dropdown.dashboard-dropdown-surface {
+  --dashboard-preview-surface-background:
+    linear-gradient(145deg, color-mix(in srgb, var(--surface2) 68%, transparent), color-mix(in srgb, var(--surface) 80%, transparent)),
+    var(--overlay-fogged-surface-background);
+  --dashboard-preview-surface-blur: 12px;
+  --dashboard-preview-surface-saturate: 1.2;
+  --dashboard-preview-surface-brightness: 0.98;
+  --dashboard-preview-surface-contrast: 1.08;
+}
+
+.composer-plus-menu-entry,
+.model-switcher-item,
+.chat-branch-menu-item,
+.taskbar-text-menu-option {
+  background: color-mix(in srgb, var(--surface2) 34%, transparent);
+  border-color: color-mix(in srgb, var(--border) 58%, transparent);
+}
+
+.composer-plus-menu-entry:hover,
+.model-switcher-item:hover,
+.chat-branch-menu-item:hover,
+.taskbar-text-menu-option:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface2) 52%);
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+}

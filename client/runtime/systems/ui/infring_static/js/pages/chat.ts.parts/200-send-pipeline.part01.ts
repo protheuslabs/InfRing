@@ -68,7 +68,9 @@
       var text = rawInput.trim();
       var condensedLargePaste = false;
       if (text && this.shouldConvertLargePasteToAttachment && this.shouldConvertLargePasteToAttachment(rawInput)) {
-        var largePasteAttachment = this.buildLargePasteMarkdownAttachment && this.buildLargePasteMarkdownAttachment(rawInput);
+        var largePasteAttachment = this.buildLargePasteTextAttachment
+          ? this.buildLargePasteTextAttachment(rawInput)
+          : (this.buildLargePasteMarkdownAttachment && this.buildLargePasteMarkdownAttachment(rawInput));
         if (largePasteAttachment && largePasteAttachment.file) {
           if (!Array.isArray(this.attachments)) this.attachments = [];
           this.attachments.push(largePasteAttachment);
@@ -76,8 +78,8 @@
           condensedLargePaste = true;
         }
       }
-      if (text || condensedLargePaste) this.pushInputHistoryEntry('chat', text || '[File: Pasted markdown.md]');
-      if (condensedLargePaste) InfringToast.info('Large paste moved to Pasted markdown.md');
+      if (text || condensedLargePaste) this.pushInputHistoryEntry('chat', text || '[File: pastedtext.txt]');
+      if (condensedLargePaste) InfringToast.info('Large paste moved to pastedtext.txt');
       if (text.startsWith('/') && !this.attachments.length) {
         var cmd = text.split(' ')[0].toLowerCase();
         var cmdArgs = text.substring(cmd.length).trim();
@@ -117,7 +119,18 @@
           try {
             var uploadRes = await InfringAPI.upload(activeAgent.id, att.file);
             fileRefs.push('[File: ' + att.file.name + ']');
-            uploadedFiles.push({ file_id: uploadRes.file_id, filename: uploadRes.filename, content_type: uploadRes.content_type });
+            var uploadedFileRow = {
+              file_id: uploadRes.file_id,
+              filename: uploadRes.filename,
+              content_type: uploadRes.content_type
+            };
+            if (att && att.pasted_text) {
+              uploadedFileRow.source_kind = 'pasted_text_attachment';
+              uploadedFileRow.size_bytes = Number(att.pasted_text_size || (att.file && att.file.size) || 0) || 0;
+              uploadedFileRow.content_preview = String(att.pasted_text_preview || '').slice(0, 12000);
+              uploadedFileRow.prompt_instruction = 'Read this pasted text attachment as supplemental user-provided context; do not require the user to paste it again.';
+            }
+            uploadedFiles.push(uploadedFileRow);
           } catch(e) {
             var reason = (e && e.message) ? String(e.message) : 'upload_failed';
             InfringToast.error('Failed to upload ' + att.file.name + ': ' + reason);
@@ -336,7 +349,14 @@
                 self.setAgentLiveActivity(resumeAgentId, 'working', { optimistic: true, source: 'agent_runtime_permission_resume' });
               }
               setTimeout(function() {
-                self._sendAgentRuntimeSocketPayload(resumeAgentId, resumeText, resumeFiles, resumeImages, resumeEngineId);
+              self._sendAgentRuntimeSocketPayload(resumeAgentId, resumeText, resumeFiles, resumeImages, resumeEngineId, {
+                approval_id: approvalId,
+                resume_token: String(payload && payload.resume_token || request.resume_token || '').trim(),
+                approved_tool_id: String(request.tool_id || '').trim(),
+                approval_decision: choice,
+                approval_resume_action: String(payload && payload.resume_action || '').trim(),
+                decision_receipt_ref: String(payload && payload.decision_receipt_ref || '').trim()
+              });
               }, 0);
             }
           }
@@ -402,12 +422,23 @@
           result: text || providerType,
           output: text || providerType,
           summary: text || providerType,
+          display_text: text || providerType,
+          input_preview: providerType ? ('event: ' + providerType) : '',
+          result_preview: text || providerType,
           receipt_ref: String(event.receipt_ref || '').slice(0, 240),
           result_ref: String(event.result_ref || '').slice(0, 240),
           tool_call_ref: String(event.item_id || event.sequence_no || ('activity-' + i)).slice(0, 160),
           agent_runtime_engine_id: String(event.engine_id || engineId || '').trim(),
+          projection_kind: 'runtime_activity',
+          projection_schema_version: 1,
+          activity_text: text || providerType,
+          activity_status: String(event.status || 'completed').trim() || 'completed',
           agent_activity_event: true,
+          agent_runtime_live_activity: true,
+          agent_runtime_activity_dialog_text: text || providerType,
+          agent_runtime_activity_latest: false,
           notice_type: kind,
+          running: false,
           ts: Date.now()
         });
       }
@@ -429,6 +460,14 @@
           return String(part || '').replace(/\s+/g, ' ').trim();
         }).filter(Boolean).join('\n');
         if (!line) continue;
+        var lowerLine = line.toLowerCase();
+        if (
+          lowerLine.indexOf('final answer is shown in the message') >= 0 ||
+          lowerLine.indexOf('assistant draft streamed') >= 0 ||
+          lowerLine.indexOf('returned completed') >= 0
+        ) {
+          continue;
+        }
         if (status && status !== 'completed' && line.toLowerCase().indexOf(status.toLowerCase()) < 0) {
           line += ' [' + status + ']';
         }
@@ -440,8 +479,33 @@
       return lines.join('\n');
     },
 
-    agentRuntimeActivityEventsToDecisionTool: function(events, engineId, durationMs) {
+    agentRuntimePermissionRequestToDecisionDialog: function(request) {
+      var row = request && typeof request === 'object' ? request : {};
+      var lines = [];
+      var toolId = String(row.tool_id || '').trim();
+      var capability = String(row.capability || '').trim();
+      var reason = String(row.reason || '').trim();
+      if (toolId) lines.push('Permission requested: ' + toolId);
+      if (capability) lines.push('Capability: ' + capability);
+      if (reason) lines.push('Reason: ' + reason);
+      var args = row.proposal_arguments && typeof row.proposal_arguments === 'object'
+        ? row.proposal_arguments
+        : null;
+      if (args) {
+        try {
+          lines.push('Proposal arguments:');
+          lines.push('```json');
+          lines.push(JSON.stringify(args, null, 2));
+          lines.push('```');
+        } catch (_) {}
+      }
+      return lines.join('\n');
+    },
+
+    agentRuntimeActivityEventsToDecisionTool: function(events, engineId, durationMs, extraDialog) {
       var dialog = this.agentRuntimeActivityEventsToDecisionDialog(events);
+      var extra = String(extraDialog || '').trim();
+      if (extra && dialog.indexOf(extra) < 0) dialog = dialog ? (dialog + '\n\n' + extra) : extra;
       if (!dialog) return null;
       var tool = typeof this.makeThoughtToolCard === 'function'
         ? this.makeThoughtToolCard(dialog, durationMs)
@@ -458,13 +522,15 @@
       tool.agent_decision_dialog = true;
       tool.agent_runtime_decision_dialog = true;
       tool.agent_runtime_activity_trace = true;
+      tool.projection_kind = 'decision_dialog';
+      tool.projection_schema_version = 1;
       tool.agent_decision_dialog_text = dialog;
       tool.agent_runtime_engine_id = String(engineId || '').trim();
       tool.status = 'completed';
       tool.input = dialog;
       tool.input_preview = dialog;
       tool.result_preview = dialog;
-      tool.summary = 'External runtime activity dialog';
+      tool.summary = 'Agent decision dialog';
       tool.display_text = dialog;
       tool.expanded = false;
       return tool;
@@ -484,8 +550,34 @@
       var tools = this.agentRuntimeActivityEventsToTools([event], engineId);
       if (!tools.length) return;
       if (!Array.isArray(target.tools)) target.tools = [];
+      target.tools = target.tools.map(function(tool) {
+        if (tool && (tool.agent_runtime_live_activity || tool.agent_activity_event)) {
+          return Object.assign({}, tool, {
+            running: false,
+            agent_runtime_activity_latest: false,
+            status: tool.status === 'running' ? 'completed' : (tool.status || 'completed')
+          });
+        }
+        return tool;
+      });
+      var liveEvents = Array.isArray(target.agent_runtime_live_events) ? target.agent_runtime_live_events.slice(-79) : [];
+      liveEvents.push(event);
+      target.agent_runtime_live_events = liveEvents;
+      var liveDialog = this.agentRuntimeActivityEventsToDecisionDialog(liveEvents);
+      if (liveDialog) target.agent_runtime_decision_dialog_text = liveDialog;
+      tools = tools.map(function(tool, index) {
+        var isLatest = index === tools.length - 1;
+        return Object.assign({}, tool, {
+          running: isLatest,
+          status: isLatest ? 'running' : (tool.status || 'completed'),
+          agent_runtime_activity_latest: isLatest
+        });
+      });
       target.tools = target.tools.concat(tools).slice(-40);
-      target.text = 'Working through runtime activity...';
+      var latestTool = tools[tools.length - 1] || {};
+      var latestText = String(latestTool.display_text || latestTool.summary || latestTool.name || '').trim();
+      target.text = latestText || 'Working through runtime activity...';
+      target.thinking_status = latestText || 'Working through runtime activity...';
       target.meta = 'Agent runtime: ' + String(engineId || 'runtime') + ' | streaming activity';
       target._stream_updated_at = Date.now();
       if (typeof this.syncActiveChatMessages === 'function') this.syncActiveChatMessages();
@@ -537,7 +629,7 @@
       return finalPayload || { ok: false, error: 'agent_runtime_stream_missing_final' };
     },
 
-    async _sendAgentRuntimeSocketPayload(targetAgentId, finalText, uploadedFiles, msgImages, runtimeEngineId) {
+    async _sendAgentRuntimeSocketPayload(targetAgentId, finalText, uploadedFiles, msgImages, runtimeEngineId, resumeOptions) {
       var engineId = String(runtimeEngineId || this.selectedAgentRuntimeEngineId || '').trim();
       if (!engineId) return;
       var startedAt = Date.now();
@@ -557,6 +649,7 @@
       this.scheduleConversationPersist();
 
       try {
+        var approvalResume = resumeOptions && typeof resumeOptions === 'object' ? resumeOptions : null;
         var contextRows = [];
         var historyRows = Array.isArray(this.messages) ? this.messages : [];
         var currentTextForContext = String(finalText || '').trim();
@@ -598,14 +691,33 @@
             result_ref: String(ctxMsg.result_ref || '').slice(0, 240)
           });
         }
-        contextRows = contextRows.slice(-49);
+        contextRows = contextRows.slice(-24);
         var turnRequest = {
           engine_id: engineId,
           agent_id: targetAgentId,
           session_id: String((this.currentAgent && (this.currentAgent.session_id || this.currentAgent.id)) || targetAgentId || ''),
           message: String(finalText || ''),
+          cwd: typeof this.activeWorkspacePath === 'function' ? this.activeWorkspacePath() : '',
+          active_workspace: typeof this.activeWorkspaceTurnContextProjection === 'function' ? this.activeWorkspaceTurnContextProjection() : null,
+      model_provider_context: {
+        source_authority: 'shell_selected_model_projection',
+        provider: String((this.currentAgent && (this.currentAgent.model_provider || this.currentAgent.provider || this.currentAgent.selected_provider)) || '').slice(0, 120),
+        model: String((this.currentAgent && (this.currentAgent.model_name || this.currentAgent.runtime_model || this.currentAgent.selected_model || this.currentAgent.model)) || '').slice(0, 240),
+        runtime_model: String((this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').slice(0, 240),
+        selected_runtime_engine_id: engineId,
+        secrets_included: false
+      },
           attachments: Array.isArray(uploadedFiles) ? uploadedFiles.slice(0, 12) : [],
           permission_policy: this.agentRuntimePermissionPolicyProjection(),
+          approval_resume: approvalResume ? {
+            approval_id: String(approvalResume.approval_id || '').slice(0, 260),
+            resume_token: String(approvalResume.resume_token || '').slice(0, 260),
+            approved_tool_id: String(approvalResume.approved_tool_id || '').slice(0, 120),
+            approval_decision: String(approvalResume.approval_decision || '').slice(0, 80),
+            approval_resume_action: String(approvalResume.approval_resume_action || '').slice(0, 160),
+            decision_receipt_ref: String(approvalResume.decision_receipt_ref || '').slice(0, 240),
+            source_authority: 'shell_permission_resume_projection'
+          } : null,
           context_projection: {
             schema_version: 1,
             source: 'shell_bounded_message_projection',
@@ -626,6 +738,24 @@
           : (this.messages = this.messages.filter(function(m) { return !m.thinking; }));
         if (res && res.pending_permission_request) {
           var pendingPermissionRequest = res.pending_permission_request;
+          pendingPermissionRequest.projection_kind = 'permission_request';
+          pendingPermissionRequest.projection_schema_version = 1;
+          var pendingRuntimeDurationMs = Math.max(0, Date.now() - startedAt);
+          var pendingRuntimeDuration = this.formatResponseDuration(pendingRuntimeDurationMs);
+          var pendingResponseActivityEvents = Array.isArray(res && res.agent_activity_events) ? res.agent_activity_events : [];
+          var pendingFinalActivityEvents = pendingResponseActivityEvents.length ? pendingResponseActivityEvents : streamedActivityEvents;
+          var pendingDialogExtra = typeof this.agentRuntimePermissionRequestToDecisionDialog === 'function'
+            ? this.agentRuntimePermissionRequestToDecisionDialog(pendingPermissionRequest)
+            : '';
+          var pendingDecisionTool = this.agentRuntimeActivityEventsToDecisionTool(
+            pendingFinalActivityEvents,
+            engineId,
+            pendingRuntimeDurationMs,
+            pendingDialogExtra
+          );
+          var pendingToolId = String(pendingPermissionRequest.tool_id || pendingPermissionRequest.capability || 'tool call').trim();
+          var pendingMeta = 'runtime ' + engineId + ' | permission required';
+          if (pendingRuntimeDuration) pendingMeta += ' | ' + pendingRuntimeDuration;
           pendingPermissionRequest.resume_payload = {
             agent_id: targetAgentId,
             final_text: String(finalText || ''),
@@ -633,10 +763,37 @@
             msg_images: Array.isArray(msgImages) ? msgImages.slice(0, 12) : [],
             agent_runtime_engine_id: engineId,
             session_id: String(turnRequest.session_id || ''),
+            approval_id: String(pendingPermissionRequest.approval_id || ''),
+            resume_token: String(pendingPermissionRequest.resume_token || ''),
+            tool_id: String(pendingPermissionRequest.tool_id || ''),
+            proposal_ref: String(pendingPermissionRequest.proposal_ref || ''),
+            decision_receipt_ref: '',
             paused_reason: 'waiting_for_permission_decision'
           };
           pendingPermissionRequest.status = 'paused_pending_approval';
           this.enqueueAgentRuntimePermissionRequest(pendingPermissionRequest);
+          var pendingRuntimeMessage = {
+            id: ++msgId,
+            role: 'agent',
+            text: 'Waiting for approval: ' + pendingToolId,
+            meta: pendingMeta,
+            tools: pendingDecisionTool ? [pendingDecisionTool] : [],
+            agent_activity_events: pendingFinalActivityEvents.slice(-80),
+            agent_activity_event_count: Number(res && res.activity_event_count) || pendingFinalActivityEvents.length,
+            ts: Date.now(),
+            result_ref: String(res && res.result_ref || '').slice(0, 240),
+            receipt_ref: String(res && res.receipt_ref || '').slice(0, 240),
+            agent_id: targetAgentId,
+            agent_name: this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '',
+            isHtml: false,
+            _typingVisual: false,
+            agent_runtime_engine_id: engineId,
+            pending_permission_request: pendingPermissionRequest,
+            projection_kind: 'permission_request',
+            projection_schema_version: 1
+          };
+          var pushedPendingRuntimeMessage = this.pushAgentMessageDeduped(pendingRuntimeMessage, { dedupe_window_ms: 90000 }) || pendingRuntimeMessage;
+          this.markAgentMessageComplete(pushedPendingRuntimeMessage);
           this._clearPendingWsRequest(targetAgentId);
           this._inflightPayload = null;
           this.sending = false;

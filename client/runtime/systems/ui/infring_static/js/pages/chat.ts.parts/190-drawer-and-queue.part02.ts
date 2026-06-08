@@ -250,6 +250,10 @@
       for (var i = msg.tools.length - 1; i >= 0; i--) {
         var tool = msg.tools[i];
         if (!tool || this.isThoughtTool(tool) || !tool.running) continue;
+        if (tool.agent_runtime_live_activity || tool.agent_activity_event) {
+          var liveLabel = String(tool.display_text || tool.summary || tool.result_preview || tool.output_preview || tool.name || '').trim();
+          if (liveLabel) return liveLabel.split('\n')[0].replace(/\s+/g, ' ').slice(0, 220);
+        }
         return this.toolThinkingActionLabel(tool);
       }
       return '';

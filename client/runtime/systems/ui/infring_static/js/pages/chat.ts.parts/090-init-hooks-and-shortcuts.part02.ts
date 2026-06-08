@@ -203,13 +203,24 @@
     normalizeRuntimeEngineRows: function(payload) {
       var rows = payload && Array.isArray(payload.engines) ? payload.engines : [];
       var out = [];
+      var canonicalDisplayNames = {
+        infring_native: 'InfRing Native',
+        codex_cli: 'Codex',
+        claude_code: 'Claude Code',
+        grok_code: 'Grok Code',
+        openclaw: 'OpenClaw',
+        hermes_agent: 'Hermes Agent'
+      };
       for (var i = 0; i < rows.length; i += 1) {
         var row = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
         var id = String(row.engine_id || '').trim();
         if (!id) continue;
+        var displayName = String(row.display_name || id).trim() || id;
         out.push({
           engine_id: id,
-          display_name: String(row.display_name || id).trim() || id,
+          canonical_engine_id: id,
+          display_name: canonicalDisplayNames[id] || displayName,
+          display_label: canonicalDisplayNames[id] || displayName,
           engine_kind: String(row.engine_kind || '').trim(),
           transport_kind: String(row.transport_kind || '').trim(),
           status: String(row.status || 'unknown').trim(),
@@ -223,6 +234,9 @@
           install_action_available: row.install_action_available === true || row.command_line_install_available === true,
           command_line_install_available: row.command_line_install_available === true,
           install_permission_state: String(row.install_permission_state || '').trim(),
+          provider_readiness: String(row.provider_readiness || '').trim(),
+          error_code: String(row.error_code || '').trim(),
+          reason: String(row.reason || '').trim(),
           download_action_ref: String(row.download_action_ref || '').trim(),
           preferred_install_method: String(row.preferred_install_method || '').trim(),
           command_line_hint: String(row.command_line_hint || '').trim(),
@@ -457,8 +471,10 @@
       var kind = String(row && row.engine_kind || '').replace(/_/g, ' ').trim();
       var status = this.runtimeEngineStatusLabel(row);
       var steering = String(row && row.steering_mode || '').trim();
+      var reason = String(row && row.reason || '').trim();
       if (kind) parts.push(kind);
       if (status) parts.push(status);
+      if (reason) parts.push(reason);
       if (steering === 'live') parts.push('live steer');
       else if (steering === 'next_turn') parts.push('next-turn steer');
       return parts.join(' · ');

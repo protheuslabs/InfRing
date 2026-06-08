@@ -249,7 +249,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
             {/if}
 
             {#if bubbleVisible(msg, idx) && shouldRenderContent(msg, idx, renderWindowVersion)}
-              <infring-chat-bubble-render typing={!!msg._typingVisual ? '1' : '0'} html={callStr('messageBubbleHtml', msg)} plain={String(msg.text || '')}></infring-chat-bubble-render>
+              <infring-chat-bubble-render typing={!!msg._typingVisual ? '1' : '0'} html={callStr('messageBubbleHtml', msg, idx)} plain={String(msg.text || '')}></infring-chat-bubble-render>
             {:else if bubbleVisible(msg, idx)}
               <infring-message-placeholder-shell>
                 <div class="message-placeholder-shell message-placeholder-shell-inline" style={callStr('messagePlaceholderStyle', msg, idx, messages)}>
@@ -359,7 +359,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
                   <span class="tool-card-icon" style:display={callBool('isThoughtTool', tool) ? 'none' : ''}>{@html callStr('toolIcon', tool.name)}</span>
                   <span class="tool-card-name">{callBool('isThoughtTool', tool) ? callStr('thoughtToolLabel', tool) : callStr('toolDisplayName', tool)}</span>
                   <span
-                    style:display={callBool('isThoughtTool', tool) ? 'none' : ''}
+                    style:display={callBool('isThoughtTool', tool) || !callStr('toolStatusText', tool) ? 'none' : ''}
                     class={"text-xs" + (callBool('isBlockedTool', tool) ? ' tool-status-blocked' : callBool('isToolSuccessful', tool) ? ' tool-status-success' : ' text-dim')}
                     style="margin-left:auto"
                   >{callStr('toolStatusText', tool)}</span>

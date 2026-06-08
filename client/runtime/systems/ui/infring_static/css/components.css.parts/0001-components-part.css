@@ -15,6 +15,7 @@ body.theme-switching *::after {
   align-items: center;
   justify-content: center;
   background: #000;
+  pointer-events: none;
 }
 
 .boot-splash-inner {
