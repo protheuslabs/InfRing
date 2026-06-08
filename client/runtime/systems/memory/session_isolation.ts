@@ -4,6 +4,8 @@
 // Layer ownership: core/layer0/ops (authoritative)
 // Thin TypeScript wrapper only.
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { invokeKernelPayload, kernelFailClosedResult } = require('../../lib/infring_kernel_bridge.ts');
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/;
@@ -123,6 +125,71 @@ function saveState(state, filePath = DEFAULT_STATE_PATH) {
       };
 }
 
+function localLoadState(filePath = DEFAULT_STATE_PATH) {
+  try {
+    return JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8'));
+  } catch {
+    return { schema_version: '1.0', resources: {} };
+  }
+}
+
+function localSaveState(state, filePath = DEFAULT_STATE_PATH) {
+  const abs = path.resolve(filePath);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  return state;
+}
+
+function preflightValidateSessionIsolation(args = [], options = {}) {
+  const list = normalizeArgs(args);
+  const sessionId = parseFlag(list, '--session-id');
+  if (!sessionId) {
+    return {
+      ok: false,
+      type: 'memory_session_isolation',
+      reason_code: 'missing_session_id',
+    };
+  }
+  if (!SESSION_ID_PATTERN.test(sessionId)) {
+    return {
+      ok: false,
+      type: 'memory_session_isolation',
+      reason_code: 'invalid_session_id',
+    };
+  }
+
+  const resourceId = parseFlag(list, '--resource-id');
+  if (!resourceId) {
+    return null;
+  }
+
+  const statePath = String(options.statePath || options.state_path || DEFAULT_STATE_PATH);
+  const state = localLoadState(statePath);
+  if (!state.resources || typeof state.resources !== 'object') state.resources = {};
+  const owner = state.resources[resourceId];
+  if (typeof owner === 'string' && owner !== sessionId) {
+    return {
+      ok: false,
+      type: 'memory_session_isolation',
+      reason_code: 'cross_session_leak_blocked',
+      resource_id: resourceId,
+      owner_session_id: owner,
+      session_id: sessionId,
+    };
+  }
+  if (!owner) {
+    state.resources[resourceId] = sessionId;
+    localSaveState(state, statePath);
+  }
+  return {
+    ok: true,
+    type: 'memory_session_isolation',
+    reason_code: 'session_isolation_ok',
+    session_id: sessionId,
+    resource_id: resourceId,
+  };
+}
+
 function validateSessionIsolation(args = [], options = {}) {
   const normalizedOptions = options && typeof options === 'object' ? { ...options } : {};
   const statePath = String(
@@ -130,6 +197,9 @@ function validateSessionIsolation(args = [], options = {}) {
   );
   if (!normalizedOptions.statePath) normalizedOptions.statePath = statePath;
   if (!normalizedOptions.state_path) normalizedOptions.state_path = statePath;
+
+  const preflight = preflightValidateSessionIsolation(args, normalizedOptions);
+  if (preflight) return preflight;
 
   const out = invoke(
     'validate',
@@ -149,6 +219,17 @@ function validateSessionIsolation(args = [], options = {}) {
 }
 
 function sessionFailureResult(validation, context = {}) {
+  if (validation && typeof validation.reason_code === 'string' && validation.reason_code.trim()) {
+    return kernelFailClosedResult(
+      'memory_session_isolation_reject',
+      validation.reason_code,
+      {
+        stderrPrefix: 'memory_session_isolation_reject',
+        payload: context && typeof context === 'object' ? context : {},
+      }
+    );
+  }
+
   const out = invoke(
     'failure-result',
     {

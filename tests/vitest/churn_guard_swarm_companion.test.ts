@@ -99,6 +99,7 @@ describe('swarm companion churn guard', () => {
       '// test\n',
     );
     fs.appendFileSync(path.join(repoRoot, 'docs/workspace/SRS.md'), '\n- V6-SWARM-033\n');
+    execSync('git add .', { cwd: repoRoot });
 
     const result = runGuard(repoRoot, [
       '--strict=1',
@@ -128,6 +129,7 @@ describe('swarm companion churn guard', () => {
       path.join(repoRoot, 'docs/client/requirements/REQ-38-agent-orchestration-hardening.md'),
       '\n- audit runner companion proof\n',
     );
+    execSync('git add .', { cwd: repoRoot });
 
     const result = runGuard(repoRoot, [
       '--strict=1',

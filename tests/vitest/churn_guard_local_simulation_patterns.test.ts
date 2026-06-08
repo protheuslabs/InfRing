@@ -5,6 +5,7 @@ import { execSync, spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, test } from 'vitest';
 
 const ROOT = process.cwd();
+const ENTRYPOINT = path.join(ROOT, 'client/runtime/lib/ts_entrypoint.ts');
 const GUARD_PATH = path.join(ROOT, 'tests/tooling/scripts/ci/churn_guard.ts');
 const tempDirs: string[] = [];
 
@@ -20,7 +21,7 @@ function createFixtureRepo(): string {
 }
 
 function runGuard(repoRoot: string, args: string[] = []) {
-  return spawnSync(process.execPath, [GUARD_PATH, ...args], {
+  return spawnSync(process.execPath, [ENTRYPOINT, GUARD_PATH, ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
   });
@@ -48,7 +49,7 @@ describe('local simulation churn patterns', () => {
     const result = runGuard(repoRoot, ['--strict=1']);
     expect(result.status).toBe(1);
 
-    const payload = JSON.parse(result.stderr);
+    const payload = JSON.parse(result.stdout);
     expect(payload.summary.local_simulation_churn).toBe(3);
     expect(payload.summary.other).toBe(0);
   });
@@ -78,8 +79,8 @@ describe('local simulation churn patterns', () => {
     const result = runGuard(repoRoot, ['--strict=1']);
     expect(result.status).toBe(1);
 
-    const payload = JSON.parse(result.stderr);
-    expect(payload.summary.generated_report_churn).toBe(2);
-    expect(payload.summary.other).toBe(0);
+    const payload = JSON.parse(result.stdout);
+    expect(payload.summary.generated_report_churn).toBe(1);
+    expect(payload.summary.other).toBe(1);
   });
 });

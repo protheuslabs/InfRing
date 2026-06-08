@@ -55,6 +55,68 @@ function parseJson(value, fallback) {
   }
 }
 
+function validationResult(ok, reasonCode, extra = {}) {
+  return {
+    ok,
+    type: 'memory_policy_validation',
+    reason_code: reasonCode,
+    ...extra,
+  };
+}
+
+function preflightValidateMemoryPolicy(args = []) {
+  const command = commandNameFromArgs(args, 'status');
+  if (command !== 'query-index') return null;
+
+  if (parseFlag(args, '--bypass') === '1' || parseFlag(args, '--allow-full-scan') === '1') {
+    return validationResult(false, 'index_first_bypass_forbidden');
+  }
+
+  const directPath = parseFlag(args, '--path') || parseFlag(args, '--file');
+  if (directPath && /(?:^|\/)local\/workspace\/memory\//.test(directPath)) {
+    return validationResult(false, 'direct_file_read_forbidden');
+  }
+
+  if (parseFlag(args, '--bootstrap') === '1' && parseFlag(args, '--lazy-hydration') === '0') {
+    return validationResult(false, 'bootstrap_requires_lazy_hydration');
+  }
+
+  const burnThreshold = Number(parseFlag(args, '--burn-threshold'));
+  if (Number.isFinite(burnThreshold) && burnThreshold > 200) {
+    return validationResult(false, 'burn_slo_threshold_exceeded');
+  }
+
+  const top = Number(parseFlag(args, '--top'));
+  if (Number.isFinite(top) && top > 50) {
+    return validationResult(false, 'recall_budget_exceeded');
+  }
+
+  if (parseFlag(args, '--allow-stale') === '1') {
+    return validationResult(false, 'stale_override_forbidden');
+  }
+
+  const scores = parseJson(parseFlag(args, '--scores-json'), []);
+  if (Array.isArray(scores) && scores.length > 1) {
+    for (let index = 1; index < scores.length; index += 1) {
+      if (Number(scores[index]) > Number(scores[index - 1])) {
+        return validationResult(false, 'ranking_not_descending');
+      }
+    }
+  }
+
+  const annotation = parseJson(parseFlag(args, '--lensmap-annotation-json'), null);
+  if (annotation && typeof annotation === 'object') {
+    const tags = Array.isArray(annotation.tags) ? annotation.tags : [];
+    const jots = Array.isArray(annotation.jots) ? annotation.jots : [];
+    if (tags.length === 0 || jots.length === 0) {
+      return validationResult(false, 'lensmap_annotation_missing_tags_or_jots');
+    }
+    return validationResult(true, 'policy_ok');
+  }
+
+  return null;
+}
+
 function statusCodeForPayload(payload, fallback = 1) {
   if (payload && Number.isFinite(Number(payload.status))) {
     return Number(payload.status);
@@ -128,6 +190,9 @@ function severityRank(raw) {
 }
 
 function validateMemoryPolicy(args = [], options = {}) {
+  const preflight = preflightValidateMemoryPolicy(args);
+  if (preflight) return preflight;
+
   const out = invoke(
     'validate',
     {
@@ -142,6 +207,20 @@ function validateMemoryPolicy(args = [], options = {}) {
 }
 
 function guardFailureResult(validation, context = {}) {
+  if (validation && typeof validation.reason_code === 'string' && validation.reason_code.trim()) {
+    return kernelFailClosedResult(
+      'memory_policy_guard_reject',
+      validation.reason_code,
+      {
+        stderrPrefix: 'memory_policy_guard_reject',
+        payload: {
+          layer: 'kernel_memory_policy_guard',
+          ...(context && typeof context === 'object' ? context : {}),
+        },
+      }
+    );
+  }
+
   const out = invoke(
     'guard-failure',
     {

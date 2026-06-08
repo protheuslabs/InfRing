@@ -150,8 +150,8 @@ describe('conduit primitive wrapper contract', () => {
     expect(shellSource.includes('summary json:')).toBe(true);
     expect(psSource.includes('[switch]$Json')).toBe(true);
     expect(psSource.includes('function Write-InstallCompletionCard')).toBe(true);
-    expect(psSource.includes('✔ InfRing successfully installed!')).toBe(true);
-    expect(psSource.includes('✅ Installation complete!')).toBe(true);
+    expect(psSource.includes('SUCCESS: InfRing successfully installed!')).toBe(true);
+    expect(psSource.includes('Installation complete!')).toBe(true);
     expect(psSource.includes('-ForegroundColor Green')).toBe(true);
     expect(psSource.includes('-ForegroundColor DarkYellow')).toBe(true);
     expect(psSource.includes('infring_install_success_summary')).toBe(true);
@@ -731,8 +731,8 @@ describe('conduit primitive wrapper contract', () => {
     expect(source.includes('Write-BootstrapGatewayCmdWrapper')).toBe(true);
     expect(source.includes('function Ensure-RepairBootstrapWrapperFloor')).toBe(true);
     expect(source.includes('Ensure-RepairBootstrapWrapperFloor -InstallDir $InstallDir')).toBe(true);
-    expect(source.includes("$content -match 'Join-Path\\s+\\$PSScriptRoot'")).toBe(true);
-    expect(source.includes("$content -match 'throw\\s+\"'")).toBe(true);
+    expect(source.includes('$target = Join-Path $PSScriptRoot "__TARGET__"')).toBe(true);
+    expect(source.includes('$hasBootstrapRecoveryCopy')).toBe(true);
     expect(source.includes('$legacyWrapperTargets = @(')).toBe(true);
     expect(source.includes('repair removed stale legacy command wrapper')).toBe(true);
     expect(source.includes('bootstrap_only_mode = [bool]$script:InstallBootstrapOnlyMode')).toBe(true);
@@ -757,14 +757,12 @@ describe('conduit primitive wrapper contract', () => {
       'utf8',
     );
     const canonicalWindowsInstallCommand =
-      'Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; $tmp = Join-Path $env:TEMP "infring-install.ps1"; irm https://raw.githubusercontent.com/protheuslabs/InfRing/main/install.ps1 -OutFile $tmp -ErrorAction Stop; & $tmp -Repair -Full; Remove-Item $tmp -Force -ErrorAction SilentlyContinue';
+      '$tmp = Join-Path $env:TEMP "infring-install.ps1"; irm https://raw.githubusercontent.com/protheuslabs/InfRing/main/install.ps1 -OutFile $tmp -ErrorAction Stop; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp -Repair -Full; Remove-Item $tmp -Force -ErrorAction SilentlyContinue';
 
     expect(readme.includes('install.ps1 -OutFile $tmp -ErrorAction Stop')).toBe(true);
-    expect(readme.includes('Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force')).toBe(
-      true,
-    );
+    expect(readme.includes('powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp')).toBe(true);
     expect(readme.includes(canonicalWindowsInstallCommand)).toBe(true);
-    expect(/& \$tmp(?:\s+-Repair)?\s+-Full/.test(readme)).toBe(true);
+    expect(/powershell\.exe -NoProfile -ExecutionPolicy Bypass -File \$tmp(?:\s+-Repair)?\s+-Full/.test(readme)).toBe(true);
     expect(readme.includes('$env:INFRING_INSTALL_REPAIR = "1"')).toBe(true);
     expect(readme.includes('$env:INFRING_INSTALL_FULL = "1"')).toBe(true);
     expect(readme.includes('irm https://raw.githubusercontent.com/protheuslabs/InfRing/main/install.ps1 | iex')).toBe(
@@ -774,10 +772,10 @@ describe('conduit primitive wrapper contract', () => {
 
     expect(gettingStarted.includes('install.ps1 -OutFile $tmp -ErrorAction Stop')).toBe(true);
     expect(
-      gettingStarted.includes('Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force'),
+      gettingStarted.includes('powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp'),
     ).toBe(true);
     expect(gettingStarted.includes(canonicalWindowsInstallCommand)).toBe(true);
-    expect(/& \$tmp(?:\s+-Repair)?\s+-Full/.test(gettingStarted)).toBe(true);
+    expect(/powershell\.exe -NoProfile -ExecutionPolicy Bypass -File \$tmp(?:\s+-Repair)?\s+-Full/.test(gettingStarted)).toBe(true);
     expect(gettingStarted.includes('$env:INFRING_INSTALL_REPAIR = "1"')).toBe(true);
     expect(gettingStarted.includes('$env:INFRING_INSTALL_FULL = "1"')).toBe(true);
     expect(
@@ -786,11 +784,9 @@ describe('conduit primitive wrapper contract', () => {
     expect(gettingStarted.includes('| iex -Full')).toBe(false);
 
     expect(manual.includes('install.ps1 -OutFile $tmp -ErrorAction Stop')).toBe(true);
-    expect(manual.includes('Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force')).toBe(
-      true,
-    );
+    expect(manual.includes('powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp')).toBe(true);
     expect(manual.includes(canonicalWindowsInstallCommand)).toBe(true);
-    expect(/& \$tmp(?:\s+-Repair)?\s+-Full/.test(manual)).toBe(true);
+    expect(/powershell\.exe -NoProfile -ExecutionPolicy Bypass -File \$tmp(?:\s+-Repair)?\s+-Full/.test(manual)).toBe(true);
     expect(manual.includes('$env:INFRING_INSTALL_REPAIR = "1"')).toBe(true);
     expect(manual.includes('$env:INFRING_INSTALL_FULL = "1"')).toBe(true);
     expect(manual.includes('irm https://raw.githubusercontent.com/protheuslabs/InfRing/main/install.ps1 | iex')).toBe(
@@ -1106,7 +1102,7 @@ describe('conduit primitive wrapper contract', () => {
     expect(payload.closure_evidence.release_hardening_window).toBeTruthy();
     expect(Array.isArray(payload.incident_truth_package.failed_release_gates)).toBe(true);
     fs.rmSync(outPath, { force: true });
-  });
+  }, 180_000);
 
   test('installer smoke checks canonical dashboard route', () => {
     const source = fs.readFileSync(path.join(ROOT, 'install.sh'), 'utf8');

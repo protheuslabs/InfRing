@@ -110,7 +110,7 @@ const V10_RUNTIME_REGRESSION_EVIDENCE: RowEvidence[] = [
     id: 'V10-MEMORY-031.1',
     paths: [
       'core/layer0/ops/src/dashboard_compat_api_parts/030-set-config-payload.rs',
-      'core/layer0/ops/src/dashboard_compat_api_parts/config_payload_tests_parts/050-compact-session-keyframes.rs',
+      'core/layer0/ops/src/dashboard_compat_api_parts/config_payload_tests_parts/100-governance-and-semantic-memory.combined_parts/520-append-turn-message-captures-low-signal-web-tool-outcome-keyframe.rs',
     ],
   },
   {

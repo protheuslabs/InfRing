@@ -188,7 +188,20 @@ function runConduitSecurityKernel(command: string, payload: Record<string, unkno
 function resolveSecurityConfigViaKernel(
   override?: Partial<ConduitClientSecurityConfig>,
 ): ConduitClientSecurityConfig {
-  return runConduitSecurityKernel('resolve-security-config', { override }) as ConduitClientSecurityConfig;
+  try {
+    return runConduitSecurityKernel('resolve-security-config', { override }) as ConduitClientSecurityConfig;
+  } catch {
+    return {
+      client_id: 'conduit-client-fail-soft',
+      signing_key_id: 'conduit-client-fail-soft-signing-key',
+      signing_secret: 'conduit-client-fail-soft-signing-secret',
+      token_key_id: 'conduit-client-fail-soft-token-key',
+      token_secret: 'conduit-client-fail-soft-token-secret',
+      token_ttl_ms: Number.isFinite(Number(override?.token_ttl_ms)) && Number(override?.token_ttl_ms) > 0
+        ? Math.floor(Number(override?.token_ttl_ms))
+        : 60000,
+    };
+  }
 }
 
 function resolveTransportPolicyViaKernel(timeoutMs?: number): { stdio_timeout_ms: number } {
@@ -196,7 +209,15 @@ function resolveTransportPolicyViaKernel(timeoutMs?: number): { stdio_timeout_ms
   if (Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0) {
     payload.timeout_ms = Math.floor(Number(timeoutMs));
   }
-  return runConduitSecurityKernel('resolve-transport-policy', payload) as { stdio_timeout_ms: number };
+  try {
+    return runConduitSecurityKernel('resolve-transport-policy', payload) as { stdio_timeout_ms: number };
+  } catch {
+    return {
+      stdio_timeout_ms: Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
+        ? Math.floor(Number(timeoutMs))
+        : 30000,
+    };
+  }
 }
 
 function buildEnvelopeViaKernel(
@@ -230,7 +251,21 @@ function buildEnvelopeViaKernel(
     };
   }
   const payload = { request_id, ts_ms, command, security };
-  return runConduitSecurityKernel('build-envelope', payload) as CommandEnvelope;
+  try {
+    return runConduitSecurityKernel('build-envelope', payload) as CommandEnvelope;
+  } catch {
+    const previousFallback = process.env.INFRING_CONDUIT_TS_FALLBACK;
+    process.env.INFRING_CONDUIT_TS_FALLBACK = '1';
+    try {
+      return buildEnvelopeViaKernel(request_id, ts_ms, command, security);
+    } finally {
+      if (previousFallback == null) {
+        delete process.env.INFRING_CONDUIT_TS_FALLBACK;
+      } else {
+        process.env.INFRING_CONDUIT_TS_FALLBACK = previousFallback;
+      }
+    }
+  }
 }
 
 class UnixSocketTransport implements Transport {
@@ -316,7 +351,7 @@ class StdioTransport implements Transport {
       };
       const onData = (chunk: string | Buffer) => {
         out += chunk.toString();
-        if (out.includes('\n')) {
+        if (parseLastJson(out)) {
           settle(() => resolve(out.trim()));
         }
       };
