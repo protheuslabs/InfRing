@@ -201,6 +201,23 @@
         "core/local/artifacts/repo_health_gate_current.json"
       ]
     },
+    "validation:agent-runtime:task-harness:catalog": {
+      "owner": "validation",
+      "description": "Agent Runtime task harness catalog coverage gate for registry/framework drift.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "command": [
+        "node",
+        "client/runtime/lib/ts_entrypoint.ts",
+        "tests/tooling/scripts/ci/agent_runtime_task_harness.ts",
+        "--mode=catalog",
+        "--out-dir=core/local/artifacts/agent-runtime-task-harness/current"
+      ],
+      "artifact_paths": [
+        "core/local/artifacts/agent-runtime-task-harness/current/agent_runtime_task_harness_report.json",
+        "core/local/artifacts/agent-runtime-task-harness/current/AGENT_RUNTIME_TASK_HARNESS_REPORT.md"
+      ]
+    },
     "ops:transport:convergence:guard": {
       "owner": "ops",
       "description": "Transport convergence guard.",
