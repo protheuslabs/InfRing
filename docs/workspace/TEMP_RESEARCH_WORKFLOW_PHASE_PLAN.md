@@ -207,6 +207,102 @@ Current focus:
 
 ## Iteration Log
 
+### 2026-06-02: structured-feed comparison descriptor promotion
+
+- `baseline_artifact`: `/tmp/web-tooling-golden-3-after-deferred-official-priority.json`
+- `patch_name`: promote trusted structured-feed comparison descriptors into pack-ready evidence
+- `failure_class_targeted`: selected structured-feed comparison rows had claim hints but stayed `pack_ready=false`, leaving `web_5_packaged_evidence_present` and downstream evidence gates at `1/3`
+- `hypothesis`: If metric-bearing multi-subject comparison descriptors could satisfy the evidence-substance gate, then the fixed 3-case live canary would improve because the Firecrawl/Tavily/Exa case had selected benchmark/comparison feed rows.
+- `files_changed_then_reverted`: `core/layer2/ops/src/retrieval_policy_parts/010-freshness-and-relevance.rs`
+- `proof_tests_before_revert`: `cargo test --manifest-path core/layer2/ops/Cargo.toml trusted_feed_comparison_descriptors_promote_with_sparse_comparison_query -- --nocapture` passed; `cargo test --manifest-path core/layer2/ops/Cargo.toml descriptor -- --nocapture` passed with `7/7`.
+- `eval_command`: `cargo run --quiet --manifest-path orchestration/Cargo.toml --bin eval_runtime -- web-tooling-golden --live=1 --sample-size=3 --sample-seed=random:90469aaa3b6f6297 --limit=3 --strict=0 --timeout-seconds=120 --out=/tmp/web-tooling-golden-3-after-sparse-comparison-promotion.json --out-latest=/tmp/web-tooling-golden-3-after-sparse-comparison-promotion-latest.json --out-markdown=/tmp/web-tooling-golden-3-after-sparse-comparison-promotion.md`
+- `before_metrics`: fixed seed success `1/3`; `web_5_packaged_evidence_present=1/3`; `web_5c_claim_extraction_present=1/3`; `web_7_usable_evidence_available=1/3`
+- `after_metrics`: fixed seed success `1/3`; `web_5_packaged_evidence_present=1/3`; `web_5c_claim_extraction_present=1/3`; `web_7_usable_evidence_available=1/3`
+- `visible_output_delta`: no obvious positive movement. The targeted comparison case remained `no_results` with primary blocker `anti_bot_challenge`; the selected rows in the fresh run were dominated by thin-overlap, low-confidence, and circuit-open/provider issues rather than the original comparison-descriptor promotion shape.
+- `decision`: `reverted`
+- `reason`: The local predicate could be made true, but the fixed live canary did not improve and the patch did not affect the current primitive blocker. Keeping it would violate the one-change measurement rule.
+- `follow_up`: Target the live upstream failure visible after the revert: provider circuits/quota plus low-confidence candidate admission are preventing enough answer-ready evidence from reaching packaging.
+
+### 2026-06-02: first-party sparse subject descriptors in multi-entity comparisons
+
+- `baseline_artifact`: `/tmp/web-tooling-golden-3-after-sparse-comparison-promotion.json`
+- `patch_name`: allow first-party descriptor rows for one query-anchored subject in sparse multi-entity comparison queries
+- `failure_class_targeted`: official/product rows such as a single provider home page were blocked by `thin_query_overlap` when the query compared multiple named entities.
+- `hypothesis`: If first-party descriptor rows for one compared subject could satisfy the thin-overlap gate, then the Firecrawl/Tavily/Exa case would produce at least one pack-ready evidence item from native fallback search.
+- `files_changed_then_reverted`: `core/layer2/ops/src/retrieval_policy_parts/010-freshness-and-relevance.rs`
+- `proof_tests_before_revert`: `cargo test --manifest-path core/layer2/ops/Cargo.toml first_party_subject_descriptor_survives_sparse_multi_entity_comparison_query -- --nocapture` passed; `cargo test --manifest-path core/layer2/ops/Cargo.toml unrelated_first_party_descriptor_does_not_use_sparse_comparison_escape_hatch -- --nocapture` passed; `cargo test --manifest-path core/layer2/ops/Cargo.toml descriptor -- --nocapture` passed with `7/7`.
+- `eval_command`: `cargo run --quiet --manifest-path orchestration/Cargo.toml --bin eval_runtime -- web-tooling-golden --live=1 --sample-size=3 --sample-seed=random:90469aaa3b6f6297 --limit=3 --strict=0 --timeout-seconds=120 --out=/tmp/web-tooling-golden-3-after-first-party-subject-descriptors.json --out-latest=/tmp/web-tooling-golden-3-after-first-party-subject-descriptors-latest.json --out-markdown=/tmp/web-tooling-golden-3-after-first-party-subject-descriptors.md`
+- `before_metrics`: fixed seed success `1/3`; `web_5_packaged_evidence_present=1/3`; `web_5c_claim_extraction_present=1/3`; `web_7_usable_evidence_available=1/3`
+- `after_metrics`: fixed seed success `1/3`; `web_5_packaged_evidence_present=1/3`; `web_5c_claim_extraction_present=1/3`; `web_7_usable_evidence_available=1/3`
+- `visible_output_delta`: no positive movement. The Tavily row still showed `thin_query_overlap`, `quality_flags_block_usable_evidence`, `pack_ready=false`, and the comparison case stayed `no_results`.
+- `decision`: `reverted`
+- `reason`: The local unit shape passed, but the live path did not move the targeted row or any fixed-seed gate. Keeping the patch would violate the one-change measurement rule.
+- `follow_up`: Stop trying to fix this through post-retrieval predicate widening until the live artifact explains why the provider result remains low-confidence/thin-overlap despite a plausible official row; the next useful patch is likely diagnostic, not promotion.
+
+### 2026-06-02: browser SERP rejection diagnostics
+
+- `baseline_artifact`: live canary command, `infring-ops web-conduit search --query="compare Firecrawl Tavily Exa web search APIs" --provider=browser-serp --top-k=5 --timeout-ms=15000 --cache-ttl-minutes=0 --summary-only=1`
+- `patch_name`: browser SERP link rejection diagnostics and provider shard split
+- `failure_class_targeted`: browser SERP returned `browser_serp_no_results` with no explanation of whether the failure was bot blocking, search-page shell extraction, domain filtering, duplicate rejection, or link text rejection
+- `hypothesis`: If rejected SERP links are counted and sampled by reason, then the next live failure will identify the primitive browser SERP blocker instead of collapsing to a generic no-results symptom.
+- `files_changed`: `core/layer0/ops/src/web_conduit_parts/050-search-providers.rs`, `core/layer0/ops/src/web_conduit_parts/050-search-providers_parts/002-segment.rs`, `core/layer0/ops/src/web_conduit_parts/050-search-providers_parts/005-browser-serp.rs`, `core/layer0/ops/src/web_conduit_parts/050-search-providers_parts/006-browser-serp-diagnostics.rs`, `core/layer0/ops/src/web_conduit_parts/050-search-providers_parts/007-browser-serp-link-utils.rs`, `core/layer0/ops/src/web_conduit_parts/080-tests_parts/010-mod-tests_parts/060-browser-serp-provider-tests.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml browser_serp -- --nocapture`
+- `eval_command`: live canary command above
+- `before_metrics`: `ok=false`, `error=browser_serp_no_results`, `provider_raw_count=2`, `provider_filtered_count=0`, no rejection reason payload
+- `after_metrics`: `ok=false`, `error=browser_serp_no_results`, `provider_raw_count=2`, `provider_filtered_count=0`, `browser_serp_link_rejection_counts.search_navigation_or_non_external=2`
+- `visible_output_delta`: no user-facing retrieval improvement yet; diagnostics now identify the browser SERP page as a search/navigation shell rather than usable organic results
+- `decision`: `kept`
+- `reason`: This is a measurement/instrumentation patch, not a retrieval-quality claim, and it isolates the primitive blocker for the next patch.
+- `follow_up`: Fix browser SERP organic extraction or add an admitted keyless/public SERP source that returns external candidates.
+
+### 2026-06-02: browser SERP fallback engine trial
+
+- `baseline_artifact`: same live canary as above after rejection diagnostics
+- `patch_name`: add DuckDuckGo HTML and DuckDuckGo Lite as browser SERP fallback engines after Bing HTML
+- `failure_class_targeted`: single-engine browser SERP had no recovery path when Bing returned only shell/navigation links
+- `hypothesis`: If browser SERP tries generic fallback search surfaces, then `provider_filtered_count` should rise above zero or diagnostics should prove those surfaces are blocked.
+- `files_changed`: `core/layer0/ops/src/web_conduit_parts/050-search-providers_parts/007-browser-serp-link-utils.rs`, `core/layer0/ops/src/web_conduit_parts/080-tests_parts/010-mod-tests_parts/060-browser-serp-provider-tests.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml browser_serp -- --nocapture`
+- `eval_command`: same live canary command
+- `before_metrics`: `ok=false`, `error=browser_serp_no_results`, `provider_raw_count=2`, `provider_filtered_count=0`, `search_navigation_or_non_external=2`
+- `after_metrics`: `ok=false`, `error=anti_bot_challenge`, `provider_raw_count=6`, `provider_filtered_count=0`; Bing still returned only navigation links, DuckDuckGo HTML and Lite were both classified as `anti_bot_or_access_challenge`
+- `visible_output_delta`: worse latency and no retrieved candidates
+- `decision`: `reverted`
+- `reason`: The patch did not improve answerable candidate supply and made the explicit browser lane slower/noisier.
+- `follow_up`: Do not use DuckDuckGo HTML/lite browser fallback as the next retrieval-quality patch; target Bing organic extraction or a different public SERP/source.
+
+### 2026-06-02: browser SERP shell outcome classification
+
+- `baseline_artifact`: same live canary as above after rejection diagnostics
+- `patch_name`: classify navigation-only browser SERP output as `serp_shell_without_organic_results`
+- `failure_class_targeted`: materialization-level diagnostics labeled the Bing shell as usable because the page loaded, while the SERP adapter had zero organic results
+- `hypothesis`: If browser SERP has its own outcome classification, then a loaded search shell will not be confused with usable retrieval evidence.
+- `files_changed`: `core/layer0/ops/src/web_conduit_parts/050-search-providers_parts/005-browser-serp.rs`, `core/layer0/ops/src/web_conduit_parts/050-search-providers_parts/006-browser-serp-diagnostics.rs`, `core/layer0/ops/src/web_conduit_parts/080-tests_parts/010-mod-tests_parts/060-browser-serp-provider-tests.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml browser_serp -- --nocapture`
+- `eval_command`: same live canary command
+- `before_metrics`: `ok=false`, `error=browser_serp_no_results`, `provider_raw_count=2`, `provider_filtered_count=0`, materializer blocker reported `evidence_impact=usable`
+- `after_metrics`: `ok=false`, `error=browser_serp_no_results`, `provider_raw_count=2`, `provider_filtered_count=0`, browser SERP outcome reports `outcome_class=serp_shell_without_organic_results`, `evidence_impact=rejected`, `recommended_next_capability=serp_dom_rendering_or_alternate_search_provider`
+- `visible_output_delta`: no retrieval improvement; diagnostics now isolate the failed capability without overclaiming usable evidence
+- `decision`: `kept`
+- `reason`: This improves measurement fidelity for the current bottleneck and prevents shell pages from looking like usable evidence.
+- `follow_up`: The next retrieval-quality patch should target real SERP DOM rendering or add a different admitted public search source; selector waiting against `li.b_algo` was manually tested and did not improve Bing output.
+
+### 2026-06-02: provider-supply diagnostics consume browser SERP outcome
+
+- `baseline_artifact`: live browser SERP canary plus `web_retrieval_gate_diagnostics` browser SERP fixture
+- `patch_name`: wire `browser_serp.outcome_classification.outcome_class` into provider-supply diagnostics
+- `failure_class_targeted`: the web-tooling gate inferred browser SERP shell/no-organic from counts, while the tool now emits an explicit structured outcome class
+- `hypothesis`: If provider-supply diagnostics consume the structured outcome, then future evals can attribute the blocker to `serp_shell_without_organic_results` even when counts alone are ambiguous.
+- `files_changed`: `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/060_provider_supply.rs`, `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/090_tests_access_and_provider.rs`
+- `proof_tests`: `cargo test --manifest-path orchestration/Cargo.toml browser_serp_shell_only_failure_gets_specific_candidate_supply_gate -- --nocapture`
+- `eval_command`: focused orchestration gate fixture
+- `before_metrics`: browser SERP gate failed correctly, but `browser_serp_shell_or_no_organic` was inferred only from raw/filter counts
+- `after_metrics`: same gate fails at `web_4e_browser_serp_external_urls_extracted`; `provider_supply.browser_serp_outcome_classes[0]=serp_shell_without_organic_results`
+- `visible_output_delta`: no user-facing answer improvement; diagnostic attribution is more direct and less count-dependent
+- `decision`: `kept`
+- `reason`: This aligns tooling output and eval metrics around the same primitive blocker without changing retrieval behavior.
+- `follow_up`: Retrieval-quality work should now target the capability named by the outcome: real SERP DOM rendering or a better admitted public search source.
+
 ### 2026-06-01: generic discourse-term answer-alignment calibration
 
 - `baseline_artifact`: `core/local/artifacts/research_perfect_evidence_replay_after_listing_patch_live5.json`
@@ -1449,3 +1545,185 @@ Current focus:
 - `decision`: `kept`
 - `reason`: This is a broad text-normalization and scaffold-term calibration. It is not query-specific and should reduce false negatives across medical/product names and recommendation prose.
 - `follow_up`: Downstream perfect-evidence now looks clean on a fixed 20-case seed and a fresh random 20-case seed after regrade. The next highest-ROI step is to return to upstream native evidence/tooling quality, because the good-evidence-to-good-answer lane is no longer the dominant blocker.
+
+### 2026-06-02: browser SERP default-promotion experiment
+
+- `baseline_artifact`: live forced provider probes; no saved batch artifact.
+- `patch_name`: admit `browser_serp` into the default search provider chain after paid/API providers.
+- `failure_class_targeted`: Native web tooling still lacked a dependable non-API search discovery lane after Tavily/Exa quota exhaustion.
+- `hypothesis`: If the already-assimilated browser materializer could render search result pages as a normal browser, then `browser_serp` could recover organic candidate URLs before falling back to RSS/DDG lanes.
+- `files_changed_then_reverted`: `client/runtime/config/web_conduit_policy.json`, `core/layer0/ops/config/web_conduit_policy.json`, `core/layer0/ops/config/batch_query_policy.json`, `core/layer0/ops/src/web_conduit_parts/010-prelude-and-policy.rs`, `core/layer0/ops/src/web_conduit_provider_runtime_parts/010-provider-chain-and-health.rs`, `core/layer0/ops/src/web_conduit_provider_runtime_parts/017-provider-public-contracts.rs`, `core/layer0/ops/src/web_conduit_provider_runtime_parts/020-cache-and-tests.rs`
+- `proof_tests_before_revert`: `cargo test --manifest-path core/layer0/ops/Cargo.toml provider_chain_ -- --nocapture` passed; `cargo test --manifest-path core/layer0/ops/Cargo.toml browser_serp -- --nocapture` passed; `cargo test --manifest-path core/layer0/ops/Cargo.toml openclaw_search_runtime_resolution -- --nocapture` passed after updating the circuit-open assertion to the current `provider_circuit_open:timeout` code.
+- `live_probe`: Forced `browser-serp` search for `compare Firecrawl Tavily Exa web search APIs` returned `ok=false`, `error=browser_serp_no_results`, `provider_raw_count=2`, `provider_filtered_count=0`, `challenge_detected=false`, and `materialization_ok=true`.
+- `diagnostic_detail`: Direct browser materialization of Bing returned only a search shell with two Bing navigation links and no organic anchors. DuckDuckGo HTML and Lite both returned a bot challenge. Google returned an unusual-traffic challenge. Brave returned a captcha. Mojeek returned an automated-query 403.
+- `decision`: `reverted`
+- `reason`: The change activated the browser lane but did not improve candidate discovery. The current browser materializer can fetch/render known pages, but the tested public SERP sources either block it or return shell-only DOM, so making it default would add latency and noise without better data.
+- `follow_up`: Keep `browser_serp` explicit/canary. The next measurable native-retrieval target should be a stronger search-index primitive or a browser SERP capability that proves external organic URL extraction before default promotion.
+
+### 2026-06-02: browser SERP organic extraction gate
+
+- `baseline_artifact`: live forced browser-SERP probe from the previous experiment.
+- `patch_name`: split browser-SERP organic URL extraction from generic provider filtering.
+- `failure_class_targeted`: Browser SERP could materialize a search page and expose raw rows, but those rows were search-shell/navigation debris rather than external organic result URLs. The old gates collapsed this into broad provider surface/filtering language.
+- `hypothesis`: If the web-tooling diagnostics add a browser-SERP-specific gate that only applies when `browser_serp` is actually attempted, then live failures can distinguish "browser blocked", "browser shell/no organic URLs", and "generic candidate filtering" without penalizing API/RSS provider runs.
+- `files_changed`: `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/010_diagnostics.rs`, `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/012_provider_supply_gates.rs`, `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/032_aggregate_readouts.rs`, `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/040_source_inventory.rs`, `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/060_provider_supply.rs`, `orchestration/src/eval_web_retrieval_gate_diagnostics_parts/090_tests_access_and_provider.rs`
+- `proof_tests`: `cargo test --manifest-path orchestration/Cargo.toml browser_serp_shell_only_failure_gets_specific_candidate_supply_gate -- --nocapture` passed; `cargo test --manifest-path orchestration/Cargo.toml browser_serp_specific_gate_does_not_penalize_non_browser_provider_runs -- --nocapture` passed; `cargo test --manifest-path orchestration/Cargo.toml provider_surface_gate_passes_when_degraded_provider_still_yields_materialized_evidence -- --nocapture` passed; `cargo test --manifest-path orchestration/Cargo.toml eval_web_retrieval_gate_diagnostics::tests -- --nocapture` passed 36/36.
+- `after_metrics`: synthetic browser-SERP shell-only diagnostic now first-fails at `web_4e_browser_serp_external_urls_extracted` with boundary `browser_serp_no_external_organic_urls`; non-browser provider runs mark the new gate as non-applicable/pass. A fresh live forced browser-SERP canary for `compare Firecrawl Tavily Exa web search APIs` still returned `ok=false`, `error=browser_serp_no_results`, `provider_raw_count=2`, `provider_filtered_count=0`, `challenge_detected=false`, and `materialization_ok=true`.
+- `core_contract_check`: `cargo test --manifest-path core/layer0/ops/Cargo.toml openclaw_search -- --nocapture` passed 26/26 after changing the runtime metadata test to assert coherence with the advertised default provider chain instead of hardcoding `bing_rss` as the only valid keyless default.
+- `decision`: `kept`
+- `reason`: This is measurement-only and generic. It does not promote browser SERP or tune any query case; it gives us a sharper primitive boundary for the exact native retrieval failure observed live.
+- `follow_up`: Run the web-tooling lane again when useful; if the top failure is now `browser_serp_no_external_organic_urls`, the next implementation target is organic SERP URL extraction or a stronger admitted search-index primitive, not synthesis.
+
+### 2026-06-02: candidate-promotion failure class telemetry
+
+- `baseline_artifact`: live batch-query canary for `compare Firecrawl Tavily Exa web search APIs` after browser-SERP gate split.
+- `patch_name`: add normalized failure-class counts to query-lane attribution and provider summaries.
+- `failure_class_targeted`: Candidate rows and provider artifacts existed, but the telemetry did not cleanly distinguish provider exhaustion, low-relevance candidates, materialization failures, and blocked/quota provider states at the promotion boundary.
+- `hypothesis`: If lane attribution reports normalized failure classes, then the next native-retrieval patch can target the dominant upstream failure class instead of reading raw issue strings or guessing from final-answer quality.
+- `files_changed`: `core/layer0/ops/src/batch_query_primitive.rs`, `core/layer0/ops/src/batch_query_primitive_parts/017-promotion-diagnostics.rs`, `core/layer0/ops/src/batch_query_primitive_parts/018-request-and-cache.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml batch_query_promotion_diagnostics_tests -- --nocapture` passed 3/3; `cargo test --manifest-path orchestration/Cargo.toml eval_web_retrieval_gate_diagnostics -- --nocapture` passed 36/36.
+- `live_canary`: `./target/debug/infring-ops batch-query --source=web --query='compare Firecrawl Tavily Exa web search APIs' --aperture=medium --cache-ttl-minutes=0`
+- `after_metrics`: live status remains `no_results`, but query-lane attribution now reports the primary lane as `dominant_failure_reason_class=candidate_low_relevance` with counts `candidate_low_relevance=6`, `materialization_failed=1`, `fetch_blocked=1`, and `provider_empty_or_failed=2`. Provider-level summaries separately show Exa as `fetch_blocked`, Brave/Serper as `provider_empty_or_failed`, and Bing/Google News lanes as mostly `candidate_low_relevance`.
+- `decision`: `kept`
+- `reason`: This is measurement-only and generic. It does not change retrieval ranking or final synthesis, and it removes non-failure materialization attempt events from failure counts.
+- `follow_up`: The next one-change patch should target `candidate_low_relevance` in native candidate supply or candidate ranking/materialization priority. Browser/SERP capability work remains separate because the current explicit browser canary still fails at organic URL extraction.
+
+### 2026-06-02: official-source domain probe recovery
+
+- `baseline_artifact`: live batch-query canary for `compare Firecrawl Tavily Exa web search APIs` after entity-lane frontloading.
+- `patch_name`: add official-domain probe recovery for official-source lanes.
+- `failure_class_targeted`: Entity-specific official lanes were generated, but weak RSS/search candidates dominated promotion and direct official roots were not being tried when a lane still had no selected source-backed evidence.
+- `hypothesis`: If an official-source lane has a clear subject phrase and normal providers do not satisfy the lane, then probing likely official roots with conservative TLDs can recover source-backed candidates without hardcoding domains or query categories.
+- `files_changed`: `core/layer0/ops/config/batch_query_policy.json`, `core/layer0/ops/src/batch_query_primitive_parts/010-core.combined_parts/050-looks-like-definition-candidate-to-extract-metric-focused-fragment.rs`, `core/layer0/ops/src/batch_query_primitive_parts/020-pipeline.combined.rs`, `core/layer0/ops/src/batch_query_primitive_parts/020-pipeline.combined_parts/015-official-domain-probes.rs`, `core/layer0/ops/src/batch_query_primitive_parts/020-pipeline.combined_parts/020-collect-candidates-from-stage-payload-to-retrieve-web-candidates-for.rs`, `core/layer0/ops/src/batch_query_primitive_parts/042-cache-rewrite-tests.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml official_source_lane_recovers_with_verified_domain_probe -- --nocapture` passed; `cargo build --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops` passed.
+- `live_canary`: `./target/debug/infring-ops batch-query query --source=web --query='compare Firecrawl Tavily Exa web search APIs' --aperture=medium --cache-ttl-minutes=0`
+- `after_metrics`: live status improved from `no_results` to `partial`; `evidence_refs` improved from `0` to `2`; query-lane attribution marked Firecrawl, Tavily, and Exa official lanes as `selected_covered`; evidence coverage reported all three entity facets covered from official domains.
+- `decision`: `kept`
+- `reason`: This is a generic recovery lane gated by official-lane intent, subject slugs, direct fetch success, and existing candidate quality gates. It does not encode Firecrawl, Tavily, Exa, or any specific user query.
+- `follow_up`: Firecrawl and Exa were covered in lane/evidence coverage but did not survive into final `evidence_refs` or `evidence_claims`; both appeared as selected actionable rows with claim hints but `pack_ready=false`/`not_pack_ready_evidence`. The next one-change patch should target the evidence pack-ready/carry-through mismatch for verified official-source descriptive claims.
+
+### 2026-06-02: facet packaging and canonical pack-ready consistency experiments
+
+- `baseline_artifact`: `/tmp/infring-batch-canary-after-descriptor-pack-ready.json`
+- `patch_name`: facet-covered evidence-pack ordering plus canonical pack-ready preservation during packaging.
+- `failure_class_targeted`: Live canary had Firecrawl/Tavily/Exa official lanes marked `selected_covered`, but final `evidence_pack`, `evidence_refs`, and `evidence_claims` only contained Tavily rows.
+- `hypothesis`: If selected covered candidates were being lost by duplicate-first packaging order or by inconsistent selection-vs-packaging usability checks, then reordering pack input by covered facets or preserving canonical pack-ready usability would carry Firecrawl/Exa into final evidence refs.
+- `files_changed_then_reverted`: `core/layer0/ops/src/batch_query_primitive_parts/020-pipeline.combined_parts/040-api-batch-query_parts/000-combined.rs`, `core/layer2/ops/src/retrieval_policy_parts/010-freshness-and-relevance.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer2/ops/Cargo.toml evidence_packet_promotion_tests -- --nocapture` passed 31/31 with the canonical consistency test; `cargo test --manifest-path core/layer0/ops/Cargo.toml official_source_lane_recovers_with_verified_domain_probe -- --nocapture` passed.
+- `live_canary`: `./target/debug/infring-ops batch-query query --source=web --query='compare Firecrawl Tavily Exa web search APIs' --aperture=medium --cache-ttl-minutes=0`
+- `after_metrics`: invalidated. The tested canary was a cache hit despite the CLI `--cache-ttl-minutes=0` argument, so it did not measure the patch. A later true refresh using `INFRING_BATCH_QUERY_CACHE_MODE=refresh` showed the official-source recovery path already carried Firecrawl, Tavily, and Exa into `evidence_pack`/`evidence_refs` without these two experimental patches.
+- `decision`: `reverted_as_unproven`
+- `reason`: The experiment was cache-contaminated and therefore not a valid keep/revert signal. Keep the discipline lesson: fresh web-tooling canaries must use `INFRING_BATCH_QUERY_CACHE_MODE=refresh`.
+- `follow_up`: The real next loss point after a true refresh was evidence-claim extraction, not pack carry-through: Firecrawl appeared in `evidence_pack` and `evidence_refs`, but not in `evidence_claims` or summary.
+
+### 2026-06-02: first-party compact descriptor claim extraction
+
+- `baseline_artifact`: `/tmp/infring-batch-canary-refresh-after-revert.json`
+- `patch_name`: allow compact first-party descriptor evidence rows to count as answerable during evidence-claim extraction.
+- `failure_class_targeted`: Fresh canary had `evidence_refs_count=3` and `evidence_pack` domains `firecrawl.dev`, `tavily.com`, and `exa.ai`, but `evidence_claims_count=2`; Firecrawl was omitted because its packed claim hint was a compact source descriptor (`The API to search, scrape, and interact with the web at scale`) that failed the row-level answerable-substance check.
+- `hypothesis`: If a usable evidence row has source identity, source type, first-party descriptor terms, and synthesis-safe claim hints, then row-level claim extraction should preserve it even when the descriptor is compact.
+- `files_changed`: `core/layer2/ops/src/retrieval_policy_parts/010-freshness-and-relevance.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer2/ops/Cargo.toml evidence_claims_keep_compact_first_party_descriptor_rows -- --nocapture` passed; `cargo test --manifest-path core/layer0/ops/Cargo.toml official_source_lane_recovers_with_verified_domain_probe -- --nocapture` passed.
+- `live_canary`: `INFRING_BATCH_QUERY_CACHE_MODE=refresh ./target/debug/infring-ops batch-query query --source=web --query='compare Firecrawl Tavily Exa web search APIs' --aperture=medium`
+- `after_metrics`: true refresh reported `cache_status=refresh`, `evidence_refs_count=3`, `evidence_claims_count=3`, `pack_domains=[firecrawl.dev,tavily.com,exa.ai]`, `evidence_claim_domains=[firecrawl.dev,tavily.com,exa.ai]`, `evidence_pack_quality.usable_count=3`, and `evidence_pack_quality.evidence_claim_count=3`.
+- `decision`: `kept`
+- `reason`: This is a generic first-party descriptor carry-through fix. It does not encode a query, domain, or output format; it preserves compact source-backed claims that already passed retrieval/packaging gates.
+- `follow_up`: The remaining quality issue is not missing claim domains on this canary; it is claim text cleanliness. Tavily and Exa claims still include page chrome fragments such as `Talk to an expertTry it out` and repeated `View case study`, so the next one-change patch should target generic page-chrome cleanup in claim hints before final summary/synthesis.
+
+### 2026-06-02: claim-hygiene cleanup experiment
+
+- `baseline_artifact`: `/tmp/infring-batch-canary-after-first-party-claims-refresh.json`
+- `patch_name`: strip product-page CTA prefixes and repeated `View case study` tails from claim hints; allow candidate descriptor source identity from page title.
+- `failure_class_targeted`: The previous kept patch restored all three claim domains, but Tavily and Exa claim text still contained page-chrome fragments.
+- `hypothesis`: If claim hints remove common product-page CTA/tail chrome before pack-ready checks and summary generation, then claims should stay covered while final summary text becomes less fragmentary.
+- `files_changed_then_reverted`: `core/layer2/ops/src/retrieval_policy_parts/010-freshness-and-relevance.rs`
+- `proof_tests`: `cargo test --manifest-path core/layer2/ops/Cargo.toml evidence_packet_promotion_tests -- --nocapture` passed 34/34; `cargo build --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops` passed.
+- `live_canary`: `INFRING_BATCH_QUERY_CACHE_MODE=refresh ./target/debug/infring-ops batch-query query --source=web --query='compare Firecrawl Tavily Exa web search APIs' --aperture=medium`
+- `after_metrics`: Exa claim text improved (`Web Search API, AI Search Engine, & Website Crawler`), but Tavily became `pack_ready=false`, final `evidence_refs_count` regressed from 3 to 2, and final `evidence_claim_domains` regressed from `[firecrawl.dev,tavily.com,exa.ai]` to `[firecrawl.dev,exa.ai]`.
+- `decision`: `reverted`
+- `reason`: Net regression. Claim text cleanup must not alter pack-ready/coverage classification. The next attempt should separate display-cleaned claim text from evidence-pack eligibility text, so cleaning cannot drop a covered side.
+- `follow_up`: Add a distinct display claim field or summary-cleaning path that operates after pack-ready/evidence eligibility, then verify `evidence_claim_domains` remains stable while visible claim text improves.
+
+### 2026-06-02: post-eligibility display claim cleanup
+
+- `baseline_artifact`: `/tmp/infring-batch-canary-after-first-party-claims-refresh.json`
+- `patch_name`: add `display_claim` to evidence claims and make summary handoff prefer it over raw support claims.
+- `failure_class_targeted`: Evidence carry-through was structurally correct (`evidence_refs_count=3`, `evidence_claims_count=3`), but claim text used for summary/synthesis still included product-page UI chrome such as `Talk to an expertTry it out`, `Trusted by`, `Loved by`, and repeated `View case study`.
+- `hypothesis`: If UI-chrome cleanup happens after evidence eligibility and preserves the raw support `claim`, then visible/synthesis claim text can improve without dropping covered evidence domains.
+- `files_changed`: `core/layer2/ops/src/retrieval_policy_parts/010-freshness-and-relevance.rs`, `core/layer0/ops/src/batch_query_primitive_parts/020-pipeline.combined_parts/040-api-batch-query_parts/000-combined.rs`, `core/layer0/ops/src/batch_query_primitive_parts/040-tests.rs.parts/010-segment.inc`
+- `proof_tests`: `cargo test --manifest-path core/layer2/ops/Cargo.toml evidence_packet_promotion_tests -- --nocapture` passed 32/32; `cargo test --manifest-path core/layer0/ops/Cargo.toml summary_insights_prefer_display_claim_over_raw_ui_chrome_claim -- --nocapture` passed; `cargo build --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops` passed.
+- `live_canary`: `INFRING_BATCH_QUERY_CACHE_MODE=refresh ./target/debug/infring-ops batch-query query --source=web --query='compare Firecrawl Tavily Exa web search APIs' --aperture=medium`
+- `after_metrics`: true refresh reported `cache_status=refresh`, `evidence_refs_count=3`, `evidence_claims_count=3`, `pack_domains=[firecrawl.dev,tavily.com,exa.ai]`, and `evidence_claim_domains=[firecrawl.dev,tavily.com,exa.ai]`. Summary changed from UI-chrome-polluted claim text to `firecrawl.dev: The API to search, scrape, and interact with the web at scale; tavily.com: Connect your AI agents to the web Real-time search, extraction, research, and web crawling through a single, secure API.; exa.ai: Web Search API, AI Search Engine, & Website Crawler`.
+- `decision`: `kept`
+- `reason`: This is a generic post-eligibility display cleanup. It does not encode a query, provider domain, or final-answer format; it keeps raw support claims for diagnostics while giving downstream synthesis cleaner supported text.
+- `follow_up`: The next one-change patch should target final handoff prose shape, not evidence carry-through: the summary is now clean but still source-list shaped. Measure whether the workflow final answer consumes these cleaned `display_claim` units as answer material instead of echoing the source inventory.
+
+### 2026-06-02: controls/checklist answer scoring calibration
+
+- `baseline_artifact`: `/tmp/research-perfect-replay-5-after-display-claim.json`
+- `patch_name`: treat concrete controls/checklist answer shapes as structured synthesis.
+- `failure_class_targeted`: A saved good-evidence replay had `pass_rate=1.0`, `synthesized_sounds_good_rate=1.0`, no failures, and every qualitative Excellent subgate passing, but one useful controls/checklist answer scored `94` and missed Excellent solely on `score_below_excellent`.
+- `hypothesis`: If the scorer recognizes generic controls/checklist/requirements/safeguards/guardrails language as answer structure, then concrete implementation-control answers can align with the same user-facing quality gates as tradeoff/plan answers without requiring a special output format.
+- `files_changed`: `orchestration/src/eval_research_golden_scoring_parts/082_response_signals.rs`, `orchestration/src/eval_research_golden_scoring_parts/090_tests_retrieval_and_query.rs`
+- `proof_tests`: `cargo test --manifest-path orchestration/Cargo.toml scoring_shape_accepts_general_research_findings_and_plans -- --nocapture` passed; `cargo test --manifest-path orchestration/Cargo.toml excellent_diagnostics -- --nocapture` passed.
+- `regrade`: `cargo run --quiet --manifest-path orchestration/Cargo.toml --bin eval_runtime -- research-perfect-evidence --mode=regrade --responses=/tmp/research-perfect-replay-5-after-display-claim-responses.json --limit=5 --strict=0`
+- `after_metrics`: Saved-response regrade improved from `excellent_rate=0.8` to `excellent_rate=1.0`; `pass_rate=1.0`, `synthesized_sounds_good_rate=1.0`, `lane_isolation_rate=1.0`, `transport_or_harness_failure_rate=0.0`.
+- `decision`: `kept`
+- `reason`: This is generic evaluator alignment. It does not encode MCP, security, domains, products, or a response format; it makes the scoring model recognize a broadly useful answer shape that already passed the user-facing quality proxy.
+- `follow_up`: Run production-handoff replay on the same saved responses to verify packaging/finalization does not introduce a separate handoff failure.
+
+### 2026-06-02: compound qualifier evidence-alignment calibration
+
+- `baseline_artifact`: `/tmp/research-perfect-replay-10-after-structure-calibration.json`
+- `patch_name`: treat non-severe compound qualifiers as supported when adjacent to an evidence-supported head term.
+- `failure_class_targeted`: A random 10-case good-evidence replay had `pass_rate=1.0` and `synthesized_sounds_good_rate=1.0`, but one data-warehouse comparison missed Excellent because the answer said `Apache Spark` while the evidence supported `Spark`; the trace lane treated `apache` as an unsupported concrete claim even though the answer unit was otherwise source-aligned.
+- `hypothesis`: If answer-unit traceability recognizes generic compound-name qualifiers only when adjacent to an already-supported head term, then the evaluator can avoid false negatives without allowing unsupported severe entities, dates, products, or domains to pass.
+- `files_changed`: `orchestration/src/eval_research_golden_scoring_parts/051_answer_alignment.rs`, `orchestration/src/eval_research_golden_scoring_parts/092_tests_relevance_and_citations.rs`
+- `proof_tests`: `cargo test --manifest-path orchestration/Cargo.toml answer_unit_alignment_ -- --nocapture` passed 13/13, including a guard that still flags `PhantomX Beta` when only `Beta` is supported.
+- `regrade`: `cargo run --quiet --manifest-path orchestration/Cargo.toml --bin eval_runtime -- research-perfect-evidence --mode=regrade --responses=/tmp/research-perfect-replay-10-after-structure-calibration-responses.json --limit=10 --strict=0`
+- `handoff_replay`: `cargo run --quiet --manifest-path orchestration/Cargo.toml --bin eval_runtime -- research-perfect-evidence --mode=handoff --responses=/tmp/research-perfect-replay-10-after-structure-calibration-responses.json --limit=10 --strict=0`
+- `after_metrics`: Saved-response regrade improved from `excellent_rate=0.9` to `excellent_rate=1.0`; production handoff replay reported `pass_rate=1.0`, `excellent_rate=1.0`, `synthesized_sounds_good_rate=1.0`, `handoff_contract_pass_rate=1.0`, `visible_source_llm_final_rate=1.0`, `citation_package_present_rate=1.0`, `source_refs_present_rate=1.0`, and `source_inventory_like_rate=0.0`.
+- `decision`: `kept`
+- `reason`: This is generic evaluator alignment at the evidence-to-answer trace boundary. It does not encode a query, domain, provider, product, or output format; it preserves severe unsupported-entity detection while avoiding a false blocker when a supported compound head already carries the evidence.
+- `follow_up`: Run a larger fresh random good-evidence replay when needed. If downstream remains clean, shift the next measurable work back to live/tooling input quality and UI research-trigger integration.
+
+### 2026-06-02: research scoring test-file split housekeeping
+
+- `patch_name`: split oversized research scoring test tails into smaller include files.
+- `reason`: The repo file-size gate has broad pre-existing debt, but two touched research scoring test files exceeded the orchestration Rust cap. Keeping the active lane under cap avoids adding friction while continuing the research-workflow work.
+- `files_changed`: `orchestration/src/eval_research_golden_scoring.rs`, `orchestration/src/eval_research_golden_scoring_parts/090_tests_retrieval_and_query.rs`, `orchestration/src/eval_research_golden_scoring_parts/092_tests_relevance_and_citations.rs`, `orchestration/src/eval_research_golden_scoring_parts/094_tests_query_satisfaction_tail.rs`, `orchestration/src/eval_research_golden_scoring_parts/095_tests_answer_alignment_tail.rs`
+- `after_line_counts`: `090_tests_retrieval_and_query.rs=911`, `092_tests_relevance_and_citations.rs=897`, `094_tests_query_satisfaction_tail.rs=172`, `095_tests_answer_alignment_tail.rs=218`.
+- `proof_tests`: `cargo test --manifest-path orchestration/Cargo.toml answer_unit_alignment_ -- --nocapture` passed; `cargo test --manifest-path orchestration/Cargo.toml scoring_shape_accepts_general_research_findings_and_plans -- --nocapture` passed.
+- `decision`: `kept`
+
+### 2026-06-02: web-tooling evidence row localizer sampling
+
+- `baseline_artifact`: `/tmp/web-tooling-golden-3-after-deferred-official-priority.json` and the fixed random-seed live canary `random:90469aaa3b6f6297`.
+- `patch_name`: preserve row-level evidence selection localizers in `direct_tool_payload_sample`.
+- `failure_class_targeted`: Live web-tooling failures had aggregate candidate/evidence counts but the saved direct-tool sample dropped the specific row-localizer fields needed to see why selected rows did not become packaged evidence.
+- `hypothesis`: If evidence-selection diagnostics preserve query-overlap, source-identity, descriptor, quality-flag, and blocker fields in the compact sample, then the next patch can target the primitive blocker without guessing.
+- `files_changed`: `core/layer2/ops/src/retrieval_policy_parts/010-freshness-and-relevance.rs`, `orchestration/src/eval_web_tooling_golden/direct_tool.rs`, `orchestration/src/eval_web_tooling_golden/tests.rs`.
+- `proof_tests`: `cargo test --manifest-path core/layer2/ops/Cargo.toml selection_diagnostics_explain_selected_non_pack_ready_rows -- --nocapture` passed; `cargo test --manifest-path orchestration/Cargo.toml direct_tool_sample_preserves_evidence_selection_row_localizers -- --nocapture` passed.
+- `eval_command`: `cargo run --quiet --manifest-path orchestration/Cargo.toml --bin eval_runtime -- web-tooling-golden --live=1 --sample-size=3 --sample-seed=random:90469aaa3b6f6297 --limit=3 --strict=0 --timeout-seconds=120 --out=/tmp/web-tooling-golden-3-after-row-diagnostics-sampled.json --out-latest=/tmp/web-tooling-golden-3-after-row-diagnostics-sampled-latest.json --out-markdown=/tmp/web-tooling-golden-3-after-row-diagnostics-sampled.md`.
+- `before_metrics`: fixed seed success `1/3`; prior compact samples showed selected rows but omitted the new row-localizer fields, leaving fields such as `query_overlap_count` and `candidate_has_source_identity` unavailable.
+- `after_metrics`: fixed seed success remained `1/3`; `web_3b1_provider_quota_not_rate_limited=1/3`, `web_3b2_no_bot_challenge_or_waf=1/3`, `web_5_packaged_evidence_present=1/3`, and `web_7_usable_evidence_available=1/3`. The sampled Tavily row now records `query_overlap_count=1`, `distinctive_query_overlap_count=1`, `candidate_has_source_identity=true`, `candidate_has_source_type=true`, `descriptor_has_official_source_terms=true`, `quality_flags=[thin_query_overlap]`, `blockers=[not_pack_ready_evidence,quality_flags_block_usable_evidence]`, and `pack_ready=false`.
+- `visible_output_delta`: no user-facing answer change. This is intentionally measurement-only.
+- `decision`: `kept_measurement_fidelity`
+- `reason`: The patch makes the next failure localizable without changing retrieval ranking, evidence promotion, or final-answer format. It also confirms that the current live failures are upstream/tooling-quality failures, not downstream synthesis failures, for this fixed seed.
+- `follow_up`: Target the highest upstream live blocker first: provider quota/access degradation, then candidate-to-packaging quality for rows that have source identity but only thin distinctive query overlap.
+
+### 2026-06-02: raw-query entity preservation before focused recovery
+
+- `baseline_artifact`: live raw canary stdout from `INFRING_BATCH_QUERY_CACHE_MODE=refresh ./target/debug/infring-ops batch-query query --source=web --query='Research Firecrawl, Tavily, and Exa as data tools for AI research agents. Which should we use for search, crawling, and evidence gathering?' --aperture=medium` before this patch.
+- `patch_name`: infer entity metadata from subject-preserving raw user text before canonical/focused recovery query planning.
+- `failure_class_targeted`: Raw user prompts that name multiple subjects can be focused down to facets such as `search`, `crawling`, or `evidence gathering` before metadata inference, causing the tool to plan around facets while losing the named subjects.
+- `hypothesis`: If entity inference runs on the subject-preserving original user query before falling back to the focused planning query, then raw multi-entity prompts should frontload each named subject and retrieve more diverse usable evidence without requiring agent-supplied metadata.
+- `files_changed`: `core/layer0/ops/src/batch_query_primitive_parts/018-request-and-cache.rs`, `core/layer0/ops/src/batch_query_primitive_parts/042-cache-rewrite-tests.rs`.
+- `proof_tests`: `cargo test --manifest-path core/layer0/ops/Cargo.toml raw_multi_entity_research_query_frontloads_each_named_subject -- --nocapture` failed before the patch with `entities=[]` and passed after the patch; `cargo build --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops` passed.
+- `eval_command`: `INFRING_BATCH_QUERY_CACHE_MODE=refresh ./target/debug/infring-ops batch-query query --source=web --query='Research Firecrawl, Tavily, and Exa as data tools for AI research agents. Which should we use for search, crawling, and evidence gathering?' --aperture=medium > /tmp/infring-batch-raw-multi-entity-after-entity-preserve.json`.
+- `before_metrics`: raw canary metadata had no required entities, planned around `crawling` and `evidence gathering`, produced `status=partial`, `evidence_refs_count=2`, `evidence_claims_count=2`, and `pack_domains=[firecrawl.dev]`.
+- `after_metrics`: raw canary metadata preserved `entities=[Firecrawl,Tavily,Exa]`; submitted plan frontloaded `Firecrawl data ai search crawling official`, `Tavily data ai search crawling official`, and `Exa data ai search crawling official`; `evidence_pack_quality.status=usable`, `evidence_refs_count=3`, `evidence_claims_count=3`, `pack_domains=[firecrawl.dev,tavily.com]`, and `claim_domains=[firecrawl.dev,tavily.com]`.
+- `visible_output_delta`: tool summary improved from Firecrawl-only evidence to Firecrawl plus Tavily evidence. Exa remained visible in the diagnostic rows but still failed packaging because its row had `thin_query_overlap` and `missing_claim_hints`.
+- `decision`: `kept`
+- `reason`: This is a generic raw-query planning fix. It does not encode a provider, domain, query, or answer format; it preserves named subjects before a focused search rewrite can erase them.
+- `follow_up`: Do not stack another patch here. The next separate patch should target either Exa-like official rows that have source identity but no claim hints, or the two explicit-metadata facet-order tests exposed by `cargo test --manifest-path core/layer0/ops/Cargo.toml query_plan -- --nocapture`.
