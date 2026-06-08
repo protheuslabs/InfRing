@@ -59,6 +59,27 @@ mod tests {
     }
 
     #[test]
+    fn summary_insights_prefer_display_claim_over_raw_ui_chrome_claim() {
+        let evidence_claims = json!([
+            {
+                "claim": "Talk to an expertTry it out search extract crawl research Trusted by 2M+ developers around the world",
+                "display_claim": "Connect your AI agents to the web with real-time search, extraction, research, and web crawling through a single API",
+                "source_domain": "example-web-layer.test"
+            }
+        ]);
+
+        let insights = summary_insights_from_evidence_claims(&evidence_claims, 2);
+
+        assert_eq!(insights.len(), 1, "{insights:#?}");
+        assert!(
+            insights[0].contains("Connect your AI agents to the web"),
+            "{insights:#?}"
+        );
+        assert!(!insights[0].contains("Talk to an expert"), "{insights:#?}");
+        assert!(!insights[0].contains("Try it out"), "{insights:#?}");
+    }
+
+    #[test]
     fn large_aperture_is_blocked_without_policy_opt_in() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let out = api_batch_query(
@@ -1046,7 +1067,177 @@ mod tests {
                         .unwrap_or("")
                         .contains("provider_access_or_budget_blocked")
                 })
-            })
-            .unwrap_or(false));
+                })
+                .unwrap_or(false));
+    }
+
+    #[test]
+    fn quota_or_circuit_block_does_not_skip_deferred_recovery_after_partial_usable_evidence() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let query = "AlphaSearch BetaSearch source-backed evidence";
+        let blocked = "quota blocked source lane";
+        let weak = "thin unrelated source lane";
+        let deferred_good = "BetaSearch source-backed evidence";
+        let out = with_fixture(
+            json!({
+                query: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "source_kind": "document_page_artifact",
+                    "summary": "AlphaSearch evidence report says AlphaSearch supports web research agents with source-backed search and citation extraction.",
+                    "requested_url": "https://alpha.example.test/evidence",
+                    "status_code": 200
+                },
+                blocked: {
+                    "ok": false,
+                    "provider": "exa",
+                    "error": "provider_circuit_open:exa_provider_quota_exceeded_or_billing_required_http_402",
+                    "summary": "Search provider is temporarily unavailable because its circuit breaker is open."
+                },
+                weak: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "summary": "A generic directory page with no source-backed product evidence.",
+                    "requested_url": "https://directory.example.test/generic",
+                    "status_code": 200
+                },
+                deferred_good: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "source_kind": "document_page_artifact",
+                    "summary": "BetaSearch evidence report says BetaSearch supports research agents with crawl-ready source extraction and grounded summaries.",
+                    "requested_url": "https://beta.example.test/evidence",
+                    "status_code": 200
+                }
+            }),
+            || {
+                api_batch_query(
+                    tmp.path(),
+                    &json!({
+                        "source": "web",
+                        "query": query,
+                        "aperture": "medium",
+                        "queries": [blocked, weak, deferred_good]
+                    }),
+                )
+            },
+        );
+
+        assert_eq!(
+            out.pointer("/query_execution_limiter/applied")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/used")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/reason")
+                .and_then(Value::as_str),
+            Some("deferred_query_source_quality_recovery"),
+            "{out:#?}"
+        );
+        assert!(
+            out.pointer("/second_pass_recovery/queries")
+                .and_then(Value::as_array)
+                .map(|rows| rows.iter().any(|row| row.as_str() == Some(deferred_good)))
+                .unwrap_or(false),
+            "{out:#?}"
+        );
+        assert!(
+            out.pointer("/evidence_pack_quality/source_domain_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                >= 2,
+            "{out:#?}"
+        );
+    }
+
+    #[test]
+    fn quota_or_circuit_block_allows_submitted_deferred_recovery_after_zero_usable_evidence() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let query = "AlphaSearch source-backed evidence";
+        let blocked = "quota blocked AlphaSearch lane";
+        let weak = "thin unrelated AlphaSearch lane";
+        let deferred_good = "AlphaSearch official source";
+        let out = with_fixture(
+            json!({
+                query: {
+                    "ok": false,
+                    "provider": "exa",
+                    "error": "provider_circuit_open:exa_provider_quota_exceeded_or_billing_required_http_402",
+                    "summary": "Search provider is temporarily unavailable because its circuit breaker is open."
+                },
+                blocked: {
+                    "ok": false,
+                    "provider": "exa",
+                    "error": "provider_circuit_open:exa_provider_quota_exceeded_or_billing_required_http_402",
+                    "summary": "Search provider is temporarily unavailable because its circuit breaker is open."
+                },
+                weak: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "summary": "A generic directory page with no source-backed product evidence.",
+                    "requested_url": "https://directory.example.test/generic",
+                    "status_code": 200
+                },
+                deferred_good: {
+                    "ok": true,
+                    "provider": "duckduckgo",
+                    "source_kind": "document_page_artifact",
+                    "summary": "AlphaSearch official source says AlphaSearch supports research agents with crawl-ready source extraction and grounded summaries.",
+                    "requested_url": "https://alpha.example.test/evidence",
+                    "status_code": 200
+                }
+            }),
+            || {
+                api_batch_query(
+                    tmp.path(),
+                    &json!({
+                        "source": "web",
+                        "query": query,
+                        "aperture": "medium",
+                        "queries": [blocked, weak, deferred_good]
+                    }),
+                )
+            },
+        );
+
+        assert_eq!(
+            out.pointer("/query_execution_limiter/applied")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/used")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{out:#?}"
+        );
+        assert_eq!(
+            out.pointer("/second_pass_recovery/reason")
+                .and_then(Value::as_str),
+            Some("deferred_query_access_or_budget_recovery"),
+            "{out:#?}"
+        );
+        assert!(
+            out.pointer("/second_pass_recovery/queries")
+                .and_then(Value::as_array)
+                .map(|rows| rows.iter().any(|row| row.as_str() == Some(deferred_good)))
+                .unwrap_or(false),
+            "{out:#?}"
+        );
+        assert!(
+            out.get("evidence_refs")
+                .and_then(Value::as_array)
+                .map(|rows| !rows.is_empty())
+                .unwrap_or(false),
+            "{out:#?}"
+        );
     }
 }

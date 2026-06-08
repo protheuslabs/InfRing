@@ -86,8 +86,24 @@ fn summary_insights_from_evidence_claims(evidence_claims: &Value, limit: usize) 
         .into_iter()
         .flat_map(|rows| rows.iter())
     {
-        let claim = clean_text(row.get("claim").and_then(Value::as_str).unwrap_or(""), 260);
-        if !claim_text_is_synthesis_safe(&claim) {
+        let display_claim = clean_text(
+            row.get("display_claim")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            260,
+        );
+        let raw_claim = clean_text(row.get("claim").and_then(Value::as_str).unwrap_or(""), 260);
+        let claim = if !display_claim.is_empty()
+            && summary_claim_text_can_be_shown_from_supported_evidence(&display_claim)
+        {
+            display_claim
+        } else {
+            raw_claim
+        };
+        if claim.is_empty()
+            || (!claim_text_is_synthesis_safe(&claim)
+                && !summary_claim_text_can_be_shown_from_supported_evidence(&claim))
+        {
             continue;
         }
         let domain = clean_text(
@@ -111,6 +127,18 @@ fn summary_insights_from_evidence_claims(evidence_claims: &Value, limit: usize) 
         }
     }
     insights
+}
+
+fn summary_claim_text_can_be_shown_from_supported_evidence(text: &str) -> bool {
+    let cleaned = clean_text(text, 260);
+    let word_count = cleaned.split_whitespace().count();
+    let alpha_count = cleaned.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
+    word_count >= 4
+        && alpha_count >= 16
+        && !contains_web_junk_marker(&cleaned)
+        && !looks_like_low_signal_search_summary(&cleaned)
+        && !looks_like_source_only_snippet(&cleaned)
+        && !looks_like_link_directory_or_aggregator_shell(&cleaned)
 }
 
 fn string_vec_from_value(value: Option<&Value>) -> Vec<String> {
@@ -713,7 +741,12 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     }
 
     let submitted_queries = query_plan.queries.clone();
-    let queries = execution_limited_initial_queries(&policy, budget, &submitted_queries);
+    let queries = execution_limited_initial_queries(
+        &policy,
+        budget,
+        &query_plan.query_metadata,
+        &submitted_queries,
+    );
     let deferred_queries = submitted_queries
         .iter()
         .skip(queries.len())
@@ -726,7 +759,11 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
         "executed_initial_lane_count": queries.len(),
         "deferred_lane_count": deferred_queries.len(),
         "deferred_query_plan": deferred_queries,
-        "max_initial_lanes": initial_query_execution_max_lanes(&policy, budget),
+        "max_initial_lanes": coverage_aware_initial_query_execution_max_lanes(
+            &policy,
+            budget,
+            &query_plan.query_metadata,
+        ),
         "reason": if query_execution_limited {
             "bounded_initial_wave_to_preserve_provider_rate_budget"
         } else {
@@ -915,14 +952,41 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     );
     let query_pack_declares_coverage = !query_plan.query_metadata.entities.is_empty()
         || !query_plan.query_metadata.facets.is_empty();
+    let explicit_deferred_query_lanes_supplied = request
+        .get("queries")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .any(|row| extract_request_query_row(row, 600).is_some())
+        })
+        .unwrap_or(false);
     let mut planned_second_pass_queries = Vec::<String>::new();
-    if first_pass_access_or_budget_blocked {
-        second_pass_reason = "provider_access_or_budget_blocked";
-        partial_failures
-            .push("second_pass_recovery_skipped:provider_access_or_budget_blocked".to_string());
+    let hard_first_pass_access_or_budget_blocked =
+        first_pass_access_or_budget_blocked && first_pass_lacked_usable;
+    if hard_first_pass_access_or_budget_blocked {
+        if source == "web"
+            && explicit_deferred_query_lanes_supplied
+            && query_execution_limited
+            && deferred_query_recovery_enabled(&policy)
+        {
+            planned_second_pass_queries = deferred_query_recovery_queries(
+                &policy,
+                budget,
+                &submitted_queries,
+                &executed_queries,
+            );
+        }
+        if planned_second_pass_queries.is_empty() {
+            second_pass_reason = "provider_access_or_budget_blocked";
+            partial_failures.push(
+                "second_pass_recovery_skipped:provider_access_or_budget_blocked".to_string(),
+            );
+        } else {
+            second_pass_reason = "deferred_query_access_or_budget_recovery";
+        }
     } else if source == "web" && query_execution_limited {
         second_pass_reason = "deferred_due_initial_query_execution_budget";
-        if second_pass_recovery_enabled(&policy) && first_pass_lacked_usable {
+        if deferred_query_recovery_enabled(&policy) && first_pass_lacked_usable {
             planned_second_pass_queries = deferred_query_recovery_queries(
                 &policy,
                 budget,
@@ -947,7 +1011,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             }
         }
         if planned_second_pass_queries.is_empty()
-            && second_pass_recovery_enabled(&policy)
+            && deferred_query_recovery_enabled(&policy)
             && broad_current_research_lacks_synthesis_breadth(
                 &policy,
                 &query,
@@ -967,7 +1031,7 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
             }
         }
         if planned_second_pass_queries.is_empty()
-            && second_pass_recovery_enabled(&policy)
+            && deferred_query_recovery_enabled(&policy)
             && first_pass_lacked_source_quality
         {
             planned_second_pass_queries = deferred_query_recovery_queries(
@@ -1658,11 +1722,27 @@ pub fn api_batch_query(root: &Path, request: &Value) -> Value {
     );
     let evidence_pack_quality =
         evidence_pack_quality_report(&policy, &evidence_pack, &evidence_coverage);
+    let any_second_pass_recovery_enabled = second_pass_recovery_enabled(&policy)
+        || deferred_query_recovery_enabled(&policy)
+        || coverage_gap_recovery_enabled(&policy)
+        || claim_gap_recovery_enabled(&policy);
     let second_pass_recovery = json!({
-        "enabled": second_pass_recovery_enabled(&policy),
+        "enabled": any_second_pass_recovery_enabled,
         "used": !second_pass_queries.is_empty(),
         "reason": second_pass_reason,
-        "queries": second_pass_queries.clone()
+        "queries": second_pass_queries.clone(),
+        "preflight": {
+            "generated_recovery_enabled": second_pass_recovery_enabled(&policy),
+            "deferred_query_recovery_enabled": deferred_query_recovery_enabled(&policy),
+            "coverage_gap_recovery_enabled": coverage_gap_recovery_enabled(&policy),
+            "claim_gap_recovery_enabled": claim_gap_recovery_enabled(&policy),
+            "query_execution_limited": query_execution_limited,
+            "deferred_lane_count": deferred_queries.len(),
+            "first_pass_lacked_usable": first_pass_lacked_usable,
+            "first_pass_lacked_source_quality": first_pass_lacked_source_quality,
+            "first_pass_access_or_budget_blocked": first_pass_access_or_budget_blocked,
+            "hard_first_pass_access_or_budget_blocked": hard_first_pass_access_or_budget_blocked
+        }
     });
     let retrieval_telemetry_value = Value::Array(retrieval_telemetry.clone());
     let provider_results_value = Value::Array(provider_results.clone());

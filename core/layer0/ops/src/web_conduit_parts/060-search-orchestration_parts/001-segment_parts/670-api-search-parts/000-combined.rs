@@ -1172,6 +1172,9 @@
             "challenge": payload_looks_like_search_challenge(&candidate),
             "low_signal": payload_looks_low_signal_search(&candidate),
             "query_mismatch": search_payload_query_mismatch(&candidate, &scoped_query),
+            "provider_raw_count": candidate.get("provider_raw_count").and_then(Value::as_u64).unwrap_or(0),
+            "provider_filtered_count": candidate.get("provider_filtered_count").and_then(Value::as_u64).unwrap_or(0),
+            "browser_serp_diagnostics": candidate.get("browser_serp_diagnostics").cloned().unwrap_or_else(|| json!([])),
             "status_code": candidate.get("status_code").and_then(Value::as_i64).unwrap_or(0)
         }));
         last_payload = Some(candidate);

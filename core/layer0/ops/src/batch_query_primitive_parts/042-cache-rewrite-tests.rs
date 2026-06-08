@@ -106,6 +106,55 @@ mod cache_rewrite_tests {
     }
 
     #[test]
+    fn official_source_lane_recovers_with_verified_domain_probe() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let policy = load_policy(tmp.path());
+        let query = "Firecrawl web search apis official";
+        let fixture = json!({
+            "official_domain_probe::https://firecrawl.dev/": {
+                "ok": true,
+                "type": "web_conduit_fetch",
+                "source_kind": "web_conduit_fetch",
+                "requested_url": "https://firecrawl.dev/",
+                "resolved_url": "https://firecrawl.dev/",
+                "final_url": "https://www.firecrawl.dev/",
+                "status_code": 200,
+                "summary": "Firecrawl is an API to search, scrape, crawl, and extract clean web data for AI agents and web research workflows.",
+                "content": "Firecrawl API docs describe search, scrape, crawl, and extract endpoints for converting websites into LLM-ready data.",
+                "error": null
+            }
+        });
+
+        let (candidates, issues, provider_results) = with_fixture(fixture, || {
+            retrieve_web_candidates_for_query(
+                tmp.path(),
+                query,
+                &policy,
+                &BatchQuerySearchScope::default(),
+                PageExtractionFetchBudget::new(&policy),
+            )
+        });
+
+        assert!(
+            candidates
+                .iter()
+                .any(|row| row.locator.contains("firecrawl.dev")),
+            "{candidates:#?}"
+        );
+        assert!(
+            issues.iter().any(|row| row == "official_domain_probe:attempted"),
+            "{issues:#?}"
+        );
+        assert!(
+            provider_results.iter().any(|row| {
+                row.get("stage").and_then(Value::as_str) == Some("official_domain_probe")
+                    && row.get("synthesis_candidate_count").and_then(Value::as_u64) == Some(1)
+            }),
+            "{provider_results:#?}"
+        );
+    }
+
+    #[test]
     fn disabled_cache_mode_bypasses_read_and_write_for_isolated_runs() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let policy = load_policy(tmp.path());
@@ -358,6 +407,206 @@ mod cache_rewrite_tests {
                 .all(|row| row != "practicality and workflow fit"),
             "{:?}",
             plan.queries
+        );
+    }
+
+    #[test]
+    fn multi_entity_initial_execution_frontloads_entity_lanes() {
+        let payload = json!({
+            "source": "web",
+            "query": "Compare Firecrawl, Tavily, and Exa as web research APIs.",
+            "keywords": ["web research APIs", "official docs", "pricing"],
+            "required_coverage": {
+                "entities": ["Firecrawl", "Tavily", "Exa"],
+                "facets": []
+            },
+            "aperture": "medium"
+        });
+        let query = request_query_text(&payload, 600);
+        let budget = aperture_budget("medium").expect("budget");
+        let plan = resolve_query_plan(&default_policy(), &payload, &query, budget);
+        let initial = execution_limited_initial_queries(
+            &default_policy(),
+            budget,
+            &plan.query_metadata,
+            &plan.queries,
+        );
+
+        assert_eq!(initial.len(), 4, "{initial:?}");
+        for entity in ["firecrawl", "tavily", "exa"] {
+            assert!(
+                initial
+                    .iter()
+                    .skip(1)
+                    .any(|row| row.to_ascii_lowercase().contains(entity)),
+                "{entity} missing from initial execution lanes: {initial:?}"
+            );
+        }
+        assert!(
+            initial
+                .iter()
+                .skip(1)
+                .all(|row| !row.to_ascii_lowercase().contains("independent comparison")),
+            "broad comparison lanes should wait until entity coverage has a first chance: {initial:?}"
+        );
+    }
+
+    #[test]
+    fn metadata_query_plan_does_not_frontload_instruction_scaffold() {
+        let payload = json!({
+            "source": "web",
+            "query": "Use web research to gather public source evidence about Alpha Runtime. If retrieval is sparse, preserve that as evidence state instead of inventing claims.",
+            "queries": [
+                "Use web research to gather public source evidence about Alpha Runtime. If retrieval is sparse, preserve that as evidence state instead of inventing claims.",
+                "Alpha Runtime public source evidence official",
+                "Alpha Runtime official site"
+            ],
+            "keywords": [
+                "Alpha Runtime",
+                "public source evidence",
+                "official documentation"
+            ],
+            "required_coverage": {
+                "entities": ["Alpha Runtime"],
+                "facets": []
+            },
+            "aperture": "medium"
+        });
+        let query = request_query_text(&payload, 600);
+        let plan = resolve_query_plan(
+            &default_policy(),
+            &payload,
+            &query,
+            aperture_budget("medium").expect("budget"),
+        );
+
+        assert_eq!(plan.query_plan_source, "explicit_request_pack_with_metadata");
+        assert!(
+            plan
+                .queries
+                .first()
+                .map(|row| row.to_ascii_lowercase().contains("alpha runtime"))
+                .unwrap_or(false),
+            "{:?}",
+            plan.queries
+        );
+        assert!(
+            plan
+                .queries
+                .first()
+                .map(|row| !row.to_ascii_lowercase().starts_with("use web research"))
+                .unwrap_or(false),
+            "{:?}",
+            plan.queries
+        );
+        assert!(
+            !plan
+                .rerank_query
+                .to_ascii_lowercase()
+                .starts_with("use web research"),
+            "{}",
+            plan.rerank_query
+        );
+    }
+
+    #[test]
+    fn deferred_recovery_prioritizes_official_lanes_with_subject_diversity() {
+        let policy = json!({
+            "batch_query": {
+                "query_execution_budget": {
+                    "deferred_recovery": {
+                        "enabled": true,
+                        "max_lanes": 2
+                    }
+                }
+            }
+        });
+        let budget = aperture_budget("medium").expect("budget");
+        let submitted = vec![
+            "AlphaSearch BetaSearch comparison".to_string(),
+            "AlphaSearch BetaSearch reviews".to_string(),
+            "AlphaSearch official site".to_string(),
+            "AlphaSearch official documentation".to_string(),
+            "BetaSearch official site".to_string(),
+        ];
+        let executed = vec![
+            "AlphaSearch BetaSearch comparison".to_string(),
+            "AlphaSearch BetaSearch reviews".to_string(),
+        ];
+
+        let queries = deferred_query_recovery_queries(&policy, budget, &submitted, &executed);
+
+        assert_eq!(
+            queries,
+            vec![
+                "AlphaSearch official site".to_string(),
+                "BetaSearch official site".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inferred_comparison_pack_splits_short_unseparated_entity_list() {
+        let pack = inferred_comparison_query_pack(
+            "compare Firecrawl Tavily Exa web search APIs",
+            aperture_budget("medium").expect("budget"),
+        )
+        .expect("comparison pack");
+
+        for entity in ["Firecrawl", "Tavily", "Exa"] {
+            assert!(
+                pack.entities.iter().any(|row| row == entity),
+                "{entity} missing from inferred entities: {:?}",
+                pack.entities
+            );
+        }
+        assert!(
+            !pack
+                .entities
+                .iter()
+                .any(|row| row == "Firecrawl Tavily Exa"),
+            "unseparated entity lists should not collapse into one facet: {:?}",
+            pack.entities
+        );
+    }
+
+    #[test]
+    fn raw_multi_entity_research_query_frontloads_each_named_subject() {
+        let payload = json!({
+            "source": "web",
+            "query": "Research Firecrawl, Tavily, and Exa as data tools for AI research agents. Which should we use for search, crawling, and evidence gathering?",
+            "aperture": "medium"
+        });
+        let query = request_query_text(&payload, 600);
+        let budget = aperture_budget("medium").expect("budget");
+        let plan = resolve_query_plan(&default_policy(), &payload, &query, budget);
+        let initial = execution_limited_initial_queries(
+            &default_policy(),
+            budget,
+            &plan.query_metadata,
+            &plan.queries,
+        );
+        let initial_text = initial.join("\n").to_ascii_lowercase();
+
+        for entity in ["firecrawl", "tavily", "exa"] {
+            assert!(
+                initial_text.contains(entity),
+                "{entity} missing from raw-query initial lanes: {initial:?}; metadata={:?}",
+                plan.query_metadata
+            );
+        }
+        assert!(
+            plan.query_metadata.entities.len() >= 3,
+            "raw-query metadata should preserve named subjects before facet recovery: {:?}",
+            plan.query_metadata
+        );
+    }
+
+    #[test]
+    fn unseparated_entity_split_keeps_product_phrase_continuations_together() {
+        assert_eq!(
+            split_unseparated_comparison_entity_variants("OpenAI Agents SDK"),
+            vec!["OpenAI Agents SDK".to_string()]
         );
     }
 

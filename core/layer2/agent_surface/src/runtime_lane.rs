@@ -68,35 +68,14 @@ pub struct RuntimeLaneResponse {
     pub error: Option<String>,
 }
 
-fn runtime_lane_response_is_provider_timeout(response: &RuntimeLaneResponse) -> bool {
-    !response.ok
-        && response
-            .receipt
-            .get("details")
-            .and_then(|details| details.get("failure_code"))
-            .and_then(Value::as_str)
-            == Some("provider_timeout")
-}
-
 fn runtime_lane_response_allows_bounded_existing_project_fallback(
     response: &RuntimeLaneResponse,
 ) -> bool {
-    if runtime_lane_response_is_provider_timeout(response) {
-        return true;
-    }
     matches!(
         response.error.as_deref(),
         Some("runtime_lane_bounded_existing_project_edit_loop_manifest_failed")
             | Some("runtime_lane_bounded_existing_project_edit_loop_manifest_repair_failed")
     )
-}
-
-fn runtime_lane_value_bool_at_path<'a>(value: &'a Value, path: &[&str]) -> Option<bool> {
-    let mut cursor = value;
-    for segment in path {
-        cursor = cursor.get(*segment)?;
-    }
-    cursor.as_bool()
 }
 
 fn runtime_lane_metadata_string_list(metadata: &Value, pointers: &[&str]) -> Option<Vec<String>> {
@@ -124,39 +103,6 @@ fn runtime_lane_metadata_string_list_allows(
 ) -> Option<bool> {
     runtime_lane_metadata_string_list(metadata, pointers)
         .map(|values| values.iter().any(|entry| entry == "*" || entry == value))
-}
-
-fn runtime_lane_should_run_bounded_existing_project_pre_probe(
-    metadata: &Value,
-    tools: &[String],
-    capability_packs: &[String],
-) -> bool {
-    if runtime_lane_value_bool_at_path(metadata, &["runtime_policy", "bounded_existing_project_pre_probe"])
-        == Some(true)
-        || runtime_lane_value_bool_at_path(metadata, &["coding_runtime", "bounded_existing_project_pre_probe"])
-            == Some(true)
-        || metadata
-            .get("bounded_existing_project_pre_probe")
-            .and_then(Value::as_bool)
-            == Some(true)
-        || runtime_lane_metadata_bool(
-            metadata,
-            &[
-                "/native_success_criteria/bounded_existing_project_pre_probe",
-                "/workflow/native_success_criteria/bounded_existing_project_pre_probe",
-            ],
-        )
-        .unwrap_or(false)
-    {
-        return true;
-    }
-
-    tools
-        .iter()
-        .any(|tool| tool == "bounded_existing_project_edit_loop")
-        || capability_packs
-            .iter()
-            .any(|pack| pack == "bounded-existing-project-edit-loop")
 }
 
 #[derive(Debug)]
@@ -527,12 +473,7 @@ pub fn run_runtime_lane_with_registry(
 
     let bounded_existing_project_probe_started = Instant::now();
     let mut bounded_existing_project_fallback_probe = None;
-    if runtime_lane_should_run_bounded_existing_project_pre_probe(
-        &metadata,
-        &tools,
-        &capability_packs,
-    ) && !checkpointed_tool_loop_selected
-    {
+    if !checkpointed_tool_loop_selected {
         if let Some(response) = runtime_lane_try_bounded_existing_project_edit_loop(
             &name,
             &initial_prompt,
@@ -1394,8 +1335,7 @@ fn runtime_lane_try_public_api_extension_lane(
         durable_state,
         providers,
     )?;
-    if runtime_lane_response_is_provider_timeout(&response)
-        || runtime_lane_response_allows_bounded_existing_project_fallback(&response)
+    if runtime_lane_response_allows_bounded_existing_project_fallback(&response)
         || !runtime_lane_response_has_successful_mutation(&response)
     {
         return None;
@@ -1480,19 +1420,32 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
     )
     .unwrap_or(true);
     let workspace_root = runtime_lane_extract_workspace_root(prompt)?;
-    if !runtime_lane_bounded_existing_project_edit_loop_eligible(
+    let existing_project_first_edit_eligible = runtime_lane_bounded_existing_project_edit_loop_eligible(
         prompt,
         &workspace_root,
         tools,
         capability_packs,
         permissions,
-    ) {
+    );
+    let bounded_new_file_first_edit_eligible = runtime_lane_bounded_new_file_first_edit_eligible(
+        prompt,
+        &workspace_root,
+        tools,
+        capability_packs,
+        permissions,
+    );
+    if !existing_project_first_edit_eligible && !bounded_new_file_first_edit_eligible {
+        runtime_lane_record_first_edit_fallback(
+            &workspace_root,
+            "not_eligible",
+            json!({
+                "existing_project_first_edit_eligible": existing_project_first_edit_eligible,
+                "bounded_new_file_first_edit_eligible": bounded_new_file_first_edit_eligible,
+            }),
+        );
         return None;
     }
     let context_pack = runtime_lane_model_manifest_context_pack(prompt, &workspace_root);
-    if context_pack.trim().is_empty() {
-        return None;
-    }
     let provider_id = provider.unwrap_or_else(|| providers.default_provider_id());
     let provider_client = match providers.from_provider_id(provider_id) {
         Ok(provider) => provider,
@@ -1520,7 +1473,7 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let lane_model = model_lock.or_else(|| model.cloned());
-    let timeout_seconds = runtime_lane_metadata_u64_value(
+    let mut timeout_seconds = runtime_lane_metadata_u64_value(
         metadata,
         &[
             "/native_success_criteria/first_edit_tool_calls_provider_timeout_seconds",
@@ -1531,14 +1484,44 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
     )
     .unwrap_or(15)
     .clamp(5, 60);
+    if bounded_new_file_first_edit_eligible {
+        let new_file_timeout_seconds = runtime_lane_metadata_u64_value(
+            metadata,
+            &[
+                "/native_success_criteria/first_edit_tool_calls_new_file_provider_timeout_seconds",
+                "/workflow/native_success_criteria/first_edit_tool_calls_new_file_provider_timeout_seconds",
+                "/native_success_criteria/fast_lane_provider_timeout_seconds",
+                "/workflow/native_success_criteria/fast_lane_provider_timeout_seconds",
+            ],
+        )
+        .unwrap_or(15)
+        .clamp(5, 30);
+        timeout_seconds = timeout_seconds.min(new_file_timeout_seconds);
+    } else if existing_project_first_edit_eligible {
+        timeout_seconds = runtime_lane_metadata_u64_value(
+            metadata,
+            &[
+                "/native_success_criteria/first_edit_tool_calls_existing_project_provider_timeout_seconds",
+                "/workflow/native_success_criteria/first_edit_tool_calls_existing_project_provider_timeout_seconds",
+            ],
+        )
+        .unwrap_or(60)
+        .clamp(15, 75);
+    }
     let total_started = Instant::now();
     let gate_started = Instant::now();
-    let compact_context = runtime_lane_compact_context_pack(&context_pack);
+    let compact_context = if context_pack.trim().is_empty() && bounded_new_file_first_edit_eligible {
+        "Local context pack: empty or new workspace. Create only the bounded target file(s) implied by the task; do not scaffold a project.".to_string()
+    } else {
+        runtime_lane_compact_context_pack(&context_pack)
+    };
     let prompt_text = runtime_lane_first_edit_tool_calls_prompt(prompt, &workspace_root, &compact_context);
+    let first_edit_fallback_target_path =
+        runtime_lane_first_edit_fallback_target_path(prompt, &workspace_root);
     let execution_shape_gate_ms =
         gate_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let model_started = Instant::now();
-    let provider_response = match provider_client.stream_complete(&ProviderRequest {
+    let mut provider_response = match provider_client.stream_complete(&ProviderRequest {
             prompt: prompt_text,
             system: Some(runtime_lane_first_edit_tool_calls_system()),
             tools: Vec::new(),
@@ -1560,9 +1543,31 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
             if timeout_demotes_to_parent
                 && runtime_lane_provider_error_is_timeout(error.code.as_str(), &error.message)
             {
+                runtime_lane_record_first_edit_fallback(
+                    &workspace_root,
+                    "provider_timeout_demoted_to_parent",
+                    json!({
+                        "provider_latency_ms": model_call_ms,
+                        "provider_timeout_seconds": timeout_seconds,
+                        "bounded_new_file_first_edit_eligible": bounded_new_file_first_edit_eligible,
+                        "failure_code": error.code.as_str(),
+                        "failure_message": error.message,
+                    }),
+                );
                 return None;
             }
             if !strict_diagnostics {
+                runtime_lane_record_first_edit_fallback(
+                    &workspace_root,
+                    "provider_failed_demoted_to_parent",
+                    json!({
+                        "provider_latency_ms": model_call_ms,
+                        "provider_timeout_seconds": timeout_seconds,
+                        "bounded_new_file_first_edit_eligible": bounded_new_file_first_edit_eligible,
+                        "failure_code": error.code.as_str(),
+                        "failure_message": error.message,
+                    }),
+                );
                 return None;
             }
             return Some(runtime_lane_fail_closed_with_state(
@@ -1582,20 +1587,136 @@ fn runtime_lane_try_first_edit_tool_calls_lane(
             ));
         }
     };
-    let model_call_ms = model_started
+    let mut model_call_ms = model_started
         .elapsed()
         .as_millis()
         .min(u128::from(u64::MAX)) as u64;
-    let actions = parse_native_tool_calls(&provider_response.output)
+    let mut parsed_tool_calls = parse_native_tool_calls(&provider_response.output);
+    if runtime_lane_first_edit_tool_calls_placeholder_only(&parsed_tool_calls) {
+        let mut placeholder_target_paths = runtime_lane_first_edit_tool_call_target_paths(
+            &parsed_tool_calls,
+            &workspace_root,
+            first_edit_fallback_target_path.as_deref(),
+        );
+        if existing_project_first_edit_eligible {
+            placeholder_target_paths = runtime_lane_first_edit_contextual_target_paths(
+                &placeholder_target_paths,
+                &workspace_root,
+                &context_pack,
+            );
+        }
+        let retry_timeout_seconds = if placeholder_target_paths.is_empty() {
+            timeout_seconds.min(10)
+        } else {
+            timeout_seconds.min(30).max(15)
+        };
+        let retry_started = Instant::now();
+        match provider_client.stream_complete(&ProviderRequest {
+            prompt: runtime_lane_first_edit_tool_calls_placeholder_retry_prompt(
+                prompt,
+                &workspace_root,
+                first_edit_fallback_target_path.as_deref(),
+                &placeholder_target_paths,
+                &compact_context,
+            ),
+            system: Some(runtime_lane_first_edit_tool_calls_system()),
+            tools: Vec::new(),
+            model: lane_model.clone(),
+            metadata: json!({
+                "provider_timeout_seconds": retry_timeout_seconds,
+                "provider_stream_until_tool_calls": true,
+                "omit_ollama_thinking_flags": true,
+                "lane": "first_edit_tool_calls",
+                "attempt": "placeholder_retry",
+                "workflow": metadata.get("workflow").cloned().unwrap_or(Value::Null)
+            }),
+        }) {
+            Ok(stream) => {
+                model_call_ms += retry_started
+                    .elapsed()
+                    .as_millis()
+                    .min(u128::from(u64::MAX)) as u64;
+                provider_response = stream.response;
+                parsed_tool_calls = parse_native_tool_calls(&provider_response.output);
+            }
+            Err(error) => {
+                model_call_ms += retry_started
+                    .elapsed()
+                    .as_millis()
+                    .min(u128::from(u64::MAX)) as u64;
+                runtime_lane_record_first_edit_fallback(
+                    &workspace_root,
+                    "placeholder_retry_provider_failed",
+                    json!({
+                        "provider_latency_ms": model_call_ms,
+                        "provider_timeout_seconds": retry_timeout_seconds,
+                        "bounded_new_file_first_edit_eligible": bounded_new_file_first_edit_eligible,
+                        "target_constrained_retry": !placeholder_target_paths.is_empty(),
+                        "target_paths": placeholder_target_paths
+                            .iter()
+                            .map(|path| runtime_lane_path_relative_display(&workspace_root, path))
+                            .collect::<Vec<_>>(),
+                        "failure_code": error.code.as_str(),
+                        "failure_message": error.message,
+                    }),
+                );
+            }
+        }
+    }
+    let actions = parsed_tool_calls
         .into_iter()
         .take(6)
-        .filter_map(|call| runtime_lane_first_edit_tool_call_action(&call, &workspace_root))
+        .filter_map(|call| {
+            runtime_lane_first_edit_tool_call_action(
+                &call,
+                &workspace_root,
+                first_edit_fallback_target_path.as_deref(),
+            )
+        })
         .collect::<Vec<_>>();
+    if existing_project_first_edit_eligible
+        && !runtime_lane_first_edit_actions_within_context(
+            &actions,
+            &workspace_root,
+            &context_pack,
+        )
+    {
+        runtime_lane_record_first_edit_fallback(
+            &workspace_root,
+            "contextual_action_path_not_in_context",
+            json!({
+                "provider_latency_ms": model_call_ms,
+                "provider_timeout_seconds": timeout_seconds,
+                "provider_output_preview": provider_response.output.chars().take(800).collect::<String>(),
+            }),
+        );
+        return None;
+    }
     if actions.is_empty() {
         if empty_response_demotes_to_parent {
+            runtime_lane_record_first_edit_fallback(
+                &workspace_root,
+                "empty_tool_calls_demoted_to_parent",
+                json!({
+                    "provider_latency_ms": model_call_ms,
+                    "provider_timeout_seconds": timeout_seconds,
+                    "bounded_new_file_first_edit_eligible": bounded_new_file_first_edit_eligible,
+                    "provider_output_preview": provider_response.output.chars().take(800).collect::<String>(),
+                }),
+            );
             return None;
         }
         if !strict_diagnostics {
+            runtime_lane_record_first_edit_fallback(
+                &workspace_root,
+                "empty_tool_calls_demoted_to_parent",
+                json!({
+                    "provider_latency_ms": model_call_ms,
+                    "provider_timeout_seconds": timeout_seconds,
+                    "bounded_new_file_first_edit_eligible": bounded_new_file_first_edit_eligible,
+                    "provider_output_preview": provider_response.output.chars().take(800).collect::<String>(),
+                }),
+            );
             return None;
         }
         return Some(runtime_lane_fail_closed_with_state(
@@ -1851,7 +1972,7 @@ fn runtime_lane_set_native_success_criteria_value(
 }
 
 fn runtime_lane_first_edit_tool_calls_system() -> String {
-    "Return only JSON: {\"tool_calls\":[...]}. Use file_write/file_patch only. No prose. Runtime validates later."
+    "Return only one JSON object with key tool_calls. Allowed tool names are exactly file_write and file_patch. Forbidden: bash, shell, cat, file_read, command_run, markdown, and prose. Runtime validates later."
         .to_string()
 }
 
@@ -1860,11 +1981,80 @@ fn runtime_lane_first_edit_tool_calls_prompt(
     workspace_root: &Path,
     compact_context: &str,
 ) -> String {
+    let allowed_paths = runtime_lane_first_edit_allowed_mutation_paths(compact_context);
+    let allowed_section = runtime_lane_first_edit_allowed_paths_section(&allowed_paths);
     format!(
-        "Root: {}\nTask: {}\nContext:\n{}\nReturn JSON only: {{\"tool_calls\":[{{\"name\":\"file_write\",\"args\":{{\"path\":\"/absolute/path\",\"content\":\"complete file content\",\"overwrite\":true}}}}]}}\nUse only file_write/file_patch under Root. Mutate source before exports/tests. Include tests if requested. No validation/prose.",
+        "Root: {}\nTask: {}\n{}\nContext:\n{}\nReturn JSON only with tool_calls. file_write args: path, content, overwrite. file_patch args: path, old, new, allow_multiple. Use actual file text only; never use placeholder text. Use an actual path under Root, never /absolute/path or .... For existing-project edits, use exactly one of the allowed mutation paths. Never edit .infring, semantic probe, or validation harness files. Use only file_write/file_patch under Root. Mutate source before exports/tests. Include tests if requested. No validation/prose.",
         workspace_root.display(),
         runtime_lane_first_edit_task_brief(prompt),
+        allowed_section,
         compact_context
+    )
+}
+
+fn runtime_lane_first_edit_tool_calls_placeholder_retry_prompt(
+    prompt: &str,
+    workspace_root: &Path,
+    fallback_target_path: Option<&Path>,
+    constrained_target_paths: &[PathBuf],
+    compact_context: &str,
+) -> String {
+    let allowed_paths = runtime_lane_first_edit_allowed_mutation_paths(compact_context);
+    let allowed_section = runtime_lane_first_edit_allowed_paths_section(&allowed_paths);
+    let target_line = if constrained_target_paths.is_empty() {
+        fallback_target_path
+            .filter(|path| path.starts_with(workspace_root))
+            .map(|path| {
+                format!(
+                    "Use this target path if it satisfies the task: {}",
+                    path.display()
+                )
+            })
+            .unwrap_or_else(|| "Use an actual safe file path under Root.".to_string())
+    } else {
+        format!(
+            "Target-constrained retry. Edit only these path(s):\n{}",
+            constrained_target_paths
+                .iter()
+                .map(|path| format!("- {}", path.display()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    };
+    format!(
+        "Root: {}\nTask: {}\n{}\nContext:\n{}\nPrevious response used placeholders or disallowed paths.\nRetry once. {}\nReturn JSON only with tool_calls. Allowed tool names: file_write or file_patch. Every path must be one of the target/allowed paths and under Root. Every content/old/new value must be actual complete text, never placeholders. Mutate source before exports/tests. No validation/prose.",
+        workspace_root.display(),
+        runtime_lane_first_edit_task_brief(prompt),
+        allowed_section,
+        compact_context,
+        target_line
+    )
+}
+
+fn runtime_lane_first_edit_allowed_mutation_paths(context_pack: &str) -> Vec<String> {
+    runtime_lane_context_pack_relative_paths(context_pack)
+        .into_iter()
+        .filter(|path| {
+            let lower = path.to_ascii_lowercase();
+            !lower.starts_with(".infring/")
+                && !lower.contains("semantic_probe")
+                && !lower.contains("validation")
+        })
+        .take(8)
+        .collect()
+}
+
+fn runtime_lane_first_edit_allowed_paths_section(paths: &[String]) -> String {
+    if paths.is_empty() {
+        return "Allowed mutation paths: none supplied; create only the bounded target file implied by the task.".to_string();
+    }
+    format!(
+        "Allowed mutation paths:\n{}",
+        paths
+            .iter()
+            .map(|path| format!("- {path}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     )
 }
 
@@ -1886,13 +2076,43 @@ fn runtime_lane_first_edit_task_brief(prompt: &str) -> String {
         .collect()
 }
 
+fn runtime_lane_first_edit_fallback_target_path(prompt: &str, workspace_root: &Path) -> Option<PathBuf> {
+    let raw_target = runtime_lane_extract_target_file_path(prompt)?;
+    runtime_lane_resolve_target_path(&raw_target, Some(&workspace_root.to_path_buf())).ok()
+}
+
+fn runtime_lane_record_first_edit_fallback(workspace_root: &Path, reason: &str, details: Value) {
+    let trace_dir = workspace_root.join(".infring");
+    let _ = std::fs::create_dir_all(&trace_dir);
+    let updated_at_unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    let record = json!({
+        "schema_version": "first_edit_fallback_probe_v1",
+        "reason": reason,
+        "details": details,
+        "updated_at_unix_ms": updated_at_unix_ms,
+    });
+    let mut line = record.to_string();
+    line.push('\n');
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(trace_dir.join("first_edit_fallbacks.jsonl"))
+    {
+        let _ = std::io::Write::write_all(&mut file, line.as_bytes());
+    }
+}
+
 fn runtime_lane_first_edit_tool_call_action(
     call: &NativeToolCall,
     workspace_root: &Path,
+    fallback_target_path: Option<&Path>,
 ) -> Option<DeterministicLocalAction> {
     match call.name.trim().to_ascii_lowercase().as_str() {
         "file_write" | "write_file" | "workspace.write" | "workspace_write" => {
-            let path = runtime_lane_first_edit_tool_call_path(call, workspace_root)?;
+            let path = runtime_lane_first_edit_tool_call_path(call, workspace_root, fallback_target_path)?;
             let content = runtime_lane_first_edit_tool_call_text(
                 call,
                 &["content", "contents", "text", "body"],
@@ -1909,7 +2129,7 @@ fn runtime_lane_first_edit_tool_call_action(
             })
         }
         "file_patch" | "patch_file" | "workspace.patch" | "workspace_patch" => {
-            let path = runtime_lane_first_edit_tool_call_path(call, workspace_root)?;
+            let path = runtime_lane_first_edit_tool_call_path(call, workspace_root, fallback_target_path)?;
             let old = runtime_lane_first_edit_tool_call_text(
                 call,
                 &["old", "find", "search", "before", "original"],
@@ -1938,6 +2158,7 @@ fn runtime_lane_first_edit_tool_call_action(
 fn runtime_lane_first_edit_tool_call_path(
     call: &NativeToolCall,
     workspace_root: &Path,
+    fallback_target_path: Option<&Path>,
 ) -> Option<PathBuf> {
     let raw = runtime_lane_first_edit_tool_call_text(
         call,
@@ -1952,6 +2173,11 @@ fn runtime_lane_first_edit_tool_call_path(
             "full_path",
         ],
     )?;
+    if runtime_lane_first_edit_placeholder_path(raw) {
+        if let Some(path) = fallback_target_path.filter(|path| path.starts_with(workspace_root)) {
+            return Some(path.to_path_buf());
+        }
+    }
     let candidate = if Path::new(raw).is_absolute() {
         PathBuf::from(raw)
     } else {
@@ -1968,6 +2194,129 @@ fn runtime_lane_first_edit_tool_call_path(
     } else {
         None
     }
+}
+
+fn runtime_lane_first_edit_tool_call_target_paths(
+    calls: &[NativeToolCall],
+    workspace_root: &Path,
+    fallback_target_path: Option<&Path>,
+) -> Vec<PathBuf> {
+    let mut target_paths = Vec::new();
+    for call in calls {
+        match call.name.trim().to_ascii_lowercase().as_str() {
+            "file_write" | "write_file" | "workspace.write" | "workspace_write" | "file_patch"
+            | "patch_file" | "workspace.patch" | "workspace_patch" => {}
+            _ => continue,
+        }
+        let Some(path) =
+            runtime_lane_first_edit_tool_call_path(call, workspace_root, fallback_target_path)
+        else {
+            continue;
+        };
+        let relative_path = runtime_lane_path_relative_display(workspace_root, &path);
+        if !runtime_lane_first_edit_relative_path_is_safe_mutation_target(&relative_path) {
+            continue;
+        }
+        if !target_paths.iter().any(|existing| existing == &path) {
+            target_paths.push(path);
+        }
+    }
+    target_paths.truncate(6);
+    target_paths
+}
+
+fn runtime_lane_first_edit_placeholder_path(value: &str) -> bool {
+    matches!(
+        value.trim(),
+        "/absolute/path" | "absolute/path" | "/path/to/file" | "path/to/file" | "target_file.py"
+    )
+}
+
+fn runtime_lane_first_edit_placeholder_text(value: &str) -> bool {
+    matches!(
+        value.trim(),
+        "..." | "…" | "complete file content" | "replacement text" | "exact observed text"
+    )
+}
+
+fn runtime_lane_first_edit_raw_tool_arg<'a>(
+    call: &'a NativeToolCall,
+    keys: &[&str],
+) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| call.args.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn runtime_lane_first_edit_tool_calls_placeholder_only(calls: &[NativeToolCall]) -> bool {
+    let mut saw_relevant_call = false;
+    for call in calls {
+        match call.name.trim().to_ascii_lowercase().as_str() {
+            "file_write" | "write_file" | "workspace.write" | "workspace_write" => {
+                saw_relevant_call = true;
+                let path_is_placeholder = runtime_lane_first_edit_raw_tool_arg(
+                    call,
+                    &[
+                        "path",
+                        "file_path",
+                        "filepath",
+                        "target_path",
+                        "target",
+                        "file",
+                        "absolute_path",
+                        "full_path",
+                    ],
+                )
+                .map(runtime_lane_first_edit_placeholder_path)
+                .unwrap_or(false);
+                let content_is_placeholder = runtime_lane_first_edit_raw_tool_arg(
+                    call,
+                    &["content", "contents", "text", "body"],
+                )
+                .map(runtime_lane_first_edit_placeholder_text)
+                .unwrap_or(false);
+                if !path_is_placeholder && !content_is_placeholder {
+                    return false;
+                }
+            }
+            "file_patch" | "patch_file" | "workspace.patch" | "workspace_patch" => {
+                saw_relevant_call = true;
+                let path_is_placeholder = runtime_lane_first_edit_raw_tool_arg(
+                    call,
+                    &[
+                        "path",
+                        "file_path",
+                        "filepath",
+                        "target_path",
+                        "target",
+                        "file",
+                        "absolute_path",
+                        "full_path",
+                    ],
+                )
+                .map(runtime_lane_first_edit_placeholder_path)
+                .unwrap_or(false);
+                let old_is_placeholder = runtime_lane_first_edit_raw_tool_arg(
+                    call,
+                    &["old", "find", "search", "before", "original"],
+                )
+                .map(runtime_lane_first_edit_placeholder_text)
+                .unwrap_or(false);
+                let new_is_placeholder = runtime_lane_first_edit_raw_tool_arg(
+                    call,
+                    &["new", "replace", "replacement", "after", "updated"],
+                )
+                .map(runtime_lane_first_edit_placeholder_text)
+                .unwrap_or(false);
+                if !path_is_placeholder && !old_is_placeholder && !new_is_placeholder {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    saw_relevant_call
 }
 
 fn runtime_lane_first_edit_tool_call_text<'a>(
@@ -2109,23 +2458,45 @@ fn runtime_lane_try_bounded_existing_project_edit_loop(
     );
     let manifest_system = runtime_lane_bounded_existing_project_edit_loop_system();
     let manifest_provider_timeout_seconds = metadata
-        .pointer("/native_success_criteria/fast_lane_provider_timeout_seconds")
+        .pointer("/native_success_criteria/bounded_existing_project_provider_timeout_seconds")
         .and_then(Value::as_u64)
+        .or_else(|| {
+            metadata
+                .pointer("/workflow/native_success_criteria/bounded_existing_project_provider_timeout_seconds")
+                .and_then(Value::as_u64)
+        })
+        .or_else(|| {
+            metadata
+                .pointer("/native_success_criteria/fast_lane_provider_timeout_seconds")
+                .and_then(Value::as_u64)
+        })
         .or_else(|| {
             metadata
                 .pointer("/workflow/native_success_criteria/fast_lane_provider_timeout_seconds")
                 .and_then(Value::as_u64)
         })
-        .unwrap_or(60);
+        .unwrap_or(60)
+        .max(60);
     let manifest_repair_provider_timeout_seconds = metadata
-        .pointer("/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
+        .pointer("/native_success_criteria/bounded_existing_project_repair_provider_timeout_seconds")
         .and_then(Value::as_u64)
+        .or_else(|| {
+            metadata
+                .pointer("/workflow/native_success_criteria/bounded_existing_project_repair_provider_timeout_seconds")
+                .and_then(Value::as_u64)
+        })
+        .or_else(|| {
+            metadata
+                .pointer("/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
+                .and_then(Value::as_u64)
+        })
         .or_else(|| {
             metadata
                 .pointer("/workflow/native_success_criteria/fast_lane_repair_provider_timeout_seconds")
                 .and_then(Value::as_u64)
         })
-        .unwrap_or(45);
+        .unwrap_or(45)
+        .max(45);
     let model_started = Instant::now();
     let mut provider_response = match provider_client.complete(&ProviderRequest {
             prompt: manifest_prompt.clone(),
@@ -5676,6 +6047,71 @@ fn runtime_lane_bounded_existing_project_edit_loop_eligible(
     has_mutation_intent && existing_project_signal && !broad_architecture_signal
 }
 
+fn runtime_lane_bounded_new_file_first_edit_eligible(
+    prompt: &str,
+    workspace_root: &Path,
+    tools: &[String],
+    capability_packs: &[String],
+    permissions: &crate::rbac_memory::PermissionManifest,
+) -> bool {
+    if !runtime_lane_direct_mutation_surface_enabled(tools, capability_packs) {
+        return false;
+    }
+    if permission_for(permissions, "file.write") != PermissionTrit::Allow
+        || permission_for(permissions, "file.patch") != PermissionTrit::Allow
+        || permission_for(permissions, "command.run") != PermissionTrit::Allow
+    {
+        return false;
+    }
+    if runtime_lane_extract_explicit_file_content(prompt).is_some()
+        || runtime_lane_extract_deterministic_manifest(prompt).is_some()
+    {
+        return false;
+    }
+    if workspace_root.join("src").exists() || workspace_root.join("tests").exists() {
+        return false;
+    }
+    let lower = prompt.to_ascii_lowercase();
+    let has_mutation_intent = [
+        "create",
+        "write",
+        "build",
+        "implement",
+        "add",
+        "generate",
+        "make",
+    ]
+    .iter()
+    .any(|token| lower.contains(token));
+    if !has_mutation_intent {
+        return false;
+    }
+    let broad_architecture_signal = [
+        "from scratch",
+        "new project",
+        "architecture",
+        "stack",
+        "database",
+        "multi-service",
+        "deploy",
+        "docker",
+    ]
+    .iter()
+    .any(|token| lower.contains(token));
+    if broad_architecture_signal {
+        return false;
+    }
+    let Some(raw_target) = runtime_lane_extract_target_file_path(prompt) else {
+        return false;
+    };
+    let Ok(target_path) =
+        runtime_lane_resolve_target_path(&raw_target, Some(&workspace_root.to_path_buf()))
+    else {
+        return false;
+    };
+    !target_path.exists()
+}
+
 #[derive(Debug, Clone, Copy)]
 struct RuntimeLanePlanningDepthProfile {
     depth: u8,
@@ -8213,6 +8649,105 @@ fn runtime_lane_compact_context_pack(context_pack: &str) -> String {
     out
 }
 
+fn runtime_lane_context_pack_relative_paths(context_pack: &str) -> Vec<String> {
+    context_pack
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let rest = line.strip_prefix("--- file: ")?;
+            let path = rest.split(" role: ").next()?.trim();
+            if path.is_empty() {
+                None
+            } else {
+                Some(path.to_string())
+            }
+        })
+        .collect()
+}
+
+fn runtime_lane_first_edit_actions_within_context(
+    actions: &[DeterministicLocalAction],
+    workspace_root: &Path,
+    context_pack: &str,
+) -> bool {
+    let allowed_paths = runtime_lane_context_pack_relative_paths(context_pack);
+    if allowed_paths.is_empty() {
+        return false;
+    }
+    let allowed_dirs = allowed_paths
+        .iter()
+        .filter_map(|path| Path::new(path).parent())
+        .filter_map(Path::to_str)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    actions.iter().all(|action| {
+        let target_path = match action {
+            DeterministicLocalAction::WriteFile { target_path, .. }
+            | DeterministicLocalAction::PatchFile { target_path, .. } => target_path,
+            DeterministicLocalAction::CommandRun { .. } => return true,
+        };
+        if !runtime_lane_path_is_under(workspace_root, target_path) {
+            return false;
+        }
+        let relative_path = runtime_lane_path_relative_display(workspace_root, target_path);
+        if allowed_paths.iter().any(|path| path == &relative_path) {
+            return true;
+        }
+        !target_path.exists()
+            && runtime_lane_first_edit_relative_path_is_safe_mutation_target(&relative_path)
+            && allowed_dirs
+                .iter()
+                .any(|dir| relative_path.strip_prefix(dir).is_some_and(|rest| rest.starts_with('/')))
+    })
+}
+
+fn runtime_lane_first_edit_contextual_target_paths(
+    target_paths: &[PathBuf],
+    workspace_root: &Path,
+    context_pack: &str,
+) -> Vec<PathBuf> {
+    let allowed_paths = runtime_lane_context_pack_relative_paths(context_pack);
+    if allowed_paths.is_empty() {
+        return Vec::new();
+    }
+    let allowed_dirs = allowed_paths
+        .iter()
+        .filter_map(|path| Path::new(path).parent())
+        .filter_map(Path::to_str)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    target_paths
+        .iter()
+        .filter(|target_path| {
+            if !runtime_lane_path_is_under(workspace_root, target_path) {
+                return false;
+            }
+            let relative_path = runtime_lane_path_relative_display(workspace_root, target_path);
+            if allowed_paths.iter().any(|path| path == &relative_path) {
+                return true;
+            }
+            !target_path.exists()
+                && runtime_lane_first_edit_relative_path_is_safe_mutation_target(&relative_path)
+                && allowed_dirs.iter().any(|dir| {
+                    relative_path
+                        .strip_prefix(dir)
+                        .is_some_and(|rest| rest.starts_with('/'))
+                })
+        })
+        .cloned()
+        .collect()
+}
+
+fn runtime_lane_first_edit_relative_path_is_safe_mutation_target(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    !path.contains("..")
+        && !lower.starts_with(".infring/")
+        && !lower.contains("semantic_probe")
+        && !lower.contains("validation")
+}
+
 #[derive(Debug, Clone)]
 struct RuntimeLaneSemanticProbeCommand {
     cwd: PathBuf,
@@ -8235,13 +8770,19 @@ fn runtime_lane_extract_semantic_probe_command(
     let line = prompt
         .lines()
         .find(|line| line.to_ascii_lowercase().contains(marker))?;
-    let command = runtime_lane_clean_inline_shell_command(line.split_once(':')?.1);
+    let command = runtime_lane_clean_inline_shell_command(
+        runtime_lane_inline_shell_command_after_marker(line, marker)?,
+    );
     if command.is_empty() {
         return None;
     }
     Some(RuntimeLaneSemanticProbeCommand {
         cwd: workspace_root.to_path_buf(),
-        cmd: vec!["sh".to_string(), "-c".to_string(), command.to_string()],
+        cmd: vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            runtime_lane_normalize_shell_command(command),
+        ],
     })
 }
 
@@ -8273,7 +8814,9 @@ fn runtime_lane_extract_validation_command(
     let line = prompt
         .lines()
         .find(|line| line.to_ascii_lowercase().contains(marker))?;
-    let command = runtime_lane_clean_inline_shell_command(line.split_once(':')?.1);
+    let command = runtime_lane_clean_inline_shell_command(
+        runtime_lane_inline_shell_command_after_marker(line, marker)?,
+    );
     if command.is_empty() {
         return None;
     }
@@ -8285,6 +8828,20 @@ fn runtime_lane_extract_validation_command(
             runtime_lane_normalize_shell_command(command),
         ],
     })
+}
+
+fn runtime_lane_inline_shell_command_after_marker<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
+    let lower = line.to_ascii_lowercase();
+    let marker_index = lower.find(marker)?;
+    let after_marker = &line[marker_index + marker.len()..];
+    let command = after_marker
+        .trim_start()
+        .trim_start_matches(|ch| matches!(ch, ':' | '-' | '>' | ' ' | '\t'));
+    if command.trim().is_empty() {
+        None
+    } else {
+        Some(command)
+    }
 }
 
 fn runtime_lane_clean_inline_shell_command(value: &str) -> &str {
@@ -8405,6 +8962,16 @@ fn runtime_lane_shell_command_payload(command: &[String]) -> Option<&str> {
     command.get(2).map(String::as_str)
 }
 
+fn runtime_lane_normalize_shell_command_vector(mut cmd: Vec<String>) -> Vec<String> {
+    if cmd.len() >= 3
+        && matches!(cmd[0].trim(), "sh" | "bash")
+        && matches!(cmd[1].trim(), "-c" | "-lc")
+    {
+        cmd[2] = runtime_lane_normalize_shell_command(&cmd[2]);
+    }
+    cmd
+}
+
 fn runtime_lane_dispatch_model_manifest_actions(
     candidate: &DeterministicLocalLoopCandidate,
     call_prefix: &str,
@@ -8453,17 +9020,20 @@ fn runtime_lane_dispatch_model_manifest_actions(
                 cmd,
                 timeout_seconds,
                 max_output_bytes,
-            } => NativeToolCall {
-                id: format!("{call_prefix}_{}", index + 1),
-                name: "command_run".to_string(),
-                args: json!({
-                    "cwd": cwd.display().to_string(),
-                    "cmd": cmd,
-                    "timeout_seconds": timeout_seconds,
-                    "max_output_bytes": max_output_bytes,
-                    "model_manifest_planner": true,
-                }),
-            },
+            } => {
+                let cmd = runtime_lane_normalize_shell_command_vector(cmd.clone());
+                NativeToolCall {
+                    id: format!("{call_prefix}_{}", index + 1),
+                    name: "command_run".to_string(),
+                    args: json!({
+                        "cwd": cwd.display().to_string(),
+                        "cmd": cmd,
+                        "timeout_seconds": timeout_seconds,
+                        "max_output_bytes": max_output_bytes,
+                        "model_manifest_planner": true,
+                    }),
+                }
+            }
         };
         let receipt = dispatcher.dispatch(call);
         let should_stop = receipt.status != "ok"
@@ -9451,7 +10021,7 @@ fn runtime_lane_extract_deterministic_manifest(prompt: &str) -> Option<Value> {
 fn runtime_lane_manifest_command(value: &Value) -> Option<Vec<String>> {
     let command = value.get("cmd").or_else(|| value.get("command"))?;
     if let Some(items) = command.as_array() {
-        let out = items
+        let mut out = items
             .iter()
             .filter_map(Value::as_str)
             .map(str::to_string)
@@ -9459,6 +10029,12 @@ fn runtime_lane_manifest_command(value: &Value) -> Option<Vec<String>> {
         if out.is_empty() {
             None
         } else {
+            if out.len() >= 3
+                && out[0].trim() == "sh"
+                && matches!(out[1].trim(), "-c" | "-lc")
+            {
+                out[2] = runtime_lane_normalize_shell_command(&out[2]);
+            }
             Some(out)
         }
     } else {
@@ -9476,6 +10052,7 @@ fn runtime_lane_manifest_command(value: &Value) -> Option<Vec<String>> {
 }
 
 fn runtime_lane_normalize_shell_command(command: &str) -> String {
+    let command = runtime_lane_strip_shell_command_prose_prefix(command);
     let tokens = command.split_whitespace().collect::<Vec<_>>();
     if tokens.is_empty() {
         return command.to_string();
@@ -9498,6 +10075,26 @@ fn runtime_lane_normalize_shell_command(command: &str) -> String {
     normalized.push("python3");
     normalized.extend(tokens[script_index..].iter().copied());
     normalized.join(" ")
+}
+
+fn runtime_lane_strip_shell_command_prose_prefix(command: &str) -> &str {
+    let trimmed = command.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    for prefix in [
+        "after validation:",
+        "after tests:",
+        "semantic probe:",
+        "semantic probe command:",
+        "validation:",
+        "validation command:",
+        "run:",
+        "command:",
+    ] {
+        if lower.starts_with(prefix) {
+            return trimmed[prefix.len()..].trim_start();
+        }
+    }
+    trimmed
 }
 
 fn runtime_lane_direct_mutation_surface_enabled(
@@ -9691,6 +10288,7 @@ fn runtime_lane_clean_path_token(token: &str) -> String {
         .trim_matches(',')
         .trim_matches(';')
         .trim_matches(':')
+        .trim_end_matches('.')
         .trim_matches(')')
         .trim_matches('(')
         .trim_matches(']')

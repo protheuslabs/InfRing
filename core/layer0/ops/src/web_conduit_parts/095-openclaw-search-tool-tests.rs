@@ -164,11 +164,15 @@ mod openclaw_search_tool_tests {
             .and_then(Value::as_str)
             .map(|path| path.ends_with("runtime_web_tools_metadata.json"))
             .unwrap_or(false));
+        let default_search_provider = status
+            .pointer("/default_search_provider_chain/0")
+            .and_then(Value::as_str);
+        assert!(default_search_provider.is_some());
         assert_eq!(
             status
                 .pointer("/runtime_web_tools_metadata/search/selected_provider")
                 .and_then(Value::as_str),
-            Some("bing_rss")
+            default_search_provider
         );
         assert_eq!(
             providers

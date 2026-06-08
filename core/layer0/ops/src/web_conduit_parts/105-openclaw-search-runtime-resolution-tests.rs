@@ -667,7 +667,7 @@ mod openclaw_search_runtime_resolution_tests {
         assert_eq!(out.get("ok").and_then(Value::as_bool), Some(false));
         assert_eq!(
             out.get("error").and_then(Value::as_str),
-            Some("provider_circuit_open")
+            Some("provider_circuit_open:timeout")
         );
         assert_eq!(
             out.get("provider").and_then(Value::as_str),

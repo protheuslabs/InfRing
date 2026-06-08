@@ -554,6 +554,18 @@
       "min_snippet_words_before_skip": 22,
       "min_query_overlap_terms_before_skip": 2,
       "trigger": "low_thin_or_coverage_weak_candidates",
+      "official_domain_probe": {
+        "enabled": true,
+        "max_urls": 8,
+        "tlds": [
+          "com",
+          "ai",
+          "dev",
+          "io",
+          "app",
+          "org"
+        ]
+      },
       "browser_materialization": {
         "enabled": true,
         "timeout_ms": 8000,

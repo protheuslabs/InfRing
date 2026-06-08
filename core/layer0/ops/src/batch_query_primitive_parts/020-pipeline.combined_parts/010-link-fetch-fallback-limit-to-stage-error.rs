@@ -52,7 +52,6 @@ fn stage_search_request(
     policy: &Value,
     search_scope: &BatchQuerySearchScope,
 ) -> Value {
-    let trusted_official_lane = is_official_source_query_lane(query);
     let mut request = json!({
         "query": query,
         "summary_only": false

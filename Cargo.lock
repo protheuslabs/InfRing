@@ -1338,7 +1338,6 @@ dependencies = [
  "hex",
  "hmac",
  "infring-nexus-core-v1",
- "infring-ops-core-v1",
  "infring-pure-workspace",
  "lopdf",
  "memmap2",

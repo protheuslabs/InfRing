@@ -1257,6 +1257,24 @@ fn retrieve_web_candidates_for_query(
         }
     }
 
+    if is_official_source_query_lane(query)
+        && !provider_recovery_satisfied(query, &candidates, benchmark_intent)
+    {
+        let (mut probe_candidates, probe_issues, probe_results) =
+            recover_official_domain_probe_candidates(
+                root,
+                query,
+                policy,
+                benchmark_intent,
+                &fetch_budget,
+            );
+        if !probe_candidates.is_empty() {
+            candidates.append(&mut probe_candidates);
+        }
+        issues.extend(probe_issues);
+        provider_results.extend(probe_results);
+    }
+
     if candidates.is_empty() {
         if issues.is_empty() {
             issues.push("no_usable_summary".to_string());

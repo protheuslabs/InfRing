@@ -667,7 +667,8 @@ fn candidate_is_pack_ready_evidence(query: &str, candidate: &Candidate, score: f
     }
     let relevant_extract = evidence_pack_relevant_extract_for_candidate(candidate, 96);
     let claim_hints = evidence_pack_claim_hints_for_candidate(query, candidate, 1);
-    evidence_packet_substance_blockers(candidate, &relevant_extract, &claim_hints).is_empty()
+    candidate_evidence_substance_blockers(query, candidate, &relevant_extract, &claim_hints)
+        .is_empty()
 }
 
 fn candidate_locator_identity_key(candidate: &Candidate) -> String {
@@ -1652,6 +1653,10 @@ fn evidence_selection_diagnostics(
             };
             let claim_hints = evidence_pack_claim_hints_for_candidate(query, candidate, 2);
             let materialization_quality = candidate_materialization_quality(candidate);
+            let (query_overlap_count, distinctive_query_overlap_count, _) =
+                query_overlap_profile(query, candidate);
+            let descriptor_text =
+                clean_text(&format!("{} {}", candidate.title, candidate.snippet), 1_200);
             let blockers = evidence_selection_diagnostic_blockers(
                 query,
                 candidate,
@@ -1674,6 +1679,24 @@ fn evidence_selection_diagnostics(
                 "materialization_quality": materialization_quality,
                 "freshness": evidence_pack_freshness_status(query, candidate),
                 "content_rich": content_rich_text(&candidate.snippet),
+                "query_overlap_count": query_overlap_count,
+                "distinctive_query_overlap_count": distinctive_query_overlap_count,
+                "candidate_has_source_identity": candidate_has_source_identity(candidate),
+                "candidate_has_source_type": candidate_has_source_type(candidate),
+                "source_identity_tokens": source_identity_tokens_from_text(
+                    &candidate_domain_hint(candidate)
+                ),
+                "source_identity_query_anchored": candidate_source_identity_is_query_anchored(
+                    query,
+                    candidate,
+                ),
+                "descriptor_has_source_identity": descriptor_text_has_source_identity(
+                    candidate,
+                    &descriptor_text,
+                ),
+                "descriptor_has_official_source_terms": descriptor_text_has_official_source_descriptor_terms(
+                    &descriptor_text,
+                ),
                 "claim_hint_count": claim_hints.len(),
                 "claim_hints": claim_hints,
                 "quality_flags": quality_flags,
@@ -2545,6 +2568,9 @@ fn quality_flags_block_query_usable_evidence(
     if !thin_overlap {
         return false;
     }
+    if candidate_has_query_anchored_official_title_descriptor(query, candidate) {
+        return false;
+    }
     if freshness_unproven_candidate_is_still_comparison_evidence(query, candidate) {
         return false;
     }
@@ -2849,6 +2875,13 @@ fn evidence_row_has_answerable_substance(row: &Value) -> bool {
     if source_type.is_empty() {
         return false;
     }
+    let title = clean_text(
+        row.get("title")
+            .or_else(|| row.get("source_title"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        360,
+    );
     let extract = clean_text(
         row.get("relevant_extract")
             .or_else(|| row.get("support_snippet"))
@@ -2860,27 +2893,87 @@ fn evidence_row_has_answerable_substance(row: &Value) -> bool {
             .unwrap_or(""),
         1_800,
     );
-    if !evidence_extract_has_answerable_substance(&extract) {
-        return false;
-    }
-    let title = clean_text(
-        row.get("title")
-            .or_else(|| row.get("source_title"))
-            .and_then(Value::as_str)
-            .unwrap_or(""),
-        360,
-    );
-    if looks_like_index_or_homepage_headline_cluster(&format!("{title} {extract}")) {
-        return false;
-    }
-    row.get("claim_hints")
+    let claim_hints = row
+        .get("claim_hints")
         .and_then(Value::as_array)
         .map(|rows| {
             rows.iter()
                 .filter_map(Value::as_str)
-                .any(claim_hint_has_concrete_claim_material)
+                .map(|hint| clean_text(hint, 520))
+                .filter(|hint| !hint.is_empty())
+                .collect::<Vec<_>>()
         })
-        .unwrap_or(false)
+        .unwrap_or_default();
+    if !evidence_extract_has_answerable_substance(&extract)
+        && !evidence_row_has_first_party_descriptor_substance(
+            row,
+            &source_identity,
+            &source_type,
+            &title,
+            &extract,
+            &claim_hints,
+        )
+    {
+        return false;
+    }
+    if looks_like_index_or_homepage_headline_cluster(&format!("{title} {extract}")) {
+        return false;
+    }
+    claim_hints
+        .iter()
+        .any(|hint| evidence_row_hint_can_become_claim(hint, &title))
+}
+
+fn evidence_row_has_first_party_descriptor_substance(
+    row: &Value,
+    source_identity: &str,
+    source_type: &str,
+    source_title: &str,
+    relevant_extract: &str,
+    claim_hints: &[String],
+) -> bool {
+    if source_identity.is_empty() || source_type.is_empty() || claim_hints.is_empty() {
+        return false;
+    }
+    let descriptor_text = clean_text(
+        &format!(
+            "{} {} {}",
+            source_title,
+            relevant_extract,
+            claim_hints.join(" ")
+        ),
+        1_200,
+    );
+    if descriptor_text.is_empty()
+        || looks_like_low_signal_search_summary(&descriptor_text)
+        || looks_like_source_only_snippet(&descriptor_text)
+        || looks_like_link_directory_or_aggregator_shell(&descriptor_text)
+        || looks_like_page_chrome_or_unavailable_shell(&descriptor_text)
+        || text_looks_like_headline_or_dateline_shell(&descriptor_text)
+        || text_looks_like_question_headline(&descriptor_text)
+        || evidence_material_is_malformed(&descriptor_text)
+        || !descriptor_text_has_official_source_descriptor_terms(&descriptor_text)
+    {
+        return false;
+    }
+    if !descriptor_text_has_source_identity_tokens(source_identity, &descriptor_text)
+        && !evidence_row_source_identity_is_query_anchored(row, source_identity)
+    {
+        return false;
+    }
+    claim_hints
+        .iter()
+        .any(|hint| claim_text_is_synthesis_safe(hint))
+}
+
+fn evidence_row_hint_can_become_claim(hint: &str, source_title: &str) -> bool {
+    if claim_hint_has_concrete_claim_material(hint) {
+        return true;
+    }
+    let claim = clean_text(&clean_claim_hint_for_promotion(hint), 240);
+    !claim.is_empty()
+        && claim_text_is_synthesis_safe(&claim)
+        && (source_title.is_empty() || !claim.eq_ignore_ascii_case(source_title))
 }
 
 fn strip_inline_markdown_links(raw: &str) -> String {
@@ -3260,7 +3353,7 @@ fn claim_text_starts_with_dangling_fragment(text: &str) -> bool {
         .unwrap_or("")
         .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
         .to_ascii_lowercase();
-    if first_token == "for" && trimmed.contains(',') {
+    if matches!(first_token.as_str(), "for" | "from") && trimmed.contains(',') {
         let lowered = format!(" {} ", trimmed.to_ascii_lowercase());
         let has_claim_body = [
             " is ",
@@ -3281,7 +3374,9 @@ fn claim_text_starts_with_dangling_fragment(text: &str) -> bool {
         ]
         .iter()
         .any(|marker| lowered.contains(marker));
-        if has_claim_body {
+        let has_complete_from_range =
+            first_token == "from" && lowered.contains(" to ") && has_claim_body;
+        if (first_token == "for" && has_claim_body) || has_complete_from_range {
             return false;
         }
     }
@@ -3562,6 +3657,179 @@ fn clean_claim_hint_for_promotion(raw: &str) -> String {
     cleaned = trim_adjacent_title_case_tail(&cleaned, 520);
     cleaned = trim_heading_prefix_before_claim_body(&cleaned);
     clean_text(&cleaned, 520)
+}
+
+fn normalize_display_claim_ui_boundaries(raw: &str) -> String {
+    let mut cleaned = clean_text(raw, 520);
+    for (from, to) in [
+        ("expertTry", "expert Try"),
+        ("outSearch", "out Search"),
+        ("studyView", "study View"),
+        ("demoTry", "demo Try"),
+        ("salesTry", "sales Try"),
+    ] {
+        cleaned = cleaned.replace(from, to);
+    }
+    clean_text(&cleaned, 520)
+}
+
+fn display_claim_ui_marker_bounds(text: &str) -> Option<(usize, usize)> {
+    let lowered = text.to_ascii_lowercase();
+    [
+        "talk to an expert",
+        "try it out",
+        "view case study",
+        "book a demo",
+        "request a demo",
+        "request demo",
+        "contact sales",
+        "get started",
+        "sign up",
+        "log in",
+        "trusted by",
+        "loved by",
+    ]
+    .iter()
+    .filter_map(|marker| lowered.find(marker).map(|start| (start, start + marker.len())))
+    .min_by_key(|(start, _)| *start)
+}
+
+fn display_claim_candidate_has_substance(text: &str) -> bool {
+    let cleaned = clean_text(text, 260);
+    let word_count = cleaned.split_whitespace().count();
+    let alpha_count = cleaned.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
+    word_count >= 4
+        && alpha_count >= 16
+        && !contains_web_junk_marker(&cleaned)
+        && !looks_like_low_signal_search_summary(&cleaned)
+        && !looks_like_source_only_snippet(&cleaned)
+        && !looks_like_link_directory_or_aggregator_shell(&cleaned)
+        && !looks_like_page_chrome_or_unavailable_shell(&cleaned)
+        && !evidence_material_is_malformed(&cleaned)
+        && !display_claim_looks_like_social_proof_fragment(&cleaned)
+}
+
+fn display_claim_looks_like_social_proof_fragment(text: &str) -> bool {
+    let lowered = clean_text(text, 260).to_ascii_lowercase();
+    let social_proof = lowered.contains("trusted by")
+        || lowered.contains("loved by")
+        || lowered.contains("developers around the world")
+        || lowered.contains("customers around the world")
+        || lowered.contains("teams around the world");
+    if !social_proof {
+        return false;
+    }
+    !descriptor_text_has_official_source_descriptor_terms(&lowered)
+}
+
+fn trim_display_claim_ui_chrome(raw: &str) -> String {
+    let mut cleaned = normalize_display_claim_ui_boundaries(raw);
+    for _ in 0..8 {
+        let Some((start, end)) = display_claim_ui_marker_bounds(&cleaned) else {
+            break;
+        };
+        let prefix = clean_text(&cleaned[..start], 260);
+        if start == 0 || prefix.split_whitespace().count() < 5 {
+            cleaned = clean_text(&cleaned[end..], 260);
+            continue;
+        }
+        if display_claim_candidate_has_substance(&prefix) {
+            cleaned = prefix;
+        }
+        break;
+    }
+    clean_text(&cleaned, 260)
+}
+
+fn strip_display_claim_source_identity_prefix(row: &Value, raw: &str) -> String {
+    let cleaned = clean_text(raw, 260);
+    let lowered = cleaned.to_ascii_lowercase();
+    let source_identity = row
+        .get("source_domain")
+        .or_else(|| row.get("source_identity"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    for token in source_identity_tokens_from_text(source_identity) {
+        for marker in [
+            format!("{token}."),
+            format!("{token}:"),
+            format!("{token} -"),
+            format!("{token} |"),
+            token.clone(),
+        ] {
+            if !lowered.starts_with(&marker) {
+                continue;
+            }
+            let remainder = clean_text(&cleaned[marker.len()..], 260);
+            if display_claim_candidate_has_substance(&remainder) {
+                return remainder;
+            }
+        }
+    }
+    cleaned
+}
+
+fn clean_claim_hint_for_display(row: &Value, raw: &str) -> String {
+    let cleaned = clean_claim_hint_for_promotion(raw);
+    let cleaned = trim_display_claim_ui_chrome(&cleaned);
+    let cleaned = strip_display_claim_source_identity_prefix(row, &cleaned);
+    clean_text(&trim_display_claim_ui_chrome(&cleaned), 240)
+}
+
+fn display_claim_noise_score(text: &str) -> usize {
+    let lowered = clean_text(text, 320).to_ascii_lowercase();
+    [
+        "talk to an expert",
+        "try it out",
+        "view case study",
+        "book a demo",
+        "request a demo",
+        "request demo",
+        "contact sales",
+        "get started",
+        "sign up",
+        "log in",
+        "trusted by",
+        "loved by",
+        "cookie",
+        "privacy preferences",
+    ]
+    .iter()
+    .filter(|marker| lowered.contains(**marker))
+    .count()
+}
+
+fn display_claim_from_evidence_row(row: &Value, claim: &str) -> String {
+    let mut candidates = Vec::<String>::new();
+    for raw in [
+        Some(claim),
+        row.get("relevant_extract").and_then(Value::as_str),
+        row.get("summary").and_then(Value::as_str),
+        row.get("snippet").and_then(Value::as_str),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let candidate = clean_claim_hint_for_display(row, raw);
+        if !candidate.is_empty()
+            && display_claim_candidate_has_substance(&candidate)
+            && !candidates
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(&candidate))
+        {
+            candidates.push(candidate);
+        }
+    }
+    candidates
+        .into_iter()
+        .min_by_key(|candidate| {
+            (
+                display_claim_noise_score(candidate),
+                candidate.split_whitespace().count().saturating_sub(28),
+                candidate.len(),
+            )
+        })
+        .unwrap_or_else(|| clean_text(claim, 240))
 }
 
 fn claim_anchor_term_is_specific(term: &str) -> bool {
@@ -4459,13 +4727,18 @@ fn evidence_pack_title_claim_hint_for_candidate(
     query: &str,
     candidate: &Candidate,
 ) -> Option<String> {
+    let title_descriptor_claim = official_title_descriptor_claim(query, candidate);
     if !candidate_counts_as_query_usable_evidence(query, candidate, rerank_score(query, candidate))
+        && title_descriptor_claim.is_none()
     {
         return None;
     }
     let mut title = clean_text(&candidate.title, 360)
         .replace(" — ", " - ")
         .replace(" – ", " - ");
+    if let Some(claim) = title_descriptor_claim {
+        return Some(claim);
+    }
     for separator in [" | ", " - "] {
         if let Some((left, right)) = title.rsplit_once(separator) {
             let right_word_count = right.split_whitespace().count();
@@ -4516,6 +4789,53 @@ fn evidence_pack_title_claim_hint_for_candidate(
         return None;
     }
     Some(claim)
+}
+
+fn official_title_descriptor_claim(query: &str, candidate: &Candidate) -> Option<String> {
+    if !candidate_has_source_identity(candidate)
+        || !candidate_has_source_type(candidate)
+        || candidate_is_low_confidence_retained(candidate)
+        || candidate_has_non_evidence_payload(candidate)
+        || !materialization_quality_counts_as_usable_evidence(candidate_materialization_quality(
+            candidate,
+        ))
+        || !candidate_source_identity_is_query_anchored(query, candidate)
+    {
+        return None;
+    }
+    let title = clean_text(&candidate.title, 360)
+        .replace(" — ", " | ")
+        .replace(" – ", " | ")
+        .replace(" - ", " | ");
+    let (left, right) = title.split_once(" | ")?;
+    let left = clean_text(left, 160);
+    let claim = clean_text(right, 300);
+    if left.is_empty()
+        || claim.split_whitespace().count() < 5
+        || !descriptor_text_has_source_identity(candidate, &left)
+        || !descriptor_text_has_official_source_descriptor_terms(&claim)
+        || looks_like_low_signal_search_summary(&claim)
+        || looks_like_source_only_snippet(&claim)
+        || contains_web_junk_marker(&claim)
+        || looks_like_style_or_script_dump(&claim)
+        || looks_like_hashtag_keyword_shell(&claim)
+        || looks_like_media_embed_shell(&claim)
+        || looks_like_link_directory_or_aggregator_shell(&claim)
+        || claim_text_looks_like_page_or_subscription_boilerplate(&claim)
+        || source_title_looks_malformed_for_citation(&claim)
+        || !claim_text_is_synthesis_safe(&claim)
+        || !claim_hint_segment_is_substantive(&claim)
+    {
+        return None;
+    }
+    Some(trim_words(&claim, 48))
+}
+
+fn candidate_has_query_anchored_official_title_descriptor(
+    query: &str,
+    candidate: &Candidate,
+) -> bool {
+    official_title_descriptor_claim(query, candidate).is_some()
 }
 
 fn evidence_pack_claim_hints_for_candidate(
@@ -4981,6 +5301,7 @@ fn clean_evidence_extract_text(raw: &str) -> String {
     cleaned = trim_adjacent_forum_or_title_tail(&cleaned);
     cleaned = trim_adjacent_title_case_tail(&cleaned, 1_800);
     cleaned = trim_leading_title_prefix_before_extract_body(&cleaned, 1_800);
+    cleaned = trim_heading_prefix_before_claim_body(&cleaned);
     cleaned = trim_leading_page_intro_before_extract_body(&cleaned, 1_800);
     cleaned = trim_incomplete_terminal_extract_sentence(&cleaned, 1_800);
     clean_text(&cleaned, 1_800)
@@ -5537,6 +5858,185 @@ fn evidence_packet_substance_blockers(
     blockers
 }
 
+fn candidate_evidence_substance_blockers(
+    query: &str,
+    candidate: &Candidate,
+    relevant_extract: &str,
+    claim_hints: &[String],
+) -> Vec<String> {
+    let blockers = evidence_packet_substance_blockers(candidate, relevant_extract, claim_hints);
+    if blockers.is_empty() {
+        return blockers;
+    }
+    if !blockers.iter().all(|blocker| {
+        matches!(
+            blocker.as_str(),
+            "candidate_row_needs_extraction"
+                | "concrete_claim_material_missing"
+                | "malformed_evidence_material"
+                | "relevant_extract_too_thin"
+        )
+    }) {
+        return blockers;
+    }
+    if official_source_descriptor_claim_is_evidence(query, candidate, relevant_extract, claim_hints)
+    {
+        return Vec::new();
+    }
+    blockers
+}
+
+fn official_source_descriptor_claim_is_evidence(
+    query: &str,
+    candidate: &Candidate,
+    relevant_extract: &str,
+    claim_hints: &[String],
+) -> bool {
+    if claim_hints.is_empty()
+        || !candidate_has_source_identity(candidate)
+        || !candidate_has_source_type(candidate)
+        || candidate_is_low_confidence_retained(candidate)
+        || !materialization_quality_counts_as_usable_evidence(candidate_materialization_quality(
+            candidate,
+        ))
+        || candidate_has_non_evidence_payload(candidate)
+    {
+        return false;
+    }
+    let (overlap, distinctive_overlap, _) = query_overlap_profile(query, candidate);
+    if overlap < 2 || distinctive_overlap == 0 {
+        return false;
+    }
+    let descriptor_text = clean_text(
+        &format!("{} {}", relevant_extract, claim_hints.join(" ")),
+        1_200,
+    );
+    if descriptor_text.is_empty()
+        || contains_web_junk_marker(&descriptor_text)
+        || looks_like_low_signal_search_summary(&descriptor_text)
+        || looks_like_source_only_snippet(&descriptor_text)
+        || looks_like_link_directory_or_aggregator_shell(&descriptor_text)
+        || looks_like_page_chrome_or_unavailable_shell(&descriptor_text)
+        || text_looks_like_headline_or_dateline_shell(&descriptor_text)
+        || text_looks_like_question_headline(&descriptor_text)
+        || evidence_material_is_malformed(&descriptor_text)
+    {
+        return false;
+    }
+    if !descriptor_text_has_source_identity(candidate, &descriptor_text)
+        && !candidate_source_identity_is_query_anchored(query, candidate)
+    {
+        return false;
+    }
+    descriptor_text_has_official_source_descriptor_terms(&descriptor_text)
+        && claim_hints
+            .iter()
+            .any(|hint| claim_text_is_synthesis_safe(hint))
+}
+
+fn candidate_source_identity_is_query_anchored(query: &str, candidate: &Candidate) -> bool {
+    source_identity_has_term_anchor(&candidate_domain_hint(candidate), tokenize_relevance(query, 120))
+}
+
+fn evidence_row_source_identity_is_query_anchored(row: &Value, source_identity: &str) -> bool {
+    let mut anchors = Vec::<String>::new();
+    for field in ["term_hints", "coverage_facets"] {
+        if let Some(rows) = row.get(field).and_then(Value::as_array) {
+            anchors.extend(
+                rows.iter()
+                    .filter_map(Value::as_str)
+                    .flat_map(|value| tokenize_relevance(value, 40)),
+            );
+        }
+    }
+    let why_relevant = row
+        .get("why_relevant_to_query")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    anchors.extend(tokenize_relevance(why_relevant, 80));
+    source_identity_has_term_anchor(source_identity, anchors)
+}
+
+fn source_identity_has_term_anchor<I>(source_identity: &str, anchors: I) -> bool
+where
+    I: IntoIterator<Item = String>,
+{
+    let anchor_terms = anchors.into_iter().collect::<HashSet<_>>();
+    if anchor_terms.is_empty() {
+        return false;
+    }
+    source_identity_tokens_from_text(source_identity)
+        .iter()
+        .any(|token| anchor_terms.contains(token))
+}
+
+fn descriptor_text_has_source_identity(candidate: &Candidate, text: &str) -> bool {
+    descriptor_text_has_source_identity_tokens(&candidate_domain_hint(candidate), text)
+}
+
+fn descriptor_text_has_source_identity_tokens(source_identity: &str, text: &str) -> bool {
+    let text_terms = tokenize_relevance(text, 80)
+        .into_iter()
+        .collect::<HashSet<_>>();
+    source_identity_tokens_from_text(source_identity)
+        .iter()
+        .any(|token| text_terms.contains(token))
+}
+
+fn source_identity_tokens_from_text(source_identity: &str) -> Vec<String> {
+    let domain = source_identity.to_ascii_lowercase();
+    let ignored = [
+        "www",
+        "app",
+        "api",
+        "blog",
+        "dev",
+        "developer",
+        "developers",
+        "docs",
+        "help",
+        "support",
+    ];
+    domain
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('.')
+        .map(|part| {
+            part.chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+        })
+        .filter(|part| {
+            part.len() >= 3 && !ignored.iter().any(|ignored| part == ignored)
+        })
+        .collect()
+}
+
+fn descriptor_text_has_official_source_descriptor_terms(text: &str) -> bool {
+    let lowered = format!(" {} ", clean_text(text, 1_200).to_ascii_lowercase());
+    [
+        " api ",
+        " application programming interface ",
+        " crawler ",
+        " crawling ",
+        " developer ",
+        " documentation ",
+        " engine ",
+        " platform ",
+        " product ",
+        " sdk ",
+        " search ",
+        " service ",
+        " software ",
+        " tool ",
+        " web ",
+    ]
+    .iter()
+    .filter(|marker| lowered.contains(**marker))
+    .count()
+        >= 2
+}
+
 fn evidence_promotion_assessment(
     query: &str,
     candidate: &Candidate,
@@ -5552,7 +6052,7 @@ fn evidence_promotion_assessment(
     let content_rich = content_rich_text(&candidate.snippet);
     let relevant_extract = evidence_pack_relevant_extract_for_candidate(candidate, 96);
     let substance_blockers =
-        evidence_packet_substance_blockers(candidate, &relevant_extract, claim_hints);
+        candidate_evidence_substance_blockers(query, candidate, &relevant_extract, claim_hints);
     let query_overlap_count = query_overlap_terms(query, candidate);
     let blocker_absent = !quality_flags
         .iter()
@@ -5701,8 +6201,12 @@ fn evidence_pack_from_ranked_candidates(
                 let term_hints = evidence_pack_term_hints(query, candidate, 8);
                 let relevant_extract =
                     evidence_pack_relevant_extract_for_candidate(candidate, max_snippet_words);
-                let substance_blockers =
-                    evidence_packet_substance_blockers(candidate, &relevant_extract, &claim_hints);
+                let substance_blockers = candidate_evidence_substance_blockers(
+                    query,
+                    candidate,
+                    &relevant_extract,
+                    &claim_hints,
+                );
                 for blocker in &substance_blockers {
                     if !quality_flags.iter().any(|flag| flag == blocker) {
                         quality_flags.push(blocker.clone());
@@ -5954,8 +6458,10 @@ fn evidence_claims_from_pack(
                     {
                         continue;
                     }
+                    let display_claim = display_claim_from_evidence_row(row, &claim);
                     claims.push(json!({
                         "claim": claim,
+                        "display_claim": display_claim,
                         "title": source_ref.get("title").cloned().unwrap_or_else(|| json!("")),
                         "locator": source_ref.get("locator").cloned().unwrap_or_else(|| json!("")),
                         "source_title": source_ref.get("title").cloned().unwrap_or_else(|| json!("")),
@@ -8559,6 +9065,279 @@ mod evidence_packet_promotion_tests {
     }
 
     #[test]
+    fn official_source_short_descriptive_claim_promotes_to_pack_ready_evidence() {
+        let mut candidate = test_candidate(
+            "https://examplesearch.example.test/",
+            "ExampleSearch. Web Search API, AI Search Engine, & Website Crawler View case study View case study",
+        );
+        candidate.title = "Web result from examplesearch.example.test".to_string();
+        candidate.source_kind = "web_conduit_fetch_page_enriched".to_string();
+        candidate.permissions = Some("public_web;page_enriched".to_string());
+
+        let query = "compare ExampleSearch OtherSearch web search APIs";
+        assert!(
+            candidate_is_pack_ready_evidence(query, &candidate, 1.0),
+            "materialized official-source descriptive claims should carry through into evidence"
+        );
+    }
+
+    #[test]
+    fn official_source_identity_snippet_promotes_despite_scraped_title_drift() {
+        let mut candidate = test_candidate(
+            "https://www.examplecrawler.test/",
+            "ExampleCrawler. The API to search, scrape, and interact with the web at scale",
+        );
+        candidate.title = "Web result from unrelated-host.example".to_string();
+        candidate.source_kind = "web_conduit_fetch_page_enriched".to_string();
+        candidate.permissions = Some("public_web;page_enriched".to_string());
+
+        let query = "compare ExampleCrawler OtherSearch web search APIs";
+        assert!(
+            candidate_is_pack_ready_evidence(query, &candidate, 1.0),
+            "first-party source identity in the snippet should override scraped title drift"
+        );
+    }
+
+    #[test]
+    fn live_official_descriptor_shapes_promote_to_pack_ready_evidence() {
+        let query = "compare Firecrawl Tavily Exa web search APIs";
+        let mut firecrawl = test_candidate(
+            "https://www.firecrawl.dev/",
+            "Firecrawl. The API to search, scrape, and interact with the web at scale",
+        );
+        firecrawl.title = "Web result from github.com".to_string();
+        firecrawl.source_kind = "web_conduit_fetch_page_enriched".to_string();
+        firecrawl.permissions = Some("public_web;page_enriched".to_string());
+
+        let mut exa = test_candidate(
+            "https://exa.ai/",
+            "Exa. Web Search API, AI Search Engine, & Website Crawler View case studyView case study View case study",
+        );
+        exa.title = "Web result from exa.ai".to_string();
+        exa.source_kind = "web_conduit_fetch_page_enriched".to_string();
+        exa.permissions = Some("public_web;page_enriched".to_string());
+
+        assert!(candidate_is_pack_ready_evidence(query, &firecrawl, 1.0));
+        assert!(candidate_is_pack_ready_evidence(query, &exa, 1.0));
+    }
+
+    #[test]
+    fn structured_feed_descriptor_can_use_query_anchored_source_identity() {
+        let mut candidate = test_candidate(
+            "https://www.examplecrawler.test/",
+            "The web context API for AI agents",
+        );
+        candidate.title = "Web result from examplecrawler.test".to_string();
+        candidate.source_kind = "bing_rss".to_string();
+        candidate.permissions = Some("public_web;headline_feed".to_string());
+
+        let query =
+            "compare ExampleCrawler, OtherSearch, and SearchKit as data tools for AI agents";
+
+        assert!(
+            candidate_is_pack_ready_evidence(query, &candidate, 1.0),
+            "structured feed descriptors should remain usable when the source identity is carried by a query-anchored URL/domain"
+        );
+    }
+
+    #[test]
+    fn structured_feed_descriptor_with_source_tail_promotes_to_pack_ready_evidence() {
+        let mut candidate = test_candidate(
+            "https://www.examplecrawler.test/",
+            "The web context API for AI agents. Search, scrape, parse, and interact with the live web - turn any source into clean Markdown or structured data your agents can ship with. ExampleCrawler - GitHub",
+        );
+        candidate.title =
+            "ExampleCrawler - The API to search, scrape, and interact with the web at ..."
+                .to_string();
+        candidate.source_kind = "bing_rss".to_string();
+        candidate.permissions = Some("public_web;headline_feed".to_string());
+
+        let query = "Research ExampleCrawler, OtherSearch, and SearchKit as data tools for AI research agents. Which should we use for search, crawling, and evidence gathering?";
+
+        assert!(
+            candidate_is_pack_ready_evidence(query, &candidate, 1.0),
+            "compact structured feed descriptors with query-anchored source identity should not be dropped before evidence packaging"
+        );
+    }
+
+    #[test]
+    fn query_anchored_official_title_descriptor_supplies_claim_hint() {
+        let mut candidate = test_candidate(
+            "https://examplesearch.test/",
+            "ExampleSearch.",
+        );
+        candidate.title =
+            "ExampleSearch | Web Search API, AI Search Engine, & Website Crawler".to_string();
+        candidate.source_kind = "bing_rss".to_string();
+        candidate.permissions = Some("public_web;headline_feed".to_string());
+
+        let query = "Research ExampleCrawler, ExampleSearch, and SearchKit as data tools for AI research agents. Which should we use for search, crawling, and evidence gathering?";
+        let hints = evidence_pack_claim_hints_for_candidate(query, &candidate, 2);
+
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint == "Web Search API, AI Search Engine, & Website Crawler"),
+            "title descriptor should become a claim hint instead of the full source title: {hints:?}"
+        );
+        assert!(
+            candidate_is_pack_ready_evidence(query, &candidate, 1.0),
+            "query-anchored official title descriptors should survive thin source overlap"
+        );
+    }
+
+    #[test]
+    fn unrelated_official_title_descriptor_stays_out_of_pack_ready_evidence() {
+        let mut candidate = test_candidate(
+            "https://unrelated-search.test/",
+            "UnrelatedSearch.",
+        );
+        candidate.title =
+            "UnrelatedSearch | Web Search API, AI Search Engine, & Website Crawler".to_string();
+        candidate.source_kind = "bing_rss".to_string();
+        candidate.permissions = Some("public_web;headline_feed".to_string());
+
+        let query = "Research ExampleCrawler, ExampleSearch, and SearchKit as data tools for AI research agents. Which should we use for search, crawling, and evidence gathering?";
+
+        assert!(
+            evidence_pack_claim_hints_for_candidate(query, &candidate, 2).is_empty(),
+            "title descriptor fallback must require query-anchored source identity"
+        );
+        assert!(
+            !candidate_is_pack_ready_evidence(query, &candidate, 1.0),
+            "unrelated official-looking descriptors must not become evidence"
+        );
+    }
+
+    #[test]
+    fn packaged_structured_feed_descriptor_keeps_query_anchored_source_identity() {
+        let row = json!({
+            "title": "Web result from examplecrawler.test",
+            "locator": "https://www.examplecrawler.test/",
+            "source_domain": "examplecrawler.test",
+            "source_kind": "bing_rss",
+            "source_type": "bing_rss",
+            "snippet": "The web context API for AI agents",
+            "relevant_extract": "The web context API for AI agents",
+            "claim_hints": ["The web context API for AI agents"],
+            "term_hints": ["examplecrawler", "agents"],
+            "confidence": "usable",
+            "materialization_quality": "trusted_structured_feed",
+            "counts_as_usable_evidence": true,
+            "quality_flags": []
+        });
+        let mut unanchored = row.clone();
+        unanchored["title"] = json!("Structured feed result");
+        unanchored["term_hints"] = json!(["agents"]);
+
+        assert!(
+            evidence_row_counts_as_usable_evidence(&row),
+            "packaged rows should preserve usable evidence when source identity is anchored by term hints"
+        );
+        assert!(
+            !evidence_row_counts_as_usable_evidence(&unanchored),
+            "descriptor rows without source identity in text or query anchors should stay out of usable evidence"
+        );
+    }
+
+    #[test]
+    fn evidence_claims_keep_compact_first_party_descriptor_rows() {
+        let pack = json!([{
+            "title": "Web result from github.com",
+            "locator": "https://www.examplecrawler.test/",
+            "source_domain": "examplecrawler.test",
+            "source_kind": "web_conduit_fetch_page_enriched",
+            "source_type": "web_conduit_fetch_page_enriched",
+            "source_class": "web_conduit_fetch_page_enriched",
+            "snippet": "ExampleCrawler. The API to search, scrape, and interact with the web at scale",
+            "relevant_extract": "ExampleCrawler. The API to search, scrape, and interact with the web at scale",
+            "claim_hints": ["The API to search, scrape, and interact with the web at scale"],
+            "confidence": "usable",
+            "materialization_quality": "partial_materialized",
+            "counts_as_usable_evidence": true,
+            "quality_flags": []
+        }]);
+
+        let claims = evidence_claims_from_pack(&BatchQueryKeywordPack::default(), &pack, 3);
+
+        assert_eq!(claims.as_array().map(Vec::len), Some(1), "{claims:#?}");
+        assert_eq!(
+            claims.pointer("/0/source_domain").and_then(Value::as_str),
+            Some("examplecrawler.test"),
+            "{claims:#?}"
+        );
+    }
+
+    #[test]
+    fn evidence_claims_add_display_claims_without_changing_raw_support_claims() {
+        let pack = json!([
+            {
+                "title": "",
+                "locator": "https://www.example-web-layer.test/",
+                "source_domain": "example-web-layer.test",
+                "source_kind": "tavily_api_search_result",
+                "source_type": "tavily_api_search_result",
+                "snippet": "Connect your AI agents to the web Real-time search, extraction, research, and web crawling through a single, secure API. Talk to an expertTry it out search extract crawl research.",
+                "relevant_extract": "Connect your AI agents to the web Real-time search, extraction, research, and web crawling through a single, secure API. Talk to an expertTry it out search extract crawl research.",
+                "claim_hints": ["Talk to an expertTry it out search extract crawl research Trusted by 2M+ developers around the world /the web access layer for agents Loved by developers, built for enterprises Ground models with fresh web context"],
+                "confidence": "usable",
+                "materialization_quality": "trusted_structured_feed",
+                "counts_as_usable_evidence": true,
+                "quality_flags": []
+            },
+            {
+                "title": "",
+                "locator": "https://search.example/",
+                "source_domain": "search.example",
+                "source_kind": "exa_api_search_result",
+                "source_type": "exa_api_search_result",
+                "snippet": "SearchExample. Web Search API, AI Search Engine, & Website Crawler View case studyView case study View case study.",
+                "relevant_extract": "SearchExample. Web Search API, AI Search Engine, & Website Crawler View case studyView case study View case study.",
+                "claim_hints": ["Web Search API, AI Search Engine, & Website Crawler View case studyView case study View case study"],
+                "confidence": "usable",
+                "materialization_quality": "trusted_structured_feed",
+                "counts_as_usable_evidence": true,
+                "quality_flags": []
+            }
+        ]);
+        let claims = evidence_claims_from_pack(&BatchQueryKeywordPack::default(), &pack, 4);
+        let claims = claims.as_array().cloned().unwrap_or_default();
+
+        assert_eq!(claims.len(), 2, "{claims:#?}");
+        let web_layer = claims
+            .iter()
+            .find(|claim| {
+                claim.pointer("/source_domain").and_then(Value::as_str)
+                    == Some("example-web-layer.test")
+            })
+            .expect("web layer claim");
+        assert!(
+            web_layer
+                .pointer("/claim")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .contains("Talk to an expert"),
+            "{claims:#?}"
+        );
+        assert_eq!(
+            web_layer.pointer("/display_claim").and_then(Value::as_str),
+            Some("Connect your AI agents to the web Real-time search, extraction, research, and web crawling through a single, secure API."),
+            "{claims:#?}"
+        );
+        let search = claims
+            .iter()
+            .find(|claim| {
+                claim.pointer("/source_domain").and_then(Value::as_str) == Some("search.example")
+            })
+            .expect("search claim");
+        assert_eq!(
+            search.pointer("/display_claim").and_then(Value::as_str),
+            Some("Web Search API, AI Search Engine, & Website Crawler"),
+            "{claims:#?}"
+        );
+    }
+
+    #[test]
     fn claim_text_is_synthesis_safe_rejects_leading_dangling_fragments() {
         assert!(!claim_text_is_synthesis_safe(
             ", 3-5 g/day are well established throughout the scientific literature for increasing intramuscular creatine stores",
@@ -8639,6 +9418,34 @@ mod evidence_packet_promotion_tests {
         );
         assert!(
             blocker_text.contains("quality_flags_block_usable_evidence"),
+            "{diagnostics:#?}"
+        );
+        assert!(
+            diagnostics
+                .pointer("/rows/0/query_overlap_count")
+                .and_then(Value::as_u64)
+                .is_some(),
+            "{diagnostics:#?}"
+        );
+        assert!(
+            diagnostics
+                .pointer("/rows/0/distinctive_query_overlap_count")
+                .and_then(Value::as_u64)
+                .is_some(),
+            "{diagnostics:#?}"
+        );
+        assert!(
+            diagnostics
+                .pointer("/rows/0/candidate_has_source_identity")
+                .and_then(Value::as_bool)
+                .is_some(),
+            "{diagnostics:#?}"
+        );
+        assert!(
+            diagnostics
+                .pointer("/rows/0/source_identity_query_anchored")
+                .and_then(Value::as_bool)
+                .is_some(),
             "{diagnostics:#?}"
         );
     }

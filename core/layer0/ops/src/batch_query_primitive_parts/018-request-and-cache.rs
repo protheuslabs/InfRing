@@ -1639,20 +1639,72 @@ fn token_looks_like_unseparated_entity_item(raw: &str) -> bool {
             || token.contains('#'))
 }
 
+fn token_looks_like_entity_phrase_continuation(raw: &str) -> bool {
+    matches!(
+        query_metadata_token(raw).to_ascii_lowercase().as_str(),
+        "agent"
+            | "agents"
+            | "api"
+            | "apis"
+            | "app"
+            | "apps"
+            | "cli"
+            | "docs"
+            | "documentation"
+            | "framework"
+            | "frameworks"
+            | "library"
+            | "libraries"
+            | "model"
+            | "models"
+            | "sdk"
+            | "sdks"
+            | "tool"
+            | "tools"
+    )
+}
+
 fn split_unseparated_comparison_entity_variants(raw: &str) -> Vec<String> {
     let regular = split_entity_phrase_variants(raw);
     if regular.len() != 1 {
         return regular;
     }
     let tokens = query_metadata_tokens(&regular[0]);
-    if tokens.len() == 2
+    if (2..=4).contains(&tokens.len())
         && tokens
             .iter()
             .all(|token| token_looks_like_unseparated_entity_item(token))
+        && !tokens
+            .iter()
+            .skip(1)
+            .any(|token| token_looks_like_entity_phrase_continuation(token))
     {
         return tokens;
     }
     regular
+}
+
+fn leading_unseparated_entity_list_prefix(tokens: &[String]) -> Option<Vec<String>> {
+    if tokens.len() < 4 {
+        return None;
+    }
+    let mut prefix = Vec::<String>::new();
+    for token in tokens {
+        if !token_looks_like_unseparated_entity_item(token)
+            || token_looks_like_entity_phrase_continuation(token)
+        {
+            break;
+        }
+        prefix.push(token.clone());
+        if prefix.len() >= 4 {
+            break;
+        }
+    }
+    if (3..=4).contains(&prefix.len()) && prefix.len() < tokens.len() {
+        Some(prefix)
+    } else {
+        None
+    }
 }
 
 fn push_entity_phrase_variants(
@@ -1759,7 +1811,6 @@ fn infer_leading_comparison_entities_from_query(query: &str, max_terms: usize) -
         .map(|piece| clean_text(piece, 160))
         .filter(|piece| !piece.is_empty())
         .collect::<Vec<_>>();
-    let split_unseparated_pairs = pieces.len() >= 2;
     let mut out = Vec::<String>::new();
     let mut seen = HashSet::<String>::new();
     for piece in pieces {
@@ -1767,14 +1818,11 @@ fn infer_leading_comparison_entities_from_query(query: &str, max_terms: usize) -
             break;
         }
         let tokens = query_metadata_tokens(&piece);
-        let Some(entity) = normalized_entity_phrase_from_tokens(&tokens) else {
+        let entity_tokens = leading_unseparated_entity_list_prefix(&tokens).unwrap_or(tokens);
+        let Some(entity) = normalized_entity_phrase_from_tokens(&entity_tokens) else {
             continue;
         };
-        let variants = if split_unseparated_pairs {
-            split_unseparated_comparison_entity_variants(&entity)
-        } else {
-            split_entity_phrase_variants(&entity)
-        };
+        let variants = split_unseparated_comparison_entity_variants(&entity);
         for variant in variants {
             if out.len() >= max_terms {
                 break;
@@ -2140,6 +2188,23 @@ fn inferred_named_entity_query_pack(
         push_unique_clean(&mut pack.facets, &mut facet_seen, facet, 6);
     }
     Some(pack)
+}
+
+fn inferred_entity_query_pack(
+    user_query: &str,
+    planning_query: &str,
+    budget: ApertureBudget,
+) -> Option<BatchQueryKeywordPack> {
+    let metadata_query = subject_preserving_batch_web_search_query(user_query);
+    let metadata_query = if metadata_query.is_empty() {
+        planning_query
+    } else {
+        metadata_query.as_str()
+    };
+    inferred_comparison_query_pack(metadata_query, budget)
+        .or_else(|| inferred_named_entity_query_pack(metadata_query, budget))
+        .or_else(|| inferred_comparison_query_pack(planning_query, budget))
+        .or_else(|| inferred_named_entity_query_pack(planning_query, budget))
 }
 
 fn quote_exact_query_term(raw: &str) -> Option<String> {
@@ -2740,18 +2805,6 @@ fn compile_keyword_pack_queries(
     let comparison_intent = keyword_pack_requests_comparison(primary_query, pack);
 
     if !exact_subjects.is_empty() {
-        push_multi_subject_combined_lanes(
-            &exact_subjects,
-            &facets,
-            comparison_intent,
-            pack,
-            &mut dedup,
-            &mut queries,
-            max_queries,
-        );
-        if queries.len() >= max_queries {
-            return queries;
-        }
         push_subject_keyword_lanes(
             &exact_subjects,
             &keywords,
@@ -2775,6 +2828,18 @@ fn compile_keyword_pack_queries(
             if queries.len() >= max_queries {
                 return queries;
             }
+        }
+        push_multi_subject_combined_lanes(
+            &exact_subjects,
+            &facets,
+            comparison_intent,
+            pack,
+            &mut dedup,
+            &mut queries,
+            max_queries,
+        );
+        if queries.len() >= max_queries {
+            return queries;
         }
     }
 
@@ -2949,12 +3014,43 @@ fn initial_query_execution_max_lanes(policy: &Value, budget: ApertureBudget) -> 
         .clamp(1, budget.max_candidates.clamp(1, 12) as u64) as usize
 }
 
+fn coverage_aware_initial_query_execution_max_lanes(
+    policy: &Value,
+    budget: ApertureBudget,
+    keyword_pack: &BatchQueryKeywordPack,
+) -> usize {
+    let base = initial_query_execution_max_lanes(policy, budget);
+    let subject_count = if keyword_pack.entities.is_empty() {
+        keyword_pack.aliases.len()
+    } else {
+        keyword_pack.entities.len()
+    };
+    let topical_facet_count = keyword_pack
+        .facets
+        .iter()
+        .filter(|term| !looks_like_temporal_or_scope_facet(term))
+        .count();
+    let coverage_count = subject_count.max(topical_facet_count);
+    if coverage_count < 2 {
+        return base;
+    }
+    let configured_min = policy
+        .pointer("/batch_query/coverage_aware_query_planning/budget/min_lanes_for_multi_entity")
+        .and_then(Value::as_u64)
+        .unwrap_or(4) as usize;
+    let coverage_floor = 1 + coverage_count.min(4);
+    base.max(configured_min)
+        .max(coverage_floor)
+        .min(budget.max_candidates.clamp(1, 12))
+}
+
 fn execution_limited_initial_queries(
     policy: &Value,
     budget: ApertureBudget,
+    keyword_pack: &BatchQueryKeywordPack,
     submitted_queries: &[String],
 ) -> Vec<String> {
-    let max_lanes = initial_query_execution_max_lanes(policy, budget);
+    let max_lanes = coverage_aware_initial_query_execution_max_lanes(policy, budget, keyword_pack);
     if submitted_queries.len() <= max_lanes {
         return submitted_queries.to_vec();
     }
@@ -2991,7 +3087,7 @@ fn deferred_query_recovery_queries(
         .collect::<HashSet<_>>();
     let max_lanes = deferred_query_recovery_max_lanes(policy, budget);
     let mut seen = executed.clone();
-    submitted_queries
+    let mut candidates = submitted_queries
         .iter()
         .filter_map(|query| {
             let cleaned = clean_text(query, 600);
@@ -3004,8 +3100,94 @@ fn deferred_query_recovery_queries(
             }
             Some(cleaned)
         })
-        .take(max_lanes)
-        .collect()
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| {
+        deferred_recovery_query_priority(left).cmp(&deferred_recovery_query_priority(right))
+    });
+    diverse_deferred_recovery_queries(candidates, max_lanes)
+}
+
+fn deferred_recovery_query_priority(query: &str) -> u8 {
+    let lowered = clean_text(query, 600).to_ascii_lowercase();
+    if lowered.contains("official site")
+        || lowered.contains("official documentation")
+        || lowered.contains("official source")
+        || lowered.contains("primary source")
+    {
+        0
+    } else if lowered.contains("documentation")
+        || lowered.contains(" docs")
+        || lowered.contains("source-backed")
+        || lowered.contains("source backed")
+        || lowered.contains("evidence")
+        || lowered.contains("changelog")
+        || lowered.contains("release notes")
+        || lowered.contains("repository")
+        || lowered.contains("publication")
+        || lowered.contains("announcement")
+        || lowered.contains("advisory")
+        || lowered.contains("methodology")
+    {
+        1
+    } else if lowered.contains("comparison")
+        || lowered.contains("reviews")
+        || lowered.contains("independent analysis")
+    {
+        3
+    } else {
+        2
+    }
+}
+
+fn deferred_recovery_subject_key(query: &str) -> String {
+    let lowered = clean_text(query, 600).to_ascii_lowercase();
+    let mut tokens = query_metadata_tokens(&lowered)
+        .into_iter()
+        .filter(|token| {
+            !matches!(
+                token.as_str(),
+                "official"
+                    | "site"
+                    | "documentation"
+                    | "docs"
+                    | "source"
+                    | "primary"
+                    | "evidence"
+                    | "comparison"
+                    | "reviews"
+                    | "analysis"
+                    | "independent"
+            )
+        })
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        clean_text(query, 120).to_ascii_lowercase()
+    } else {
+        tokens.remove(0)
+    }
+}
+
+fn diverse_deferred_recovery_queries(candidates: Vec<String>, max_lanes: usize) -> Vec<String> {
+    let mut selected = Vec::<String>::new();
+    let mut selected_subjects = HashSet::<String>::new();
+    for query in &candidates {
+        if selected.len() >= max_lanes {
+            return selected;
+        }
+        let subject = deferred_recovery_subject_key(query);
+        if selected_subjects.insert(subject) {
+            selected.push(query.clone());
+        }
+    }
+    for query in candidates {
+        if selected.len() >= max_lanes {
+            break;
+        }
+        if !selected.iter().any(|row| row.eq_ignore_ascii_case(&query)) {
+            selected.push(query);
+        }
+    }
+    selected
 }
 
 fn metadata_expansion_budget(explicit_query_count: usize, max_queries: usize) -> usize {
@@ -3029,11 +3211,14 @@ fn normalize_requested_queries(
     let mut queries = Vec::<String>::new();
     let max_queries = max_explicit_queries_for_budget(primary_query, budget);
     let normalized_primary = clean_text(primary_query, 600);
-    if !normalized_primary.is_empty() {
+    let compiled_metadata = compile_keyword_pack_queries(primary_query, keyword_pack, budget);
+    let primary_is_instruction_scaffold = !compiled_metadata.is_empty()
+        && keyword_pack.has_positive_terms()
+        && looks_like_instructional_query(&normalized_primary);
+    if !normalized_primary.is_empty() && !primary_is_instruction_scaffold {
         push_query_dedup(normalized_primary, &mut dedup, &mut queries);
         push_temporal_scope_query_lanes(primary_query, &mut dedup, &mut queries, max_queries);
     }
-    let compiled_metadata = compile_keyword_pack_queries(primary_query, keyword_pack, budget);
     let explicit_queries = request
         .get("queries")
         .and_then(Value::as_array)
@@ -3043,6 +3228,16 @@ fn normalize_requested_queries(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let explicit_queries = if !compiled_metadata.is_empty()
+        && query_pack_has_coverage_terms(keyword_pack)
+    {
+        explicit_queries
+            .into_iter()
+            .filter(|query| !looks_like_instructional_query(query))
+            .collect::<Vec<_>>()
+    } else {
+        explicit_queries
+    };
     let has_explicit_queries = !explicit_queries.is_empty();
     let explicit_head_count = if has_explicit_queries {
         if query_pack_has_coverage_terms(keyword_pack) {
@@ -3786,6 +3981,8 @@ fn retrieval_telemetry_row(
         .filter(|issue| !issue.is_empty())
         .take(12)
         .collect::<Vec<_>>();
+    let failure_reason_class_counts = retrieval_failure_reason_class_counts(issues);
+    let dominant_failure_reason_class = dominant_retrieval_failure_reason_class(issues);
     json!({
         "query": clean_text(query, 600),
         "phase": clean_text(phase, 80),
@@ -3795,6 +3992,8 @@ fn retrieval_telemetry_row(
         "synthesis_candidate_rows": synthesis_rows,
         "low_confidence_raw_rows": low_confidence_rows,
         "filtered_or_rejected_rows": issues.len(),
+        "failure_reason_class_counts": failure_reason_class_counts,
+        "dominant_failure_reason_class": dominant_failure_reason_class,
         "failure_reasons": failure_reasons
     })
 }
@@ -3969,6 +4168,11 @@ fn provider_artifact_summaries(artifacts: &[Value]) -> Vec<Value> {
     artifacts
         .iter()
         .map(|artifact| {
+            let failure_reason_strings = retrieval_failure_reason_strings(
+                artifact
+                    .get("failure_reasons")
+                    .unwrap_or(&Value::Array(Vec::new())),
+            );
             json!({
                 "provider": artifact.get("provider").cloned().unwrap_or_else(|| json!("unknown")),
                 "stage": artifact.get("stage").cloned().unwrap_or_else(|| json!("unknown")),
@@ -3988,6 +4192,12 @@ fn provider_artifact_summaries(artifacts: &[Value]) -> Vec<Value> {
                 "filtered_or_rejected_rows": provider_artifact_count_field(
                     artifact,
                     "provider_filtered_count",
+                ),
+                "failure_reason_class_counts": retrieval_failure_reason_class_counts(
+                    &failure_reason_strings
+                ),
+                "dominant_failure_reason_class": dominant_retrieval_failure_reason_class(
+                    &failure_reason_strings
                 ),
                 "failure_reasons": artifact
                     .get("failure_reasons")
@@ -4074,6 +4284,9 @@ fn query_lane_attribution_report(
             .filter(|candidate| !candidate_is_low_confidence_retained(candidate))
             .count();
         let issue_count = source.issues.len();
+        let failure_reason_class_counts = retrieval_failure_reason_class_counts(&source.issues);
+        let dominant_failure_reason_class =
+            dominant_retrieval_failure_reason_class(&source.issues);
         let mut selected_evidence_count = 0usize;
         let mut selected_low_confidence_count = 0usize;
         let mut covered_facet_ids = HashSet::<String>::new();
@@ -4142,6 +4355,8 @@ fn query_lane_attribution_report(
             "covered_facet_ids": covered_facet_ids,
             "covered_requested_texts": covered_requested_texts,
             "provider_results": provider_artifact_summaries(&source.artifacts),
+            "failure_reason_class_counts": failure_reason_class_counts,
+            "dominant_failure_reason_class": dominant_failure_reason_class,
             "failure_reasons": source
                 .issues
                 .iter()
@@ -4214,9 +4429,7 @@ fn resolve_query_plan(
         search_query
     };
     if query_metadata.is_empty() {
-        if let Some(inferred) = inferred_comparison_query_pack(&planning_query, budget) {
-            query_metadata = inferred;
-        } else if let Some(inferred) = inferred_named_entity_query_pack(&planning_query, budget) {
+        if let Some(inferred) = inferred_entity_query_pack(query, &planning_query, budget) {
             query_metadata = inferred;
         }
     }
@@ -4231,7 +4444,13 @@ fn resolve_query_plan(
                 .unwrap_or(false));
     if explicit_query_pack_used {
         let rerank_query = clean_text(&planning_query, 600);
-        let rerank_query = if rerank_query.is_empty() {
+        let rerank_query = if rerank_query.is_empty()
+            || (looks_like_instructional_query(&rerank_query)
+                && explicit_queries
+                    .first()
+                    .map(|first| !first.eq_ignore_ascii_case(&rerank_query))
+                    .unwrap_or(false))
+        {
             explicit_queries
                 .first()
                 .cloned()
@@ -4258,9 +4477,9 @@ fn resolve_query_plan(
     let recovery_queries = general_research_recovery_queries(policy, &planning_query, budget);
     if !recovery_queries.is_empty() {
         if query_metadata.is_empty() {
-            if let Some(inferred) = inferred_raw_query_term_pack(&planning_query, budget) {
+            if let Some(inferred) = inferred_entity_query_pack(query, &planning_query, budget) {
                 query_metadata = inferred;
-            } else if let Some(inferred) = inferred_named_entity_query_pack(&planning_query, budget) {
+            } else if let Some(inferred) = inferred_raw_query_term_pack(&planning_query, budget) {
                 query_metadata = inferred;
             }
         }
@@ -4283,9 +4502,9 @@ fn resolve_query_plan(
     let recovery_queries = broad_current_research_recovery_queries(policy, &planning_query, budget);
     if !recovery_queries.is_empty() {
         if query_metadata.is_empty() {
-            if let Some(inferred) = inferred_raw_query_term_pack(&planning_query, budget) {
+            if let Some(inferred) = inferred_entity_query_pack(query, &planning_query, budget) {
                 query_metadata = inferred;
-            } else if let Some(inferred) = inferred_named_entity_query_pack(&planning_query, budget) {
+            } else if let Some(inferred) = inferred_raw_query_term_pack(&planning_query, budget) {
                 query_metadata = inferred;
             }
         }
@@ -4307,9 +4526,9 @@ fn resolve_query_plan(
     }
     let queries = cache_identity_query_plan(&planning_query, &explicit_queries);
     if query_metadata.is_empty() {
-        if let Some(inferred) = inferred_raw_query_term_pack(&planning_query, budget) {
+        if let Some(inferred) = inferred_entity_query_pack(query, &planning_query, budget) {
             query_metadata = inferred;
-        } else if let Some(inferred) = inferred_named_entity_query_pack(&planning_query, budget) {
+        } else if let Some(inferred) = inferred_raw_query_term_pack(&planning_query, budget) {
             query_metadata = inferred;
         }
     }

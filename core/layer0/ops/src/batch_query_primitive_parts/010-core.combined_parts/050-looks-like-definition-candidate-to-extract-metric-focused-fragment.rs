@@ -141,6 +141,9 @@ fn looks_like_off_intent_noise_candidate(query: &str, candidate: &Candidate) -> 
 
 fn is_official_source_query_lane(query: &str) -> bool {
     let lowered = clean_text(query, 600).to_ascii_lowercase();
+    if lowered.ends_with(" official") {
+        return true;
+    }
     [
         "official site",
         "official documentation",
