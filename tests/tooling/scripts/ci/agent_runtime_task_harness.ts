@@ -36,6 +36,10 @@ type RunOutcome = {
   stdout_ref?: string | null;
   stderr_ref?: string | null;
   response_ref?: string | null;
+  approval_decision_ref?: string | null;
+  approval_pause?: boolean;
+  approval_decision_ok?: boolean;
+  expected_artifacts_ok?: boolean;
   duration_ms?: number;
 };
 
@@ -402,6 +406,11 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
   let projectionOk = result.ok;
   let projectionStatus = "";
   let projectionReason = "";
+  let approvalPause = false;
+  let approvalDecisionOk = false;
+  let approvalDecisionRef: string | null = null;
+  let approvalDecisionSummary = "";
+  let expectedArtifactsOk = true;
   try {
     const projection = JSON.parse(result.text);
     if (projection && typeof projection === "object") {
@@ -410,9 +419,54 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
       }
       projectionStatus = String(projection.status ?? "");
       projectionReason = String(projection.reason || projection.error_code || projection.error || projection.text || "");
+      approvalPause = projectionStatus === "permission_required" || projection.pending_permission === true || projection.approval_pause_active === true;
+      const approvalRoute = String(
+        projection.pending_permission_request?.approval_route ||
+          projection.permission_request?.approval_route ||
+          projection.approval_pause?.decision_route ||
+          ""
+      );
+      const canSimulateApproval = ["simulate_allow", "manual_or_simulate_allow"].includes(String(task.approval_policy ?? ""));
+      if (approvalPause && canSimulateApproval && approvalRoute) {
+        const approvalUrl = approvalRoute.startsWith("http://") || approvalRoute.startsWith("https://")
+          ? approvalRoute
+          : `${args.gatewayUrl.replace(/\/+$/, "")}${approvalRoute}`;
+        const decision = await postJson(approvalUrl, { decision: "allow_once" }, args.timeoutMs);
+        const decisionPath = path.resolve(REPO_ROOT, outDir, "infring", `${frameworkId}-${taskId}.approval-decision.txt`);
+        writeText(decisionPath, decision.text);
+        approvalDecisionRef = path.relative(REPO_ROOT, decisionPath);
+        try {
+          const decisionProjection = JSON.parse(decision.text);
+          approvalDecisionOk = decision.ok && decisionProjection?.ok === true;
+          approvalDecisionSummary = String(
+            decisionProjection?.resume_action ||
+              decisionProjection?.next_action ||
+              decisionProjection?.error ||
+              ""
+          );
+        } catch {
+          approvalDecisionOk = decision.ok;
+          approvalDecisionSummary = decision.text.slice(0, 240);
+        }
+      }
+      const expectedArtifacts = Array.isArray(task.expected_artifacts) ? task.expected_artifacts : [];
+      if (expectedArtifacts.length > 0) {
+        expectedArtifactsOk = expectedArtifacts.every((artifact: string) => {
+          const artifactPath = path.resolve(workDir, String(artifact));
+          return artifactPath.startsWith(workDir) && fs.existsSync(artifactPath);
+        });
+      }
     }
   } catch {
     projectionReason = result.text.slice(0, 240);
+  }
+  if (approvalPause) {
+    projectionOk = approvalDecisionOk && expectedArtifactsOk;
+    projectionReason = [
+      projectionReason,
+      approvalDecisionOk ? `approval decision accepted${approvalDecisionSummary ? ` (${approvalDecisionSummary})` : ""}` : "approval decision was not completed",
+      expectedArtifactsOk ? "" : "expected artifact(s) were not created after approval"
+    ].filter(Boolean).join("; ");
   }
   return {
     ...plan,
@@ -422,6 +476,10 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
       ? `InfRing socket run completed with HTTP ${result.status}.`
       : `InfRing socket run failed with HTTP ${result.status}${projectionStatus ? ` (${projectionStatus})` : ""}${projectionReason ? `: ${projectionReason}` : ""}.`,
     response_ref: path.relative(REPO_ROOT, responsePath),
+    approval_decision_ref: approvalDecisionRef,
+    approval_pause: approvalPause,
+    approval_decision_ok: approvalDecisionOk,
+    expected_artifacts_ok: expectedArtifactsOk,
     duration_ms: result.duration_ms
   };
 }

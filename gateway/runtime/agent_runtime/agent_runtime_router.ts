@@ -158,6 +158,23 @@ function sanitizeUniversalProposalArguments(args, toolId) {
   return out;
 }
 
+function inferEffectiveUniversalProposalToolId(rawToolId, args) {
+  const toolId = cleanString(rawToolId || 'permission.request', 120);
+  const source = args && typeof args === 'object' ? args : {};
+  const action = cleanString(source.action || source.operation || source.intent || '', 120).toLowerCase();
+  const hasPath = Boolean(cleanString(source.path || source.file || source.filename || source.relative_path || '', 500));
+  const hasContent = source.content != null || source.text != null || source.body != null;
+  if (
+    toolId === 'permission.request' &&
+    hasPath &&
+    hasContent &&
+    (!action || /create|write|update|append|save|edit|file|artifact/.test(action))
+  ) {
+    return 'artifact.create_propose';
+  }
+  return toolId;
+}
+
 function compactGatewayActivityEvents(events, maxEvents, maxTextBytes) {
   const rows = Array.isArray(events) ? events : [];
   const limit = Math.max(0, Math.min(Number(maxEvents) || 0, rows.length));
@@ -249,7 +266,10 @@ function normalizeGatewayEvent(event, message, fallbackType) {
     if (!proposal.ok) {
       return makeErrorEvent(message, proposal.error_code || 'universal_tool_proposal_invalid', 'Universal tool proposal was rejected by Gateway policy.');
     }
-    const toolId = cleanString(proposal.tool_id, 120);
+    const toolId = inferEffectiveUniversalProposalToolId(proposal.tool_id, proposal.arguments);
+    const capability = toolId === 'artifact.create_propose'
+      ? 'propose_artifact_create'
+      : cleanString(proposal.capability, 160);
     const normalizedProposal = {
       type: 'tool.proposed',
       trace_id: messageTraceId,
@@ -258,7 +278,7 @@ function normalizeGatewayEvent(event, message, fallbackType) {
       session_id: cleanString(source.session_id || (message && message.session_id), 200),
       turn_id: cleanString(source.turn_id || (message && message.turn_id), 200),
       tool_call_ref: `tool-proposal/${toolId}/${messageTraceId}/${cleanString((message && message.turn_id) || source.turn_id || 'turn', 120)}`,
-      capability: cleanString(proposal.capability, 160),
+      capability,
       tool_id: toolId,
       proposal_only: true,
       gateway_validation_required: true,
@@ -306,7 +326,9 @@ function normalizeGatewayEvent(event, message, fallbackType) {
         turn_status: 'permission_required',
         pause_reason: normalizedProposal.reason || 'agent_runtime_tool_call_requires_approval',
         source: 'gateway_universal_tool_proposal_normalizer',
-        resume_strategy: Object.keys(proposalArguments).length
+        resume_strategy: toolId === 'permission.request'
+          ? 'grant_then_retry_next_turn'
+          : Object.keys(proposalArguments).length
           ? 'gateway_apply_approved_effect'
           : 'grant_then_retry_next_turn',
         approval_route: `/api/shell-socket/approvals/${encodeURIComponent(approvalId)}/decision`,

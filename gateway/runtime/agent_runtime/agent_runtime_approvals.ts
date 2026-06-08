@@ -180,7 +180,9 @@ function createAgentRuntimeApprovalStore(options = {}) {
       turn_status: 'permission_required',
       pause_reason: cleanText(source.pause_reason || source.reason || 'agent_runtime_tool_call_requires_approval', 1000),
       resume_token: approvalResumeToken(source),
-      resume_strategy: explicitResumeStrategy || (Object.keys(proposalArguments || {}).length
+      resume_strategy: explicitResumeStrategy || (toolId === 'permission.request'
+        ? 'grant_then_retry_next_turn'
+        : Object.keys(proposalArguments || {}).length
         ? 'gateway_apply_approved_effect'
         : 'grant_then_retry_next_turn'),
       created_at: nowIso(),

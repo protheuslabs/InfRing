@@ -1388,6 +1388,23 @@ function sanitizeProposalArguments(args, toolId) {
   return out;
 }
 
+function inferEffectiveProposalToolId(rawToolId, args) {
+  const toolId = cleanString(rawToolId || 'permission.request', 120);
+  const source = args && typeof args === 'object' ? args : {};
+  const action = cleanString(source.action || source.operation || source.intent || '', 120).toLowerCase();
+  const hasPath = Boolean(cleanString(source.path || source.file || source.filename || source.relative_path || '', 500));
+  const hasContent = source.content != null || source.text != null || source.body != null;
+  if (
+    toolId === 'permission.request' &&
+    hasPath &&
+    hasContent &&
+    (!action || /create|write|update|append|save|edit|file|artifact/.test(action))
+  ) {
+    return 'artifact.create_propose';
+  }
+  return toolId;
+}
+
 function collectPermissionDenials(rows, fallbackText) {
   const out = [];
   const add = (value) => {
@@ -1476,8 +1493,8 @@ function buildPermissionRequestFromDenials(denials, ctx, defaultEngineId) {
 function buildPermissionRequestFromProposal(proposal, ctx, defaultEngineId) {
   const row = proposal && typeof proposal === 'object' ? proposal : null;
   if (!row || row.type !== 'infring_universal_tool_proposal') return null;
-  const toolId = cleanString(row.tool_id || row.capability || 'permission.request', 120);
   const args = row.arguments && typeof row.arguments === 'object' ? row.arguments : {};
+  const toolId = inferEffectiveProposalToolId(row.tool_id || row.capability || 'permission.request', args);
   const base = baseEvent(ctx, 'permission.requested', defaultEngineId);
   const turnId = base.turn_id || base.request_id || 'turn';
   const approvalId = cleanString(`approval_${toolId}_${base.trace_id || 'trace'}_${turnId}`, 260)
@@ -1490,6 +1507,12 @@ function buildPermissionRequestFromProposal(proposal, ctx, defaultEngineId) {
         : 'External runtime proposed a gated InfRing tool call.'),
     1000,
   );
+  const proposalArguments = sanitizeProposalArguments(args, toolId);
+  const resumeStrategy = toolId === 'permission.request'
+    ? 'grant_then_retry_next_turn'
+    : Object.keys(proposalArguments || {}).length
+      ? 'gateway_apply_approved_effect'
+      : 'grant_then_retry_next_turn';
   return {
     type: 'permission.requested',
     approval_id: approvalId,
@@ -1510,7 +1533,8 @@ function buildPermissionRequestFromProposal(proposal, ctx, defaultEngineId) {
           : cleanString(row.capability || toolId, 160),
     reason,
     argument_keys: Object.keys(args).map((key) => cleanString(key, 80)).filter(Boolean).slice(0, 24),
-    proposal_arguments: sanitizeProposalArguments(args, toolId),
+    proposal_arguments: proposalArguments,
+    resume_strategy: resumeStrategy,
     gatekeeper_kind: 'user',
     future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor'],
     decisions: ['allow_once', 'deny', 'always_allow_tool_call'],
