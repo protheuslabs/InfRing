@@ -1,0 +1,112 @@
+{
+  "type": "agent_runtime_live_proof_summary",
+  "version": 1,
+  "owner": "validation.agent_runtime",
+  "generated_at": "2026-06-08T21:44:12.111Z",
+  "source_commit_observed": "8ca71d2ef",
+  "proof_accounting": {
+    "classification": "substrate_platform_proof",
+    "not_native_intelligence_proof": true,
+    "rule": "External-engine mediated work proves InfRing can govern external runtimes through Gateway. It does not prove native InfRing workflow intelligence."
+  },
+  "scope": {
+    "mode": "infring",
+    "live": true,
+    "task_ids": [
+      "approval_pause_resume"
+    ],
+    "framework_ids": [
+      "codex_cli",
+      "claude_code",
+      "opencode"
+    ],
+    "gateway_url": "http://127.0.0.1:4173",
+    "raw_artifacts_local_only": true
+  },
+  "source_artifacts": {
+    "task_harness_report_json": "core/local/artifacts/agent-runtime-task-harness/20260608214233-64571641/agent_runtime_task_harness_report.json",
+    "task_harness_report_markdown": "core/local/artifacts/agent-runtime-task-harness/20260608214233-64571641/AGENT_RUNTIME_TASK_HARNESS_REPORT.md"
+  },
+  "summary": {
+    "planned": 0,
+    "completed": 3,
+    "failed": 0,
+    "skipped_native_mode": 3,
+    "available_runtimes": 3,
+    "registry_coverage_ok": true,
+    "gap_summary": {
+      "total": 1,
+      "red": 0,
+      "yellow": 1,
+      "white": 0
+    }
+  },
+  "results": [
+    {
+      "framework_id": "codex_cli",
+      "display_name": "Codex",
+      "task_id": "approval_pause_resume",
+      "status": "completed",
+      "projection_status": "permission_required",
+      "approval_pause": true,
+      "approval_decision_ok": true,
+      "approval_resume_forwarded": true,
+      "post_approval_resume_failure": false,
+      "expected_artifacts_ok": true,
+      "semantic_signals": "pass",
+      "approval_flow": "pass",
+      "artifact_effect": "pass",
+      "context_continuity": "pass",
+      "parity": "pass"
+    },
+    {
+      "framework_id": "claude_code",
+      "display_name": "Claude Code",
+      "task_id": "approval_pause_resume",
+      "status": "completed",
+      "projection_status": "permission_required",
+      "approval_pause": true,
+      "approval_decision_ok": true,
+      "approval_resume_forwarded": true,
+      "post_approval_resume_failure": false,
+      "expected_artifacts_ok": true,
+      "semantic_signals": "pass",
+      "approval_flow": "pass",
+      "artifact_effect": "pass",
+      "context_continuity": "pass",
+      "parity": "pass"
+    },
+    {
+      "framework_id": "opencode",
+      "display_name": "OpenCode",
+      "task_id": "approval_pause_resume",
+      "status": "completed",
+      "projection_status": "completed",
+      "approval_pause": true,
+      "approval_decision_ok": true,
+      "approval_resume_forwarded": true,
+      "post_approval_resume_failure": false,
+      "expected_artifacts_ok": true,
+      "semantic_signals": "pass",
+      "approval_flow": "pass",
+      "artifact_effect": "pass",
+      "context_continuity": "pass",
+      "parity": "pass"
+    }
+  ],
+  "known_gaps": [
+    {
+      "severity": "yellow",
+      "framework_id": "codex_cli",
+      "kind": "known_framework_gap",
+      "summary": "True native structured context input remains blocked on upstream Codex CLI support; InfRing uses a bounded stdin context envelope with JSONL output until a native structured input API exists.",
+      "next_action": "Promote this known gap into a targeted live harness task or close it with evidence."
+    }
+  ],
+  "limits": [
+    "This summary covers one focused approval/resume task, not the full task matrix.",
+    "Native mode was intentionally skipped; this is InfRing-mediated substrate proof only.",
+    "Raw local artifacts are not committed and may be pruned by artifact retention."
+  ]
+}
+

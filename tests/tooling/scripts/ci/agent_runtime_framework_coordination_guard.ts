@@ -97,6 +97,11 @@ const GATES = [
     coverage_scope: 'engine_registry_transport_policy',
   },
   {
+    id: 'proof_summary_accounting',
+    script: 'tests/tooling/scripts/ci/agent_runtime_proof_summary_guard.ts',
+    coverage_scope: 'agent_runtime_proof_summary_policy',
+  },
+  {
     id: 'framework_capability_regressions',
     script: 'tests/tooling/scripts/ci/agent_runtime_framework_capability_guard.ts',
     coverage_scope: 'adapter_capability_policy',
