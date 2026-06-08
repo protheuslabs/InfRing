@@ -1,6 +1,7 @@
 fn dashboard_duplicate_runtime_issues(
     listener_pids: &[u32],
     watchdog_pids: &[u32],
+    host_process_pids: &[u32],
     port: u16,
 ) -> Vec<Value> {
     let mut issues = Vec::<Value>::new();
@@ -9,6 +10,14 @@ fn dashboard_duplicate_runtime_issues(
             "code": "dashboard_listener_duplicate_running",
             "message": "multiple dashboard listeners detected on configured port",
             "pids": listener_pids,
+            "port": port,
+        }));
+    }
+    if host_process_pids.len() > 1 {
+        issues.push(json!({
+            "code": "dashboard_host_process_duplicate_running",
+            "message": "multiple dashboard host processes detected for configured dashboard route",
+            "pids": host_process_pids,
             "port": port,
         }));
     }
@@ -21,6 +30,48 @@ fn dashboard_duplicate_runtime_issues(
         }));
     }
     issues
+}
+
+fn dashboard_command_contains_arg(command: &str, key: &str, value: &str) -> bool {
+    command.contains(format!("{key}={value}").as_str())
+        || command.contains(format!("{key} {value}").as_str())
+}
+
+fn dashboard_host_process_command_matches(command: &str, cfg: &DashboardLaunchConfig) -> bool {
+    let command = command.trim();
+    if command.is_empty() {
+        return false;
+    }
+    let ts_host = command.contains("client/runtime/systems/ui/infring_dashboard.ts")
+        && command.contains(" serve");
+    let legacy_host = command.contains("dashboard-ui") && command.contains(" serve");
+    if !(ts_host || legacy_host) {
+        return false;
+    }
+    let port = cfg.port.to_string();
+    let host = cfg.host.as_str();
+    (dashboard_command_contains_arg(command, "--port", port.as_str())
+        || dashboard_command_contains_arg(command, "--dashboard-port", port.as_str()))
+        && (dashboard_command_contains_arg(command, "--host", host)
+            || dashboard_command_contains_arg(command, "--dashboard-host", host))
+}
+
+fn dashboard_host_process_pids(cfg: &DashboardLaunchConfig) -> Vec<u32> {
+    let current_pid = std::process::id();
+    let mut pids = Vec::<u32>::new();
+    for pattern in ["infring_dashboard.ts", "dashboard-ui"] {
+        for pid in command_pids_matching(pattern) {
+            if pid == current_pid {
+                continue;
+            }
+            if let Some(command) = pid_command_line(pid) {
+                if dashboard_host_process_command_matches(command.as_str(), cfg) {
+                    pids.push(pid);
+                }
+            }
+        }
+    }
+    normalized_running_pids(pids)
 }
 
 fn parse_gateway_launchd_labels(raw: &str) -> Vec<String> {
@@ -218,7 +269,13 @@ fn dashboard_binary_authority_issue(root: &Path) -> Option<Value> {
 fn dashboard_runtime_duplicate_guard(root: &Path, cfg: &DashboardLaunchConfig) -> Option<Value> {
     let listener_pids = normalized_running_pids(dashboard_listener_pids(cfg.port));
     let watchdog_pids = dashboard_watchdog_candidate_pids(root, cfg);
-    let mut issues = dashboard_duplicate_runtime_issues(&listener_pids, &watchdog_pids, cfg.port);
+    let host_process_pids = dashboard_host_process_pids(cfg);
+    let mut issues = dashboard_duplicate_runtime_issues(
+        &listener_pids,
+        &watchdog_pids,
+        &host_process_pids,
+        cfg.port,
+    );
     let launchd_labels = loaded_gateway_launchd_labels();
     if launchd_labels.len() > 1 {
         issues.push(json!({
@@ -266,13 +323,13 @@ mod duplicate_runtime_guard_tests {
 
     #[test]
     fn dashboard_duplicate_runtime_issues_empty_when_single_runtime_paths_present() {
-        let issues = dashboard_duplicate_runtime_issues(&[1001], &[2001], 4173);
+        let issues = dashboard_duplicate_runtime_issues(&[1001], &[2001], &[3001], 4173);
         assert!(issues.is_empty());
     }
 
     #[test]
     fn dashboard_duplicate_runtime_issues_flags_listener_duplicates() {
-        let issues = dashboard_duplicate_runtime_issues(&[1001, 1002], &[2001], 4173);
+        let issues = dashboard_duplicate_runtime_issues(&[1001, 1002], &[2001], &[3001], 4173);
         assert_eq!(issues.len(), 1);
         assert_eq!(
             issues[0].get("code").and_then(Value::as_str),
@@ -281,13 +338,30 @@ mod duplicate_runtime_guard_tests {
     }
 
     #[test]
+    fn dashboard_duplicate_runtime_issues_flags_host_process_duplicates() {
+        let issues = dashboard_duplicate_runtime_issues(&[1001], &[2001], &[3001, 3002], 4173);
+        assert_eq!(issues.len(), 1);
+        assert_eq!(
+            issues[0].get("code").and_then(Value::as_str),
+            Some("dashboard_host_process_duplicate_running")
+        );
+    }
+
+    #[test]
     fn dashboard_duplicate_runtime_issues_flags_watchdog_duplicates() {
-        let issues = dashboard_duplicate_runtime_issues(&[1001], &[2001, 2002], 4173);
+        let issues = dashboard_duplicate_runtime_issues(&[1001], &[2001, 2002], &[3001], 4173);
         assert_eq!(issues.len(), 1);
         assert_eq!(
             issues[0].get("code").and_then(Value::as_str),
             Some("dashboard_watchdog_duplicate_running")
         );
+    }
+
+    #[test]
+    fn dashboard_command_contains_arg_accepts_equals_and_space_forms() {
+        assert!(dashboard_command_contains_arg("--port=4173", "--port", "4173"));
+        assert!(dashboard_command_contains_arg("--port 4173", "--port", "4173"));
+        assert!(!dashboard_command_contains_arg("--port=5173", "--port", "4173"));
     }
 
     #[test]

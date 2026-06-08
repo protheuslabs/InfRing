@@ -33,6 +33,41 @@ fn kill_pid(pid: u32) -> bool {
     }
 }
 
+fn kill_pid_force(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        Command::new("kill")
+            .arg("-9")
+            .arg(pid.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(windows)]
+    {
+        Command::new("taskkill")
+            .arg("/PID")
+            .arg(pid.to_string())
+            .arg("/F")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        false
+    }
+}
+
 fn read_pid_file(file_path: &Path) -> Option<u32> {
     let raw = fs::read_to_string(file_path).ok()?;
     raw.trim().parse::<u32>().ok()

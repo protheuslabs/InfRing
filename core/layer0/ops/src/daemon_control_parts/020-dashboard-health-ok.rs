@@ -325,23 +325,46 @@ fn kill_dashboard_process(root: &Path, cfg: &DashboardLaunchConfig) -> Value {
             candidate_pids.push(pid);
         }
     }
+    for pid in dashboard_host_process_pids(cfg) {
+        if !candidate_pids.contains(&pid) {
+            candidate_pids.push(pid);
+        }
+    }
 
     let mut killed_pids = Vec::<u32>::new();
-    for pid in candidate_pids {
-        if kill_pid(pid) {
-            killed_pids.push(pid);
+    for pid in &candidate_pids {
+        if kill_pid(*pid) {
+            killed_pids.push(*pid);
         }
+    }
+    for _ in 0..5 {
+        if candidate_pids.iter().all(|pid| !pid_running(*pid)) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    let mut force_killed_pids = Vec::<u32>::new();
+    for pid in &candidate_pids {
+        if pid_running(*pid) && kill_pid_force(*pid) {
+            force_killed_pids.push(*pid);
+        }
+    }
+    if !force_killed_pids.is_empty() {
+        std::thread::sleep(Duration::from_millis(250));
     }
 
     let _ = fs::remove_file(pid_path);
     let still_running = wait_for_dashboard(cfg.host.as_str(), cfg.port, 5);
+    let stale_host_pids_after = dashboard_host_process_pids(cfg);
     json!({
         "ok": true,
-        "stopped": !killed_pids.is_empty() && !still_running,
+        "stopped": !killed_pids.is_empty() && !still_running && stale_host_pids_after.is_empty(),
         "killed_pids": killed_pids,
+        "force_killed_pids": force_killed_pids,
         "host": cfg.host.as_str(),
         "port": cfg.port,
         "still_running": still_running,
+        "stale_host_pids_after": stale_host_pids_after,
         "reason": if killed_pids.is_empty() { "no_pid_killed" } else { "pid_killed" }
     })
 }
