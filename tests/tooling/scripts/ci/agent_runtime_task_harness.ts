@@ -180,9 +180,16 @@ function selectedRows(rows: AnyJson[], selected: string, idField = "id"): AnyJso
   return rows.filter((row) => wanted.has(String(row[idField])));
 }
 
-function taskPrompt(task: AnyJson): string {
+function taskTurns(task: AnyJson): string[] {
   const turns = Array.isArray(task.turns) ? task.turns : [];
-  return turns.join("\n\n--- next turn ---\n\n");
+  const normalized = turns.map((turn) => String(turn ?? "").trim()).filter(Boolean);
+  if (normalized.length > 0) return normalized;
+  const fallback = String(task.prompt || task.message || task.title || "").trim();
+  return fallback ? [fallback] : [];
+}
+
+function taskPrompt(task: AnyJson): string {
+  return taskTurns(task).join("\n\n--- next turn ---\n\n");
 }
 
 function makeHarnessWorkspace(outDir: string, frameworkId: string, taskId: string, task: AnyJson): string {
@@ -382,14 +389,25 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
   if (!plan.attempted) {
     return plan;
   }
-  const payload = {
+  const turns = taskTurns(task);
+  if (turns.length === 0) {
+    return {
+      ...plan,
+      ok: false,
+      status: "failed",
+      summary: "InfRing socket run failed before dispatch: task has no executable turns.",
+      error_code: "agent_runtime_task_missing_turns",
+      projection_status: "missing_input"
+    };
+  }
+  const basePayload = {
     type: "agent_runtime_task_harness_turn",
     harness_version: 1,
     engine_id: framework.socket_engine_id ?? framework.id,
     framework_id: framework.id,
     session_id: `harness-${framework.id}-${task.id}`,
+    conversation_id: `harness-${framework.id}-${task.id}`,
     working_directory: workDir,
-    message: taskPrompt(task),
     task_id: task.id,
     approval_policy: task.approval_policy ?? "none",
     expected_capabilities: task.expected_capabilities ?? [],
@@ -400,13 +418,12 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
       ...plan,
       ok: true,
       status: "planned",
-      summary: `Dry-run InfRing socket POST planned for ${payload.engine_id}.`
+      summary: `Dry-run InfRing socket POST planned for ${basePayload.engine_id} across ${Math.max(1, turns.length)} turn(s).`
     };
   }
-  const result = await postJson(String(plan.endpoint), payload, args.timeoutMs);
   const responsePath = path.resolve(REPO_ROOT, outDir, "infring", `${frameworkId}-${taskId}.response.txt`);
-  writeText(responsePath, result.text);
-  let projectionOk = result.ok;
+  const responseRows: AnyJson[] = [];
+  let projectionOk = true;
   let projectionStatus = "";
   let projectionErrorCode = "";
   let projectionReason = "";
@@ -416,9 +433,41 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
   let approvalDecisionRef: string | null = null;
   let approvalDecisionSummary = "";
   let expectedArtifactsOk = true;
-  try {
-    const projection = JSON.parse(result.text);
+  let lastHttpStatus = 0;
+  let totalDurationMs = 0;
+  for (const [turnIndex, turnText] of turns.entries()) {
+    const payload = {
+      ...basePayload,
+      message: turnText,
+      input_text: turnText,
+      harness_turn_index: turnIndex + 1,
+      harness_turn_count: turns.length
+    };
+    const result = await postJson(String(plan.endpoint), payload, args.timeoutMs);
+    lastHttpStatus = result.status;
+    totalDurationMs += Number(result.duration_ms || 0);
+    let projection: AnyJson | null = null;
+    try {
+      projection = JSON.parse(result.text);
+    } catch {
+      projection = null;
+    }
+    responseRows.push({
+      turn_index: turnIndex + 1,
+      input_text: turnText,
+      http_ok: result.ok,
+      http_status: result.status,
+      duration_ms: result.duration_ms,
+      projection_status: projection?.status ?? "",
+      error_code: projection?.error_code ?? "",
+      pending_permission: projection?.pending_permission === true,
+      output_preview: String(projection?.output_preview || projection?.text || result.text || "").slice(0, 2000),
+      raw_response: result.text
+    });
     if (projection && typeof projection === "object") {
+      if (!result.ok) {
+        projectionOk = false;
+      }
       if (projection.ok === false) {
         projectionOk = false;
       }
@@ -428,7 +477,8 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
       projectionNextActions = Array.isArray(projection.next_actions)
         ? projection.next_actions.map((action: any) => String(action || "").trim()).filter(Boolean).slice(0, 8)
         : [];
-      approvalPause = projectionStatus === "permission_required" || projection.pending_permission === true || projection.approval_pause_active === true;
+      const turnApprovalPause = projectionStatus === "permission_required" || projection.pending_permission === true || projection.approval_pause_active === true;
+      approvalPause = approvalPause || turnApprovalPause;
       const approvalRoute = String(
         projection.pending_permission_request?.approval_route ||
           projection.permission_request?.approval_route ||
@@ -436,7 +486,7 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
           ""
       );
       const canSimulateApproval = ["simulate_allow", "manual_or_simulate_allow"].includes(String(task.approval_policy ?? ""));
-      if (approvalPause && canSimulateApproval && approvalRoute) {
+      if (turnApprovalPause && canSimulateApproval && approvalRoute) {
         const approvalUrl = approvalRoute.startsWith("http://") || approvalRoute.startsWith("https://")
           ? approvalRoute
           : `${args.gatewayUrl.replace(/\/+$/, "")}${approvalRoute}`;
@@ -465,10 +515,14 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
           return artifactPath.startsWith(workDir) && fs.existsSync(artifactPath);
         });
       }
+      if (!projectionOk) break;
+      continue;
     }
-  } catch {
+    projectionOk = false;
     projectionReason = result.text.slice(0, 240);
+    break;
   }
+  writeText(responsePath, JSON.stringify(responseRows, null, 2));
   if (approvalPause) {
     projectionOk = approvalDecisionOk && expectedArtifactsOk;
     projectionReason = [
@@ -482,8 +536,8 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
     ok: projectionOk,
     status: projectionOk ? "completed" : "failed",
     summary: projectionOk
-      ? `InfRing socket run completed with HTTP ${result.status}.`
-      : `InfRing socket run failed with HTTP ${result.status}${projectionStatus ? ` (${projectionStatus})` : ""}${projectionReason ? `: ${projectionReason}` : ""}.`,
+      ? `InfRing socket run completed with HTTP ${lastHttpStatus} across ${Math.max(1, turns.length)} turn(s).`
+      : `InfRing socket run failed with HTTP ${lastHttpStatus}${projectionStatus ? ` (${projectionStatus})` : ""}${projectionReason ? `: ${projectionReason}` : ""}.`,
     response_ref: path.relative(REPO_ROOT, responsePath),
     error_code: projectionErrorCode,
     projection_status: projectionStatus,
@@ -492,7 +546,7 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
     approval_pause: approvalPause,
     approval_decision_ok: approvalDecisionOk,
     expected_artifacts_ok: expectedArtifactsOk,
-    duration_ms: result.duration_ms
+    duration_ms: totalDurationMs
   };
 }
 
