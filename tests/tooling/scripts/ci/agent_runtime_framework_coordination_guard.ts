@@ -102,6 +102,11 @@ const GATES = [
     coverage_scope: 'agent_runtime_proof_summary_policy',
   },
   {
+    id: 'proof_ledger_separation',
+    script: 'tests/tooling/scripts/ci/proof_ledger_separation_guard.ts',
+    coverage_scope: 'agent_runtime_native_coding_accounting_boundary',
+  },
+  {
     id: 'framework_capability_regressions',
     script: 'tests/tooling/scripts/ci/agent_runtime_framework_capability_guard.ts',
     coverage_scope: 'adapter_capability_policy',

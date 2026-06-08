@@ -1,0 +1,49 @@
+{
+  "type": "proof_ledger_separation_policy",
+  "schema_version": 1,
+  "owner_domain": "validation.conformance",
+  "status": "active",
+  "purpose": "Keep Agent Runtime substrate/platform proof separate from native InfRing intelligence proof so external framework success cannot accidentally promote native coding capability.",
+  "ledgers": [
+    {
+      "id": "agent_runtime_substrate_platform",
+      "classification": "substrate_platform_proof",
+      "counts_as": "InfRing can host, constrain, normalize, approve, resume, score, and observe native or external engines through Gateway.",
+      "does_not_count_as": "Infring-native coding intelligence or native workflow usefulness when the primary worker is an external framework.",
+      "required_evidence": [
+        "agent_runtime_task_harness_contract proof_accounting_rule",
+        "compact proof summaries with not_native_intelligence_proof=true for external-engine rows",
+        "Gateway approval/resume and artifact verification evidence",
+        "engine scorecard or task harness evidence that records framework_id"
+      ]
+    },
+    {
+      "id": "infring_native_intelligence",
+      "classification": "native_intelligence_runtime_proof",
+      "counts_as": "InfRing-native workflows, tools, memory, receipts, provider routing, and native file/command surfaces perform useful software work.",
+      "does_not_count_as": "External framework capability, even when mediated cleanly through InfRing.",
+      "required_evidence": [
+        "Native Coding Useful-Work Eval v1",
+        "19/20 Infring-native pass target",
+        "native receipts observed",
+        "mutation receipt observed",
+        "new regression tests exercised",
+        "semantic probe passes"
+      ]
+    }
+  ],
+  "invariants": [
+    "External-engine mediated success is substrate/platform proof, not native intelligence proof.",
+    "Native coding promotion requires Infring-native worker evidence and the 19/20 useful-work target.",
+    "Codex, Claude Code, Grok Code, OpenCode, OpenClaw, Hermes, OpenHands, OpenFang, and custom external engines may validate harness shape, prompts, or judges, but do not prove native InfRing coding capability.",
+    "Any proof summary that includes external framework rows must explicitly mark not_native_intelligence_proof=true."
+  ],
+  "required_sources": [
+    "validation/agent_runtime/task_harness/agent_runtime_task_harness_contract.json",
+    "validation/agent_runtime/proof_summaries/README.md",
+    "tests/tooling/scripts/ci/agent_runtime_proof_summary_guard.ts",
+    "docs/workspace/native_coding_useful_work_eval_v1.md",
+    "docs/workspace/coding_workflow_eval_results.md",
+    "validation/evals/fixtures/native_coding_useful_work_eval_v1.json"
+  ]
+}
