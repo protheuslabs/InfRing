@@ -40,6 +40,9 @@ type RunOutcome = {
   approval_pause?: boolean;
   approval_decision_ok?: boolean;
   expected_artifacts_ok?: boolean;
+  error_code?: string;
+  projection_status?: string;
+  next_actions?: string[];
   duration_ms?: number;
 };
 
@@ -405,7 +408,9 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
   writeText(responsePath, result.text);
   let projectionOk = result.ok;
   let projectionStatus = "";
+  let projectionErrorCode = "";
   let projectionReason = "";
+  let projectionNextActions: string[] = [];
   let approvalPause = false;
   let approvalDecisionOk = false;
   let approvalDecisionRef: string | null = null;
@@ -418,7 +423,11 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
         projectionOk = false;
       }
       projectionStatus = String(projection.status ?? "");
+      projectionErrorCode = String(projection.error_code ?? "");
       projectionReason = String(projection.reason || projection.error_code || projection.error || projection.text || "");
+      projectionNextActions = Array.isArray(projection.next_actions)
+        ? projection.next_actions.map((action: any) => String(action || "").trim()).filter(Boolean).slice(0, 8)
+        : [];
       approvalPause = projectionStatus === "permission_required" || projection.pending_permission === true || projection.approval_pause_active === true;
       const approvalRoute = String(
         projection.pending_permission_request?.approval_route ||
@@ -476,6 +485,9 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
       ? `InfRing socket run completed with HTTP ${result.status}.`
       : `InfRing socket run failed with HTTP ${result.status}${projectionStatus ? ` (${projectionStatus})` : ""}${projectionReason ? `: ${projectionReason}` : ""}.`,
     response_ref: path.relative(REPO_ROOT, responsePath),
+    error_code: projectionErrorCode,
+    projection_status: projectionStatus,
+    next_actions: projectionNextActions,
     approval_decision_ref: approvalDecisionRef,
     approval_pause: approvalPause,
     approval_decision_ok: approvalDecisionOk,
@@ -719,15 +731,21 @@ function buildCapabilityGaps(capabilityMatrix: AnyJson[], frameworkResults: AnyJ
     for (const side of ["native", "infring"]) {
       const outcome = result[side] ?? {};
       if (outcome.status === "failed") {
+        const errorCode = String(outcome.error_code || "");
+        const providerUnavailable = /provider_(quota_or_subscription_unavailable|auth_required|rate_limited|network_unavailable)|runtime_not_available/.test(errorCode);
         gaps.push({
           id: buildGapId(["run_failed", result.framework_id, result.task_id, side]),
-          severity: "red",
-          kind: "task_run_failed",
+          severity: providerUnavailable ? "yellow" : "red",
+          kind: providerUnavailable ? "runtime_provider_unavailable" : "task_run_failed",
           framework_id: result.framework_id,
           task_id: result.task_id,
           side,
           summary: `${side} run failed for ${result.framework_id}/${result.task_id}: ${outcome.summary || "no summary"}`,
-          next_action: "Inspect the referenced artifact and patch the runtime adapter or socket projection."
+          next_action: providerUnavailable
+            ? (Array.isArray(outcome.next_actions) && outcome.next_actions.length
+              ? outcome.next_actions.join(" ")
+              : "Restore provider auth/subscription/quota or switch to another runtime before retrying live parity.")
+            : "Inspect the referenced artifact and patch the runtime adapter or socket projection."
         });
       } else if (outcome.attempted && outcome.status === "skipped" && outcome.available === false) {
         gaps.push({
