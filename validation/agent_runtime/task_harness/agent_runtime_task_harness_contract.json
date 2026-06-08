@@ -41,6 +41,27 @@
       "artifact_effect": "pass|warn|fail|unknown",
       "model_control": "pass|warn|fail|unknown",
       "failure_reporting": "pass|warn|fail|unknown",
+      "semantic_signals": {
+        "status": "pass|warn|fail|unknown",
+        "native": {
+          "status": "pass|warn|fail|unknown",
+          "pass_signals": "array",
+          "matched_pass_signals": "array",
+          "missing_pass_signals": "array",
+          "fail_signals": "array",
+          "matched_fail_signals": "array",
+          "evidence_chars": "number"
+        },
+        "infring": {
+          "status": "pass|warn|fail|unknown",
+          "pass_signals": "array",
+          "matched_pass_signals": "array",
+          "missing_pass_signals": "array",
+          "fail_signals": "array",
+          "matched_fail_signals": "array",
+          "evidence_chars": "number"
+        }
+      },
       "parity": "pass|warn|fail|unknown"
     }
   },

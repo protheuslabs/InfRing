@@ -100,7 +100,7 @@ function parseArgs(argv: string[]): HarnessArgs {
   }
 
   const liveRaw = String(raw.live ?? process.env.INFRING_AGENT_RUNTIME_TASK_HARNESS_LIVE ?? "0");
-  const runId = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
+  const runId = `${new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14)}-${crypto.randomBytes(4).toString("hex")}`;
   return {
     catalog: String(raw.catalog ?? DEFAULT_CATALOG),
     tasks: String(raw.tasks ?? DEFAULT_TASKS),
@@ -136,8 +136,148 @@ function writeText(fullPath: string, value: string): void {
   fs.writeFileSync(fullPath, value.endsWith("\n") ? value : `${value}\n`);
 }
 
+function signalList(value: any): string[] {
+  return Array.isArray(value)
+    ? value.map((item) => String(item ?? "").trim()).filter(Boolean)
+    : [];
+}
+
+function readArtifactRef(ref?: string | null): string {
+  const relativeRef = String(ref || "").trim();
+  if (!relativeRef) return "";
+  const fullPath = path.resolve(REPO_ROOT, relativeRef);
+  if (!fullPath.startsWith(REPO_ROOT) || !fs.existsSync(fullPath)) return "";
+  try {
+    return fs.readFileSync(fullPath, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function safeProjectionEvidenceParts(value: AnyJson): string[] {
+  const parts = [
+    value.projection_status,
+    value.status,
+    value.error_code,
+    value.reason,
+    value.text,
+    value.display_text,
+    value.output_text,
+    value.output_preview,
+    value.result_ref,
+    value.receipt_ref
+  ];
+  const events = Array.isArray(value.agent_activity_events) ? value.agent_activity_events : [];
+  for (const event of events) {
+    parts.push(
+      event.provider_event_type,
+      event.activity_kind,
+      event.status,
+      event.display_text,
+      event.text,
+      event.result_ref,
+      event.receipt_ref
+    );
+  }
+  return parts.map((part) => String(part || "")).filter(Boolean);
+}
+
+function readResponseEvidenceRef(ref?: string | null): string {
+  const text = readArtifactRef(ref);
+  if (!text.trim()) return "";
+  try {
+    const parsed = JSON.parse(text);
+    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    return rows.map((row: AnyJson) => {
+      const parts = safeProjectionEvidenceParts(row);
+      if (typeof row.raw_response === "string" && row.raw_response.trim().startsWith("{")) {
+        try {
+          parts.push(...safeProjectionEvidenceParts(JSON.parse(row.raw_response)));
+        } catch {}
+      }
+      return parts.join("\n");
+    }).join("\n");
+  } catch {
+    return text;
+  }
+}
+
+function runEvidenceText(outcome: RunOutcome): string {
+  return [
+    outcome.summary,
+    outcome.error_code,
+    outcome.projection_status,
+    ...(Array.isArray(outcome.next_actions) ? outcome.next_actions : []),
+    readArtifactRef(outcome.stdout_ref),
+    readArtifactRef(outcome.stderr_ref),
+    readResponseEvidenceRef(outcome.response_ref),
+    readArtifactRef(outcome.approval_decision_ref)
+  ].map((part) => String(part || "")).join("\n");
+}
+
+function evaluateSignals(task: AnyJson, outcome: RunOutcome, live: boolean): AnyJson {
+  const passSignals = signalList(task.pass_signals);
+  const failSignals = signalList(task.fail_signals);
+  const evidence = runEvidenceText(outcome);
+  const lowerEvidence = evidence.toLowerCase();
+  const hasSignal = (signal: string): boolean => lowerEvidence.includes(signal.toLowerCase());
+  const matchedPassSignals = passSignals.filter(hasSignal);
+  const missingPassSignals = passSignals.filter((signal) => !hasSignal(signal));
+  const matchedFailSignals = failSignals.filter(hasSignal);
+  let status: "pass" | "warn" | "fail" | "unknown" = "unknown";
+  if (live && outcome.attempted && outcome.status !== "planned" && outcome.status !== "skipped") {
+    if (matchedFailSignals.length > 0) {
+      status = "fail";
+    } else if (!outcome.ok) {
+      status = "fail";
+    } else if (passSignals.length === 0) {
+      status = "pass";
+    } else if (missingPassSignals.length === 0 && outcome.ok) {
+      status = "pass";
+    } else if (matchedPassSignals.length > 0) {
+      status = "warn";
+    } else {
+      status = "fail";
+    }
+  }
+  return {
+    status,
+    pass_signals: passSignals,
+    matched_pass_signals: matchedPassSignals,
+    missing_pass_signals: missingPassSignals,
+    fail_signals: failSignals,
+    matched_fail_signals: matchedFailSignals,
+    evidence_chars: evidence.length
+  };
+}
+
+function combineSignalStatuses(statuses: string[]): "pass" | "warn" | "fail" | "unknown" {
+  const relevant = statuses.filter((status) => status && status !== "unknown");
+  if (relevant.length === 0) return "unknown";
+  if (relevant.every((status) => status === "pass")) return "pass";
+  if (relevant.every((status) => status === "fail")) return "fail";
+  return "warn";
+}
+
+function resolveExecutableCommand(command: string): string {
+  const clean = String(command || "").trim();
+  if (clean === "~") return os.homedir();
+  if (clean.startsWith("~/")) return path.join(os.homedir(), clean.slice(2));
+  return clean;
+}
+
 function commandExists(command: string): boolean {
-  const result = spawnSync("sh", ["-lc", `command -v ${shellQuote(command)} >/dev/null 2>&1`], {
+  const resolved = resolveExecutableCommand(command);
+  if (!resolved) return false;
+  if (resolved.includes("/") || resolved.includes("\\")) {
+    try {
+      fs.accessSync(path.isAbsolute(resolved) ? resolved : path.resolve(REPO_ROOT, resolved), fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const result = spawnSync("sh", ["-lc", `command -v ${shellQuote(resolved)} >/dev/null 2>&1`], {
     cwd: REPO_ROOT,
     stdio: "ignore"
   });
@@ -147,7 +287,7 @@ function commandExists(command: string): boolean {
 function firstAvailableCommand(commands: string[] = []): string | null {
   for (const command of commands) {
     if (commandExists(command)) {
-      return command;
+      return resolveExecutableCommand(command);
     }
   }
   return null;
@@ -523,12 +663,39 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
     break;
   }
   writeText(responsePath, JSON.stringify(responseRows, null, 2));
+  const expectedCapabilities = new Set<string>(Array.isArray(task.expected_capabilities) ? task.expected_capabilities : []);
+  const approvalPolicy = String(task.approval_policy ?? "none");
+  const approvalExpected = ["simulate_allow", "manual_or_simulate_allow"].includes(approvalPolicy) ||
+    expectedCapabilities.has("approval_pause_resume") ||
+    expectedCapabilities.has("permission_request");
   if (approvalPause) {
-    projectionOk = approvalDecisionOk && expectedArtifactsOk;
+    if (approvalExpected) {
+      projectionOk = approvalDecisionOk && expectedArtifactsOk;
+      projectionReason = [
+        projectionReason,
+        approvalDecisionOk ? `approval decision accepted${approvalDecisionSummary ? ` (${approvalDecisionSummary})` : ""}` : "approval decision was not completed",
+        expectedArtifactsOk ? "" : "expected artifact(s) were not created after approval"
+      ].filter(Boolean).join("; ");
+    } else {
+      projectionReason = [
+        projectionReason,
+        "non-required approval pause observed; task judged on requested capability evidence"
+      ].filter(Boolean).join("; ");
+    }
+  }
+  if (approvalExpected && expectedArtifactsOk && !approvalPause && !approvalDecisionOk && (Array.isArray(task.expected_artifacts) && task.expected_artifacts.length > 0)) {
+    projectionOk = false;
+    projectionErrorCode = projectionErrorCode || "agent_runtime_unmediated_artifact_write";
     projectionReason = [
       projectionReason,
-      approvalDecisionOk ? `approval decision accepted${approvalDecisionSummary ? ` (${approvalDecisionSummary})` : ""}` : "approval decision was not completed",
-      expectedArtifactsOk ? "" : "expected artifact(s) were not created after approval"
+      "expected artifact(s) appeared without a Gateway approval pause or approval decision"
+    ].filter(Boolean).join("; ");
+  }
+  if (!expectedArtifactsOk) {
+    projectionOk = false;
+    projectionReason = [
+      projectionReason,
+      "expected artifact(s) were not created"
     ].filter(Boolean).join("; ");
   }
   return {
@@ -552,6 +719,8 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
 
 function scoreResult(task: AnyJson, native: RunOutcome, infring: RunOutcome, mode: string, live: boolean): AnyJson {
   const expected = new Set<string>(Array.isArray(task.expected_capabilities) ? task.expected_capabilities : []);
+  const nativeSignals = evaluateSignals(task, native, live);
+  const infringSignals = evaluateSignals(task, infring, live);
   const relevantOk = (): "pass" | "warn" | "fail" | "unknown" => {
     if (!live) return "unknown";
     const nativeRelevant = mode === "native" || mode === "both";
@@ -563,13 +732,29 @@ function scoreResult(task: AnyJson, native: RunOutcome, infring: RunOutcome, mod
     }
     return native.ok || infring.ok ? "pass" : "fail";
   };
+  const semanticOk = (): "pass" | "warn" | "fail" | "unknown" => {
+    if (!live) return "unknown";
+    const statuses: string[] = [];
+    if (mode === "native" || mode === "both") statuses.push(nativeSignals.status);
+    if (mode === "infring" || mode === "both") statuses.push(infringSignals.status);
+    return combineSignalStatuses(statuses);
+  };
+  const evidenceAwareOk = (): "pass" | "warn" | "fail" | "unknown" => {
+    const semantic = semanticOk();
+    return semantic === "unknown" ? relevantOk() : semantic;
+  };
   const score: AnyJson = {
-    context_continuity: expected.has("conversation_context") || expected.has("multi_turn_continuity") ? relevantOk() : "unknown",
-    activity_trace: expected.has("activity_dialog_stream") || expected.has("decision_dialog") || expected.has("tool_trace_visibility") ? relevantOk() : "unknown",
-    approval_flow: expected.has("approval_pause_resume") || expected.has("permission_request") ? relevantOk() : "unknown",
-    artifact_effect: expected.has("file_read") || expected.has("file_write") || expected.has("artifact_receipt") ? relevantOk() : "unknown",
-    model_control: expected.has("model_selection") || expected.has("provider_identity") ? relevantOk() : "unknown",
-    failure_reporting: expected.has("failure_reporting") || expected.has("hard_failure_chat_injection") ? relevantOk() : "unknown",
+    context_continuity: expected.has("conversation_context") || expected.has("multi_turn_continuity") ? evidenceAwareOk() : "unknown",
+    activity_trace: expected.has("activity_dialog_stream") || expected.has("decision_dialog") || expected.has("tool_trace_visibility") ? evidenceAwareOk() : "unknown",
+    approval_flow: expected.has("approval_pause_resume") || expected.has("permission_request") ? evidenceAwareOk() : "unknown",
+    artifact_effect: expected.has("file_read") || expected.has("file_write") || expected.has("artifact_receipt") ? evidenceAwareOk() : "unknown",
+    model_control: expected.has("model_selection") || expected.has("provider_identity") ? evidenceAwareOk() : "unknown",
+    failure_reporting: expected.has("failure_reporting") || expected.has("hard_failure_chat_injection") ? evidenceAwareOk() : "unknown",
+    semantic_signals: {
+      status: semanticOk(),
+      native: nativeSignals,
+      infring: infringSignals
+    },
     parity: "unknown"
   };
   if (!live) {
@@ -682,7 +867,8 @@ function buildAvailabilityMatrix(catalog: AnyJson, args: HarnessArgs): AnyJson[]
     const nativeSupported = native.supported === true;
     const gatewayNative = framework.kind === "native_engine" || probe.type === "gateway_provider_registry";
     const configuredSocket = probe.type === "configured_socket_endpoint";
-    const available = gatewayNative || availableCommands.length > 0 || existingPaths.length > 0;
+    const runnableAvailable = gatewayNative || availableCommands.length > 0;
+    const referenceOnly = nativeSupported && availableCommands.length === 0 && existingPaths.length > 0;
     return {
       framework_id: framework.id,
       display_name: framework.display_name,
@@ -694,11 +880,13 @@ function buildAvailabilityMatrix(catalog: AnyJson, args: HarnessArgs): AnyJson[]
       available_commands: availableCommands,
       path_candidates: pathCandidates,
       existing_paths: existingPaths,
-      status: available
-        ? (nativeSupported && availableCommands.length === 0 && existingPaths.length > 0 ? "path_only_available" : "available")
-        : (configuredSocket ? "requires_configured_endpoint" : "unavailable"),
-      next_action: available
+      status: runnableAvailable
+        ? "available"
+        : (referenceOnly ? "reference_only_available" : (configuredSocket ? "requires_configured_endpoint" : "unavailable")),
+      next_action: runnableAvailable
         ? "Run dry-run or live native/InfRing parity tasks for this framework."
+        : referenceOnly
+          ? "Reference checkout detected; install the runnable command or configure a socket endpoint before live turns."
         : configuredSocket
           ? "Configure the socket endpoint before live harness testing."
           : "Install the framework command or pass --framework-root to a checked-out framework path."
@@ -736,6 +924,17 @@ function buildCapabilityGaps(capabilityMatrix: AnyJson[], frameworkResults: AnyJ
     const availability = availabilityByFramework.get(frameworkId) ?? {};
     const missing = Array.isArray(row.missing_from_socket_expectations) ? row.missing_from_socket_expectations : [];
     const unknown = Array.isArray(row.unknown_native_capabilities) ? row.unknown_native_capabilities : [];
+    if (availability.native_supported && availability.status === "reference_only_available") {
+      gaps.push({
+        id: buildGapId(["reference_only", frameworkId]),
+        severity: "yellow",
+        kind: "reference_checkout_not_runnable_runtime",
+        framework_id: frameworkId,
+        reference_paths: availability.existing_paths ?? [],
+        summary: `${row.display_name || frameworkId} has a reference checkout, but no runnable command/socket is configured for live agent turns.`,
+        next_action: "Install the framework command, configure a runtime socket endpoint, or pass --framework-root plus a runnable command override before live parity testing."
+      });
+    }
     if (availability.native_supported && availability.status === "unavailable") {
       gaps.push({
         id: buildGapId(["native_unavailable", frameworkId]),
@@ -784,9 +983,12 @@ function buildCapabilityGaps(capabilityMatrix: AnyJson[], frameworkResults: AnyJ
   for (const result of frameworkResults) {
     for (const side of ["native", "infring"]) {
       const outcome = result[side] ?? {};
+      const semanticSignals = result.score?.semantic_signals?.[side] ?? {};
       if (outcome.status === "failed") {
         const errorCode = String(outcome.error_code || "");
-        const providerUnavailable = /provider_(quota_or_subscription_unavailable|auth_required|rate_limited|network_unavailable)|runtime_not_available/.test(errorCode);
+        const failedSummary = String(outcome.summary || "");
+        const providerUnavailable = /provider_(quota_or_subscription_unavailable|auth_required|rate_limited|network_unavailable)|runtime_not_available|agent_runtime_engine_unavailable/.test(errorCode) ||
+          /is unavailable:|not_downloaded|fetch failed|subscription required|auth required|quota/i.test(failedSummary);
         gaps.push({
           id: buildGapId(["run_failed", result.framework_id, result.task_id, side]),
           severity: providerUnavailable ? "yellow" : "red",
@@ -811,6 +1013,34 @@ function buildCapabilityGaps(capabilityMatrix: AnyJson[], frameworkResults: AnyJ
           side,
           summary: `${side} run unavailable for ${result.framework_id}/${result.task_id}: ${outcome.summary || "no summary"}`,
           next_action: "Install/configure the framework or mark the harness row as planned-only."
+        });
+      } else if (outcome.attempted && outcome.status === "completed" && semanticSignals.status === "fail") {
+        const missing = Array.isArray(semanticSignals.missing_pass_signals) ? semanticSignals.missing_pass_signals : [];
+        const blockers = Array.isArray(semanticSignals.matched_fail_signals) ? semanticSignals.matched_fail_signals : [];
+        gaps.push({
+          id: buildGapId(["semantic_failed", result.framework_id, result.task_id, side]),
+          severity: "red",
+          kind: "task_semantic_signals_failed",
+          framework_id: result.framework_id,
+          task_id: result.task_id,
+          side,
+          missing_pass_signals: missing,
+          matched_fail_signals: blockers,
+          summary: `${side} run completed for ${result.framework_id}/${result.task_id}, but required task evidence was not present.`,
+          next_action: "Inspect the response artifact, tighten context/tool projection, or revise the task signals if they are too brittle."
+        });
+      } else if (outcome.attempted && outcome.status === "completed" && semanticSignals.status === "warn") {
+        gaps.push({
+          id: buildGapId(["semantic_warn", result.framework_id, result.task_id, side]),
+          severity: "yellow",
+          kind: "task_semantic_signals_partial",
+          framework_id: result.framework_id,
+          task_id: result.task_id,
+          side,
+          matched_pass_signals: semanticSignals.matched_pass_signals ?? [],
+          missing_pass_signals: semanticSignals.missing_pass_signals ?? [],
+          summary: `${side} run completed for ${result.framework_id}/${result.task_id}, but only partial task evidence was present.`,
+          next_action: "Add stronger task-specific evidence capture or improve the runtime response projection."
         });
       }
     }
@@ -859,7 +1089,8 @@ function buildMarkdown(report: AnyJson): string {
   lines.push(`- Frameworks: ${report.frameworks.join(", ") || "none"}`);
   lines.push(`- Tasks: ${report.tasks.join(", ") || "none"}`);
   lines.push(`- Registry coverage: ${report.registry_coverage?.ok ? "pass" : "fail"}`);
-  lines.push(`- Available runtimes: ${(report.availability_matrix ?? []).filter((row: AnyJson) => row.status === "available" || row.status === "path_only_available").length}/${(report.availability_matrix ?? []).length}`);
+  lines.push(`- Available runtimes: ${(report.availability_matrix ?? []).filter((row: AnyJson) => row.status === "available").length}/${(report.availability_matrix ?? []).length}`);
+  lines.push(`- Reference-only checkouts: ${(report.availability_matrix ?? []).filter((row: AnyJson) => row.status === "reference_only_available").length}`);
   lines.push("");
   lines.push("## Summary");
   lines.push("");
@@ -946,9 +1177,10 @@ async function main(): Promise<void> {
     .update(`${Date.now()}-${os.hostname()}-${args.mode}-${args.framework}-${args.task}`)
     .digest("hex")
     .slice(0, 16);
-  const capabilityMatrix = buildCapabilityMatrix(catalog);
   const registryCoverage = buildRegistryCoverage(catalog, registry, args.registry);
-  const availabilityMatrix = buildAvailabilityMatrix(catalog, args);
+  const selectedCatalog = { ...catalog, frameworks };
+  const capabilityMatrix = buildCapabilityMatrix(selectedCatalog);
+  const availabilityMatrix = buildAvailabilityMatrix(selectedCatalog, args);
   const frameworkResults: AnyJson[] = [];
 
   if (args.mode !== "catalog") {
@@ -1024,7 +1256,7 @@ async function main(): Promise<void> {
     summary,
     gap_summary: gapSummary,
     gap_count: gaps.length,
-    available_runtimes: availabilityMatrix.filter((row: AnyJson) => row.status === "available" || row.status === "path_only_available").length,
+    available_runtimes: availabilityMatrix.filter((row: AnyJson) => row.status === "available").length,
     registry_coverage_ok: registryCoverage.ok,
     registry_coverage_violations: registryCoverage.violations,
     artifact_paths: report.artifact_paths

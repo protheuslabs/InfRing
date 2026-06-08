@@ -253,14 +253,18 @@
       "kind": "external_cli",
       "socket_engine_id": "opencode",
       "availability_probe": {
-        "type": "command_candidates",
+        "type": "path_or_command_candidates",
         "commands": [
           "opencode"
+        ],
+        "paths": [
+          "~/.opencode/bin/opencode"
         ]
       },
       "native_invocation": {
         "supported": true,
         "command_candidates": [
+          "~/.opencode/bin/opencode",
           "opencode"
         ],
         "argv_template": [
@@ -299,7 +303,7 @@
       ],
       "known_gaps": [
         "Native stream schema and model discovery need live parity capture.",
-        "InfRing Gateway adapter is wired, but local CLI availability depends on an installed opencode command."
+        "Local OpenCode command discovery is proven via ~/.opencode/bin/opencode; remaining live parity work is stream schema and model discovery capture."
       ]
     },
     {
@@ -310,7 +314,8 @@
       "availability_probe": {
         "type": "path_or_command_candidates",
         "paths": [
-          "~/.openclaw",
+          "{repo}/references/coding-agent-systems/openclaw",
+          "~/.infring/external_runtimes/openclaw",
           "{repo}/../openclaw",
           "{repo}/external/openclaw"
         ],
@@ -328,7 +333,7 @@
           "run",
           "{prompt}"
         ],
-        "notes": "Default install path may overlap InfRing development workspaces; harness supports override by --framework-root."
+        "notes": "Reference checkout lives at references/coding-agent-systems/openclaw when present. Live native execution still requires an openclaw command or configured socket; do not treat ~/.openclaw as the InfRing-managed OpenClaw home because this InfRing checkout may live under ~/.openclaw."
       },
       "native_features": {
         "conversation_context": true,
@@ -368,6 +373,8 @@
       "availability_probe": {
         "type": "path_or_command_candidates",
         "paths": [
+          "{repo}/references/coding-agent-systems/hermes-agent",
+          "~/.infring/external_runtimes/hermes_agent",
           "{repo}/external/hermes-agent",
           "{repo}/../hermes-agent"
         ],
@@ -387,7 +394,7 @@
           "run",
           "{prompt}"
         ],
-        "notes": "Command shape is provisional until the cloned Hermes repository and runtime contract are confirmed."
+        "notes": "Reference checkout lives at references/coding-agent-systems/hermes-agent when present. Live native execution still requires a hermes/hermes-agent command, configured provider credentials, or an attached local socket."
       },
       "native_features": {
         "conversation_context": "unknown",

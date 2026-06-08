@@ -11,12 +11,17 @@
 
 const { createCliRuntimeEngineAdapter, selectedRuntimeModelArg } = require('./cli_runtime_adapter.ts');
 
-function codexSandboxMode(ctx) {
+const DIRECT_NATIVE_MUTATION_GRANTS = new Set(['direct_file_write', 'native.direct_file_write', 'filesystem.direct_write']);
+
+function nativeMutationGrantActive(ctx) {
   const grants = ctx && ctx.message && ctx.message.context_pack && ctx.message.context_pack.universal_tool_grants;
   const policy = grants && grants.permission_policy && typeof grants.permission_policy === 'object' ? grants.permission_policy : {};
   const always = Array.isArray(policy.always_allowed_tool_calls) ? policy.always_allowed_tool_calls : [];
-  if (always.includes('artifact.create_propose')) return 'workspace-write';
-  return 'read-only';
+  return always.some((toolId) => DIRECT_NATIVE_MUTATION_GRANTS.has(String(toolId || '').trim()));
+}
+
+function codexSandboxMode(ctx) {
+  return nativeMutationGrantActive(ctx) ? 'workspace-write' : 'read-only';
 }
 
 function createCodexCliEngineAdapter(options = {}) {

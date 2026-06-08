@@ -23,10 +23,12 @@ function main() {
   const codexPath = 'adapters/runtime/agent_engines/codex_cli.ts';
   const claudePath = 'adapters/runtime/agent_engines/claude_code.ts';
   const grokPath = 'adapters/runtime/agent_engines/grok_code.ts';
+  const opencodePath = 'adapters/runtime/agent_engines/opencode.ts';
   const sharedPath = 'adapters/runtime/agent_engines/cli_runtime_adapter.ts';
   const codex = read(codexPath);
   const claude = read(claudePath);
   const grok = read(grokPath);
+  const opencode = read(opencodePath);
   const shared = read(sharedPath);
   const violations = [];
 
@@ -49,6 +51,21 @@ function main() {
   }
   if (!grok.includes("'--permission-mode'") || !grok.includes("'acceptEdits'")) {
     push(violations, 'grok_permission_mode_mapping_missing', grokPath, 'Grok Code must use acceptEdits only for Gateway-approved mutating turns.');
+  }
+
+  if (!opencode.includes('mutationGrant') || !opencode.includes("'--dangerously-skip-permissions'")) {
+    push(violations, 'opencode_permission_mode_mapping_missing', opencodePath, 'OpenCode must use --dangerously-skip-permissions only for explicit native direct-mutation grants.');
+  }
+
+  for (const [adapterName, adapterPath, adapterSource] of [
+    ['codex_cli', codexPath, codex],
+    ['claude_code', claudePath, claude],
+    ['grok_code', grokPath, grok],
+    ['opencode', opencodePath, opencode],
+  ]) {
+    if (adapterSource.includes("always.includes('artifact.create_propose')") || adapterSource.includes("always.includes('permission.request')")) {
+      push(violations, 'proposal_tool_mapped_to_native_mutation', adapterPath, `${adapterName} must not map proposal or permission-request grants to native direct-edit modes.`);
+    }
   }
 
   if (!shared.includes('dedupeFailureLines(')) {

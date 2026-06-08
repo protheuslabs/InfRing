@@ -646,6 +646,7 @@
           "opencode"
         ],
         "default_paths": [
+          "~/.opencode/bin/opencode",
           "~/.local/bin/opencode",
           "/opt/homebrew/bin/opencode",
           "/usr/local/bin/opencode",

@@ -13,9 +13,18 @@
         "Remember this harness fact: the mascot is a silver fox named Kernel.",
         "What is the harness mascot, and why do you know that?"
       ],
-      "expected_capabilities": ["conversation_context", "multi_turn_continuity"],
-      "pass_signals": ["silver fox", "Kernel"],
-      "fail_signals": ["no prior context", "cannot see previous"]
+      "expected_capabilities": [
+        "conversation_context",
+        "multi_turn_continuity"
+      ],
+      "pass_signals": [
+        "silver fox",
+        "Kernel"
+      ],
+      "fail_signals": [
+        "no prior context",
+        "cannot see previous"
+      ]
     },
     {
       "id": "repo_read_only_summary",
@@ -30,9 +39,19 @@
           "content": "# Harness Fixture\n\nThis fixture is used to test read-only repository inspection, working-directory behavior, and concise reporting.\n"
         }
       ],
-      "expected_capabilities": ["file_read", "working_directory_control"],
-      "pass_signals": ["read-only", "working-directory", "fixture"],
-      "fail_signals": ["permission denied", "not found"]
+      "expected_capabilities": [
+        "file_read",
+        "working_directory_control"
+      ],
+      "pass_signals": [
+        "read-only",
+        "working-directory",
+        "fixture"
+      ],
+      "fail_signals": [
+        "permission denied",
+        "not found"
+      ]
     },
     {
       "id": "safe_file_create",
@@ -41,11 +60,24 @@
       "turns": [
         "Create a file named output/hello_agent.txt containing exactly: hello from the harness"
       ],
-      "expected_capabilities": ["file_write", "approval_pause_resume", "artifact_receipt"],
-      "expected_artifacts": ["output/hello_agent.txt"],
+      "expected_capabilities": [
+        "file_write",
+        "approval_pause_resume",
+        "artifact_receipt"
+      ],
+      "expected_artifacts": [
+        "output/hello_agent.txt"
+      ],
       "approval_policy": "simulate_allow",
-      "pass_signals": ["hello_agent.txt", "created", "receipt"],
-      "fail_signals": ["read-only", "approval policy is never"]
+      "pass_signals": [
+        "hello_agent.txt",
+        "created",
+        "receipt"
+      ],
+      "fail_signals": [
+        "read-only",
+        "approval policy is never"
+      ]
     },
     {
       "id": "patch_existing_fixture",
@@ -60,11 +92,25 @@
           "content": "existing item\n"
         }
       ],
-      "expected_capabilities": ["file_read", "file_write", "approval_pause_resume", "artifact_receipt"],
-      "expected_artifacts": ["fixture/todo.txt"],
+      "expected_capabilities": [
+        "file_read",
+        "file_write",
+        "approval_pause_resume",
+        "artifact_receipt"
+      ],
+      "expected_artifacts": [
+        "fixture/todo.txt"
+      ],
       "approval_policy": "simulate_allow",
-      "pass_signals": ["done by harness", "updated", "receipt"],
-      "fail_signals": ["cannot modify", "approval policy is never"]
+      "pass_signals": [
+        "done by harness",
+        "updated",
+        "receipt"
+      ],
+      "fail_signals": [
+        "cannot modify",
+        "approval policy is never"
+      ]
     },
     {
       "id": "command_run_smoke",
@@ -73,10 +119,18 @@
       "turns": [
         "Run a harmless command that prints AGENT_HARNESS_OK, then report the exact output."
       ],
-      "expected_capabilities": ["shell_command", "tool_trace_visibility"],
+      "expected_capabilities": [
+        "shell_command",
+        "tool_trace_visibility"
+      ],
       "approval_policy": "simulate_allow",
-      "pass_signals": ["AGENT_HARNESS_OK"],
-      "fail_signals": ["permission denied", "command unavailable"]
+      "pass_signals": [
+        "AGENT_HARNESS_OK"
+      ],
+      "fail_signals": [
+        "permission denied",
+        "command unavailable"
+      ]
     },
     {
       "id": "approval_pause_resume",
@@ -85,11 +139,25 @@
       "turns": [
         "Attempt to create output/approval_resume.txt with the content approved after pause. If approval is required, request it and continue after approval."
       ],
-      "expected_capabilities": ["approval_pause_resume", "permission_request", "artifact_receipt"],
+      "expected_capabilities": [
+        "approval_pause_resume",
+        "permission_request",
+        "artifact_receipt"
+      ],
       "approval_policy": "manual_or_simulate_allow",
-      "expected_artifacts": ["output/approval_resume.txt"],
-      "pass_signals": ["approval", "continued", "approval_resume.txt"],
-      "fail_signals": ["turn ended", "no popup", "approval policy is never"]
+      "expected_artifacts": [
+        "output/approval_resume.txt"
+      ],
+      "pass_signals": [
+        "approval",
+        "resumed",
+        "approval_resume.txt"
+      ],
+      "fail_signals": [
+        "turn ended",
+        "no popup",
+        "approval policy is never"
+      ]
     },
     {
       "id": "working_directory_boundary",
@@ -98,11 +166,21 @@
       "turns": [
         "Tell me the current working directory and create output/cwd_marker.txt only inside it."
       ],
-      "expected_capabilities": ["working_directory_control", "file_write"],
+      "expected_capabilities": [
+        "working_directory_control",
+        "file_write"
+      ],
       "approval_policy": "simulate_allow",
-      "expected_artifacts": ["output/cwd_marker.txt"],
-      "pass_signals": ["cwd_marker.txt"],
-      "fail_signals": ["outside working directory", "wrong directory"]
+      "expected_artifacts": [
+        "output/cwd_marker.txt"
+      ],
+      "pass_signals": [
+        "cwd_marker.txt"
+      ],
+      "fail_signals": [
+        "outside working directory",
+        "wrong directory"
+      ]
     },
     {
       "id": "large_paste_attachment",
@@ -116,9 +194,18 @@
         "content_prefix": "This is a synthetic large paste fixture. HARNESS_SECRET_PHRASE=small-context-wins. ",
         "repeat": 200
       },
-      "expected_capabilities": ["large_paste_attachment", "file_read", "context_budgeting"],
-      "pass_signals": ["small-context-wins"],
-      "fail_signals": ["quoted the whole attachment", "cannot access"]
+      "expected_capabilities": [
+        "large_paste_attachment",
+        "file_read",
+        "context_budgeting"
+      ],
+      "pass_signals": [
+        "small-context-wins"
+      ],
+      "fail_signals": [
+        "quoted the whole attachment",
+        "cannot access"
+      ]
     },
     {
       "id": "activity_dialog_stream",
@@ -133,9 +220,22 @@
           "content": "# Activity Fixture\n\nThe goal is to prove activity traces can explain what the agent is doing.\n"
         }
       ],
-      "expected_capabilities": ["activity_dialog_stream", "tool_trace_visibility", "decision_dialog"],
-      "pass_signals": ["plan", "inspect", "fixture"],
-      "fail_signals": ["Activity", "Started only", "no trace"]
+      "expected_capabilities": [
+        "activity_dialog_stream",
+        "tool_trace_visibility",
+        "decision_dialog"
+      ],
+      "pass_signals": [
+        "plan",
+        "read",
+        "fixture"
+      ],
+      "fail_signals": [
+        "Started only",
+        "Activity done",
+        "generic activity row",
+        "no trace"
+      ]
     },
     {
       "id": "hard_failure_injection",
@@ -144,10 +244,21 @@
       "turns": [
         "Simulate or trigger an unavailable-provider condition and report a concise user-visible diagnostic."
       ],
-      "expected_capabilities": ["failure_reporting", "hard_failure_chat_injection"],
+      "expected_capabilities": [
+        "failure_reporting",
+        "hard_failure_chat_injection"
+      ],
       "approval_policy": "none",
-      "pass_signals": ["unavailable", "diagnostic", "recover"],
-      "fail_signals": ["hung", "silent", "unknown"]
+      "pass_signals": [
+        "unavailable",
+        "diagnostic",
+        "recover"
+      ],
+      "fail_signals": [
+        "hung",
+        "silent",
+        "unknown"
+      ]
     },
     {
       "id": "model_selection_identity",
@@ -156,10 +267,19 @@
       "turns": [
         "Report the active framework and model/provider you were asked to use. Do not claim a different model."
       ],
-      "expected_capabilities": ["model_selection", "provider_identity"],
+      "expected_capabilities": [
+        "model_selection",
+        "provider_identity"
+      ],
       "approval_policy": "none",
-      "pass_signals": ["framework", "model"],
-      "fail_signals": ["default is a model", "unknown framework"]
+      "pass_signals": [
+        "framework",
+        "model"
+      ],
+      "fail_signals": [
+        "default is a model",
+        "unknown framework"
+      ]
     },
     {
       "id": "multi_turn_followup",
@@ -169,11 +289,23 @@
         "Create output/followup_note.txt with the sentence: first turn complete.",
         "What file did you create in the prior turn, and what did it contain?"
       ],
-      "expected_capabilities": ["multi_turn_continuity", "artifact_receipt", "file_read"],
+      "expected_capabilities": [
+        "multi_turn_continuity",
+        "artifact_receipt",
+        "file_read"
+      ],
       "approval_policy": "simulate_allow",
-      "expected_artifacts": ["output/followup_note.txt"],
-      "pass_signals": ["followup_note.txt", "first turn complete"],
-      "fail_signals": ["no prior context", "cannot see previous"]
+      "expected_artifacts": [
+        "output/followup_note.txt"
+      ],
+      "pass_signals": [
+        "followup_note.txt",
+        "first turn complete"
+      ],
+      "fail_signals": [
+        "no prior context",
+        "cannot see previous"
+      ]
     }
   ]
 }

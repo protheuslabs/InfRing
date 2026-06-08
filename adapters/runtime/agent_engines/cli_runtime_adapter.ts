@@ -17,6 +17,9 @@
 
 const childProcess = require('child_process');
 const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { resolveEngineDiscovery } = require('./discovery.ts');
 const { renderUniversalToolGrantPromptSection } = require('./universal_core_tools.ts');
 
@@ -1349,12 +1352,38 @@ function permissionDeniedText(value) {
   return '';
 }
 
+function collectUniversalToolProposals(value, out = [], depth = 0) {
+  if (!value || depth > 7 || out.length >= 8) return out;
+  if (typeof value === 'string') {
+    const text = cleanDisplayString(value, 64000);
+    if (!text || !text.includes('infring_universal_tool_proposal')) return out;
+    for (const row of parseJsonObjectsFromLine(text)) {
+      collectUniversalToolProposals(row, out, depth + 1);
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 64)) {
+      collectUniversalToolProposals(item, out, depth + 1);
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+  if (typeof value !== 'object') return out;
+  if (value.type === 'infring_universal_tool_proposal') {
+    out.push(value);
+    return out;
+  }
+  for (const child of Object.values(value).slice(0, 64)) {
+    collectUniversalToolProposals(child, out, depth + 1);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 function extractUniversalToolProposals(value) {
-  const text = cleanDisplayString(value, 64000);
-  if (!text || !text.includes('infring_universal_tool_proposal')) return [];
-  return parseJsonObjectsFromLine(text)
-    .filter((row) => row && row.type === 'infring_universal_tool_proposal')
-    .slice(0, 8);
+  return collectUniversalToolProposals(value, [], 0).slice(0, 8);
 }
 
 function sanitizeProposalArguments(args, toolId) {
@@ -1666,6 +1695,159 @@ function buildPermissionRequestFromProposals(proposals, ctx, defaultEngineId) {
   return buildPermissionRequestFromProposal(proposals[0], ctx, defaultEngineId);
 }
 
+const DIRECT_NATIVE_MUTATION_GRANTS = new Set(['direct_file_write', 'native.direct_file_write', 'filesystem.direct_write']);
+const SHADOW_EXCLUDED_DIRS = new Set(['.git', 'node_modules', 'target', 'dist', 'build', '.next', '.svelte-kit', 'coverage', '.cache']);
+
+function nativeDirectMutationGrantActive(ctx) {
+  const grants = ctx && ctx.message && ctx.message.context_pack && ctx.message.context_pack.universal_tool_grants;
+  const policy = grants && grants.permission_policy && typeof grants.permission_policy === 'object' ? grants.permission_policy : {};
+  const always = Array.isArray(policy.always_allowed_tool_calls) ? policy.always_allowed_tool_calls : [];
+  return always.some((toolId) => DIRECT_NATIVE_MUTATION_GRANTS.has(String(toolId || '').trim()));
+}
+
+function safeRelativePath(value) {
+  const rel = cleanString(value, 1000).replace(/\\/g, '/');
+  if (!rel || rel.startsWith('/') || rel.includes('../') || rel === '..') return '';
+  return rel.replace(/^\.\//, '');
+}
+
+function sha256File(fullPath) {
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(fullPath)).digest('hex');
+  } catch {
+    return '';
+  }
+}
+
+function copyShadowTree(sourceRoot, targetRoot, state, relative = '') {
+  if (state.files >= state.maxFiles || state.bytes >= state.maxBytes) return;
+  let entries = [];
+  try { entries = fs.readdirSync(path.join(sourceRoot, relative), { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    if (state.files >= state.maxFiles || state.bytes >= state.maxBytes) return;
+    if (entry.name === '.DS_Store') continue;
+    if (entry.isDirectory() && SHADOW_EXCLUDED_DIRS.has(entry.name)) continue;
+    const rel = relative ? path.join(relative, entry.name) : entry.name;
+    const src = path.join(sourceRoot, rel);
+    const dest = path.join(targetRoot, rel);
+    if (entry.isDirectory()) {
+      try { fs.mkdirSync(dest, { recursive: true }); } catch {}
+      copyShadowTree(sourceRoot, targetRoot, state, rel);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    let stat = null;
+    try { stat = fs.statSync(src); } catch { continue; }
+    if (!stat || stat.size > state.maxFileBytes || state.bytes + stat.size > state.maxBytes) {
+      state.skipped += 1;
+      continue;
+    }
+    try {
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+      state.files += 1;
+      state.bytes += stat.size;
+    } catch {
+      state.skipped += 1;
+    }
+  }
+}
+
+function snapshotWorkspace(root, state = { files: 0, bytes: 0, maxFiles: 2500, maxBytes: 25 * 1024 * 1024, maxFileBytes: 512 * 1024, skipped: 0 }, relative = '') {
+  const out = new Map();
+  const visit = (rel) => {
+    if (state.files >= state.maxFiles || state.bytes >= state.maxBytes) return;
+    let entries = [];
+    try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (state.files >= state.maxFiles || state.bytes >= state.maxBytes) return;
+      if (entry.isDirectory() && SHADOW_EXCLUDED_DIRS.has(entry.name)) continue;
+      const childRel = rel ? path.join(rel, entry.name) : entry.name;
+      const full = path.join(root, childRel);
+      if (entry.isDirectory()) {
+        visit(childRel);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      let stat = null;
+      try { stat = fs.statSync(full); } catch { continue; }
+      if (!stat || stat.size > state.maxFileBytes || state.bytes + stat.size > state.maxBytes) {
+        state.skipped += 1;
+        continue;
+      }
+      state.files += 1;
+      state.bytes += stat.size;
+      out.set(childRel.replace(/\\/g, '/'), { size: stat.size, hash: sha256File(full) });
+    }
+  };
+  visit(relative);
+  return out;
+}
+
+function prepareCliShadowWorkspace(realCwd, ctx, engineId) {
+  const cwd = cleanString(realCwd || process.cwd(), 1200);
+  if (!cwd || nativeDirectMutationGrantActive(ctx)) return { active: false, cwd };
+  let stat = null;
+  try { stat = fs.statSync(cwd); } catch { return { active: false, cwd, error: 'selected_working_directory_unavailable' }; }
+  if (!stat.isDirectory()) return { active: false, cwd, error: 'selected_working_directory_not_directory' };
+  const shadowRoot = fs.mkdtempSync(path.join(os.tmpdir(), `infring-${engineId}-shadow-`));
+  const copyState = { files: 0, bytes: 0, maxFiles: 2500, maxBytes: 25 * 1024 * 1024, maxFileBytes: 512 * 1024, skipped: 0 };
+  copyShadowTree(cwd, shadowRoot, copyState);
+  const before = snapshotWorkspace(shadowRoot);
+  return { active: true, cwd: shadowRoot, real_cwd: cwd, shadow_root: shadowRoot, before, copy_state: copyState };
+}
+
+function diffShadowWorkspace(shadow) {
+  if (!shadow || !shadow.active || !shadow.shadow_root) return [];
+  const after = snapshotWorkspace(shadow.shadow_root);
+  const changes = [];
+  for (const [rel, info] of after.entries()) {
+    const before = shadow.before && shadow.before.get(rel);
+    if (!before || before.hash !== info.hash || before.size !== info.size) {
+      changes.push({ path: rel, size: info.size, hash: info.hash, kind: before ? 'modified' : 'created' });
+    }
+  }
+  return changes.slice(0, 8);
+}
+
+function buildPermissionRequestFromShadowChange(change, shadow, ctx, defaultEngineId) {
+  const rel = safeRelativePath(change && change.path);
+  if (!rel || !shadow || !shadow.shadow_root) return null;
+  const fullPath = path.join(shadow.shadow_root, rel);
+  let content = '';
+  try { content = fs.readFileSync(fullPath, 'utf8'); } catch { return null; }
+  const proposal = {
+    type: 'infring_universal_tool_proposal',
+    tool_id: 'artifact.create_propose',
+    reason: 'External runtime proposed ' + cleanString(change.kind || 'changing', 40) + ' ' + rel + ' in a shadow workspace.',
+    arguments: {
+      path: rel,
+      mime_type: 'text/plain',
+      content: cleanDisplayString(content, 262144),
+    },
+  };
+  const request = buildPermissionRequestFromProposal(proposal, ctx, defaultEngineId);
+  if (!request) return null;
+  return {
+    ...request,
+    source: 'external_cli_shadow_workspace_diff',
+    shadow_workspace: {
+      active: true,
+      real_cwd: shadow.real_cwd,
+      changed_path: rel,
+      changed_kind: cleanString(change.kind || 'changed', 40),
+      durable_effect_executed_before_approval: false,
+    },
+    reason: cleanDisplayString(proposal.reason, 1000),
+    pause_reason: cleanDisplayString(proposal.reason, 1000),
+  };
+}
+
+function cleanupShadowWorkspace(shadow) {
+  if (!shadow || !shadow.active || !shadow.shadow_root) return;
+  try { fs.rmSync(shadow.shadow_root, { recursive: true, force: true }); } catch {}
+}
+
 function semanticCompactText(value, max = 220) {
   return cleanDisplayString(value, max).replace(/\n+/g, ' ').replace(/\s{2,}/g, ' ').trim();
 }
@@ -1859,7 +2041,10 @@ function parseCliActivityOutput(stdout, stderr, ctx, defaultEngineId) {
     : compactEvents;
   const output = outputTextFromActivityRows(rows, stderr);
   const permissionDenials = collectPermissionDenials(rows, [output, stderr].filter(Boolean).join('\n'));
-  const permissionProposals = extractUniversalToolProposals([output, stderr].filter(Boolean).join('\n'));
+  const permissionProposals = [
+    ...extractUniversalToolProposals(rows),
+    ...extractUniversalToolProposals([output, stderr].filter(Boolean).join('\n')),
+  ].slice(0, 8);
   return {
     output_text: output,
     output_preview: cleanString(output, 4000),
@@ -1921,34 +2106,77 @@ function createCliRuntimeEngineAdapter(options = {}) {
     const command = cleanString(discovery.command || selectedCommand || options.commandFallback || engineId, 500);
     const runner = typeof ctx.onActivity === 'function' ? spawnActivityCapture : spawnCapture;
     const turnTimeoutMs = resolveTurnTimeoutMs(ctx, timeoutMs);
-    const run = await runner(command, runArgs(prompt, ctx), {
-      timeoutMs: turnTimeoutMs,
-      maxOutputBytes: 64000,
-      cwd: options.cwd || (ctx && ctx.message && (ctx.message.cwd || ctx.message.workspace_dir)) || process.cwd(),
-      env: mergedRuntimeEnv(ctx, options),
-      ctx,
-      engineId,
-      onActivity: ctx.onActivity,
-    });
+    const requestedCwd = options.cwd || (ctx && ctx.message && (ctx.message.cwd || ctx.message.workspace_dir)) || process.cwd();
+    const shadow = prepareCliShadowWorkspace(requestedCwd, ctx, engineId);
+    if (shadow && shadow.error && !shadow.active) {
+      return {
+        ...baseEvent(ctx, 'error', engineId),
+        status: 'failed',
+        error_code: `${engineId}_shadow_workspace_unavailable`,
+        reason: shadow.error,
+        retryable: false,
+      };
+    }
+    let run;
+    let shadowChanges = [];
+    let shadowPermissionRequest = null;
+    try {
+      run = await runner(command, runArgs(prompt, ctx), {
+        timeoutMs: turnTimeoutMs,
+        maxOutputBytes: 64000,
+        cwd: shadow && shadow.active ? shadow.cwd : requestedCwd,
+        env: {
+          ...mergedRuntimeEnv(ctx, options),
+          ...(shadow && shadow.active ? {
+            INFRING_REAL_WORKING_DIRECTORY: requestedCwd,
+            INFRING_SHADOW_WORKING_DIRECTORY: shadow.cwd,
+          } : {}),
+        },
+        ctx,
+        engineId,
+        onActivity: ctx.onActivity,
+      });
+      shadowChanges = diffShadowWorkspace(shadow);
+      shadowPermissionRequest = shadowChanges.length
+        ? buildPermissionRequestFromShadowChange(shadowChanges[0], shadow, ctx, engineId)
+        : null;
+    } finally {
+      cleanupShadowWorkspace(shadow);
+    }
     const parsed = parseCliActivityOutput(run.stdout, run.stderr, ctx, engineId);
+    const permissionRequest = parsed.permission_request || shadowPermissionRequest;
     const failureText = run.ok ? '' : cliRuntimeFailureText(engineId, run, turnTimeoutMs);
     const outputText = run.ok ? (parsed.output_text || failureText) : failureText;
-    const errorCode = run.ok ? '' : classifyCliRuntimeFailureCode(engineId, run, failureText);
+    const projectedOutputText = permissionRequest
+      ? `Permission required: ${permissionRequest.reason || permissionRequest.pause_reason || 'External runtime proposed a gated effect.'}`
+      : outputText;
+    const errorCode = permissionRequest ? '' : run.ok ? '' : classifyCliRuntimeFailureCode(engineId, run, failureText);
+    const activityEvents = appendCliRuntimeFailureEvent(parsed.activity_events, ctx, engineId, run, turnTimeoutMs);
+    if (shadowPermissionRequest) {
+      activityEvents.push({
+        ...baseEvent(ctx, 'permission.requested', engineId),
+        activity_kind: 'permission_request',
+        provider_event_type: 'shadow_workspace.diff',
+        status: 'paused_pending_approval',
+        display_text: shadowPermissionRequest.reason,
+      });
+    }
     return {
       ...baseEvent(ctx, 'turn.complete', engineId),
-      status: run.ok ? 'completed' : run.timed_out ? 'timed_out' : 'failed',
+      status: permissionRequest ? 'permission_required' : run.ok ? 'completed' : run.timed_out ? 'timed_out' : 'failed',
       error_code: errorCode,
-      reason: failureText,
+      reason: permissionRequest ? permissionRequest.pause_reason || permissionRequest.reason || '' : failureText,
       retryable: run.timed_out === true,
       result_ref: stableRef(`artifact/${engineId}/result`, ctx, engineId),
       receipt_ref: stableRef(`receipt/${engineId}/turn`, ctx, engineId),
-      output_text: outputText,
-      output_preview: cleanString(outputText || parsed.output_preview, 4000),
-      activity_events: appendCliRuntimeFailureEvent(parsed.activity_events, ctx, engineId, run, turnTimeoutMs),
-      activity_event_count: parsed.activity_event_count,
+      output_text: projectedOutputText,
+      output_preview: cleanString(projectedOutputText || parsed.output_preview, 4000),
+      activity_events: activityEvents,
+      activity_event_count: activityEvents.length,
       structured_activity: parsed.structured_activity,
       permission_denials: parsed.permission_denials,
-      permission_request: parsed.permission_request,
+      permission_request: permissionRequest,
+      shadow_workspace: shadowPermissionRequest ? shadowPermissionRequest.shadow_workspace : undefined,
       exit_code: run.exit_code,
       timed_out: run.timed_out === true,
       timeout_ms: turnTimeoutMs,
