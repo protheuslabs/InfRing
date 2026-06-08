@@ -1,0 +1,352 @@
+{
+  "type": "agent_runtime_framework_capability_catalog",
+  "version": 1,
+  "owner": "validation.agent_runtime",
+  "transport_contract": "gateway.agent_runtime_socket",
+  "capability_taxonomy": [
+    "conversation_context",
+    "multi_turn_continuity",
+    "working_directory_control",
+    "file_read",
+    "file_write",
+    "shell_command",
+    "patch_apply",
+    "approval_pause_resume",
+    "permission_request",
+    "activity_dialog_stream",
+    "decision_dialog",
+    "tool_trace_visibility",
+    "artifact_receipt",
+    "large_paste_attachment",
+    "context_budgeting",
+    "model_selection",
+    "provider_identity",
+    "provider_auth_discovery",
+    "failure_reporting",
+    "hard_failure_chat_injection"
+  ],
+  "shared_socket_expectations": [
+    "All frameworks enter InfRing through one Agent Runtime socket shape.",
+    "Private native schemas are translated by adapters before reaching Gateway projections.",
+    "Durable writes become proposals or receipts.",
+    "The selected working directory is explicit and never inferred from Shell state.",
+    "Activity and decision-dialog output is preserved as runtime activity projection rows.",
+    "Missing auth, quota exhaustion, missing binaries, and unavailable providers become explicit diagnostics."
+  ],
+  "frameworks": [
+    {
+      "id": "infring_native",
+      "display_name": "InfRing Native",
+      "kind": "native_engine",
+      "socket_engine_id": "infring_native",
+      "availability_probe": {
+        "type": "gateway_provider_registry",
+        "endpoint": "/api/shell-socket/agent-runtime/providers"
+      },
+      "native_invocation": {
+        "supported": false,
+        "reason": "InfRing Native is measured through the InfRing socket path."
+      },
+      "native_features": {
+        "conversation_context": true,
+        "multi_turn_continuity": true,
+        "working_directory_control": true,
+        "file_read": true,
+        "file_write": "approval_required",
+        "shell_command": "approval_required",
+        "approval_pause_resume": true,
+        "activity_dialog_stream": true,
+        "decision_dialog": true,
+        "model_selection": true,
+        "failure_reporting": true
+      },
+      "socket_features_expected": [
+        "conversation_context",
+        "multi_turn_continuity",
+        "working_directory_control",
+        "file_read",
+        "file_write",
+        "shell_command",
+        "approval_pause_resume",
+        "activity_dialog_stream",
+        "decision_dialog",
+        "model_selection",
+        "failure_reporting"
+      ],
+      "known_gaps": []
+    },
+    {
+      "id": "codex_cli",
+      "display_name": "Codex",
+      "kind": "external_cli",
+      "socket_engine_id": "codex_cli",
+      "availability_probe": {
+        "type": "command_candidates",
+        "commands": ["codex"]
+      },
+      "native_invocation": {
+        "supported": true,
+        "command_candidates": ["codex"],
+        "argv_template": ["{command}", "exec", "--cd", "{cwd}", "{prompt}"],
+        "notes": "Live native invocation may require local Codex auth and operator-controlled sandbox settings."
+      },
+      "native_features": {
+        "conversation_context": true,
+        "multi_turn_continuity": true,
+        "working_directory_control": true,
+        "file_read": true,
+        "file_write": "policy_dependent",
+        "shell_command": "policy_dependent",
+        "approval_pause_resume": true,
+        "activity_dialog_stream": true,
+        "decision_dialog": true,
+        "model_selection": true,
+        "provider_auth_discovery": true,
+        "failure_reporting": true
+      },
+      "socket_features_expected": [
+        "conversation_context",
+        "multi_turn_continuity",
+        "working_directory_control",
+        "file_read",
+        "file_write",
+        "shell_command",
+        "approval_pause_resume",
+        "activity_dialog_stream",
+        "decision_dialog",
+        "model_selection",
+        "provider_auth_discovery",
+        "failure_reporting"
+      ],
+      "known_gaps": [
+        "Native structured context transport is still behind prompt-text compatibility for many CLI turns.",
+        "Approval pause/resume parity must be proven live, not only by proposal text."
+      ]
+    },
+    {
+      "id": "claude_code",
+      "display_name": "Claude Code",
+      "kind": "external_cli",
+      "socket_engine_id": "claude_code",
+      "availability_probe": {
+        "type": "command_candidates",
+        "commands": ["claude"]
+      },
+      "native_invocation": {
+        "supported": true,
+        "command_candidates": ["claude"],
+        "argv_template": ["{command}", "--print", "{prompt}"],
+        "notes": "Live native invocation may require local Claude Code auth and may need cwd passed through process working directory."
+      },
+      "native_features": {
+        "conversation_context": true,
+        "multi_turn_continuity": true,
+        "working_directory_control": true,
+        "file_read": true,
+        "file_write": "policy_dependent",
+        "shell_command": "policy_dependent",
+        "approval_pause_resume": true,
+        "activity_dialog_stream": true,
+        "decision_dialog": true,
+        "model_selection": true,
+        "provider_auth_discovery": true,
+        "failure_reporting": true
+      },
+      "socket_features_expected": [
+        "conversation_context",
+        "multi_turn_continuity",
+        "working_directory_control",
+        "file_read",
+        "file_write",
+        "shell_command",
+        "approval_pause_resume",
+        "activity_dialog_stream",
+        "decision_dialog",
+        "model_selection",
+        "provider_auth_discovery",
+        "failure_reporting"
+      ],
+      "known_gaps": [
+        "Native CLI approval semantics must be mapped to InfRing approval-gate pause/resume.",
+        "Model list discovery should distinguish cloud-native Claude models from downloadable local models."
+      ]
+    },
+    {
+      "id": "grok_code",
+      "display_name": "Grok Code",
+      "kind": "external_cli",
+      "socket_engine_id": "grok_code",
+      "availability_probe": {
+        "type": "command_candidates",
+        "commands": ["grok", "grok-code"]
+      },
+      "native_invocation": {
+        "supported": true,
+        "command_candidates": ["grok", "grok-code"],
+        "argv_template": ["{command}", "{prompt}"],
+        "notes": "Command shape is cataloged as provisional until live discovery confirms the exact installed CLI."
+      },
+      "native_features": {
+        "conversation_context": "unknown",
+        "multi_turn_continuity": "unknown",
+        "working_directory_control": true,
+        "file_read": "policy_dependent",
+        "file_write": "policy_dependent",
+        "shell_command": "policy_dependent",
+        "approval_pause_resume": "unknown",
+        "activity_dialog_stream": "unknown",
+        "decision_dialog": "unknown",
+        "model_selection": true,
+        "provider_auth_discovery": true,
+        "failure_reporting": true
+      },
+      "socket_features_expected": [
+        "conversation_context",
+        "multi_turn_continuity",
+        "working_directory_control",
+        "file_read",
+        "file_write",
+        "shell_command",
+        "activity_dialog_stream",
+        "failure_reporting"
+      ],
+      "known_gaps": [
+        "Recent live attempts suggest no-response/hard-failure behavior needs explicit diagnostics.",
+        "Native command shape and streaming event schema need catalog confirmation."
+      ]
+    },
+    {
+      "id": "opencode",
+      "display_name": "OpenCode",
+      "kind": "external_cli",
+      "socket_engine_id": "opencode",
+      "availability_probe": {
+        "type": "command_candidates",
+        "commands": ["opencode"]
+      },
+      "native_invocation": {
+        "supported": true,
+        "command_candidates": ["opencode"],
+        "argv_template": ["{command}", "run", "{prompt}"],
+        "notes": "Command shape is provisional and should be confirmed against the installed OpenCode version."
+      },
+      "native_features": {
+        "conversation_context": true,
+        "multi_turn_continuity": "unknown",
+        "working_directory_control": true,
+        "file_read": true,
+        "file_write": "policy_dependent",
+        "shell_command": "policy_dependent",
+        "approval_pause_resume": true,
+        "activity_dialog_stream": true,
+        "decision_dialog": true,
+        "model_selection": true,
+        "provider_auth_discovery": true,
+        "failure_reporting": true
+      },
+      "socket_features_expected": [
+        "conversation_context",
+        "working_directory_control",
+        "file_read",
+        "file_write",
+        "shell_command",
+        "approval_pause_resume",
+        "activity_dialog_stream",
+        "decision_dialog",
+        "model_selection",
+        "failure_reporting"
+      ],
+      "known_gaps": [
+        "Native stream schema and model discovery need live parity capture."
+      ]
+    },
+    {
+      "id": "openclaw",
+      "display_name": "OpenClaw",
+      "kind": "external_framework",
+      "socket_engine_id": "openclaw",
+      "availability_probe": {
+        "type": "path_or_command_candidates",
+        "paths": ["~/.openclaw", "{repo}/../openclaw", "{repo}/external/openclaw"],
+        "commands": ["openclaw"]
+      },
+      "native_invocation": {
+        "supported": true,
+        "command_candidates": ["openclaw"],
+        "argv_template": ["{command}", "run", "{prompt}"],
+        "notes": "Default install path may overlap InfRing development workspaces; harness supports override by --framework-root."
+      },
+      "native_features": {
+        "conversation_context": true,
+        "multi_turn_continuity": true,
+        "working_directory_control": true,
+        "file_read": true,
+        "file_write": "policy_dependent",
+        "shell_command": "policy_dependent",
+        "approval_pause_resume": true,
+        "activity_dialog_stream": true,
+        "decision_dialog": true,
+        "model_selection": true,
+        "failure_reporting": true
+      },
+      "socket_features_expected": [
+        "conversation_context",
+        "multi_turn_continuity",
+        "working_directory_control",
+        "file_read",
+        "file_write",
+        "shell_command",
+        "approval_pause_resume",
+        "activity_dialog_stream",
+        "decision_dialog",
+        "model_selection",
+        "failure_reporting"
+      ],
+      "known_gaps": [
+        "Must avoid treating the InfRing workspace itself as the default OpenClaw install during tests."
+      ]
+    },
+    {
+      "id": "hermes_agent",
+      "display_name": "Hermes Agent",
+      "kind": "external_framework",
+      "socket_engine_id": "hermes_agent",
+      "availability_probe": {
+        "type": "path_or_command_candidates",
+        "paths": ["{repo}/external/hermes-agent", "{repo}/../hermes-agent"],
+        "commands": ["hermes", "hermes-agent"]
+      },
+      "native_invocation": {
+        "supported": true,
+        "command_candidates": ["hermes", "hermes-agent"],
+        "argv_template": ["{command}", "run", "{prompt}"],
+        "notes": "Command shape is provisional until the cloned Hermes repository and runtime contract are confirmed."
+      },
+      "native_features": {
+        "conversation_context": "unknown",
+        "multi_turn_continuity": "unknown",
+        "working_directory_control": "unknown",
+        "file_read": "unknown",
+        "file_write": "unknown",
+        "shell_command": "unknown",
+        "approval_pause_resume": "unknown",
+        "activity_dialog_stream": "unknown",
+        "decision_dialog": "unknown",
+        "model_selection": "unknown",
+        "provider_auth_discovery": "unknown",
+        "failure_reporting": "unknown"
+      },
+      "socket_features_expected": [
+        "conversation_context",
+        "working_directory_control",
+        "file_read",
+        "file_write",
+        "activity_dialog_stream",
+        "failure_reporting"
+      ],
+      "known_gaps": [
+        "Capability catalog is intentionally conservative until native Hermes tests are run."
+      ]
+    }
+  ]
+}

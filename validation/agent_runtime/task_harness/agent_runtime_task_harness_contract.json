@@ -1,0 +1,83 @@
+{
+  "type": "agent_runtime_task_harness_contract",
+  "version": 1,
+  "owner": "validation.agent_runtime",
+  "question": "Can InfRing preserve native agent-framework capabilities through the Agent Runtime socket?",
+  "result_shape": {
+    "run_id": "string",
+    "generated_at": "iso8601",
+    "live": "boolean",
+    "mode": "native|infring|both|catalog",
+    "framework_results": "array",
+    "capability_matrix": "array",
+    "gaps": "array",
+    "artifact_paths": "array"
+  },
+  "framework_result_shape": {
+    "framework_id": "string",
+    "task_id": "string",
+    "native": {
+      "attempted": "boolean",
+      "available": "boolean",
+      "ok": "boolean",
+      "status": "planned|completed|failed|skipped",
+      "summary": "string",
+      "stdout_ref": "string|null",
+      "stderr_ref": "string|null"
+    },
+    "infring": {
+      "attempted": "boolean",
+      "available": "boolean",
+      "ok": "boolean",
+      "status": "planned|completed|failed|skipped",
+      "summary": "string",
+      "response_ref": "string|null"
+    },
+    "score": {
+      "context_continuity": "pass|warn|fail|unknown",
+      "activity_trace": "pass|warn|fail|unknown",
+      "approval_flow": "pass|warn|fail|unknown",
+      "artifact_effect": "pass|warn|fail|unknown",
+      "model_control": "pass|warn|fail|unknown",
+      "failure_reporting": "pass|warn|fail|unknown",
+      "parity": "pass|warn|fail|unknown"
+    }
+  },
+  "scoring_dimensions": [
+    {
+      "id": "context_continuity",
+      "description": "The framework can use prior turns or supplied context without starting cold."
+    },
+    {
+      "id": "activity_trace",
+      "description": "The framework exposes useful activity/decision/tool status, not only final answer text."
+    },
+    {
+      "id": "approval_flow",
+      "description": "Mutating actions are mediated through approval and can resume after a decision."
+    },
+    {
+      "id": "artifact_effect",
+      "description": "Read/write/artifact behavior is observable, bounded, and receipt-backed."
+    },
+    {
+      "id": "model_control",
+      "description": "The selected model/provider intent is discoverable and respected."
+    },
+    {
+      "id": "failure_reporting",
+      "description": "Auth/quota/runtime failures become explicit diagnostics rather than silent hangs."
+    },
+    {
+      "id": "parity",
+      "description": "InfRing socket behavior preserves the framework capability that works natively."
+    }
+  ],
+  "hard_rules": [
+    "Dry-run is default; live agent execution requires explicit opt-in.",
+    "Native and InfRing runs must use a disposable harness workspace unless a task explicitly declares otherwise.",
+    "Mutating tasks must declare approval expectations.",
+    "Shell display behavior may be observed, but Shell must not own scoring or task definitions.",
+    "Adapters may translate private framework schemas, but must not become policy owners."
+  ]
+}
