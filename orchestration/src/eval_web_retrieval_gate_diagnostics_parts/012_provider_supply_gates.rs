@@ -91,6 +91,19 @@
             provider_supply_refs(&provider_supply),
         ),
         web_gate(
+            "web_4e_browser_serp_external_urls_extracted",
+            browser_serp_attempted,
+            !browser_serp_attempted || browser_serp_external_urls_extracted,
+            if !browser_serp_attempted {
+                "browser SERP was not attempted in this run, so organic URL extraction is not applicable"
+            } else if browser_serp_external_urls_extracted {
+                "browser SERP produced at least one external URL that survived provider filtering"
+            } else {
+                "browser SERP was attempted but did not produce any external organic URLs that survived filtering"
+            },
+            provider_supply_refs(&provider_supply),
+        ),
+        web_gate(
             "web_4e_provider_candidates_survive_filtering",
             provider_raw_rows_available || tool_attempted,
             provider_candidates_survive_filtering,

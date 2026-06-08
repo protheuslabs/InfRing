@@ -228,6 +228,56 @@ fn direct_tool_sample_preserves_cache_and_query_metadata_diagnostics() {
 }
 
 #[test]
+fn direct_tool_sample_preserves_evidence_selection_row_localizers() {
+    let payload = json!({
+        "status": "ok",
+        "ok": true,
+        "evidence_selection_diagnostics": {
+            "version": "evidence_selection_diagnostics_v1",
+            "query": "Alpha Beta comparison",
+            "ranked_pool_count": 1,
+            "actionable_pool_count": 1,
+            "selected_count": 0,
+            "rows": [{
+                "title": "Alpha",
+                "source_domain": "alpha.example",
+                "query_overlap_count": 1,
+                "distinctive_query_overlap_count": 1,
+                "candidate_has_source_identity": true,
+                "candidate_has_source_type": true,
+                "source_identity_tokens": ["alpha"],
+                "source_identity_query_anchored": true,
+                "descriptor_has_source_identity": true,
+                "descriptor_has_official_source_terms": true,
+                "quality_flags": ["thin_query_overlap"],
+                "blockers": ["quality_flags_block_usable_evidence"],
+                "pack_ready": false
+            }]
+        }
+    });
+
+    let sample = direct_tool_payload_sample(&payload);
+    assert_eq!(
+        sample
+            .pointer("/evidence_selection_diagnostics/rows/0/query_overlap_count")
+            .and_then(Value::as_u64),
+        Some(1)
+    );
+    assert_eq!(
+        sample
+            .pointer("/evidence_selection_diagnostics/rows/0/source_identity_query_anchored")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        sample
+            .pointer("/evidence_selection_diagnostics/rows/0/descriptor_has_official_source_terms")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+}
+
+#[test]
 fn derived_request_pack_moves_generic_required_entities_into_facets() {
     let case = json!({
         "id": "case_sparse",

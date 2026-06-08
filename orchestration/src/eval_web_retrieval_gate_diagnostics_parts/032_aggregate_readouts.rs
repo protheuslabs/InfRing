@@ -251,6 +251,7 @@ fn web_failure_layer(gate: &str) -> &'static str {
         | "web_4b_search_provider_circuit_closed"
         | "web_4c_search_provider_surface_ready"
         | "web_4d_provider_raw_rows_available"
+        | "web_4e_browser_serp_external_urls_extracted"
         | "web_4e_provider_candidates_survive_filtering"
         | "web_4_raw_candidates_present"
         | "web_6_provider_not_empty_or_degraded" => "candidate_supply",
@@ -310,6 +311,9 @@ fn web_operator_next_action(primary_bottleneck: &str) -> &'static str {
         }
         "provider_raw_rows_absent" => {
             "inspect provider execution and provider response parsing"
+        }
+        "browser_serp_no_external_organic_urls" => {
+            "keep browser SERP explicit/canary and improve its organic URL extraction before default promotion"
         }
         "provider_rows_filtered_before_candidate_promotion" => {
             "inspect candidate filters, relevance thresholds, and low-confidence promotion policy"

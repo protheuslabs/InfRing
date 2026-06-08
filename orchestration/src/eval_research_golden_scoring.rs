@@ -26,4 +26,6 @@ mod tests {
     include!("eval_research_golden_scoring_parts/091_tests_contracts_and_entities.rs");
     include!("eval_research_golden_scoring_parts/092_tests_relevance_and_citations.rs");
     include!("eval_research_golden_scoring_parts/093_tests_excellent_and_sources.rs");
+    include!("eval_research_golden_scoring_parts/094_tests_query_satisfaction_tail.rs");
+    include!("eval_research_golden_scoring_parts/095_tests_answer_alignment_tail.rs");
 }

@@ -176,3 +176,130 @@
         assert_eq!(gate_4c.get("status").and_then(Value::as_str), Some("pass"));
         assert_eq!(gate_7.get("status").and_then(Value::as_str), Some("fail"));
     }
+
+    #[test]
+    fn browser_serp_shell_only_failure_gets_specific_candidate_supply_gate() {
+        let payload = json!({
+            "pending_tool_request": {
+                "tool_key": "web_search",
+                "input": {
+                    "query": "compare Firecrawl Tavily Exa web search APIs",
+                    "keywords": ["Firecrawl", "Tavily", "Exa"]
+                }
+            },
+            "provider_errors": [{
+                "provider": "browser_serp",
+                "error": "browser_serp_no_results",
+                "provider_raw_count": 2,
+                "provider_filtered_count": 0,
+                "browser_serp_diagnostics": [{
+                    "engine": "bing_html",
+                    "materialization_ok": true,
+                    "challenge_detected": false,
+                    "outcome_classification": {
+                        "outcome_class": "serp_shell_without_organic_results",
+                        "evidence_impact": "rejected",
+                        "recommended_next_capability": "serp_dom_rendering_or_alternate_search_provider"
+                    }
+                }]
+            }],
+            "tools": [{
+                "tool": "web_search",
+                "status": "low_signal",
+                "result": "The tool path ran but browser SERP produced no usable organic search results."
+            }]
+        });
+        let retrieval_quality = json!({
+            "tool_executed": true,
+            "status": "provider_degraded",
+            "candidate_count": 0,
+            "evidence_count": 0,
+            "quality_flags": ["query_result_mismatch"]
+        });
+        let query_metadata = json!({
+            "metadata_present": true,
+            "rich_query_pack_or_narrow_marker": true
+        });
+        let diag = web_retrieval_gate_diagnostics(
+            &payload,
+            &retrieval_quality,
+            &query_metadata,
+            &json!({"checkpoints": []}),
+        );
+        assert_eq!(
+            diag.get("first_failed_gate").and_then(Value::as_str),
+            Some("web_4e_browser_serp_external_urls_extracted")
+        );
+        assert_eq!(
+            diag.get("inferred_failure_boundary").and_then(Value::as_str),
+            Some("browser_serp_no_external_organic_urls")
+        );
+        assert_eq!(
+            diag.pointer("/provider_supply/browser_serp_shell_or_no_organic")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            diag.pointer("/provider_supply/browser_serp_outcome_classes/0")
+                .and_then(Value::as_str),
+            Some("serp_shell_without_organic_results")
+        );
+    }
+
+    #[test]
+    fn browser_serp_specific_gate_does_not_penalize_non_browser_provider_runs() {
+        let payload = json!({
+            "pending_tool_request": {
+                "tool_key": "web_search",
+                "input": {
+                    "query": "recent database benchmarks",
+                    "keywords": ["database", "benchmarks"]
+                }
+            },
+            "provider_results": [{
+                "provider": "tavily",
+                "provider_raw_count": 5,
+                "provider_filtered_count": 3
+            }],
+            "evidence_refs": [{
+                "source_domain": "example.com",
+                "snippet": "Benchmark evidence",
+                "claim_hints": ["database benchmark"]
+            }]
+        });
+        let retrieval_quality = json!({
+            "tool_executed": true,
+            "status": "usable",
+            "candidate_count": 3,
+            "evidence_count": 1,
+            "content_rich_candidate_count": 1,
+            "materialized_candidate_count": 1,
+            "claim_hint_count": 1,
+            "usable_evidence": true
+        });
+        let query_metadata = json!({
+            "metadata_present": true,
+            "rich_query_pack_or_narrow_marker": true
+        });
+        let diag = web_retrieval_gate_diagnostics(
+            &payload,
+            &retrieval_quality,
+            &query_metadata,
+            &json!({"checkpoints": [{"checkpoint": "5e_agent_received_evidence_context", "status": "pass"}]}),
+        );
+        let browser_gate = diag
+            .get("gates")
+            .and_then(Value::as_array)
+            .and_then(|rows| {
+                rows.iter().find(|row| {
+                    row.get("gate").and_then(Value::as_str)
+                        == Some("web_4e_browser_serp_external_urls_extracted")
+                })
+            })
+            .expect("browser SERP gate");
+        assert_eq!(
+            browser_gate.get("artifact_present").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(browser_gate.get("status").and_then(Value::as_str), Some("pass"));
+    }

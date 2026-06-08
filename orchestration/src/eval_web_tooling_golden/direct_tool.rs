@@ -170,7 +170,9 @@ pub(super) fn direct_tool_payload_sample(payload: &Value) -> Value {
         "submitted_query_plan": compact_array(payload.get("submitted_query_plan"), 12),
         "query_execution_limiter": compact_value(payload.get("query_execution_limiter"), 2_000),
         "second_pass_recovery": compact_value(payload.get("second_pass_recovery"), 2_000),
-        "evidence_selection_diagnostics": compact_value(payload.get("evidence_selection_diagnostics"), 4_000),
+        "evidence_selection_diagnostics": compact_evidence_selection_diagnostics(
+            payload.get("evidence_selection_diagnostics")
+        ),
         "providers_attempted": compact_array(payload.get("providers_attempted"), 8),
         "providers_skipped": compact_array(payload.get("providers_skipped"), 8),
         "provider_chain": compact_array(payload.get("provider_chain"), 8),
@@ -211,6 +213,82 @@ fn compact_rows(value: Option<&Value>, limit: usize) -> Value {
         .map(|rows| rows.iter().take(limit).map(compact_row).collect::<Vec<_>>())
         .unwrap_or_default();
     Value::Array(rows)
+}
+
+fn compact_evidence_selection_diagnostics(value: Option<&Value>) -> Value {
+    let Some(Value::Object(map)) = value else {
+        return Value::Null;
+    };
+    let mut out = serde_json::Map::new();
+    for key in [
+        "version",
+        "query",
+        "ranked_pool_count",
+        "actionable_pool_count",
+        "selected_count",
+    ] {
+        if let Some(value) = map.get(key) {
+            out.insert(key.to_string(), compact_value(Some(value), 1_200));
+        }
+    }
+    let rows = map
+        .get("rows")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .take(8)
+                .map(compact_evidence_selection_row)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    out.insert("rows".to_string(), Value::Array(rows));
+    Value::Object(out)
+}
+
+fn compact_evidence_selection_row(row: &Value) -> Value {
+    let Value::Object(map) = row else {
+        return compact_value(Some(row), 1_200);
+    };
+    let mut out = serde_json::Map::new();
+    for key in [
+        "title",
+        "locator",
+        "source_domain",
+        "source_kind",
+        "score",
+        "selected",
+        "in_actionable_pool",
+        "pack_ready",
+        "counts_as_usable_evidence",
+        "materialization_quality",
+        "freshness",
+        "content_rich",
+        "query_overlap_count",
+        "distinctive_query_overlap_count",
+        "candidate_has_source_identity",
+        "candidate_has_source_type",
+        "source_identity_tokens",
+        "source_identity_query_anchored",
+        "descriptor_has_source_identity",
+        "descriptor_has_official_source_terms",
+        "claim_hint_count",
+        "claim_hints",
+        "quality_flags",
+        "blockers",
+        "snippet",
+    ] {
+        let Some(value) = map.get(key) else { continue };
+        let compacted = compact_value(Some(value), 1_200);
+        if !compacted.is_null()
+            && compacted
+                .as_str()
+                .map(|raw| !raw.trim().is_empty())
+                .unwrap_or(true)
+        {
+            out.insert(key.to_string(), compacted);
+        }
+    }
+    Value::Object(out)
 }
 
 fn compact_row(row: &Value) -> Value {

@@ -100,6 +100,14 @@ pub(super) fn web_retrieval_gate_diagnostics(
     let provider_surface_degraded = bool_at(&provider_supply, &["tool_surface_degraded"], false);
     let provider_raw_rows_available =
         u64_at(&provider_supply, &["raw_row_count"], 0) > 0 || raw_candidates_present;
+    let browser_serp_attempted = bool_at(&provider_supply, &["browser_serp_attempted"], false);
+    let browser_serp_challenge_detected = bool_at(
+        &provider_supply,
+        &["browser_serp_challenge_detected"],
+        false,
+    );
+    let browser_serp_external_urls_extracted =
+        u64_at(&provider_supply, &["browser_serp_external_url_count"], 0) > 0;
     let provider_candidates_survive_filtering =
         u64_at(&provider_supply, &["candidate_row_count"], 0) > 0 || candidate_count > 0;
     let retrieval_continued_past_access = provider_raw_rows_available
@@ -135,6 +143,8 @@ pub(super) fn web_retrieval_gate_diagnostics(
         !provider_circuit_open_detected || retrieval_continued_past_access;
     let provider_surface_ready = !provider_surface_degraded
         || (retrieval_continued_past_access && content_rich_candidates_present);
+    let provider_surface_ready = provider_surface_ready
+        || (browser_serp_attempted && provider_raw_rows_available && !browser_serp_challenge_detected);
     let blocker_recovery_lane_visible =
         bool_at(
             &browser_materialization_recovery,

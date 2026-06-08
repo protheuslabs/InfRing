@@ -39,6 +39,18 @@ fn answer_unit_evidence_alignment(
                 unsupported_terms.push(term);
             }
         }
+        let compound_supported_terms = answer_unit_compound_supported_terms(
+            &normalized_unit,
+            &supported_terms,
+            &scope_supported_terms,
+            &unsupported_terms,
+        );
+        if !compound_supported_terms.is_empty() {
+            unsupported_terms
+                .retain(|term| !compound_supported_terms.iter().any(|supported| supported == term));
+            supported_terms_total += compound_supported_terms.len() as u64;
+            supported_terms.extend(compound_supported_terms);
+        }
         let unsupported_is_significant = answer_unit_unsupported_is_significant(
             &normalized_unit,
             &supported_terms,
@@ -85,6 +97,56 @@ fn answer_unit_evidence_alignment(
         "blockers": blockers,
         "top_blocker": blockers.first().cloned().unwrap_or_else(|| "none".to_string()),
         "note": "Soft generic smoke lane. It extracts high-specificity answer units from the final answer and checks whether their concrete terms appear in retrieved evidence/citation artifacts; hedged uncertainty and evidence-gap statements are allowed. Retrieval quality is reported separately; weak retrieval does not permit unsupported concrete answer units."
+    })
+}
+
+fn answer_unit_compound_supported_terms(
+    normalized_unit: &str,
+    supported_terms: &[String],
+    scope_supported_terms: &[String],
+    unsupported_terms: &[String],
+) -> Vec<String> {
+    let supported = supported_terms
+        .iter()
+        .chain(scope_supported_terms.iter())
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    if supported.is_empty() {
+        return Vec::new();
+    }
+
+    let tokens = normalized_unit
+        .split_whitespace()
+        .map(normalize_research_token)
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    unsupported_terms
+        .iter()
+        .filter(|term| {
+            !unsupported_alignment_term_is_severe(term)
+                && !unsupported_alignment_term_is_identity_or_numeric_risk(term)
+                && answer_unit_term_is_adjacent_to_supported_term(term, &supported, &tokens)
+        })
+        .cloned()
+        .collect()
+}
+
+fn answer_unit_term_is_adjacent_to_supported_term(
+    term: &str,
+    supported_terms: &[&str],
+    tokens: &[String],
+) -> bool {
+    tokens.iter().enumerate().any(|(idx, token)| {
+        token == term
+            && (idx
+                .checked_sub(1)
+                .and_then(|prev| tokens.get(prev))
+                .map(|neighbor| supported_terms.iter().any(|supported| neighbor == supported))
+                .unwrap_or(false)
+                || tokens
+                    .get(idx + 1)
+                    .map(|neighbor| supported_terms.iter().any(|supported| neighbor == supported))
+                    .unwrap_or(false))
     })
 }
 

@@ -209,6 +209,9 @@ pub(super) fn web_failure_boundary(gate: &str) -> &'static str {
         "web_4b_search_provider_circuit_closed" => "search_provider_circuit_open",
         "web_4c_search_provider_surface_ready" => "search_provider_surface_degraded",
         "web_4d_provider_raw_rows_available" => "provider_raw_rows_absent",
+        "web_4e_browser_serp_external_urls_extracted" => {
+            "browser_serp_no_external_organic_urls"
+        }
         "web_4e_provider_candidates_survive_filtering" => {
             "provider_rows_filtered_before_candidate_promotion"
         }
