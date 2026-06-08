@@ -211,7 +211,21 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
               <span class="thinking-orb-link-dot thinking-orb-link-dot-2"></span>
               <span class="thinking-orb-link-dot thinking-orb-link-dot-3"></span>
             </span>
-            <div class="thinking-inline-text"><em class="thinking-shimmer-text" data-shimmer-text={callStr('thinkingBubbleLineText', msg)}>{callStr('thinkingBubbleLineText', msg)}</em></div>
+            {#if callArr('thinkingBubbleTraceRows', msg).length}
+              <div class="thinking-trace-list">
+                {#each callArr('thinkingBubbleTraceRows', msg) as row (row.id)}
+                  <div class={"thinking-trace-row state-" + String(row.state || 'done') + " line-" + String(row.line_kind || 'status')}>
+                    <span class="thinking-trace-dot" aria-hidden="true"></span>
+                    <span
+                      class={row.shimmer ? 'thinking-inline-subtext thinking-shimmer-text' : 'thinking-inline-subtext'}
+                      data-shimmer-text={row.shimmer ? row.text : ''}
+                    >{row.text}</span>
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <div class="thinking-inline-text"><em class="thinking-shimmer-text" data-shimmer-text={callStr('thinkingBubbleLineText', msg)}>{callStr('thinkingBubbleLineText', msg)}</em></div>
+            {/if}
             <div class="typing-dots"><span></span><span></span><span></span></div>
           </div>
 

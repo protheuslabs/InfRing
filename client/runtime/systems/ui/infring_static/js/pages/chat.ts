@@ -3,6 +3,10 @@
 // Infring Chat Page — Agent chat with markdown + streaming
 'use strict';
 
+
+// Infring Chat Page — Agent chat with markdown + streaming
+'use strict';
+
 function chatPage() {
   var msgId = 0;
   return {
@@ -67,16 +71,6 @@ function chatPage() {
     sessionsOpen: false,
     searchOpen: false,
     searchQuery: '',
-    gatewaySearchQuery: '',
-    gatewaySearchAgentId: '',
-    gatewaySearchPending: false,
-    gatewaySearchResultMessages: [],
-    gatewaySearchThreshold: 250,
-    _gatewaySearchTimer: null,
-    _gatewaySearchSeq: 0,
-    shellDetailCache: {},
-    shellDetailCacheOrder: [],
-    shellDetailCacheLimit: 80,
     messageDisplayInitialLimit: 10,
     messageDisplayStep: 5,
     messageDisplayCount: 10,
@@ -103,8 +97,16 @@ function chatPage() {
     runtimeEngineLoading: false,
     runtimeEngineError: '',
     runtimeEngineCacheTime: 0,
+    activeWorkspaceProjection: null,
+    activeWorkspaceLoading: false,
+    activeWorkspacePicking: false,
+    activeWorkspaceError: '',
+    activeWorkspaceCacheTime: 0,
     selectedAgentRuntimeEngineId: 'infring_native',
     agentRuntimeEngineStorageKey: 'infring-selected-agent-runtime-engine-v1',
+    agentRuntimePermissionPolicyStorageKey: 'infring-agent-runtime-permission-policy-v1',
+    agentRuntimePermissionPolicy: null,
+    pendingAgentRuntimePermissionRequests: [],
     showGitTreeMenu: false,
     gitTreeMenuLoading: false,
     gitTreeMenuError: '',
@@ -729,10 +731,7 @@ function chatPage() {
         : '';
       if (agentBranch) return agentBranch;
       try {
-        var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+        var store = Alpine.store('app');
         var branch = store && store.gitBranch ? String(store.gitBranch).trim() : '';
         return branch || '';
       } catch(_) {
@@ -836,14 +835,9 @@ function chatPage() {
           }
         );
         this.applyAgentGitTreeState(this.currentAgent, result && result.current ? result.current : {});
-        var appStoreBridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var refreshAgents = appStoreBridge && typeof appStoreBridge.method === 'function'
-          ? appStoreBridge.method('refreshAgents')
-          : null;
-        if (typeof refreshAgents === 'function') {
-          await refreshAgents({ force: true });
+        var store = Alpine.store('app');
+        if (store && typeof store.refreshAgents === 'function') {
+          await store.refreshAgents({ force: true });
         }
         await this.refreshGitTreeMenu(true);
         this.closeGitTreeMenu();
@@ -913,69 +907,257 @@ function chatPage() {
     },
 
     inputHistoryMode: function(explicitMode) {
-      return chatInputHistoryMode(this, explicitMode);
+      var mode = String(explicitMode || (this.terminalMode ? 'terminal' : 'chat')).trim().toLowerCase();
+      return mode === 'terminal' ? 'terminal' : 'chat';
     },
 
     inputHistoryLimit: function() {
-      return chatInputHistoryLimit(this);
+      var maxEntries = Number(this.inputHistoryMaxEntries || 0);
+      if (!Number.isFinite(maxEntries) || maxEntries < 20) maxEntries = 120;
+      if (maxEntries > 500) maxEntries = 500;
+      return maxEntries;
     },
 
     normalizeInputHistoryEntry: function(value) {
-      return chatNormalizeInputHistoryEntry(value);
+      return String(value == null ? '' : value).trim();
     },
 
     normalizeInputHistoryRows: function(rows) {
-      return chatNormalizeInputHistoryRows(this, rows);
+      var source = Array.isArray(rows) ? rows : [];
+      var clean = [];
+      for (var i = 0; i < source.length; i += 1) {
+        var item = this.normalizeInputHistoryEntry(source[i]);
+        if (!item) continue;
+        if (clean.length && clean[clean.length - 1] === item) continue;
+        clean.push(item);
+      }
+      var maxEntries = this.inputHistoryLimit();
+      if (clean.length > maxEntries) clean = clean.slice(clean.length - maxEntries);
+      return clean;
     },
 
     inputHistoryLegacyAgentKey: function(explicitAgentId) {
-      return chatInputHistoryLegacyAgentKey(this, explicitAgentId);
+      var direct = String(explicitAgentId || '').trim();
+      if (direct) return direct;
+      var active = this.currentAgent && this.currentAgent.id ? String(this.currentAgent.id) : '';
+      return String(active || '').trim();
     },
 
     inputHistorySessionScopeKey: function(explicitAgentId) {
-      return chatInputHistorySessionScopeKey(this, explicitAgentId);
+      var agentId = this.inputHistoryLegacyAgentKey(explicitAgentId);
+      if (!agentId) return '';
+      var scopeKey = '';
+      if (typeof this.resolveConversationCacheScopeKey === 'function') {
+        try {
+          scopeKey = String(this.resolveConversationCacheScopeKey(agentId) || '').trim();
+        } catch (_) {
+          scopeKey = '';
+        }
+      }
+      if (!scopeKey) scopeKey = agentId + '|main';
+      var prefix = String(this.inputHistorySessionScopePrefix || 'session:').trim() || 'session:';
+      return prefix + scopeKey;
     },
 
     inputHistoryAgentKey: function(explicitAgentId) {
-      return chatInputHistoryAgentKey(this, explicitAgentId);
+      var scoped = this.inputHistorySessionScopeKey(explicitAgentId);
+      if (scoped) return scoped;
+      return this.inputHistoryLegacyAgentKey(explicitAgentId);
     },
 
     inputHistoryBucketRows: function(cache, agentKey, legacyKey, mode) {
-      return chatInputHistoryBucketRows(this, cache, agentKey, legacyKey, mode);
+      var buckets = [];
+      if (cache && agentKey && cache[agentKey] && typeof cache[agentKey] === 'object') {
+        buckets.push(cache[agentKey]);
+      }
+      if (
+        cache &&
+        legacyKey &&
+        legacyKey !== agentKey &&
+        (!buckets.length || !Array.isArray(mode === 'terminal' ? buckets[0].terminal : buckets[0].chat) || !(mode === 'terminal' ? buckets[0].terminal : buckets[0].chat).length) &&
+        cache[legacyKey] &&
+        typeof cache[legacyKey] === 'object'
+      ) {
+        buckets.push(cache[legacyKey]);
+      }
+      for (var i = 0; i < buckets.length; i += 1) {
+        var bucket = buckets[i];
+        var rows = mode === 'terminal' ? bucket.terminal : bucket.chat;
+        if (Array.isArray(rows) && rows.length) return this.normalizeInputHistoryRows(rows);
+      }
+      return [];
     },
 
     loadInputHistoryCache: function() {
-      chatLoadInputHistoryCache(this);
+      var empty = {};
+      try {
+        var raw = localStorage.getItem(this.inputHistoryCacheKey);
+        if (!raw) {
+          this._inputHistoryByAgent = empty;
+          return;
+        }
+        var parsed = JSON.parse(raw);
+        var next = parsed && typeof parsed === 'object' ? parsed : empty;
+        var normalized = {};
+        var keys = Object.keys(next);
+        for (var i = 0; i < keys.length; i += 1) {
+          var key = String(keys[i] || '').trim();
+          if (!key) continue;
+          var bucket = next[key];
+          if (!bucket || typeof bucket !== 'object') continue;
+          normalized[key] = {
+            chat: this.normalizeInputHistoryRows(bucket.chat),
+            terminal: this.normalizeInputHistoryRows(bucket.terminal),
+            updated_at: Number(bucket.updated_at || 0) || 0,
+          };
+        }
+        this._inputHistoryByAgent = normalized;
+      } catch (_) {
+        this._inputHistoryByAgent = empty;
+      }
     },
 
     persistInputHistoryCache: function() {
-      chatPersistInputHistoryCache(this);
+      try {
+        var payload = this._inputHistoryByAgent && typeof this._inputHistoryByAgent === 'object'
+          ? this._inputHistoryByAgent
+          : {};
+        localStorage.setItem(this.inputHistoryCacheKey, JSON.stringify(payload));
+      } catch (_) {}
     },
 
 
     hydrateInputHistoryFromCache: function(explicitMode, explicitAgentId) {
-      chatHydrateInputHistoryFromCache(this, explicitMode, explicitAgentId);
+      var mode = this.inputHistoryMode(explicitMode);
+      var rows = this.inputHistoryEntries(mode);
+      if (!Array.isArray(rows)) return;
+      var agentKey = this.inputHistoryAgentKey(explicitAgentId);
+      if (!agentKey) return;
+      var legacyKey = this.inputHistoryLegacyAgentKey(explicitAgentId);
+      var cache = this._inputHistoryByAgent && typeof this._inputHistoryByAgent === 'object'
+        ? this._inputHistoryByAgent
+        : {};
+      var cachedRows = this.inputHistoryBucketRows(cache, agentKey, legacyKey, mode);
+      if (!Array.isArray(cachedRows) || !cachedRows.length) return;
+      var merged = this.normalizeInputHistoryRows(rows.concat(cachedRows));
+      if (mode === 'terminal') this.terminalInputHistory = merged;
+      else this.chatInputHistory = merged;
     },
 
     syncInputHistoryToCache: function(explicitMode, explicitAgentId) {
-      chatSyncInputHistoryToCache(this, explicitMode, explicitAgentId);
+      var mode = this.inputHistoryMode(explicitMode);
+      var rows = this.inputHistoryEntries(mode);
+      if (!Array.isArray(rows)) return;
+      var agentKey = this.inputHistoryAgentKey(explicitAgentId);
+      if (!agentKey) return;
+      if (!this._inputHistoryByAgent || typeof this._inputHistoryByAgent !== 'object') {
+        this._inputHistoryByAgent = {};
+      }
+      var bucket = this._inputHistoryByAgent[agentKey] && typeof this._inputHistoryByAgent[agentKey] === 'object'
+        ? this._inputHistoryByAgent[agentKey]
+        : {};
+      var cleanRows = this.normalizeInputHistoryRows(rows);
+      if (mode === 'terminal') bucket.terminal = cleanRows;
+      else bucket.chat = cleanRows;
+      bucket.updated_at = Date.now();
+      this._inputHistoryByAgent[agentKey] = bucket;
+      this.persistInputHistoryCache();
     },
 
     inputHistoryEntries: function(explicitMode) {
-      return chatInputHistoryEntries(this, explicitMode);
+      var mode = this.inputHistoryMode(explicitMode);
+      return mode === 'terminal' ? this.terminalInputHistory : this.chatInputHistory;
     },
+
 
 
     resetInputHistoryNavigation: function(explicitMode) {
-      chatResetInputHistoryNavigation(this, explicitMode);
+      var mode = this.inputHistoryMode(explicitMode);
+      if (mode === 'terminal') {
+        this.terminalInputHistoryCursor = -1;
+        this.terminalInputHistoryDraft = '';
+        return;
+      }
+      this.chatInputHistoryCursor = -1;
+      this.chatInputHistoryDraft = '';
     },
 
     pushInputHistoryEntry: function(explicitMode, rawText) {
-      chatPushInputHistoryEntry(this, explicitMode, rawText);
+      var text = this.normalizeInputHistoryEntry(rawText);
+      if (!text) return;
+      var mode = this.inputHistoryMode(explicitMode);
+      var rows = this.inputHistoryEntries(mode);
+      if (!Array.isArray(rows)) return;
+      if (rows.length && String(rows[rows.length - 1] || '') === text) {
+        this.resetInputHistoryNavigation(mode);
+        return;
+      }
+      var nextRows = this.normalizeInputHistoryRows(rows.concat([text]));
+      rows.splice(0, rows.length);
+      for (var i = 0; i < nextRows.length; i += 1) rows.push(nextRows[i]);
+      this.syncInputHistoryToCache(mode);
+      this.resetInputHistoryNavigation(mode);
     },
 
     navigateInputHistory: function(direction, event) {
-      return chatNavigateInputHistory(this, direction, event);
+      var step = Number(direction || 0);
+      if (!Number.isFinite(step) || step === 0) return false;
+      var mode = this.inputHistoryMode();
+      var rows = this.inputHistoryEntries(mode);
+      if (!Array.isArray(rows) || !rows.length) return false;
+      var cursor = mode === 'terminal' ? Number(this.terminalInputHistoryCursor || -1) : Number(this.chatInputHistoryCursor || -1);
+      if (!Number.isFinite(cursor)) cursor = -1;
+      var draft = mode === 'terminal'
+        ? String(this.terminalInputHistoryDraft || '')
+        : String(this.chatInputHistoryDraft || '');
+
+      var nextText = '';
+      if (step < 0) {
+        if (cursor < 0) {
+          draft = String(this.inputText || '');
+          cursor = rows.length - 1;
+        } else {
+          cursor = Math.max(0, cursor - 1);
+        }
+        nextText = String(rows[cursor] || '');
+      } else {
+        if (cursor < 0) {
+          return false;
+        } else if (cursor >= rows.length - 1) {
+          cursor = -1;
+          nextText = draft;
+        } else {
+          cursor += 1;
+          nextText = String(rows[cursor] || '');
+        }
+      }
+
+      if (mode === 'terminal') {
+        this.terminalInputHistoryCursor = cursor;
+        this.terminalInputHistoryDraft = draft;
+      } else {
+        this.chatInputHistoryCursor = cursor;
+        this.chatInputHistoryDraft = draft;
+      }
+
+      this._inputHistoryApplying = true;
+      this.inputText = nextText;
+      var self = this;
+      this.$nextTick(function() {
+        var el = document.getElementById('msg-input');
+        if (el) {
+          var pos = String(self.inputText || '').length;
+          if (typeof el.setSelectionRange === 'function') {
+            try { el.setSelectionRange(pos, pos); } catch(_) {}
+          }
+          el.style.height = 'auto';
+          el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+        }
+        if (self.terminalMode) self.updateTerminalCursor({ target: el });
+        self._inputHistoryApplying = false;
+      });
+      if (event && typeof event.preventDefault === 'function') event.preventDefault();
+      return true;
     },
 
     freshInitOtherInputPlaceholder: function() {
@@ -1389,50 +1571,48 @@ function chatPage() {
     },
 
     modelRowsForActiveRuntimeEngine: function(rows, runtimeEngineId) {
-      var list = Array.isArray(rows) ? rows : [];
-      var engineId = String(runtimeEngineId || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
-      if (!engineId || engineId === 'infring_native') {
-        return list;
+    var list = Array.isArray(rows) ? rows : [];
+    var engineId = String(runtimeEngineId || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+    if (!engineId || engineId === 'infring_native') return list;
+    var runtimeRows = Array.isArray(this.runtimeEngineRows) ? this.runtimeEngineRows : [];
+    var engineRow = null;
+    for (var i = 0; i < runtimeRows.length; i += 1) {
+      var row = runtimeRows[i] || {};
+      if (String(row.engine_id || '').trim() === engineId) {
+        engineRow = row;
+        break;
       }
-      var runtimeRows = Array.isArray(this.runtimeEngineRows) ? this.runtimeEngineRows : [];
-      var engineRow = null;
-      for (var i = 0; i < runtimeRows.length; i += 1) {
-        var candidate = runtimeRows[i] || {};
-        if (String(candidate.engine_id || candidate.id || '').trim() === engineId) {
-          engineRow = candidate;
-          break;
-        }
-      }
-      var menu = engineRow && engineRow.available_models && typeof engineRow.available_models === 'object'
-        ? engineRow.available_models
-        : engineRow && engineRow.model_menu && typeof engineRow.model_menu === 'object' ? engineRow.model_menu : null;
-      if (!menu || menu.show_in_llm_menu === false) {
-        return list;
-      }
-      var sanitize = typeof this.sanitizeModelCatalogRows === 'function'
-        ? this.sanitizeModelCatalogRows.bind(this)
-        : function(value) { return Array.isArray(value) ? value : []; };
-      var menuRows = Array.isArray(menu.rows) ? menu.rows : (Array.isArray(menu.model_rows) ? menu.model_rows : []);
-      if ((menu.framework_native_models || menu.source === 'framework_native') && menuRows.length) {
-        return sanitize(menuRows.map(function(row) {
-          var copy = Object.assign({}, row || {});
-          copy.runtime_engine_id = engineId;
-          copy.runtime_model_source = 'framework_native';
-          return copy;
-        }));
-      }
-      if (menu.inherit_active_llm_when_unconfigured || menu.credential_inheritance_allowed || menu.source === 'inherited_infring') {
-        return list.map(function(row) {
-          var copy = Object.assign({}, row || {});
-          copy.runtime_engine_id = engineId;
-          copy.runtime_model_source = 'inherited_infring_llm';
-          return copy;
+    }
+    var menu = engineRow && engineRow.available_models && typeof engineRow.available_models === 'object'
+      ? engineRow.available_models
+      : engineRow && engineRow.model_menu && typeof engineRow.model_menu === 'object'
+      ? engineRow.model_menu
+      : null;
+    if (!menu || menu.show_in_llm_menu === false) return list;
+    var sanitize = typeof this.sanitizeModelCatalogRows === 'function'
+      ? this.sanitizeModelCatalogRows.bind(this)
+      : function(value) { return Array.isArray(value) ? value : []; };
+    var menuRows = Array.isArray(menu.rows) ? menu.rows : (Array.isArray(menu.model_rows) ? menu.model_rows : []);
+    if ((menu.framework_native_models || menu.source === 'framework_native') && menuRows.length) {
+      return sanitize(menuRows.map(function(modelRow) {
+        return Object.assign({}, modelRow || {}, {
+          runtime_engine_id: engineId,
+          runtime_model_source: 'framework_native'
         });
-      }
-      return list;
-    },
+      }));
+    }
+    if (menu.inherit_active_llm_when_unconfigured || menu.credential_inheritance_allowed || menu.source === 'inherited_infring') {
+      return list.map(function(modelRow) {
+        return Object.assign({}, modelRow || {}, {
+          runtime_engine_id: engineId,
+          runtime_model_source: 'inherited_infring_llm'
+        });
+      });
+    }
+    return list;
+  },
 
-    get switcherViewState() {
+  get switcherViewState() {
       var modelsRef = Array.isArray(this._modelCache) ? this._modelCache : [];
       if (!modelsRef.length && this.showModelSwitcher && typeof this.fallbackModelCatalogRows === 'function') {
         modelsRef = this.fallbackModelCatalogRows();
@@ -2281,13 +2461,8 @@ function chatPage() {
 
     isArchivedAgentRecord(agent) {
       if (!agent || typeof agent !== 'object') return false;
-      var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var isArchivedLikeAgent = bridge && typeof bridge.method === 'function'
-        ? bridge.method('isArchivedLikeAgent')
-        : null;
-      if (typeof isArchivedLikeAgent === 'function' && isArchivedLikeAgent(agent)) return true;
+      var store = Alpine.store('app');
+      if (store && typeof store.isArchivedLikeAgent === 'function' && store.isArchivedLikeAgent(agent)) return true;
       if (agent.archived === true) return true;
       var state = String(agent.state || '').trim().toLowerCase();
       if (state.indexOf('archived') >= 0 || state.indexOf('inactive') >= 0 || state.indexOf('terminated') >= 0) return true;
@@ -2325,10 +2500,7 @@ function chatPage() {
       var id = typeof agentOrId === 'string' ? agentOrId : agentOrId.id;
       if (!id) return null;
       if (this.isSystemThreadId(id)) return this.makeSystemThreadAgent();
-      var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+      var store = Alpine.store('app');
       var list = (store && store.agents) || [];
       for (var i = 0; i < list.length; i++) {
         if (list[i] && String(list[i].id) === String(id)) return list[i];
@@ -2349,10 +2521,7 @@ function chatPage() {
 
     ensureValidCurrentAgent: function(options) {
       var opts = options && typeof options === 'object' ? options : {};
-      var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+      var store = Alpine.store('app');
       if (this.currentAgent && this.isSystemThreadAgent(this.currentAgent)) {
         this.currentAgent = this.makeSystemThreadAgent();
         return this.currentAgent;
@@ -2383,35 +2552,19 @@ function chatPage() {
     },
 
     refreshAgentRosterAuthoritative: async function() {
-      var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+      var store = Alpine.store('app');
       var rows = await InfringAPI.get('/api/agents?view=sidebar&authority=runtime');
       var list = (Array.isArray(rows) ? rows : []).filter((row) => {
         if (!row || !row.id) return false;
         return !(this.isArchivedAgentRecord && this.isArchivedAgentRecord(row));
       });
       if (store) {
-        if (bridge && typeof bridge.assign === 'function') {
-          bridge.assign({
-            agents: list,
-            agentsHydrated: true,
-            agentsLoading: false,
-            agentsLastError: '',
-            agentCount: list.length,
-            _lastAgentsRefreshAt: Date.now()
-          });
-        } else {
-          Object.assign(store, {
-            agents: list,
-            agentsHydrated: true,
-            agentsLoading: false,
-            agentsLastError: '',
-            agentCount: list.length,
-            _lastAgentsRefreshAt: Date.now()
-          });
-        }
+        store.agents = list;
+        store.agentsHydrated = true;
+        store.agentsLoading = false;
+        store.agentsLastError = '';
+        store.agentCount = list.length;
+        store._lastAgentsRefreshAt = Date.now();
         if (store.activeAgentId) {
           var stillActive = list.some(function(row) {
             return !!(row && String(row.id || '') === String(store.activeAgentId || ''));
@@ -2423,11 +2576,7 @@ function chatPage() {
             stillActive = true;
           }
           if (!stillActive) {
-            var setActiveAgentId = bridge && typeof bridge.method === 'function'
-              ? bridge.method('setActiveAgentId')
-              : null;
-            if (typeof setActiveAgentId === 'function') setActiveAgentId(null);
-            else if (bridge && typeof bridge.set === 'function') bridge.set('activeAgentId', null);
+            if (typeof store.setActiveAgentId === 'function') store.setActiveAgentId(null);
             else store.activeAgentId = null;
           }
         }
@@ -2439,10 +2588,7 @@ function chatPage() {
       var opts = options && typeof options === 'object' ? options : {};
       var preferredId = String(opts.preferred_id || '').trim();
       var clearWhenMissing = opts.clear_when_missing !== false;
-      var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+      var store = Alpine.store('app');
       var rows = [];
       try {
         rows = await this.refreshAgentRosterAuthoritative();
@@ -2543,20 +2689,13 @@ function chatPage() {
     },
 
     setStoreActiveAgentId: function(agentId) {
-      var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+      var store = Alpine.store('app');
       if (!store) return;
-      var setActiveAgentId = bridge && typeof bridge.method === 'function'
-        ? bridge.method('setActiveAgentId')
-        : null;
-      if (typeof setActiveAgentId === 'function') {
-        setActiveAgentId(agentId || null);
+      if (typeof store.setActiveAgentId === 'function') {
+        store.setActiveAgentId(agentId || null);
         return;
       }
-      if (bridge && typeof bridge.set === 'function') bridge.set('activeAgentId', agentId || null);
-      else store.activeAgentId = agentId || null;
+      store.activeAgentId = agentId || null;
       try {
         if (store.activeAgentId) localStorage.setItem('infring-last-active-agent-id', String(store.activeAgentId));
         else localStorage.removeItem('infring-last-active-agent-id');
@@ -2564,55 +2703,199 @@ function chatPage() {
     },
 
     resolveConversationInputMode(agentId) {
-      return chatResolveConversationInputMode(this, agentId);
+      var key = String(agentId || '').trim();
+      if (!key) return 'chat';
+      if (this.isSystemThreadId(key)) return 'terminal';
+      var cached = this.conversationCache && this.conversationCache[key];
+      return cached && cached.default_terminal === true ? 'terminal' : 'chat';
     },
 
     currentConversationInputMode(agentId) {
-      return chatCurrentConversationInputMode(this, agentId);
+      if (this.isSystemThreadId(agentId)) return 'terminal';
+      return this.terminalMode ? 'terminal' : 'chat';
     },
 
     applyConversationInputMode(agentId, options) {
-      return chatApplyConversationInputMode(this, agentId, options);
+      var opts = options && typeof options === 'object' ? options : {};
+      var hasForced = Object.prototype.hasOwnProperty.call(opts, 'force_terminal');
+      var mode = this.resolveConversationInputMode(agentId);
+      if (hasForced) mode = opts.force_terminal === true ? 'terminal' : 'chat';
+      if (this.isSystemThreadId(agentId)) mode = 'terminal';
+      this.terminalMode = mode === 'terminal';
+      this.showSlashMenu = false;
+      this.showModelPicker = false;
+      this.showModelSwitcher = false;
+      this.terminalCursorFocused = false;
+      if (!this.terminalMode) this.terminalSelectionStart = 0;
+      if (this.terminalMode && !this.terminalCwd) this.terminalCwd = '/workspace';
+      return mode;
     },
 
     sanitizeConversationDraftText(rawText) {
-      return chatSanitizeConversationDraftText(rawText);
+      var text = String(rawText == null ? '' : rawText);
+      if (!text) return '';
+      if (text.length > 12000) text = text.slice(0, 12000);
+      var trimmed = text.trim();
+      if (!trimmed) return '';
+      if (/^message\s+.+\.\.\.(?:\s+\(\/\s*for commands\))?$/i.test(trimmed)) return '';
+      if (/^tell\s+.+\.\.\.$/i.test(trimmed)) return '';
+      return text;
     },
 
     conversationCacheMaxEntries: function() {
-      return chatConversationCacheMaxEntries();
+      return 20;
     },
 
     pruneConversationCacheEntries: function() {
-      chatPruneConversationCacheEntries(this);
+      if (!this.conversationCache || typeof this.conversationCache !== 'object') return;
+      var keys = Object.keys(this.conversationCache || {});
+      var maxEntries = Number(this.conversationCacheMaxEntries ? this.conversationCacheMaxEntries() : 20);
+      if (!Number.isFinite(maxEntries) || maxEntries < 1) maxEntries = 20;
+      if (keys.length <= maxEntries) return;
+      keys.sort((left, right) => {
+        var a = this.conversationCache[left] && typeof this.conversationCache[left] === 'object'
+          ? Number(this.conversationCache[left].saved_at || 0)
+          : 0;
+        var b = this.conversationCache[right] && typeof this.conversationCache[right] === 'object'
+          ? Number(this.conversationCache[right].saved_at || 0)
+          : 0;
+        return b - a;
+      });
+      var next = {};
+      for (var i = 0; i < keys.length && i < maxEntries; i += 1) {
+        next[keys[i]] = this.conversationCache[keys[i]];
+      }
+      this.conversationCache = next;
     },
 
     touchConversationCacheEntry: function(agentId, patch) {
-      return chatTouchConversationCacheEntry(this, agentId, patch);
+      var key = String(agentId || '').trim();
+      if (!key) return null;
+      if (!this.conversationCache || typeof this.conversationCache !== 'object') this.conversationCache = {};
+      var prior = this.conversationCache[key] && typeof this.conversationCache[key] === 'object'
+        ? this.conversationCache[key]
+        : {};
+      var next = Object.assign({}, prior, patch || {}, { saved_at: Date.now() });
+      this.conversationCache[key] = next;
+      this.pruneConversationCacheEntries();
+      return this.conversationCache[key];
     },
 
     captureConversationDraft(agentId, explicitMode) {
-      chatCaptureConversationDraft(this, agentId, explicitMode);
+      var key = String(agentId || '').trim();
+      if (!key) return;
+      if (!this.conversationCache) this.conversationCache = {};
+      var mode = String(explicitMode || this.currentConversationInputMode(key) || 'chat').trim().toLowerCase();
+      if (mode !== 'terminal') mode = 'chat';
+      var next = this.touchConversationCacheEntry(key) || {};
+      var scopeKey = typeof this.resolveConversationCacheScopeKey === 'function'
+        ? this.resolveConversationCacheScopeKey(key)
+        : key;
+      next.session_scope_key = scopeKey;
+      var sanitized = this.sanitizeConversationDraftText(this.inputText);
+      if (mode === 'terminal') next.draft_terminal = sanitized;
+      else next.draft_chat = sanitized;
+      this.conversationCache[key] = next;
+      this.persistConversationCache();
     },
 
     restoreConversationDraft(agentId, explicitMode) {
-      return chatRestoreConversationDraft(this, agentId, explicitMode);
+      var key = String(agentId || '').trim();
+      if (!key || !this.conversationCache) {
+        this.inputText = '';
+        return '';
+      }
+      var cached = this.conversationCache[key];
+      if (!cached || typeof cached !== 'object') {
+        this.inputText = '';
+        return '';
+      }
+      var scopeKey = typeof this.resolveConversationCacheScopeKey === 'function'
+        ? this.resolveConversationCacheScopeKey(key)
+        : key;
+      var cachedScopeKey = String(cached.session_scope_key || '').trim();
+      if (scopeKey && cachedScopeKey && scopeKey !== cachedScopeKey) {
+        this.inputText = '';
+        return '';
+      }
+      var mode = String(explicitMode || this.currentConversationInputMode(key) || 'chat').trim().toLowerCase();
+      if (mode !== 'terminal') mode = 'chat';
+      var raw = mode === 'terminal' ? cached.draft_terminal : cached.draft_chat;
+      var nextText = this.sanitizeConversationDraftText(raw);
+      this.touchConversationCacheEntry(key);
+      this.inputText = nextText;
+      var self = this;
+      this.$nextTick(function() {
+        var el = document.getElementById('msg-input');
+        if (!el) return;
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+        if (self.terminalMode) self.updateTerminalCursor({ target: el });
+      });
+      return nextText;
     },
 
     cacheAgentConversation(agentId) {
-      chatCacheAgentConversation(this, agentId);
+      if (!agentId) return;
+      if (!this.conversationCache) this.conversationCache = {};
+      try {
+        var key = String(agentId);
+        var scopeKey = typeof this.resolveConversationCacheScopeKey === 'function'
+          ? this.resolveConversationCacheScopeKey(agentId)
+          : key;
+        var currentSessionRow = typeof this.resolveCurrentSessionRow === 'function'
+          ? this.resolveCurrentSessionRow(agentId)
+          : null;
+        var cachedMessages = this.sanitizeConversationForCache(this.messages || []);
+        var next = Object.assign(
+          {},
+          this.touchConversationCacheEntry(key),
+          {
+          saved_at: Date.now(),
+          session_scope_key: scopeKey,
+          session_label: typeof this.resolveSessionRowLabel === 'function'
+            ? this.resolveSessionRowLabel(currentSessionRow, agentId)
+            : '',
+          token_count: this.tokenCount || 0,
+          default_terminal: this.currentConversationInputMode(agentId) === 'terminal',
+          messages: cachedMessages,
+          }
+        );
+        var mode = this.currentConversationInputMode(agentId);
+        var draft = this.sanitizeConversationDraftText(this.inputText);
+        if (mode === 'terminal') next.draft_terminal = draft;
+        else next.draft_chat = draft;
+        this.conversationCache[key] = next;
+        var appStore = Alpine.store('app');
+        if (appStore && typeof appStore.saveAgentChatPreview === 'function') {
+          appStore.saveAgentChatPreview(agentId, this.conversationCache[key].messages);
+        }
+        this.persistConversationCache();
+      } catch {}
     },
 
     cacheCurrentConversation() {
-      chatCacheCurrentConversation(this);
+      if (!this.currentAgent || !this.currentAgent.id) return;
+      this.cacheAgentConversation(this.currentAgent.id);
     },
 
     scheduleConversationPersist() {
-      chatScheduleConversationPersist(this);
+
+      var self = this;
+      if (this._persistTimer) clearTimeout(this._persistTimer);
+      this._persistTimer = setTimeout(function() {
+        self.cacheCurrentConversation();
+      }, 80);
     },
 
     countAvailableModelRows: function(rows) {
-      return chatCountAvailableModelRows(rows);
+      var list = Array.isArray(rows) ? rows : [];
+      var count = 0;
+      for (var i = 0; i < list.length; i += 1) {
+        var row = list[i] || {};
+        if (row.available !== false) count += 1;
+      }
+      return count;
     },
 
     // Backward-compat shim for legacy callers during naming migration.
@@ -2621,35 +2904,334 @@ function chatPage() {
     },
 
     providerPayloadToModelCatalogRows: function(payload) {
-      return chatProviderPayloadToModelCatalogRows(this, payload);
-    },
-
-    fallbackModelCatalogRows: function() {
-      return chatFallbackModelCatalogRows(this);
+      var providers = payload && Array.isArray(payload.providers) ? payload.providers : [];
+      var out = [];
+      for (var i = 0; i < providers.length; i += 1) {
+        var providerRow = providers[i] && typeof providers[i] === 'object' ? providers[i] : {};
+        var provider = String(providerRow.id || '').trim().toLowerCase();
+        if (!provider || provider === 'auto') continue;
+        var isLocal = providerRow.is_local === true;
+        var reachable = providerRow.reachable === true;
+        var supportsChat = providerRow.supports_chat !== false;
+        var needsKey = providerRow.needs_key === true;
+        var authStatus = String(providerRow.auth_status || '').trim().toLowerCase();
+        var authConfigured = authStatus === 'configured' || authStatus === 'set' || authStatus === 'ok';
+        var profiles = providerRow.model_profiles && typeof providerRow.model_profiles === 'object'
+          ? providerRow.model_profiles
+          : {};
+        var names = Object.keys(profiles);
+        for (var j = 0; j < names.length; j += 1) {
+          var modelName = String(names[j] || '').trim();
+          if (!modelName) continue;
+          var modelRef = provider + '/' + modelName;
+          if (this.isPlaceholderModelRef(modelRef)) continue;
+          var profile = profiles[modelName] && typeof profiles[modelName] === 'object' ? profiles[modelName] : {};
+          var deployment = String(profile.deployment_kind || '').trim().toLowerCase();
+          var rowLocal = isLocal || deployment === 'local' || deployment === 'ollama';
+          var available = supportsChat && (rowLocal ? reachable : (!needsKey || authConfigured || reachable));
+          out.push({
+            id: modelRef,
+            provider: provider,
+            model: modelName,
+            model_name: modelName,
+            runtime_model: modelName,
+            display_name: String(profile.display_name || modelName).trim() || modelName,
+            available: !!available,
+            reachable: !!reachable,
+            supports_chat: supportsChat,
+            needs_key: !!needsKey,
+            auth_status: authStatus || 'unknown',
+            is_local: rowLocal,
+            deployment_kind: deployment || (rowLocal ? 'local' : 'api'),
+            context_window: Number(profile.context_window || profile.context_size || profile.context_tokens || 0) || 0,
+            context_window_tokens: Number(profile.context_window || profile.context_size || profile.context_tokens || 0) || 0,
+            power_rating: Number(profile.power_rating || 3) || 3,
+            cost_rating: Number(profile.cost_rating || (rowLocal ? 1 : 3)) || (rowLocal ? 1 : 3),
+            specialty: String(profile.specialty || 'general').trim().toLowerCase() || 'general',
+            specialty_tags: Array.isArray(profile.specialty_tags) ? profile.specialty_tags : ['general'],
+            param_count_billion: Number(profile.param_count_billion || 0) || 0,
+            download_available: profile.download_available === true || rowLocal,
+            local_download_path: String(profile.local_download_path || '').trim(),
+            max_output_tokens: Number(profile.max_output_tokens || 0) || 0,
+          });
+        }
+      }
+      return out;
     },
 
     mergeModelCatalogRows: function(primaryRows, fallbackRows) {
-      return chatMergeModelCatalogRows(primaryRows, fallbackRows);
+      var merged = [];
+      var seen = {};
+      var add = function(row) {
+        var id = String(row && row.id ? row.id : '').trim();
+        if (!id) return;
+        var key = id.toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        merged.push(row);
+      };
+      var primary = Array.isArray(primaryRows) ? primaryRows : [];
+      var fallback = Array.isArray(fallbackRows) ? fallbackRows : [];
+      for (var i = 0; i < primary.length; i += 1) add(primary[i]);
+      for (var j = 0; j < fallback.length; j += 1) add(fallback[j]);
+      return merged;
+    },
+
+    fallbackModelCatalogRows: function() {
+      var seeds = [
+              [
+                      "openai",
+                      "gpt-5.5",
+                      "GPT-5.5"
+              ],
+              [
+                      "openai",
+                      "gpt-5.4",
+                      "GPT-5.4"
+              ],
+              [
+                      "openai",
+                      "gpt-5.4-mini",
+                      "GPT-5.4 Mini"
+              ],
+              [
+                      "openai",
+                      "gpt-5.4-nano",
+                      "GPT-5.4 Nano"
+              ],
+              [
+                      "openai",
+                      "gpt-5.3-codex",
+                      "GPT-5.3 Codex"
+              ],
+              [
+                      "anthropic",
+                      "claude-opus-4-8",
+                      "Claude Opus 4.8"
+              ],
+              [
+                      "anthropic",
+                      "claude-sonnet-4-6",
+                      "Claude Sonnet 4.6"
+              ],
+              [
+                      "anthropic",
+                      "claude-haiku-4-5-20251001",
+                      "Claude Haiku 4.5"
+              ],
+              [
+                      "google",
+                      "gemini-3",
+                      "Gemini 3"
+              ],
+              [
+                      "deepseek",
+                      "deepseek-chat",
+                      "DeepSeek Chat"
+              ],
+              [
+                      "deepseek",
+                      "deepseek-reasoner",
+                      "DeepSeek Reasoner"
+              ],
+              [
+                      "ollama",
+                      "qwen2.5:3b-instruct",
+                      "Qwen 2.5 3B Instruct"
+              ]
+      ];
+      return this.sanitizeModelCatalogRows(seeds.map(function(seed) {
+        var provider = seed[0];
+        var model = seed[1];
+        return {
+          id: provider + '/' + model,
+          provider: provider,
+          model: model,
+          model_name: model,
+          runtime_model: model,
+          display_name: seed[2],
+          available: true,
+          shell_catalog_seed: true
+        };
+      }));
     },
 
     loadProviderModelCatalogSafely: function(options) {
-      return chatLoadProviderModelCatalogSafely(this, options);
+      var opts = options && typeof options === 'object' ? options : {};
+      var self = this;
+      var cachedRows = self.sanitizeModelCatalogRows(self._modelCache || self.modelPickerList || []);
+      var useRows = function(rows) {
+        var models = self.sanitizeModelCatalogRows(rows);
+        self._modelCache = models;
+        self._modelCacheTime = Date.now();
+        self.modelPickerList = models;
+        return models;
+      };
+      var timeoutMs = Number(opts.timeout_ms || 2000);
+      var timeoutFallback = new Promise(function(resolve) {
+        setTimeout(function() { resolve(null); }, timeoutMs > 0 ? timeoutMs : 2000);
+      });
+      return Promise.race([
+        InfringAPI.get('/api/providers'),
+        timeoutFallback
+      ]).then(function(providersPayload) {
+        if (!providersPayload) {
+          return useRows(cachedRows.length ? cachedRows : self.fallbackModelCatalogRows());
+        }
+        var providerRows = self.sanitizeModelCatalogRows(
+          self.providerPayloadToModelCatalogRows(providersPayload)
+        );
+        if (!providerRows.length) {
+          return useRows(cachedRows.length ? cachedRows : self.fallbackModelCatalogRows());
+        }
+        var existingRows = opts.merge_existing === false
+          ? []
+          : cachedRows;
+        var models = self.mergeModelCatalogRows(existingRows, providerRows);
+        return useRows(models);
+      }).catch(function() {
+        return useRows(cachedRows.length ? cachedRows : self.fallbackModelCatalogRows());
+      });
     },
 
     modelCatalogRows: function(rows) {
-      return chatModelCatalogRows(this, rows);
+      var list = Array.isArray(rows) && rows.length
+        ? rows
+        : (
+          Array.isArray(this.modelPickerList) && this.modelPickerList.length
+            ? this.modelPickerList
+            : (Array.isArray(this._modelCache) ? this._modelCache : [])
+        );
+      return this.sanitizeModelCatalogRows(list);
     },
 
     resolveModelCatalogOption: function(value, providerHint, rows) {
-      return chatResolveModelCatalogOption(this, value, providerHint, rows);
+      var list = this.modelCatalogRows(rows);
+      var raw = value && typeof value === 'object'
+        ? String(value.id || value.model || value.model_name || value.runtime_model || '').trim()
+        : String(value || '').trim();
+      var provider = value && typeof value === 'object'
+        ? String(value.provider || value.model_provider || providerHint || '').trim().toLowerCase()
+        : String(providerHint || '').trim().toLowerCase();
+      if (!raw || this.isPlaceholderModelRef(raw)) return null;
+
+      var candidates = [];
+      var seen = {};
+      var addCandidate = function(candidate) {
+        var next = String(candidate || '').trim();
+        if (!next) return;
+        var key = next.toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        candidates.push(next);
+      };
+      addCandidate(raw);
+      if (provider && raw.indexOf('/') < 0) addCandidate(provider + '/' + raw);
+      if (raw.indexOf('/') >= 0) addCandidate(raw.split('/').slice(-1)[0]);
+
+      var fallbackMatches = [];
+      for (var i = 0; i < list.length; i += 1) {
+        var row = list[i] || {};
+        var rowId = String(row.id || '').trim();
+        var rowProvider = String(row.provider || row.model_provider || '').trim().toLowerCase();
+        var rowModel = String(row.model || row.model_name || row.runtime_model || '').trim();
+        var rowDisplay = String(row.display_name || '').trim();
+        for (var j = 0; j < candidates.length; j += 1) {
+          var candidate = candidates[j];
+          var candidateLower = candidate.toLowerCase();
+          if (rowId && rowId.toLowerCase() === candidateLower) return row;
+          if (rowModel && rowModel.toLowerCase() === candidateLower) {
+            if (!provider || rowProvider === provider) return row;
+            fallbackMatches.push(row);
+          }
+          if (rowDisplay && rowDisplay.toLowerCase() === candidateLower) {
+            if (!provider || rowProvider === provider) return row;
+            fallbackMatches.push(row);
+          }
+        }
+      }
+      if (provider) {
+        for (var k = 0; k < fallbackMatches.length; k += 1) {
+          var fallback = fallbackMatches[k] || {};
+          if (String(fallback.provider || fallback.model_provider || '').trim().toLowerCase() === provider) {
+            return fallback;
+          }
+        }
+      }
+      return fallbackMatches.length ? fallbackMatches[0] : null;
     },
 
     resolveProviderScopedModelCatalogOption: function(providerValue, modelValue, rows) {
-      return chatResolveProviderScopedModelCatalogOption(this, providerValue, modelValue, rows);
+      var provider = String(providerValue || '').trim().toLowerCase();
+      var list = this.modelCatalogRows(rows);
+      if (!provider) return this.resolveModelCatalogOption(modelValue, '', list);
+      var resolved = this.resolveModelCatalogOption(modelValue, provider, list);
+      if (resolved && String(resolved.provider || resolved.model_provider || '').trim().toLowerCase() === provider) {
+        return resolved;
+      }
+      var rawModel = String(modelValue || '').trim();
+      var targetModel = rawModel.indexOf('/') >= 0 ? rawModel.split('/').slice(-1)[0] : rawModel;
+      var matches = [];
+      for (var i = 0; i < list.length; i += 1) {
+        var row = list[i] || {};
+        var rowProvider = String(row.provider || row.model_provider || '').trim().toLowerCase();
+        if (rowProvider !== provider) continue;
+        if (!targetModel) {
+          matches.push(row);
+          continue;
+        }
+        var rowModel = String(row.model || row.model_name || row.runtime_model || '').trim();
+        var rowId = String(row.id || '').trim();
+        var exactId = rowId && rowId.toLowerCase() === (provider + '/' + targetModel).toLowerCase();
+        var exactModel = rowModel && rowModel.toLowerCase() === targetModel.toLowerCase();
+        if (exactId || exactModel) return row;
+        matches.push(row);
+      }
+      if (!matches.length) return resolved || null;
+      for (var j = 0; j < matches.length; j += 1) {
+        if (matches[j] && matches[j].available !== false) return matches[j];
+      }
+      return matches[0];
     },
 
     dedupeFallbackModelList: function(entries, options) {
-      return chatDedupeFallbackModelList(this, entries, options);
+      var list = Array.isArray(entries) ? entries : [];
+      var opts = options && typeof options === 'object' ? options : {};
+      var rows = this.modelCatalogRows(opts.rows);
+      var primary = this.resolveModelCatalogOption(opts.primary_id || '', opts.primary_provider || '', rows);
+      var primaryId = String(primary && primary.id ? primary.id : '').trim().toLowerCase();
+      var out = [];
+      var seen = {};
+      for (var i = 0; i < list.length; i += 1) {
+        var entry = list[i];
+        var raw = entry && typeof entry === 'object' ? entry : { model: entry };
+        var provider = String(raw.provider || raw.model_provider || '').trim();
+        var model = String(raw.model || raw.model_name || raw.runtime_model || raw.id || '').trim();
+        if (!model || this.isPlaceholderModelRef(model)) continue;
+        var resolved = provider
+          ? this.resolveProviderScopedModelCatalogOption(provider, model, rows)
+          : this.resolveModelCatalogOption(model, '', rows);
+        var normalizedProvider = String(
+          (resolved && (resolved.provider || resolved.model_provider)) || provider || ''
+        ).trim();
+        var normalizedModel = String(
+          (resolved && (resolved.model || resolved.model_name || resolved.runtime_model)) || model
+        ).trim();
+        var normalizedId = String(
+          (resolved && resolved.id) ||
+          (normalizedProvider && normalizedModel ? (normalizedProvider + '/' + normalizedModel) : normalizedModel)
+        ).trim();
+        if (!normalizedId || this.isPlaceholderModelRef(normalizedId)) continue;
+        var dedupeKey = normalizedId.toLowerCase();
+        if (primaryId && dedupeKey === primaryId) continue;
+        if (seen[dedupeKey]) continue;
+        seen[dedupeKey] = true;
+        out.push({
+          provider: normalizedProvider || String(provider || '').trim(),
+          model: normalizedModel
+        });
+      }
+      return out;
     },
 
     noModelsGuidanceText: function() {
@@ -2964,9 +3546,6 @@ function chatPage() {
     },
     restoreAgentConversation(agentId) {
       if (!agentId || !this.conversationCache) return false;
-      if (!(typeof this.isSystemThreadId === 'function' && this.isSystemThreadId(agentId))) {
-        return false;
-      }
       const cached = this.conversationCache[String(agentId)];
       if (!cached || !Array.isArray(cached.messages)) return false;
       var scopeKey = typeof this.resolveConversationCacheScopeKey === 'function'
@@ -2984,7 +3563,10 @@ function chatPage() {
         } catch(_) {
           cacheChanged = sanitized.length !== rawCachedMessages.length;
         }
-        this.messages = JSON.parse(JSON.stringify(sanitized || []));
+        this.messages = this.mergeModelNoticesForAgent(
+          agentId,
+          this.normalizeSessionMessages({ messages: sanitized })
+        );
         this.tokenCount = Number(cached.token_count || 0);
         this.sending = false;
         this._responseStartedAt = 0;
@@ -3035,31 +3617,71 @@ function chatPage() {
     },
 
     sessionNoticeMemoryStorageKey(scopeKey) {
-      return chatSessionNoticeMemoryStorageKey(scopeKey);
+      var normalized = String(scopeKey || '').trim();
+      if (!normalized) return '';
+      return 'of-chat-session-notices-v1:' + normalized;
     },
 
     loadSessionNoticeMemory(scopeKey) {
-      return chatLoadSessionNoticeMemory(scopeKey);
+      var storageKey = this.sessionNoticeMemoryStorageKey(scopeKey);
+      if (!storageKey) return {};
+      try {
+        var raw = localStorage.getItem(storageKey);
+        if (!raw) return {};
+        var parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return {};
+        var next = {};
+        for (var i = 0; i < parsed.length; i++) {
+          var key = String(parsed[i] || '').trim();
+          if (key) next[key] = true;
+        }
+        return next;
+      } catch (_) {
+        return {};
+      }
     },
 
     saveSessionNoticeMemory(scopeKey, nextMemory) {
-      chatSaveSessionNoticeMemory(scopeKey, nextMemory);
+      var storageKey = this.sessionNoticeMemoryStorageKey(scopeKey);
+      if (!storageKey) return;
+      var rows = Object.keys(nextMemory || {}).filter(function(key) {
+        return !!nextMemory[key];
+      });
+      try {
+        if (!rows.length) {
+          localStorage.removeItem(storageKey);
+          return;
+        }
+        localStorage.setItem(storageKey, JSON.stringify(rows));
+      } catch (_) {}
     },
 
     hasSeenSessionNotice(scopeKey, noticeKey) {
-      return chatHasSeenSessionNotice(scopeKey, noticeKey);
+      var normalizedNoticeKey = String(noticeKey || '').trim();
+      if (!normalizedNoticeKey) return false;
+      var memory = this.loadSessionNoticeMemory(scopeKey);
+      return memory[normalizedNoticeKey] === true;
     },
 
     markSeenSessionNotice(scopeKey, noticeKey) {
-      chatMarkSeenSessionNotice(scopeKey, noticeKey);
+      var normalizedNoticeKey = String(noticeKey || '').trim();
+      if (!normalizedNoticeKey) return;
+      var memory = this.loadSessionNoticeMemory(scopeKey);
+      memory[normalizedNoticeKey] = true;
+      this.saveSessionNoticeMemory(scopeKey, memory);
     },
 
     clearSeenSessionNotice(scopeKey, noticeKey) {
-      chatClearSeenSessionNotice(scopeKey, noticeKey);
+      var normalizedNoticeKey = String(noticeKey || '').trim();
+      if (!normalizedNoticeKey) return;
+      var memory = this.loadSessionNoticeMemory(scopeKey);
+      if (!memory[normalizedNoticeKey]) return;
+      delete memory[normalizedNoticeKey];
+      this.saveSessionNoticeMemory(scopeKey, memory);
     },
 
     estimateTokenCountFromText(text) {
-      return chatEstimateTokenCountFromText(text);
+      return Math.max(0, Math.round(String(text || '').length / 4));
     },
 
     // Backward-compat shim for legacy callers during naming migration.
@@ -3068,11 +3690,44 @@ function chatPage() {
     },
 
     shouldConvertLargePasteToAttachment(rawText) {
-      return chatShouldConvertLargePasteToAttachment(this, rawText);
+      if (!this.pasteToMarkdownEnabled) return false;
+      var text = String(rawText == null ? '' : rawText);
+      if (!text.trim()) return false;
+      var chars = text.trim().length;
+      var lines = text.split(/\r?\n/g).length;
+      var charThreshold = Number(this.pasteToMarkdownCharThreshold || 2000);
+      var lineThreshold = Number(this.pasteToMarkdownLineThreshold || 40);
+      if (!Number.isFinite(charThreshold) || charThreshold < 256) charThreshold = 2000;
+      if (!Number.isFinite(lineThreshold) || lineThreshold < 8) lineThreshold = 40;
+      return chars >= charThreshold || lines >= lineThreshold;
     },
 
+    buildLargePasteTextAttachment(rawText) {
+      if (typeof File !== 'function') return null;
+      var text = String(rawText == null ? '' : rawText);
+      if (!text.trim()) return null;
+      var normalized = text.replace(/\r\n?/g, '\n');
+      try {
+        var file = new File([normalized], 'pastedtext.txt', {
+          type: 'text/plain;charset=utf-8',
+          lastModified: Date.now()
+        });
+        return {
+          file: file,
+          preview: '',
+          uploading: false,
+          pasted_text: true,
+          pasted_text_preview: normalized.slice(0, 12000),
+          pasted_text_size: normalized.length
+        };
+      } catch (_) {
+        return null;
+      }
+    },
+
+    // Backward-compat shim for older send-path callers.
     buildLargePasteMarkdownAttachment(rawText) {
-      return chatBuildLargePasteMarkdownAttachment(rawText);
+      return this.buildLargePasteTextAttachment(rawText);
     },
 
     recomputeContextEstimate() {
@@ -3203,6 +3858,39 @@ function chatPage() {
       return route;
     },
 
+    async fetchAutoRoutePreflight(message, uploadedFiles) {
+      void message;
+      void uploadedFiles;
+      return null;
+    },
+
+    inferContextWindowFromModelId(modelId) {
+      var value = String(modelId || '').toLowerCase();
+      if (!value) return 0;
+      var explicitK = value.match(/(?:^|[^0-9])([0-9]{2,4})k(?:[^a-z0-9]|$)/);
+      if (explicitK && explicitK[1]) {
+        var parsedK = Number(explicitK[1]);
+        if (Number.isFinite(parsedK) && parsedK > 0) return parsedK * 1000;
+      }
+      var explicitM = value.match(/(?:^|[^0-9])([0-9]{1,3})m(?:[^a-z0-9]|$)/);
+      if (explicitM && explicitM[1]) {
+        var parsedM = Number(explicitM[1]);
+        if (Number.isFinite(parsedM) && parsedM > 0) return parsedM * 1000000;
+      }
+      if (value.indexOf('qwen2.5') >= 0 || value.indexOf('qwen3') >= 0) return 131072;
+      if (value.indexOf('kimi') >= 0 || value.indexOf('moonshot') >= 0) return 262144;
+      if (value.indexOf('llama-3.3') >= 0 || value.indexOf('llama3.3') >= 0) return 131072;
+      if (value.indexOf('llama-3.2') >= 0 || value.indexOf('llama3.2') >= 0) return 128000;
+      if (value.indexOf('mistral-nemo') >= 0 || value.indexOf('mixtral') >= 0) return 32000;
+      return 0;
+    },
+
+    contextWindowNeedsFloor(modelId) {
+      var value = String(modelId || '').toLowerCase();
+      if (!value) return false;
+      return value.indexOf('kimi') >= 0 || value.indexOf('moonshot') >= 0;
+    },
+
     collectContextWindowCandidatesFromAgent(agent) {
       var row = agent && typeof agent === 'object' ? agent : {};
       var provider = String(row.model_provider || row.provider || '').trim().toLowerCase();
@@ -3246,6 +3934,9 @@ function chatPage() {
         if (!id) continue;
         var provider = String(row.provider || row.model_provider || '').trim().toLowerCase();
         var windowSize = Number(row.context_window || row.context_window_tokens || 0);
+        if (!Number.isFinite(windowSize) || windowSize <= 0) {
+          windowSize = this.inferContextWindowFromModelId(id);
+        }
         if (Number.isFinite(windowSize) && windowSize > 0) {
           var normalized = Math.round(windowSize);
           var keys = [id];
@@ -3270,9 +3961,22 @@ function chatPage() {
       var direct = Number(agent.context_window || agent.context_window_tokens || 0);
       var candidates = this.collectContextWindowCandidatesFromAgent(agent);
       var fromMap = this.resolveBestContextWindowFromMap(candidates);
+      var inferred = 0;
+      var needsFloor = false;
+      for (var i = 0; i < candidates.length; i += 1) {
+        var key = String(candidates[i] || '').trim();
+        if (!key) continue;
+        if (this.contextWindowNeedsFloor(key)) needsFloor = true;
+        var guess = Number(this.inferContextWindowFromModelId(key) || 0);
+        if (Number.isFinite(guess) && guess > inferred) inferred = guess;
+      }
       var best = 0;
       if (Number.isFinite(direct) && direct > 0) best = direct;
       if (Number.isFinite(fromMap) && fromMap > best) best = fromMap;
+      if (Number.isFinite(inferred) && inferred > 0) {
+        if (needsFloor) best = Math.max(best, inferred);
+        else if (best <= 0) best = inferred;
+      }
       if (!Number.isFinite(best) || best <= 0) best = 128000;
       this.contextWindow = Math.round(best);
       this.refreshContextPressure();
@@ -3482,6 +4186,120 @@ function chatPage() {
       return out;
     },
 
+    derivePromptSuggestionFallback(agent, hint, gateContext) {
+      var context = this.buildPromptSuggestionContextSnapshot();
+      var typedHistory = (Array.isArray(context.history) ? context.history : [])
+        .map(function(entry, index) {
+          var role = String((entry && entry.role) || 'agent').trim().toLowerCase();
+          if (role === 'assistant') role = 'agent';
+          return {
+            key: 'fallback:' + String(index),
+            kind: role === 'user' || role === 'agent' ? 'message' : 'synthetic',
+            role: role,
+            text: String((entry && entry.text) || '').trim()
+          };
+        })
+        .filter(function(entry) {
+          return entry.kind === 'message' && !!entry.text;
+        });
+      var corpus = [
+        String(hint || ''),
+        String(gateContext || ''),
+        String(context.lastUser || ''),
+        String(context.lastAgent || ''),
+        typedHistory.slice(-3).map(function(entry) { return entry.role + ':' + entry.text; }).join(' || ')
+      ].join(' || ').toLowerCase();
+      var out = [];
+      var add = function(value) {
+        var text = String(value || '').trim();
+        if (text) out.push(text);
+      };
+      if (/(connect|pair|token|auth|unauthorized|secure context|device identity|gateway|fetch failed)/.test(corpus)) {
+        add('Summarize the fastest recovery step for this connection error');
+        add('/apikey');
+        add('/help');
+      }
+      if (/(model|provider|fallback|failover|slow|thinking|reasoning)/.test(corpus)) {
+        add('/model');
+        add('Continue from the last successful step with a safer model');
+      }
+      if (/(voice|audio|microphone|dictat|record)/.test(corpus) || this.recording) {
+        add('Turn the latest voice note into a concise prompt');
+        add('Summarize this chat into a one-line handoff note');
+      }
+      if (/(agent|session|chat|thread|roster|branch)/.test(corpus) || !typedHistory.length) {
+        add('/agents');
+        add('/new');
+      }
+      if (!out.length) {
+        add('Give me the next best action from this conversation');
+        add('/help');
+        add('/model');
+      }
+      return this.normalizePromptSuggestions(
+        out,
+        String(gateContext || context.signature || '').trim(),
+        this.recentUserSuggestionSamples()
+      );
+    },
+
+    buildPromptSuggestionContextSnapshot() {
+      var out = { lastUser: '', lastAgent: '', history: [], signature: '' };
+      var history = Array.isArray(this.messages) ? this.messages : [];
+      var compact = function(value, maxLen) {
+        var cap = Number(maxLen || 240);
+        var text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+        if (!text) return '';
+        if (text.length > cap) return text.substring(0, Math.max(8, cap - 3)) + '...';
+        return text;
+      };
+	      for (var i = history.length - 1; i >= 0; i--) {
+	        var row = history[i];
+	        if (!row || row.thinking || row.streaming || row.terminal || row.is_notice) continue;
+	        var normalizedRole = compact(row.role || '', 16).toLowerCase();
+	        if (!normalizedRole) {
+	          normalizedRole = row.user ? 'user' : row.assistant ? 'agent' : 'agent';
+	        }
+	        if (normalizedRole === 'system') continue;
+	        var text = compact(row.text, 240);
+	        if (!text) continue;
+	        if (/^\[runtime-task\]/i.test(text)) continue;
+	        if (/task accepted\.\s*report findings in this thread with receipt-backed evidence/i.test(text)) continue;
+	        if (/the user wants exactly 3 actionable next user prompts/i.test(text)) continue;
+	        if (String(text || '').toLowerCase() === 'heartbeat_ok') continue;
+	        if (out.history.length < 7) {
+	          out.history.unshift({
+	            role: normalizedRole,
+	            text: text
+	          });
+	        }
+	        if (!out.lastUser && normalizedRole === 'user') {
+	          out.lastUser = text;
+	          continue;
+	        }
+	        if (!out.lastAgent && (normalizedRole === 'agent' || normalizedRole === 'assistant')) {
+	          out.lastAgent = text;
+	        }
+	        if (out.lastUser && out.lastAgent && out.history.length >= 7) break;
+	      }
+      if (out.history.length > 7) out.history = out.history.slice(-7);
+      out.signature = compact(
+        out.history
+          .map(function(entry) {
+            return compact(entry.role || 'agent', 20) + ':' + compact(entry.text || '', 180);
+          })
+          .join(' || ') ||
+          (String(out.lastUser || '') + '|' + String(out.lastAgent || '')),
+        1200
+      );
+      return out;
+    },
+
+    // Backward-compat shim for legacy callers during naming migration.
+    collectPromptSuggestionContext() {
+      return this.buildPromptSuggestionContextSnapshot();
+    },
+
     recentUserSuggestionSamples() {
       var history = Array.isArray(this.messages) ? this.messages : [];
       var out = [];
@@ -3495,6 +4313,13 @@ function chatPage() {
         if (out.length >= 7) break;
       }
       return out;
+    },
+
+    hasConversationSuggestionSeed() {
+      if (this.isSystemThreadAgent && this.isSystemThreadAgent(this.currentAgent)) return false;
+      var context = this.buildPromptSuggestionContextSnapshot();
+      var count = Array.isArray(context && context.history) ? context.history.length : 0;
+      return count >= 7;
     },
 
     nextPromptQueueId() {
@@ -3530,6 +4355,18 @@ function chatPage() {
       var text = String(item && item.text ? item.text : '').replace(/\s+/g, ' ').trim();
       if (!text) return '(queued prompt)';
       return text.length > 140 ? text.substring(0, 137) + '...' : text;
+    },
+
+    promptQueueSteerActionLabel(item) {
+      var engineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var usesRuntimeSocket = typeof this.shouldUseAgentRuntimeSocketPath === 'function'
+        ? this.shouldUseAgentRuntimeSocketPath(engineId)
+        : false;
+      if (!this.sending) return 'Send';
+      if (!usesRuntimeSocket) return 'Steer';
+      var row = typeof this.activeRuntimeEngineRow === 'function' ? this.activeRuntimeEngineRow() : null;
+      if (row && row.supports_live_steering === true) return 'Steer now';
+      return 'Queue steer';
     },
 
     removePromptQueueItem(queueId) {
@@ -3635,6 +4472,42 @@ function chatPage() {
           queue_id: id
         });
         return;
+      }
+
+      var selectedRuntimeEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var usesAgentRuntimeSocket = typeof this.shouldUseAgentRuntimeSocketPath === 'function'
+        ? this.shouldUseAgentRuntimeSocketPath(selectedRuntimeEngineId)
+        : false;
+      if (usesAgentRuntimeSocket) {
+        var runtimeAgent = this.ensureValidCurrentAgent({ clear_when_missing: true });
+        if (!runtimeAgent || !runtimeAgent.id) return;
+        try {
+          var steerAck = await InfringAPI.post('/api/shell-socket/agent-runtime/steer', {
+            engine_id: selectedRuntimeEngineId,
+            agent_id: runtimeAgent.id,
+            session_id: String((runtimeAgent && (runtimeAgent.session_id || runtimeAgent.id)) || runtimeAgent.id || ''),
+            text: text,
+            attachments: files,
+            mode: 'auto',
+            priority: 'steer',
+          });
+          this.appendUserChatMessage(text, images, { deferPersist: true });
+          this.messages.push({
+            id: ++msgId,
+            role: 'system',
+            is_notice: true,
+            notice_type: 'info',
+            notice_label: steerAck && steerAck.live_injected ? 'Steer injected into active runtime turn.' : 'Steer queued for next runtime turn.',
+            text: steerAck && steerAck.live_injected ? 'Steer injected into active runtime turn.' : 'Steer queued for next runtime turn.',
+            meta: '',
+            tools: [],
+            system_origin: 'prompt_queue:agent_runtime_steer',
+            ts: Date.now(),
+          });
+          this.scrollToBottom();
+          this.scheduleConversationPersist();
+          return;
+        } catch(_) {}
       }
 
       var wsPayload = { type: 'message', content: text, steer: true, priority: 'steer' };
@@ -3921,6 +4794,11 @@ function chatPage() {
         this.suggestionsLoading = false;
         return;
       }
+      if (!this.hasConversationSuggestionSeed()) {
+        this.promptSuggestions = [];
+        this.suggestionsLoading = false;
+        return;
+      }
       var now = Date.now();
       var agentId = String(agent.id);
       var suggestionScopeKey = agentId + '|main';
@@ -3943,13 +4821,24 @@ function chatPage() {
       this.suggestionsLoading = true;
 	      try {
 	        var payload = {};
+	        var context = this.collectPromptSuggestionContext();
+	        if (context.signature) payload.recent_context = String(context.signature).trim();
           if (suggestionScopeKey) payload.session_scope_key = suggestionScopeKey;
 	        var result = await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(agentId) + '/suggestions', payload);
 	        if (this._suggestionFetchSeq !== seq) return;
+	        var freshContext = this.collectPromptSuggestionContext();
+	        var freshHistoryCount = Array.isArray(freshContext.history) ? freshContext.history.length : 0;
+	        if (freshHistoryCount < 7) {
+	          this.promptSuggestions = [];
+	          this._lastSuggestionsAt = Date.now();
+	          this._lastSuggestionsAgentId = suggestionScopeKey;
+	          return;
+	        }
+	        var gatingContext = String(context.signature || '');
 	        var baseSuggestions = result && result.suggestions ? result.suggestions : [];
 	        var suggestions = this.normalizePromptSuggestions(
 	          Array.isArray(baseSuggestions) ? baseSuggestions : [],
-	          '',
+	          gatingContext,
 	          this.recentUserSuggestionSamples()
 	        );
         this.promptSuggestions = suggestions;
@@ -3957,7 +4846,15 @@ function chatPage() {
         this._lastSuggestionsAgentId = suggestionScopeKey;
 	      } catch (_) {
 		        if (this._suggestionFetchSeq === seq) {
-		          this.promptSuggestions = [];
+		          var fallbackContext = this.collectPromptSuggestionContext();
+		          var fallbackHistoryCount = Array.isArray(fallbackContext.history) ? fallbackContext.history.length : 0;
+		          if (fallbackHistoryCount < 7) {
+		            this.promptSuggestions = [];
+		            this._lastSuggestionsAt = Date.now();
+		            this._lastSuggestionsAgentId = suggestionScopeKey;
+		            return;
+		          }
+		          this.promptSuggestions = this.derivePromptSuggestionFallback(agent, hint, String(fallbackContext.signature || ''));
           this._lastSuggestionsAt = Date.now();
           this._lastSuggestionsAgentId = suggestionScopeKey;
         }
@@ -4175,15 +5072,9 @@ function chatPage() {
         (this.currentAgent && String(this.currentAgent.id || '') === targetId ? this.currentAgent : null);
       if (resolved && this.agentHasInitialContract(resolved)) {
         try {
-          var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-            ? InfringSharedShellServices.appStore
-            : null;
-          var appStore = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+          var appStore = Alpine.store('app');
           var pendingForResolved = String(appStore && appStore.pendingFreshAgentId ? appStore.pendingFreshAgentId : '').trim();
-          if (pendingForResolved === targetId) {
-            if (bridge && typeof bridge.set === 'function') bridge.set('pendingFreshAgentId', '');
-            else appStore.pendingFreshAgentId = '';
-          }
+          if (pendingForResolved === targetId) appStore.pendingFreshAgentId = '';
         } catch(_) {}
         return false;
       }
@@ -4198,10 +5089,7 @@ function chatPage() {
       }
       var pendingFreshId = '';
       try {
-        var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+        var store = Alpine.store('app');
         pendingFreshId = String(store && store.pendingFreshAgentId ? store.pendingFreshAgentId : '').trim();
       } catch(_) {}
       return !!pendingFreshId && pendingFreshId === targetId;
@@ -4213,10 +5101,7 @@ function chatPage() {
       if (this.isSystemThreadId && this.isSystemThreadId(targetId)) return true;
       if (this.isFreshInitInProgressFor(targetId)) return true;
       try {
-        var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+        var store = Alpine.store('app');
         var pendingFreshId = String(store && store.pendingFreshAgentId ? store.pendingFreshAgentId : '').trim();
         var currentId = String(this.currentAgent && this.currentAgent.id ? this.currentAgent.id : '').trim();
         if (pendingFreshId && currentId && pendingFreshId === targetId && currentId === targetId) {
@@ -5434,193 +6319,25 @@ function chatPage() {
       return parts.join('\n').toLowerCase().indexOf(normalizedQuery) >= 0;
     },
 
-    activeSessionIdForGatewaySearch: function() {
-      if (!Array.isArray(this.sessions)) return '';
-      for (var i = 0; i < this.sessions.length; i += 1) {
-        var row = this.sessions[i] || {};
-        if (row.active) {
-          var sessionId = String(row.session_id || row.id || '').trim();
-          if (sessionId.indexOf('::') >= 0) sessionId = sessionId.split('::').slice(1).join('::');
-          return sessionId;
-        }
-      }
-      return '';
-    },
-
-    shouldUseGatewaySearch: function(query) {
-      var q = String(query || this.searchQuery || '').trim();
-      if (!q) return false;
-      var agentId = String((this.currentAgent && this.currentAgent.id) || '').trim();
-      if (!agentId) return false;
-      var threshold = Number(this.gatewaySearchThreshold || 250);
-      if (!Number.isFinite(threshold) || threshold < 1) threshold = 250;
-      return Array.isArray(this.messages) && this.messages.length >= threshold;
-    },
-
-    scheduleGatewaySearch: function() {
-      var query = String(this.searchQuery || '').trim();
-      if (!this.shouldUseGatewaySearch(query)) {
-        this.gatewaySearchQuery = '';
-        this.gatewaySearchAgentId = '';
-        this.gatewaySearchPending = false;
-        this.gatewaySearchResultMessages = [];
-        if (this._gatewaySearchTimer) clearTimeout(this._gatewaySearchTimer);
-        this._gatewaySearchTimer = null;
-        return;
-      }
-      if (this._gatewaySearchTimer) clearTimeout(this._gatewaySearchTimer);
-      var self = this;
-      this._gatewaySearchTimer = setTimeout(function() {
-        self.runGatewaySearch(query);
-      }, 180);
-    },
-
-    runGatewaySearch: async function(query) {
-      var q = String(query || this.searchQuery || '').trim();
-      if (!this.shouldUseGatewaySearch(q)) return;
-      var agentId = String((this.currentAgent && this.currentAgent.id) || '').trim();
-      if (!agentId) return;
-      var seq = Number(this._gatewaySearchSeq || 0) + 1;
-      this._gatewaySearchSeq = seq;
-      this.gatewaySearchPending = true;
-      var sessionId = this.activeSessionIdForGatewaySearch();
-      var url = '/api/shell-socket/search?agent_id=' + encodeURIComponent(agentId) +
-        '&q=' + encodeURIComponent(q) +
-        '&limit=80';
-      if (sessionId) url += '&session_id=' + encodeURIComponent(sessionId);
-      try {
-        var response = await fetch(url, { headers: { Accept: 'application/json' } });
-        var payload = await response.json().catch(function() { return {}; });
-        if (seq !== Number(this._gatewaySearchSeq || 0)) return;
-        if (!response.ok || !payload || !Array.isArray(payload.hits)) {
-          this.gatewaySearchResultMessages = [];
-          this.gatewaySearchQuery = q;
-          this.gatewaySearchAgentId = agentId;
-          return;
-        }
-        this.gatewaySearchResultMessages = payload.hits.map(function(hit, idx) {
-          var role = String((hit && hit.role) || '').trim().toLowerCase();
-          if (role === 'assistant') role = 'agent';
-          if (!role) role = 'agent';
-          var messageId = String((hit && (hit.message_id || hit.id)) || ('hit-' + idx)).trim();
-          return {
-            id: 'gateway-search:' + messageId,
-            role: role,
-            text: String((hit && (hit.preview || hit.snippet)) || ''),
-            meta: 'Search result',
-            ts: hit ? hit.ts : null,
-            detail_ref: hit ? hit.detail_ref : null,
-            _gatewaySearchHit: true,
-            _source_message_id: messageId
-          };
-        });
-        this.gatewaySearchQuery = q;
-        this.gatewaySearchAgentId = agentId;
-        var chatStore = window.InfringChatStore;
-        if (chatStore && typeof chatStore.syncMessages === 'function') chatStore.syncMessages(this.messages, this.allFilteredMessages);
-      } catch (err) {
-        if (seq === Number(this._gatewaySearchSeq || 0)) {
-          this.gatewaySearchResultMessages = [];
-          this.gatewaySearchQuery = q;
-          this.gatewaySearchAgentId = agentId;
-        }
-      } finally {
-        if (seq === Number(this._gatewaySearchSeq || 0)) this.gatewaySearchPending = false;
-      }
-    },
-
-    shellDetailRefForTool: function(tool) {
-      var row = tool && typeof tool === 'object' ? tool : {};
-      return String(row.detail_ref || row.result_ref || row.input_ref || '').trim();
-    },
-
-    rememberShellDetailProjection: function(detailRef, payload) {
-      var ref = String(detailRef || '').trim();
-      if (!ref) return null;
-      if (!this.shellDetailCache || typeof this.shellDetailCache !== 'object') this.shellDetailCache = {};
-      if (!Array.isArray(this.shellDetailCacheOrder)) this.shellDetailCacheOrder = [];
-      var projection = payload && typeof payload === 'object'
-        ? (payload.detail_projection || payload)
-        : {};
-      this.shellDetailCache[ref] = projection;
-      var idx = this.shellDetailCacheOrder.indexOf(ref);
-      if (idx >= 0) this.shellDetailCacheOrder.splice(idx, 1);
-      this.shellDetailCacheOrder.push(ref);
-      var limit = Number(this.shellDetailCacheLimit || 80);
-      if (!Number.isFinite(limit) || limit < 10) limit = 80;
-      while (this.shellDetailCacheOrder.length > limit) {
-        var oldRef = this.shellDetailCacheOrder.shift();
-        if (oldRef) delete this.shellDetailCache[oldRef];
-      }
-      return projection;
-    },
-
-    applyShellDetailToTool: function(tool, detailProjection) {
-      if (!tool || typeof tool !== 'object' || !detailProjection || typeof detailProjection !== 'object') return;
-      var projection = detailProjection.detail_projection && typeof detailProjection.detail_projection === 'object'
-        ? detailProjection.detail_projection
-        : detailProjection;
-      var value = projection.value && typeof projection.value === 'object' ? projection.value : projection;
-      if (projection.value_preview && !tool.result) tool.result = String(projection.value_preview || '');
-      if (value.summary && !tool.summary) tool.summary = String(value.summary || '');
-      if (value.input && !tool.input) tool.input = typeof value.input === 'string' ? value.input : JSON.stringify(value.input);
-      if (value.result && !tool.result) tool.result = typeof value.result === 'string' ? value.result : JSON.stringify(value.result);
-      if (value.output && !tool.result) tool.result = typeof value.output === 'string' ? value.output : JSON.stringify(value.output);
-      if (value.name && !tool.name) tool.name = String(value.name || '');
-      tool._detail_loaded = true;
-      tool._detail_loading = false;
-      tool._detail_error = '';
-    },
-
-    fetchShellDetailProjection: async function(detailRef) {
-      var ref = String(detailRef || '').trim();
-      if (!ref) return null;
-      if (this.shellDetailCache && this.shellDetailCache[ref]) return this.shellDetailCache[ref];
-      var response = await fetch('/api/shell-socket/details/' + encodeURIComponent(ref) + '?view=summary', {
-        headers: { Accept: 'application/json' }
-      });
-      var payload = await response.json().catch(function() { return {}; });
-      if (!response.ok || !payload || payload.ok === false) {
-        throw new Error(String((payload && (payload.error || payload.reason_code)) || 'detail_fetch_failed'));
-      }
-      return this.rememberShellDetailProjection(ref, payload);
-    },
-
-    syncChatStoreAfterDetailLoad: function() {
-      var chatStore = window.InfringChatStore;
-      if (chatStore && typeof chatStore.syncMessages === 'function') {
-        chatStore.syncMessages(this.messages, this.allFilteredMessages);
-      }
-    },
-
-    toggleToolExpansion: async function(tool) {
-      if (!tool || typeof tool !== 'object') return;
-      var expanding = !tool.expanded;
-      tool.expanded = expanding;
-      this.syncChatStoreAfterDetailLoad();
-      if (!expanding) return;
-      var detailRef = this.shellDetailRefForTool(tool);
-      if (!detailRef || tool._detail_loaded || tool._detail_loading || tool.result || tool.input) return;
-      tool._detail_loading = true;
-      tool._detail_error = '';
-      this.syncChatStoreAfterDetailLoad();
-      try {
-        var detail = await this.fetchShellDetailProjection(detailRef);
-        this.applyShellDetailToTool(tool, detail);
-      } catch (err) {
-        tool._detail_loading = false;
-        tool._detail_error = 'Unable to load detail right now.';
-      } finally {
-        this.syncChatStoreAfterDetailLoad();
-      }
-    },
-
     normalizeSessionMessages(data) {
       var source = [];
       if (data && Array.isArray(data.messages)) {
         source = data.messages;
       } else if (data && data.message_window && Array.isArray(data.message_window.rows)) {
         source = data.message_window.rows;
+      } else if (data && Array.isArray(data.turns)) {
+        var turns = data.turns;
+        var turnRows = [];
+        turns.forEach(function(turn) {
+          var ts = turn && turn.ts ? turn.ts : Date.now();
+          if (turn && typeof turn.user === 'string' && turn.user.trim()) {
+            turnRows.push({ role: 'User', content: turn.user, ts: ts });
+          }
+          if (turn && typeof turn.assistant === 'string' && turn.assistant.trim()) {
+            turnRows.push({ role: 'Agent', content: turn.assistant, ts: ts });
+          }
+        });
+        source = turnRows;
       } else {
         source = [];
       }
@@ -5677,6 +6394,23 @@ function chatPage() {
                 is_error: !!t.is_error
               };
             }));
+        if (role === 'agent' && !isTerminal) {
+          var repairedToolText = '';
+          var needsRepair =
+            !String(text || '').trim() ||
+            (typeof self.textLooksNoFindingsPlaceholder === 'function' && self.textLooksNoFindingsPlaceholder(text)) ||
+            (typeof self.textLooksToolAckWithoutFindings === 'function' && self.textLooksToolAckWithoutFindings(text));
+          if (needsRepair && typeof self.fallbackAssistantTextFromPayload === 'function') {
+            repairedToolText = String(self.fallbackAssistantTextFromPayload(m, tools) || '').trim();
+          }
+          if (
+            repairedToolText &&
+            repairedToolText !== String(text || '').trim() &&
+            !(typeof self.textLooksNoFindingsPlaceholder === 'function' && self.textLooksNoFindingsPlaceholder(repairedToolText))
+          ) {
+            text = repairedToolText;
+          }
+        }
         var messageMetadata = typeof self.assistantTurnMetadataFromPayload === 'function'
           ? self.assistantTurnMetadataFromPayload(m, tools)
           : {};
@@ -5853,9 +6587,6 @@ function chatPage() {
       var self = this;
       this.publishChatPageBridge();
       this.installComposerPlusClickFallback();
-      if (typeof this.loadRuntimeEnginesSafely === 'function') {
-        this.loadRuntimeEnginesSafely({ force: false }).catch(function() {});
-      }
 
       if (typeof window !== 'undefined') {
         var persistedCache = this.loadConversationCache();
@@ -5969,6 +6700,9 @@ function chatPage() {
         try { delete window.__infringChatCache; } catch (_) { window.__infringChatCache = {}; }
       }
       this.publishChatPageBridge();
+      if (typeof this.loadRuntimeEnginesSafely === 'function') {
+        this.loadRuntimeEnginesSafely({ force: false }).catch(function() {});
+      }
       // Load session + session list when agent changes
       this.$watch('currentAgent', function(agent) {
         if (agent) {
@@ -6001,7 +6735,6 @@ function chatPage() {
       });
 
       this.$watch('searchQuery', function() {
-        if (typeof self.scheduleGatewaySearch === 'function') self.scheduleGatewaySearch();
         var chatStore = window.InfringChatStore;
         if (chatStore && typeof chatStore.syncMessages === 'function') chatStore.syncMessages(self.messages, self.allFilteredMessages);
       });
@@ -6055,16 +6788,13 @@ function chatPage() {
       });
 
       // Check for pending agent from Agents page (set before chat mounted)
-      var appStoreBridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var store = appStoreBridge && typeof appStoreBridge.current === 'function' ? appStoreBridge.current() : null;
-      if (store && store.pendingAgent) {
+      var store = Alpine.store('app');
+      if (store.pendingAgent) {
         self.selectAgent(store.pendingAgent);
-      } else if (store && store.activeAgentId) {
+      } else if (store.activeAgentId) {
         self.selectAgent(store.activeAgentId);
       } else {
-        var preferred = self.pickDefaultAgent((store && store.agents) || []);
+        var preferred = self.pickDefaultAgent(store.agents || []);
         if (preferred) self.selectAgent(preferred);
       }
 
@@ -6105,10 +6835,7 @@ function chatPage() {
 
       // Auto-select the first available agent in chat mode.
       this.$watch('$store.app.agents', function(agents) {
-        var appStoreBridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var store = appStoreBridge && typeof appStoreBridge.current === 'function' ? appStoreBridge.current() : null;
+        var store = Alpine.store('app');
         var rows = Array.isArray(agents) ? agents : [];
         var chatStore = window.InfringChatStore;
         if (chatStore && chatStore.agents) chatStore.agents.set(rows);
@@ -6155,7 +6882,7 @@ function chatPage() {
             }
           }
         }
-        if (store && store.activeAgentId) {
+        if (store.activeAgentId) {
           var resolved = self.resolveAgent(store.activeAgentId);
           if (resolved) {
             if (!self.currentAgent || self.currentAgent.id !== resolved.id) {
@@ -6275,10 +7002,7 @@ function chatPage() {
         if (!chatStore) return;
         if (typeof chatStore.syncMessages === 'function') chatStore.syncMessages(self.messages, self.allFilteredMessages);
         if (chatStore.currentAgent) chatStore.currentAgent.set(self.currentAgent || null);
-        var appStoreBridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var appStore = appStoreBridge && typeof appStoreBridge.current === 'function' ? appStoreBridge.current() : null;
+        var appStore = typeof Alpine !== 'undefined' && Alpine.store('app');
         if (chatStore.agents) chatStore.agents.set(Array.isArray(appStore && appStore.agents) ? appStore.agents : []);
         if (chatStore.sidebarAgents) chatStore.sidebarAgents.set(Array.isArray(appStore && appStore.chatSidebarVisibleRows) ? appStore.chatSidebarVisibleRows : []);
         if (chatStore.sessionLoading) chatStore.sessionLoading.set(!!self.sessionLoading);
@@ -6288,7 +7012,12 @@ function chatPage() {
         if (chatStore.showScrollDown) chatStore.showScrollDown.set(!!self.showScrollDown);
         if (chatStore.stickToBottom) chatStore.stickToBottom.set(self._stickToBottom !== false);
         if (chatStore.mapStepIndex) chatStore.mapStepIndex.set(Number(self.mapStepIndex) || -1);
-        if (chatStore.wsConnected) chatStore.wsConnected.set(!!((appStore && appStore.wsConnected) || (typeof InfringAPI !== 'undefined' && typeof InfringAPI.isWsConnected === 'function' && InfringAPI.isWsConnected())));
+        if (chatStore.wsConnected) {
+          chatStore.wsConnected.set(!!(
+            (appStore && appStore.wsConnected) ||
+            (typeof InfringAPI !== 'undefined' && typeof InfringAPI.isWsConnected === 'function' && InfringAPI.isWsConnected())
+          ));
+        }
         if (appStore) {
           if (chatStore.focusMode) chatStore.focusMode.set(!!appStore.focusMode);
           if (chatStore.connectionState) chatStore.connectionState.set(String(appStore.connectionState || ''));
@@ -6296,15 +7025,16 @@ function chatPage() {
         }
       }());
       window.InfringChatPage = self;
-      if (!window.InfringApp) {
-        var appStoreBridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        window.InfringApp = appStoreBridge && typeof appStoreBridge.current === 'function' ? appStoreBridge.current() : null;
-      }
+      if (typeof Alpine !== 'undefined' && !window.InfringApp) window.InfringApp = Alpine.store('app');
     },
+
     toggleTerminalMode() {
       var self = this;
+      // infring-chat-page-early-bridge: Svelte Shell islands need the page bridge even if later init work fails.
+      if (typeof window !== 'undefined') {
+        window.InfringChatPage = self;
+        if (typeof Alpine !== 'undefined' && !window.InfringApp) window.InfringApp = Alpine.store('app');
+      }
       if (this.isSystemThreadAgent && this.isSystemThreadAgent(this.currentAgent)) {
         this.terminalMode = true;
         if (typeof this.closeComposerMenus === 'function') this.closeComposerMenus();
@@ -6716,32 +7446,50 @@ function chatPage() {
 
     fallbackRuntimeEngineRows: function() {
       return [
-        { engine_id: 'infring_native', display_name: 'InfRing Native', status: 'available', selectable: true, engine_kind: 'native_orchestration' },
-        { engine_id: 'codex_cli', display_name: 'Codex', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' },
-        { engine_id: 'claude_code', display_name: 'Claude Code', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' },
-        { engine_id: 'openhands', display_name: 'OpenHands', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon' }
+        { engine_id: 'infring_native', display_name: 'InfRing Native', status: 'available', selectable: true, engine_kind: 'native_orchestration', supports_next_turn_steering: true, steering_mode: 'next_turn' },
+        { engine_id: 'codex_cli', display_name: 'Codex', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon', supports_next_turn_steering: true, steering_mode: 'next_turn' },
+        { engine_id: 'claude_code', display_name: 'Claude Code', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon', supports_next_turn_steering: true, steering_mode: 'next_turn' },
+        { engine_id: 'openhands', display_name: 'OpenHands', status: 'not_downloaded', selectable: false, download_available: true, display_when_missing: 'download_icon', supports_next_turn_steering: true, steering_mode: 'next_turn' }
       ];
     },
 
     normalizeRuntimeEngineRows: function(payload) {
       var rows = payload && Array.isArray(payload.engines) ? payload.engines : [];
       var out = [];
+      var canonicalDisplayNames = {
+        infring_native: 'InfRing Native',
+        codex_cli: 'Codex',
+        claude_code: 'Claude Code',
+        grok_code: 'Grok Code',
+        openclaw: 'OpenClaw',
+        hermes_agent: 'Hermes Agent'
+      };
       for (var i = 0; i < rows.length; i += 1) {
         var row = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
         var id = String(row.engine_id || '').trim();
         if (!id) continue;
+        var displayName = String(row.display_name || id).trim() || id;
         out.push({
           engine_id: id,
-          display_name: String(row.display_name || id).trim() || id,
+          canonical_engine_id: id,
+          display_name: canonicalDisplayNames[id] || displayName,
+          display_label: canonicalDisplayNames[id] || displayName,
           engine_kind: String(row.engine_kind || '').trim(),
           transport_kind: String(row.transport_kind || '').trim(),
           status: String(row.status || 'unknown').trim(),
           selectable: row.selectable !== false && ['not_downloaded', 'not_configured', 'planned_adapter'].indexOf(String(row.status || '').trim()) < 0,
           capabilities: Array.isArray(row.capabilities) ? row.capabilities : [],
+          supports_live_steering: row.supports_live_steering === true,
+          supports_next_turn_steering: row.supports_next_turn_steering === true,
+          steering_mode: String(row.steering_mode || '').trim(),
+          steering_transport: String(row.steering_transport || '').trim(),
           download_available: row.download_available === true,
           install_action_available: row.install_action_available === true || row.command_line_install_available === true,
           command_line_install_available: row.command_line_install_available === true,
           install_permission_state: String(row.install_permission_state || '').trim(),
+          provider_readiness: String(row.provider_readiness || '').trim(),
+          error_code: String(row.error_code || '').trim(),
+          reason: String(row.reason || '').trim(),
           download_action_ref: String(row.download_action_ref || '').trim(),
           preferred_install_method: String(row.preferred_install_method || '').trim(),
           command_line_hint: String(row.command_line_hint || '').trim(),
@@ -6758,6 +7506,7 @@ function chatPage() {
     loadRuntimeEnginesSafely: function(options) {
       var opts = options && typeof options === 'object' ? options : {};
       var self = this;
+      if (typeof this.ensureAgentRuntimePendingApprovalSyncLoop === 'function') this.ensureAgentRuntimePendingApprovalSyncLoop();
       if (!opts.force && Array.isArray(this.runtimeEngineRows) && this.runtimeEngineRows.length && (Date.now() - Number(this.runtimeEngineCacheTime || 0)) < 120000) {
         return Promise.resolve(this.runtimeEngineRows);
       }
@@ -6807,6 +7556,7 @@ function chatPage() {
     },
 
     activeRuntimeEngineRow: function() {
+      if (typeof this.restoreAgentRuntimeEngineSelection === 'function') this.restoreAgentRuntimeEngineSelection();
       var id = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim();
       var rows = Array.isArray(this.runtimeEngineRows) && this.runtimeEngineRows.length ? this.runtimeEngineRows : this.fallbackRuntimeEngineRows();
       for (var i = 0; i < rows.length; i += 1) {
@@ -6815,9 +7565,145 @@ function chatPage() {
       return rows[0] || null;
     },
 
+    restoreAgentRuntimeEngineSelection: function() {
+      if (this._agentRuntimeEngineSelectionRestored === true) return this._agentRuntimeEngineSelectionSource === 'local_storage';
+      this._agentRuntimeEngineSelectionRestored = true;
+      var key = String(this.agentRuntimeEngineStorageKey || 'infring-selected-agent-runtime-engine-v1');
+      var saved = '';
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) saved = String(window.localStorage.getItem(key) || '').trim();
+      } catch (_e) {}
+      if (!saved) return false;
+      this.selectedAgentRuntimeEngineId = saved;
+      this._agentRuntimeEngineSelectionSource = 'local_storage';
+      return true;
+    },
+
+    persistAgentRuntimeEngineSelection: function(engineId) {
+      var id = String(engineId || 'infring_native').trim() || 'infring_native';
+      this.selectedAgentRuntimeEngineId = id;
+      try { window.localStorage.setItem(this.agentRuntimeEngineStorageKey, id); } catch (_e) {}
+      InfringAPI.post('/api/shell-socket/agent-runtime/selection', { engine_id: id }).catch(function() {});
+      return id;
+    },
+
+    runtimeEngineDisplayNameForId: function(engineId, fallbackRow) {
+      var id = String(engineId || '').trim() || 'infring_native';
+      if (fallbackRow && String(fallbackRow.engine_id || '').trim() === id) {
+        return String(fallbackRow.display_name || id).trim() || id;
+      }
+      var rows = Array.isArray(this.runtimeEngineRows) && this.runtimeEngineRows.length ? this.runtimeEngineRows : this.fallbackRuntimeEngineRows();
+      for (var i = 0; i < rows.length; i += 1) {
+        if (String(rows[i] && rows[i].engine_id || '').trim() === id) {
+          return String(rows[i].display_name || id).trim() || id;
+        }
+      }
+      return id === 'infring_native' ? 'InfRing Native' : id;
+    },
+
+    addRuntimeEngineSwitchNotice: function(previousEngineId, nextEngineId, nextRow) {
+      var previousId = String(previousEngineId || 'infring_native').trim() || 'infring_native';
+      var nextId = String(nextEngineId || 'infring_native').trim() || 'infring_native';
+      if (previousId === nextId) return;
+      if (typeof this.addNoticeEvent !== 'function') return;
+      var fromName = this.runtimeEngineDisplayNameForId(previousId, null);
+      var toName = this.runtimeEngineDisplayNameForId(nextId, nextRow);
+      this.addNoticeEvent({
+        notice_label: 'Changed active engine from ' + fromName + ' to ' + toName,
+        notice_type: 'info',
+        ts: Date.now()
+      });
+    },
+
     runtimeEngineMenuLabel: function() {
       var row = this.activeRuntimeEngineRow();
       return String((row && row.display_name) || 'InfRing Native').trim();
+    },
+
+    activeWorkspaceMenuLabel: function() {
+      var row = this.activeWorkspaceProjection && typeof this.activeWorkspaceProjection === 'object' ? this.activeWorkspaceProjection : null;
+      var label = String(row && (row.display_label || row.basename) || '').trim();
+      if (label) return label.length > 22 ? label.substring(0, 19) + '...' : label;
+      var cwd = String(this.terminalPromptPath || this.terminalCwd || '/workspace').trim();
+      var parts = cwd.split(/[\\/]+/).filter(Boolean);
+      var base = parts.length ? parts[parts.length - 1] : cwd;
+      return base ? '.../' + base : '/workspace';
+    },
+
+    activeWorkspacePath: function() {
+      var row = this.activeWorkspaceProjection && typeof this.activeWorkspaceProjection === 'object' ? this.activeWorkspaceProjection : null;
+      return String(row && (row.workspace_dir || row.active_workspace) || this.terminalPromptPath || this.terminalCwd || '/workspace').trim();
+    },
+
+    activeWorkspaceTurnContextProjection: function() {
+      var row = this.activeWorkspaceProjection && typeof this.activeWorkspaceProjection === 'object' ? this.activeWorkspaceProjection : null;
+      if (!row) return null;
+      return {
+        workspace_dir: String(row.workspace_dir || row.active_workspace || '').trim(),
+        active_workspace: String(row.active_workspace || row.workspace_dir || '').trim(),
+        display_label: String(row.display_label || '').trim(),
+        git_root: String(row.git_root || '').trim(),
+        git_root_label: String(row.git_root_label || '').trim(),
+        permission_boundary: row.permission_boundary || null
+      };
+    },
+
+    applyActiveWorkspaceProjection: function(payload) {
+      var row = payload && typeof payload === 'object' ? payload : null;
+      if (!row) return null;
+      this.activeWorkspaceProjection = row;
+      this.activeWorkspaceCacheTime = Date.now();
+      this.activeWorkspaceError = '';
+      if (row.workspace_dir || row.active_workspace) {
+        this.terminalCwd = String(row.workspace_dir || row.active_workspace);
+      }
+      return row;
+    },
+
+    loadActiveWorkspaceProjection: function(options) {
+      var opts = options && typeof options === 'object' ? options : {};
+      var self = this;
+      if (!opts.force && this.activeWorkspaceProjection && (Date.now() - Number(this.activeWorkspaceCacheTime || 0)) < 120000) {
+        return Promise.resolve(this.activeWorkspaceProjection);
+      }
+      this.activeWorkspaceLoading = true;
+      this.activeWorkspaceError = '';
+      return InfringAPI.get('/api/shell-socket/agent-runtime/workspace').then(function(payload) {
+        return self.applyActiveWorkspaceProjection(payload);
+      }).catch(function(e) {
+        self.activeWorkspaceError = e && e.message ? String(e.message) : 'workspace_unavailable';
+        return self.activeWorkspaceProjection;
+      }).finally(function() {
+        self.activeWorkspaceLoading = false;
+      });
+    },
+
+    chooseActiveWorkspace: function() {
+      var self = this;
+      this.activeWorkspacePicking = true;
+      this.activeWorkspaceError = '';
+      if (typeof this.closeComposerMenus === 'function') this.closeComposerMenus();
+      InfringToast.info('Choose InfRing working directory...');
+      return InfringAPI.post('/api/shell-socket/agent-runtime/workspace/pick', {
+        scope: 'global_default'
+      }).then(function(payload) {
+        if (!payload || payload.ok === false) {
+          var reason = payload && (payload.reason || payload.error) ? String(payload.reason || payload.error) : 'workspace_picker_cancelled';
+          self.activeWorkspaceError = reason;
+          if (payload && payload.error !== 'workspace_picker_cancelled') InfringToast.error('Workspace picker: ' + reason);
+          return payload;
+        }
+        self.applyActiveWorkspaceProjection(payload);
+        InfringToast.success('Working directory: ' + self.activeWorkspaceMenuLabel());
+        return payload;
+      }).catch(function(e) {
+        var reason = e && e.message ? String(e.message) : 'workspace_picker_failed';
+        self.activeWorkspaceError = reason;
+        InfringToast.error('Workspace picker: ' + reason);
+        return null;
+      }).finally(function() {
+        self.activeWorkspacePicking = false;
+      });
     },
 
     isRuntimeEngineActive: function(row) {
@@ -6838,8 +7724,13 @@ function chatPage() {
       var parts = [];
       var kind = String(row && row.engine_kind || '').replace(/_/g, ' ').trim();
       var status = this.runtimeEngineStatusLabel(row);
+      var steering = String(row && row.steering_mode || '').trim();
+      var reason = String(row && row.reason || '').trim();
       if (kind) parts.push(kind);
       if (status) parts.push(status);
+      if (reason) parts.push(reason);
+      if (steering === 'live') parts.push('live steer');
+      else if (steering === 'next_turn') parts.push('next-turn steer');
       return parts.join(' · ');
     },
 
@@ -6862,15 +7753,17 @@ function chatPage() {
         this.openRuntimeEngineInstall(row);
         return;
       }
-      this.selectedAgentRuntimeEngineId = engineId;
-      try { window.localStorage.setItem(this.agentRuntimeEngineStorageKey, engineId); } catch (_e) {}
+      var previousEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      this.persistAgentRuntimeEngineSelection(engineId);
       this.showRuntimeSwitcher = false;
+      this.addRuntimeEngineSwitchNotice(previousEngineId, engineId, row);
       InfringToast.success('Agent runtime: ' + String((row && row.display_name) || engineId));
     },
 
     installRuntimeEngine: function(row) {
       var engineId = String(row && row.engine_id || '').trim();
       if (!engineId) return Promise.resolve(null);
+      var previousEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
       var self = this;
       var label = String((row && row.display_name) || engineId);
       this.showRuntimeSwitcher = false;
@@ -6880,8 +7773,8 @@ function chatPage() {
       }).then(function(payload) {
         var status = String(payload && payload.status || '').trim();
         if (payload && payload.ok && (status === 'installed_available' || status === 'already_available')) {
-          self.selectedAgentRuntimeEngineId = engineId;
-          try { window.localStorage.setItem(self.agentRuntimeEngineStorageKey, engineId); } catch (_e) {}
+          self.persistAgentRuntimeEngineSelection(engineId);
+          self.addRuntimeEngineSwitchNotice(previousEngineId, engineId, row);
           InfringToast.success('Agent runtime ready: ' + label);
           return self.loadRuntimeEnginesSafely({ force: true });
         }
@@ -6988,15 +7881,30 @@ function chatPage() {
         }
       }
       var bestFromMap = 0;
+      var bestInferred = 0;
+      var needsFloor = false;
       for (var i = 0; i < candidates.length; i++) {
         var candidate = String(candidates[i] || '').trim();
         if (!candidate) continue;
+        if (typeof this.contextWindowNeedsFloor === 'function' && this.contextWindowNeedsFloor(candidate)) {
+          needsFloor = true;
+        }
         var fromMap = Number(map[candidate] || 0);
         if (Number.isFinite(fromMap) && fromMap > bestFromMap) {
           bestFromMap = Math.round(fromMap);
         }
+        var inferred = this.inferContextWindowFromModelId(
+          candidate.indexOf('/') >= 0 ? candidate.split('/').slice(-1)[0] : candidate
+        );
+        if (Number.isFinite(inferred) && inferred > bestInferred) {
+          bestInferred = Math.round(inferred);
+        }
+      }
+      if (needsFloor && bestInferred > 0) {
+        return Math.max(bestFromMap, bestInferred);
       }
       if (bestFromMap > 0) return bestFromMap;
+      if (bestInferred > 0) return bestInferred;
       return 0;
     },
 
@@ -8009,16 +8917,10 @@ function chatPage() {
       var id = String(agentId || '').trim();
       if (!id) return;
       try {
-        var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+        var store = Alpine.store('app');
         if (!store) return;
-        var markAgentPreviewUnread = bridge && typeof bridge.method === 'function'
-          ? bridge.method('markAgentPreviewUnread')
-          : null;
-        if (typeof markAgentPreviewUnread === 'function') {
-          markAgentPreviewUnread(id, unread !== false);
+        if (typeof store.markAgentPreviewUnread === 'function') {
+          store.markAgentPreviewUnread(id, unread !== false);
         } else if (store.agentChatPreviews && store.agentChatPreviews[id]) {
           store.agentChatPreviews[id].unread_response = unread !== false;
         }
@@ -8133,13 +9035,10 @@ function chatPage() {
             messages: normalizedPreview,
           };
           try {
-            var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-              ? InfringSharedShellServices.appStore
-              : null;
-            var saveAgentChatPreview = bridge && typeof bridge.method === 'function'
-              ? bridge.method('saveAgentChatPreview')
-              : null;
-            if (typeof saveAgentChatPreview === 'function') saveAgentChatPreview(agentId, normalizedPreview);
+            var appStore = Alpine.store('app');
+            if (appStore && typeof appStore.saveAgentChatPreview === 'function') {
+              appStore.saveAgentChatPreview(agentId, normalizedPreview);
+            }
           } catch(_) {}
           var isActive = !!(this.currentAgent && String(this.currentAgent.id || '') === agentId);
           if (isActive) {
@@ -8511,49 +9410,17 @@ function chatPage() {
           // Heap diagnostic: snapshots the chat page's memory footprint and
           // emits a structured report to chat + console. Run twice with an
           // idle gap (e.g., /memprobe, wait 30s, /memprobe again) to compute
-          // a leak rate.
+          // a leak rate. The console output is the canonical record;
+          // pushSystemMessage gives the operator a visible ack.
           self.runSlashMemprobe(cmdArgs);
           break;
       }
       this.scheduleConversationPersist();
     },
 
-    isShellOwnedSlashCommand: function(cmd) {
-      var normalized = String(cmd || '').trim().toLowerCase();
-      if (!normalized) return false;
-      switch (normalized) {
-        case '/help':
-        case '/agents':
-        case '/new':
-        case '/compact':
-        case '/model':
-        case '/apikey':
-        case '/stop':
-        case '/usage':
-        case '/think':
-        case '/context':
-        case '/verbose':
-        case '/queue':
-        case '/status':
-        case '/alerts':
-        case '/next':
-        case '/continuity':
-        case '/aliases':
-        case '/alias':
-        case '/opt':
-        case '/clear':
-        case '/exit':
-        case '/budget':
-        case '/peers':
-        case '/a2a':
-          return true;
-        default:
-          return false;
-      }
-    },
-
     runSlashMemprobe: function(cmdArgs) {
       var report = this.collectMemprobeReport(cmdArgs);
+      // Pretty console block first (canonical record, full detail).
       try {
         var label = '[memprobe ' + report.captured_at_iso + ']';
         if (typeof console !== 'undefined' && console.group) {
@@ -8568,7 +9435,10 @@ function chatPage() {
         } else {
           console.log(label, report);
         }
-      } catch (_) {}
+      } catch (_) {
+        // Console errors should never break the chat.
+      }
+      // Compact chat ack with the headline numbers; the heavy detail stays in console.
       var heap = report.heap || {};
       var msgIdLocal = ++msgId;
       var heapMb = (Number(heap.used_js_heap_mb) || 0).toFixed(1);
@@ -8611,6 +9481,7 @@ function chatPage() {
       var prev = this._lastMemprobeReport && typeof this._lastMemprobeReport === 'object'
         ? this._lastMemprobeReport
         : null;
+      // Heap (Chromium-only; absent in Firefox/Safari).
       var perfMem = null;
       try {
         if (typeof performance !== 'undefined' && performance && performance.memory) {
@@ -8628,6 +9499,7 @@ function chatPage() {
             total_js_heap_bytes: Number(perfMem.totalJSHeapSize) || 0,
           }
         : { heap_unsupported: true };
+      // DOM counts.
       var domCounts = { total_nodes: 0, scripts: 0, styles: 0, divs: 0 };
       try {
         domCounts.total_nodes = document.querySelectorAll('*').length;
@@ -8635,6 +9507,9 @@ function chatPage() {
         domCounts.styles = document.querySelectorAll('style,link[rel="stylesheet"]').length;
         domCounts.divs = document.querySelectorAll('div').length;
       } catch (_) {}
+      // Custom element instance counts. The ones that follow are the per-message
+      // Svelte islands plus the bubble itself; if any of these grow without
+      // bound while messages stays roughly flat, the unmount path is leaking.
       var customElementTags = [
         'infring-chat-bubble-render',
         'infring-message-placeholder-shell',
@@ -8657,6 +9532,7 @@ function chatPage() {
           customElementCounts[tag] = document.querySelectorAll(tag).length;
         }
       } catch (_) {}
+      // Suspected accumulators: sizes of fields known to potentially retain payload data.
       var jsonByteSize = function(value) {
         try {
           if (value == null) return 0;
@@ -8737,6 +9613,7 @@ function chatPage() {
         suspected_accumulators: suspectedAccumulators,
         page_visible: typeof document !== 'undefined' && document && document.visibilityState ? document.visibilityState : 'unknown',
       };
+      // Delta vs previous capture (if any).
       if (prev && prev.captured_at_ms) {
         var prevHeapMb = Number((prev.heap && prev.heap.used_js_heap_mb) || 0);
         var nextHeapMb = Number(heap.used_js_heap_mb || 0);
@@ -8756,31 +9633,22 @@ function chatPage() {
         };
       }
       this._lastMemprobeReport = report;
+      // Also expose the latest report via window for ad-hoc devtools access.
       try { if (typeof window !== 'undefined') window.__infringMemprobe = report; } catch (_) {}
       return report;
     },
-
     maybeDiscardPendingFreshAgent: function(nextAgentId) {
-      var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+      var store = Alpine.store('app');
       if (!store) return;
       var pendingId = String(store.pendingFreshAgentId || '').trim();
       if (!pendingId) return;
       var targetId = String(nextAgentId || '').trim();
       if (!targetId || targetId === pendingId) return;
-      if (bridge && typeof bridge.assign === 'function') bridge.assign({ pendingFreshAgentId: null, pendingAgent: null });
-      else {
-        store.pendingFreshAgentId = null;
-        store.pendingAgent = null;
-      }
+      store.pendingFreshAgentId = null;
+      store.pendingAgent = null;
       InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(pendingId) + '/archive', { reason: 'discard_pending_fresh_agent' }).catch(function() {});
-      var refreshAgents = bridge && typeof bridge.method === 'function'
-        ? bridge.method('refreshAgents')
-        : null;
-      if (typeof refreshAgents === 'function') {
-        setTimeout(function() { refreshAgents({ force: true }).catch(function() {}); }, 0);
+      if (typeof store.refreshAgents === 'function') {
+        setTimeout(function() { store.refreshAgents({ force: true }).catch(function() {}); }, 0);
       }
     },
     selectAgent(agent) {
@@ -8799,10 +9667,7 @@ function chatPage() {
         }
       }
       this._markAgentPreviewUnread(resolved.id, false);
-      var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+      var store = Alpine.store('app');
       var pendingFreshId = store && store.pendingFreshAgentId ? String(store.pendingFreshAgentId) : '';
       var forceFreshSession = pendingFreshId && String(resolved.id) === pendingFreshId;
       this.clearHoveredMessageHard();
@@ -8817,7 +9682,7 @@ function chatPage() {
           this.messages = this.messages.filter(function(m) { return !m.thinking && !m.streaming; });
           this.sending = false;
           this._responseStartedAt = 0;
-          this.setAgentLiveActivity(switchingFrom, 'working', { optimistic: true, source: 'shell_display_hint' });
+          this.setAgentLiveActivity(switchingFrom, 'working');
           this._recoverPendingWsRequest('agent_switch');
         }
         if (typeof this.captureConversationDraft === 'function') {
@@ -9635,17 +10500,13 @@ function chatPage() {
           ts: Date.now()
         });
         try {
-          var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-            ? InfringSharedShellServices.appStore
-            : null;
-          if (bridge && typeof bridge.assign === 'function') {
-            bridge.assign({ pendingFreshAgentId: null, pendingAgent: null });
-          }
-          var refreshAgents = bridge && typeof bridge.method === 'function'
-            ? bridge.method('refreshAgents')
-            : null;
-          if (typeof refreshAgents === 'function') {
-            await refreshAgents();
+          var store = Alpine.store('app');
+          if (store) {
+            store.pendingFreshAgentId = null;
+            store.pendingAgent = null;
+            if (typeof store.refreshAgents === 'function') {
+              await store.refreshAgents();
+            }
           }
         } catch(_) {}
         await this.syncDrawerAgentAfterChange();
@@ -9835,6 +10696,9 @@ function chatPage() {
       if (Array.isArray(payload.messages)) {
         for (var m = 0; m < payload.messages.length; m++) sourceRows.push(payload.messages[m]);
       }
+      if (payload && payload.message_window && Array.isArray(payload.message_window.rows)) {
+        for (var mw = 0; mw < payload.message_window.rows.length; mw++) sourceRows.push(payload.message_window.rows[mw]);
+      }
       if (!sourceRows.length) {
         this.chatInputHistory = [];
         this.terminalInputHistory = [];
@@ -9992,7 +10856,13 @@ function chatPage() {
             }
           } catch(_) {}
         }
-        if (!keepCurrent && (!Array.isArray(self.messages) || !self.messages.length)) {
+        var restoredFromCache = false;
+        try {
+          restoredFromCache = self.restoreAgentConversation(agentId);
+        } catch(_) {
+          restoredFromCache = false;
+        }
+        if (!restoredFromCache && !keepCurrent && (!Array.isArray(self.messages) || !self.messages.length)) {
           var errText = loadErrorText;
           self.messages = [{
             id: ++msgId,
@@ -10132,6 +11002,7 @@ function chatPage() {
       }
       return false;
     },
+
     ensureLiveThinkingRow: function(data) {
       var incomingStatus = String(
         data && (data.thinking_status || data.status_text) ? (data.thinking_status || data.status_text) : ''
@@ -10157,7 +11028,8 @@ function chatPage() {
         ) {
           row.thinking_status = incomingStatus;
         }
-        var activeStore = window.InfringChatStore; if (activeStore && typeof activeStore.syncMessages === 'function') activeStore.syncMessages(this.messages, this.allFilteredMessages);
+        var activeStore = window.InfringChatStore;
+        if (activeStore && typeof activeStore.syncMessages === 'function') activeStore.syncMessages(this.messages, this.allFilteredMessages);
         return row;
       }
       row = {
@@ -10176,9 +11048,11 @@ function chatPage() {
         agent_name: data && data.agent_name ? String(data.agent_name) : (this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '')
       };
       this.messages.push(row);
-      var chatStore = window.InfringChatStore; if (chatStore && typeof chatStore.syncMessages === 'function') chatStore.syncMessages(this.messages, this.allFilteredMessages);
+      var chatStore = window.InfringChatStore;
+      if (chatStore && typeof chatStore.syncMessages === 'function') chatStore.syncMessages(this.messages, this.allFilteredMessages);
       return row;
     },
+
     // Multi-session: load session list for current agent
     async loadSessions(agentId) {
       try {
@@ -10286,7 +11160,8 @@ function chatPage() {
           if (nextStatus && pendingRow.thinking_status !== nextStatus) pendingRow.thinking_status = nextStatus;
           pendingRow._stream_updated_at = Date.now();
         }
-        var chatStore = window.InfringChatStore; if (chatStore && typeof chatStore.syncMessages === 'function') chatStore.syncMessages(self.messages, self.allFilteredMessages);
+        var chatStore = window.InfringChatStore;
+        if (chatStore && typeof chatStore.syncMessages === 'function') chatStore.syncMessages(self.messages, self.allFilteredMessages);
       };
       var syncPendingAfterReconnect = function(reason) {
         if (reconnectSyncInFlight) return;
@@ -10313,26 +11188,12 @@ function chatPage() {
             reconnectSyncInFlight = false;
           });
       };
-      var appStoreBridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var setWsConnected = function(connected) {
-        if (appStoreBridge && typeof appStoreBridge.set === 'function') {
-          appStoreBridge.set('wsConnected', connected === true);
-        }
-        var cs = window.InfringChatStore; if (cs && cs.wsConnected) cs.wsConnected.set(connected === true);
-      };
-      var refreshAgents = function() {
-        var method = appStoreBridge && typeof appStoreBridge.method === 'function'
-          ? appStoreBridge.method('refreshAgents')
-          : null;
-        return typeof method === 'function' ? method() : Promise.resolve(null);
-      };
 
       InfringAPI.wsConnect(targetAgentId, {
         onOpen: function() {
           if (!isLiveConnection('')) return;
-          setWsConnected(true);
+          Alpine.store('app').wsConnected = true;
+          var cs = window.InfringChatStore; if (cs && cs.wsConnected) cs.wsConnected.set(true);
           self.requestContextTelemetry(true);
           if (reconnectPending) {
             reconnectPending = false;
@@ -10348,7 +11209,8 @@ function chatPage() {
         },
         onReconnect: function() {
           if (!isLiveConnection('')) return;
-          setWsConnected(false);
+          Alpine.store('app').wsConnected = false;
+          var cs = window.InfringChatStore; if (cs && cs.wsConnected) cs.wsConnected.set(false);
           reconnectPending = true;
           var pending = self._pendingWsRequest;
           if (pending && pending.agent_id) {
@@ -10358,7 +11220,8 @@ function chatPage() {
         },
         onClose: function() {
           if (!isLiveConnection('')) return;
-          setWsConnected(false);
+          Alpine.store('app').wsConnected = false;
+          var cs = window.InfringChatStore; if (cs && cs.wsConnected) cs.wsConnected.set(false);
           self._wsAgent = null;
           var pending = self._pendingWsRequest;
           if (self.sending && pending && pending.agent_id) {
@@ -10370,7 +11233,7 @@ function chatPage() {
             self.scrollToBottom();
           }
           if (self.currentAgent && self.currentAgent.id) {
-            refreshAgents().then(function() {
+            Alpine.store('app').refreshAgents().then(function() {
               var stillLive = self.resolveAgent(self.currentAgent.id);
               if (!stillLive && !self.shouldSuppressAgentInactive(self.currentAgent.id)) {
                 self.handleAgentInactive(self.currentAgent.id, 'inactive');
@@ -10380,7 +11243,8 @@ function chatPage() {
         },
         onError: function() {
           if (!isLiveConnection('')) return;
-          setWsConnected(false);
+          Alpine.store('app').wsConnected = false;
+          var cs = window.InfringChatStore; if (cs && cs.wsConnected) cs.wsConnected.set(false);
           self._wsAgent = null;
           var pending = self._pendingWsRequest;
           if (self.sending && pending && pending.agent_id) {
@@ -10465,15 +11329,7 @@ function chatPage() {
       this.scrollToBottom();
       this.$nextTick(function() { self._processQueue(); });
 
-      try {
-        var inactiveBridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var inactiveRefresh = inactiveBridge && typeof inactiveBridge.method === 'function'
-          ? inactiveBridge.method('refreshAgents')
-          : null;
-        if (typeof inactiveRefresh === 'function') inactiveRefresh();
-      } catch(_) {}
+      try { Alpine.store('app').refreshAgents(); } catch(_) {}
     },
 
     setAgentLiveActivity(agentId, state, options) {
@@ -10481,13 +11337,10 @@ function chatPage() {
       if (!id) return;
       var opts = options && typeof options === 'object' ? options : { optimistic: true, source: 'shell_display_hint' };
       try {
-        var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var setLiveActivity = bridge && typeof bridge.method === 'function'
-          ? bridge.method('setAgentLiveActivity')
-          : null;
-        if (typeof setLiveActivity === 'function') setLiveActivity(id, state, opts);
+        var store = Alpine.store('app');
+        if (store && typeof store.setAgentLiveActivity === 'function') {
+          store.setAgentLiveActivity(id, state, opts);
+        }
       } catch(_) {}
     },
 
@@ -10526,15 +11379,7 @@ function chatPage() {
       this.scrollToBottom();
       var self = this;
       this.$nextTick(function() { self._processQueue(); });
-      try {
-        var stopBridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var stopRefresh = stopBridge && typeof stopBridge.method === 'function'
-          ? stopBridge.method('refreshAgents')
-          : null;
-        if (typeof stopRefresh === 'function') stopRefresh();
-      } catch(_) {}
+      try { Alpine.store('app').refreshAgents(); } catch(_) {}
     },
 
     // Preferred naming for websocket event entrypoint.
@@ -10663,7 +11508,7 @@ function chatPage() {
 	            if (!Number.isFinite(Number(phaseMsg._stream_started_at))) {
 	              phaseMsg._stream_started_at = Date.now();
 	            }
-		            var phaseStatusCandidate = String((data && (data.thinking_status || data.status_text || data.workflow_stage || data.stage)) || phaseDetailText || '').trim();
+	            var phaseStatusCandidate = String((data && (data.thinking_status || data.status_text || data.workflow_stage || data.stage)) || phaseDetailText || '').trim();
             var phaseKey = String(data && data.phase ? data.phase : '').trim().toLowerCase();
             if (!phaseStatusCandidate && phaseKey) {
               phaseStatusCandidate = phaseKey.replace(/[_-]+/g, ' ').trim();
@@ -10707,7 +11552,7 @@ function chatPage() {
               phaseKey === 'planning' ||
               phaseKey === 'plan'
             ) {
-              var thoughtChunk = phaseThoughtText;
+              var thoughtChunk = String(data.detail || '').trim();
               if (thoughtChunk && typeof this.normalizeThinkingStatusCandidate === 'function') {
                 thoughtChunk = this.normalizeThinkingStatusCandidate(thoughtChunk);
               }
@@ -10717,6 +11562,16 @@ function chatPage() {
                 if (chunkChanged) {
                   phaseMsg._thoughtText = this.appendThoughtChunk(phaseMsg._thoughtText, thoughtChunk);
                   phaseMsg._reasoning = phaseMsg._thoughtText;
+                  if (typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+                    this.appendNativeWorkflowActivityToThinkingRow(phaseMsg, {
+                      activity_kind: 'decision_dialog',
+                      provider_event_type: 'native.workflow.' + (phaseKey || 'reasoning'),
+                      status: 'running',
+                      display_text: thoughtChunk,
+                      text: thoughtChunk,
+                      item_id: 'native-workflow-dialog-' + (phaseKey || 'reasoning')
+                    });
+                  }
                   phaseMsg.isHtml = true;
                   phaseMsg.thoughtStreaming = true;
                   phaseMsg.text = this.renderLiveThoughtHtml(phaseMsg._thoughtText, phaseMsg);
@@ -10729,6 +11584,16 @@ function chatPage() {
                 }
               }
             } else if (phaseMsg.thinking) {
+              if (phaseStatusCandidate && typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+                this.appendNativeWorkflowActivityToThinkingRow(phaseMsg, {
+                  activity_kind: 'runtime_activity',
+                  provider_event_type: 'native.workflow.phase',
+                  status: 'running',
+                  display_text: phaseStatusCandidate,
+                  text: phaseStatusCandidate,
+                  item_id: 'native-workflow-phase-' + (phaseKey || 'status')
+                });
+              }
               if (phaseStatusCandidate && phaseMsg.thinking_status !== phaseStatusCandidate) phaseMsg.thinking_status = phaseStatusCandidate;
             }
             if (phaseStatusCandidate && phaseMsg.status_text !== phaseStatusCandidate) phaseMsg.status_text = phaseStatusCandidate;
@@ -10741,7 +11606,7 @@ function chatPage() {
 	          break;
 
         case 'text_delta':
-          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'typing', { optimistic: true, source: 'shell_display_hint' });
+          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'typing');
           var last = this.messages.length ? this.messages[this.messages.length - 1] : null;
           if (last && last.streaming) {
             if (!Number.isFinite(Number(last._stream_started_at))) last._stream_started_at = Date.now();
@@ -10753,6 +11618,16 @@ function chatPage() {
             var visibleText = this.stripModelPrefix(streamingSplit.content || '');
             last._cleanText = visibleText;
             last._thoughtText = streamingSplit.thought || '';
+            if (streamingSplit.thought && typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+              this.appendNativeWorkflowActivityToThinkingRow(last, {
+                activity_kind: 'decision_dialog',
+                provider_event_type: 'native.text_delta.thought',
+                status: 'running',
+                display_text: streamingSplit.thought,
+                text: streamingSplit.thought,
+                item_id: 'native-text-delta-thought'
+              });
+            }
             if (streamingSplit.thought && !visibleText.trim()) {
               this._clearMessageTypewriter(last);
               last.isHtml = true;
@@ -10815,6 +11690,16 @@ function chatPage() {
               firstMessage.text = this.renderLiveThoughtHtml(firstSplit.thought, firstMessage);
             }
             this.messages.push(firstMessage);
+            if (firstSplit.thought && typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+              this.appendNativeWorkflowActivityToThinkingRow(firstMessage, {
+                activity_kind: 'decision_dialog',
+                provider_event_type: 'native.text_delta.thought',
+                status: 'running',
+                display_text: firstSplit.thought,
+                text: firstSplit.thought,
+                item_id: 'native-text-delta-thought'
+              });
+            }
             if (!firstMessage.isHtml) {
               this._clearMessageTypewriter(firstMessage);
               firstMessage._typingVisual = false;
@@ -10824,7 +11709,7 @@ function chatPage() {
           this.scrollToBottom();
           break;
         case 'tool_start':
-          var toolStartAgentId = String(data && data.agent_id ? data.agent_id : (this.currentAgent && this.currentAgent.id ? this.currentAgent.id : '')).trim(); if (toolStartAgentId) this.setAgentLiveActivity(toolStartAgentId, 'working', { optimistic: true, source: 'shell_display_hint' });
+          var toolStartAgentId = String(data && data.agent_id ? data.agent_id : (this.currentAgent && this.currentAgent.id ? this.currentAgent.id : '')).trim(); if (toolStartAgentId) this.setAgentLiveActivity(toolStartAgentId, 'working');
           var lastMsg = this.messages.length ? this.messages[this.messages.length - 1] : null;
           if (!lastMsg || !(lastMsg.thinking || lastMsg.streaming)) {
             lastMsg = {
@@ -10842,12 +11727,22 @@ function chatPage() {
           if (!Number.isFinite(Number(lastMsg._stream_started_at))) lastMsg._stream_started_at = Date.now(); var receiptStartLabel = String(data && data.tool_status ? data.tool_status : '').trim();
           if (receiptStartLabel && typeof this.normalizeThinkingStatusCandidate === 'function') receiptStartLabel = this.normalizeThinkingStatusCandidate(receiptStartLabel); var startLabel = receiptStartLabel || (typeof this.toolThinkingActionLabel === 'function' ? this.toolThinkingActionLabel({ name: data.tool, input: data.input || '' }) : String(data.tool || 'tool'));
           if (startLabel && lastMsg.thinking_status !== startLabel) lastMsg.thinking_status = startLabel;
+          if (startLabel && typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+            this.appendNativeWorkflowActivityToThinkingRow(lastMsg, {
+              activity_kind: 'tool_call_event',
+              provider_event_type: 'native.tool_start',
+              status: 'running',
+              display_text: startLabel,
+              text: startLabel,
+              item_id: data && (data.attempt_id || data.tool) ? String(data.attempt_id || data.tool) : 'native-tool-start'
+            });
+          }
           if (startLabel && typeof this._setPendingWsStatusText === 'function') this._setPendingWsStatusText(toolStartAgentId, startLabel);
           this._resetTypingTimeout();
           this.scrollToBottom();
           break;
         case 'tool_end':
-          var toolEndAgentId = String(data && data.agent_id ? data.agent_id : (this.currentAgent && this.currentAgent.id ? this.currentAgent.id : '')).trim(); if (toolEndAgentId) this.setAgentLiveActivity(toolEndAgentId, 'working', { optimistic: true, source: 'shell_display_hint' });
+          var toolEndAgentId = String(data && data.agent_id ? data.agent_id : (this.currentAgent && this.currentAgent.id ? this.currentAgent.id : '')).trim(); if (toolEndAgentId) this.setAgentLiveActivity(toolEndAgentId, 'working');
           var lastMsg2 = this.messages.length ? this.messages[this.messages.length - 1] : null;
           if (lastMsg2) {
             var endedTool = this.ensureStreamingToolCard(lastMsg2, data.tool, data.input || '', { running: false, no_create: true, attempt_id: data.attempt_id, attempt_sequence: data.attempt_sequence });
@@ -10857,6 +11752,19 @@ function chatPage() {
               lastMsg2.thinking_status = activeToolLabel;
             } else if (!activeToolLabel) {
               lastMsg2.thinking_status = 'Thinking';
+            }
+            if (typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+              var endedToolLabel = endedTool && typeof this.toolDisplayName === 'function'
+                ? this.toolDisplayName(endedTool)
+                : String(data && data.tool || 'tool');
+              this.appendNativeWorkflowActivityToThinkingRow(lastMsg2, {
+                activity_kind: 'tool_call_event',
+                provider_event_type: 'native.tool_end',
+                status: 'completed',
+                display_text: 'Completed ' + endedToolLabel,
+                text: 'Completed ' + endedToolLabel,
+                item_id: data && (data.attempt_id || data.tool) ? String(data.attempt_id || data.tool) + ':end' : 'native-tool-end'
+              });
             }
             if (typeof this._setPendingWsStatusText === 'function') {
               this._setPendingWsStatusText(toolEndAgentId, lastMsg2.thinking_status || activeToolLabel || 'Thinking');
@@ -10868,7 +11776,7 @@ function chatPage() {
           this.scrollToBottom();
           break;
         case 'tool_result':
-          var toolResultAgentId = String(data && data.agent_id ? data.agent_id : (this.currentAgent && this.currentAgent.id ? this.currentAgent.id : '')).trim(); if (toolResultAgentId) this.setAgentLiveActivity(toolResultAgentId, 'working', { optimistic: true, source: 'shell_display_hint' });
+          var toolResultAgentId = String(data && data.agent_id ? data.agent_id : (this.currentAgent && this.currentAgent.id ? this.currentAgent.id : '')).trim(); if (toolResultAgentId) this.setAgentLiveActivity(toolResultAgentId, 'working');
           var lastMsg3 = this.messages.length ? this.messages[this.messages.length - 1] : null;
           if (lastMsg3) {
             var resultTool = this.ensureStreamingToolCard(lastMsg3, data.tool, data.input || '', { running: true, attempt_id: data.attempt_id, attempt_sequence: data.attempt_sequence });
@@ -10899,6 +11807,19 @@ function chatPage() {
               lastMsg3.thinking_status = nextActiveToolLabel;
             } else if (!nextActiveToolLabel) {
               lastMsg3.thinking_status = 'Thinking';
+            }
+            if (typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+              var resultToolLabel = resultTool && typeof this.toolDisplayName === 'function'
+                ? this.toolDisplayName(resultTool)
+                : String(data && data.tool || 'tool');
+              this.appendNativeWorkflowActivityToThinkingRow(lastMsg3, {
+                activity_kind: data && data.is_error ? 'error' : 'tool_call_event',
+                provider_event_type: data && data.is_error ? 'native.tool_result.error' : 'native.tool_result',
+                status: data && data.is_error ? 'failed' : 'completed',
+                display_text: (data && data.is_error ? 'Failed ' : 'Completed ') + resultToolLabel,
+                text: (data && data.is_error ? 'Failed ' : 'Completed ') + resultToolLabel,
+                item_id: data && (data.attempt_id || data.tool) ? String(data.attempt_id || data.tool) + ':result' : 'native-tool-result'
+              });
             }
             if (typeof this._setPendingWsStatusText === 'function') {
               this._setPendingWsStatusText(toolResultAgentId, lastMsg3.thinking_status || nextActiveToolLabel || 'Thinking');
@@ -10979,9 +11900,43 @@ function chatPage() {
           var maybePlaceholder = /^(thinking|processing|working)\.\.\.$/i.test(compactFinal);
           if (typeof this.isThinkingPlaceholderText === 'function' && this.isThinkingPlaceholderText(compactFinal)) maybePlaceholder = true;
           if (maybePlaceholder) finalText = '';
-          if (collapsedThought && !streamedTools.some(function(tool) { return !!(tool && String(tool.name || '').toLowerCase() === 'thought_process'); })) streamedTools.unshift(this.makeThoughtToolCard(collapsedThought, wsDurationMs));
+          var nativeTraceSourceMessage = this.messages.length ? this.messages[this.messages.length - 1] : null;
+          var nativeDecisionTool = typeof this.nativeWorkflowDecisionToolFromMessage === 'function'
+            ? this.nativeWorkflowDecisionToolFromMessage(nativeTraceSourceMessage, wsDurationMs, collapsedThought)
+            : null;
+          if (
+            nativeDecisionTool &&
+            !streamedTools.some(function(tool) { return !!(tool && (tool.agent_runtime_activity_trace || tool.agent_runtime_decision_dialog)); })
+          ) {
+            streamedTools.unshift(nativeDecisionTool);
+          } else if (collapsedThought && !streamedTools.some(function(tool) { return !!(tool && String(tool.name || '').toLowerCase() === 'thought_process'); })) {
+            streamedTools.unshift(this.makeThoughtToolCard(collapsedThought, wsDurationMs));
+          }
+          var nativeActivityEvents = nativeTraceSourceMessage && Array.isArray(nativeTraceSourceMessage.agent_runtime_live_events)
+            ? nativeTraceSourceMessage.agent_runtime_live_events.slice(-80)
+            : [];
+          var usedFallback = false;
+          var toolFailureSummary = messageMetadata && typeof messageMetadata.tool_failure_summary === 'string' ? String(messageMetadata.tool_failure_summary || '').trim() : '';
+          var toolOnlySummary = responseHasToolCompletion && typeof this.completedToolOnlySummary === 'function'
+            ? String(this.completedToolOnlySummary(streamedTools) || '').trim()
+            : '';
+          var workflowFallbackSummary = typeof this.fallbackAssistantTextFromPayload === 'function'
+            ? String(this.fallbackAssistantTextFromPayload(data, streamedTools) || '').trim()
+            : '';
+          var replaceableFinalText =
+            !!compactFinal &&
+            (
+              (typeof this.textLooksNoFindingsPlaceholder === 'function' && this.textLooksNoFindingsPlaceholder(compactFinal)) ||
+              (typeof this.textLooksToolAckWithoutFindings === 'function' && this.textLooksToolAckWithoutFindings(compactFinal))
+            );
+          if (replaceableFinalText && workflowFallbackSummary && workflowFallbackSummary !== compactFinal) {
+            finalText = workflowFallbackSummary;
+            compactFinal = String(finalText || '').replace(/\s+/g, ' ').trim();
+            usedFallback = true;
+          }
           if (!finalText.trim()) {
             // Policy: do not inject system-authored fallback text into chat.
+            usedFallback = false;
           }
           var finalMessage = Object.assign({
             id: ++msgId,
@@ -10989,14 +11944,18 @@ function chatPage() {
             text: finalText,
             meta: meta,
             tools: streamedTools,
+            agent_activity_events: nativeActivityEvents,
+            agent_activity_event_count: nativeActivityEvents.length,
+            agent_runtime_engine_id: nativeActivityEvents.length ? 'infring_native' : '',
             ts: Date.now(),
             _turn_started_at: responseTurnStartedAt,
+            _auto_fallback: usedFallback,
             agent_id: data && data.agent_id ? String(data.agent_id) : (this.currentAgent && this.currentAgent.id ? String(this.currentAgent.id) : ''),
             agent_name: data && data.agent_name ? String(data.agent_name) : (this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '')
           }, messageMetadata || {});
           var renderedFinalMessage = finalMessage;
           var lastStable = this.messages.length ? this.messages[this.messages.length - 1] : null;
-          if (lastStable && lastStable.role === 'agent' && lastStable._auto_fallback) {
+          if (!usedFallback && lastStable && lastStable.role === 'agent' && lastStable._auto_fallback) {
             this.messages[this.messages.length - 1] = finalMessage;
             renderedFinalMessage = finalMessage;
           } else {
@@ -11010,7 +11969,7 @@ function chatPage() {
           var wsFailure = responseHasToolCompletion ? null : this.extractRecoverableBackendFailure(finalText);
           if (responseAgentId) this._clearPendingWsRequest(responseAgentId);
           else this._clearPendingWsRequest();
-          this.setAgentLiveActivity(responseAgentId || (this.currentAgent && this.currentAgent.id), 'idle', { optimistic: true, source: 'shell_display_hint' });
+          this.setAgentLiveActivity(responseAgentId || (this.currentAgent && this.currentAgent.id), 'idle');
           this.sending = false;
           this._responseStartedAt = 0;
           this.tokenCount = 0;
@@ -11045,7 +12004,7 @@ function chatPage() {
           break;
         case 'silent_complete':
           // Agent intentionally chose not to reply (NO_REPLY)
-          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle', { optimistic: true, source: 'shell_display_hint' });
+          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle');
           this._clearPendingWsRequest(this.currentAgent && this.currentAgent.id ? this.currentAgent.id : '');
           this._clearTypingTimeout();
           this._clearStreamingTypewriters();
@@ -11092,7 +12051,7 @@ function chatPage() {
           this.refreshPromptSuggestions(true, 'post-silent-no-reply');
           break;
         case 'error':
-          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle', { optimistic: true, source: 'shell_display_hint' });
+          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle');
           this._clearPendingWsRequest(this.currentAgent && this.currentAgent.id ? this.currentAgent.id : '');
           this._clearTypingTimeout();
           this._clearStreamingTypewriters();
@@ -11252,12 +12211,8 @@ function chatPage() {
               if (!row || !row.id) return false;
               return !(this.isArchivedAgentRecord && this.isArchivedAgentRecord(row));
             });
-            var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-              ? InfringSharedShellServices.appStore
-              : null;
-            if (bridge && typeof bridge.assign === 'function') {
-              bridge.assign({ agents: nextAgents, agentCount: nextAgents.length });
-            }
+            Alpine.store('app').agents = nextAgents;
+            Alpine.store('app').agentCount = nextAgents.length;
           }
           break;
 
@@ -11277,7 +12232,7 @@ function chatPage() {
           break;
 
         case 'terminal_output':
-          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle', { optimistic: true, source: 'shell_display_hint' });
+          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle');
           this._clearTypingTimeout();
           this.messages = this.messages.filter(function(m) { return !(m && m.terminal && m.thinking); });
           var stdout = typeof data.stdout === 'string' ? data.stdout : '';
@@ -11335,7 +12290,7 @@ function chatPage() {
           break;
 
         case 'terminal_error':
-          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle', { optimistic: true, source: 'shell_display_hint' });
+          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle');
           this._clearTypingTimeout();
           this.messages = this.messages.filter(function(m) { return !(m && m.terminal && m.thinking); });
           var terminalErrorSource = data && data.terminal_source ? String(data.terminal_source).trim().toLowerCase() : '';
@@ -11372,6 +12327,7 @@ function chatPage() {
           this.scrollToBottom();
           this.$nextTick(() => this._processQueue());
           break;
+
         case 'canvas':
           // Agent presented an interactive canvas — render it in an iframe sandbox
           var canvasHtml = '<div class="canvas-panel" style="border:1px solid var(--border);border-radius:8px;margin:8px 0;overflow:hidden;">';
@@ -11383,9 +12339,11 @@ function chatPage() {
           this.messages.push({ id: ++msgId, role: 'agent', text: canvasHtml, meta: 'canvas', isHtml: true, tools: [] });
           this.scrollToBottom();
           break;
+
         case 'pong': break;
       }
-      var activeStore = window.InfringChatStore; if (activeStore && typeof activeStore.syncMessages === 'function' && data && data.type !== 'connected' && data.type !== 'context_state' && data.type !== 'pong') activeStore.syncMessages(this.messages, this.allFilteredMessages);
+      var activeStore = window.InfringChatStore;
+      if (activeStore && typeof activeStore.syncMessages === 'function' && data && data.type !== 'connected' && data.type !== 'context_state' && data.type !== 'pong') activeStore.syncMessages(this.messages, this.allFilteredMessages);
       this.scheduleConversationPersist();
     },
 
@@ -11400,7 +12358,7 @@ function chatPage() {
     toolSummaryModelLabel: function(summary) {
       var row = summary && typeof summary === 'object' ? summary : {};
       var provider = String(row.provider || row.model_provider || '').trim();
-      var model = String(row.model || row.model_name || row.runtime_model || row.selected_model || '').trim();
+      var model = String(row.model || row.runtime_model || row.model_name || row.selected_model || '').trim();
       if (!provider && !model) return '';
       if (!provider) return model;
       if (!model) return provider;
@@ -11694,9 +12652,8 @@ function chatPage() {
         return summary;
       }
       if (!doneCount) return summary;
-      summary.text = lastFinishedName ? ('Finished ' + lastFinishedName) : 'Tool steps complete';
+      summary.text = lastFinishedName || 'Tool steps complete';
       var doneBits = [];
-      if (completed > 0) doneBits.push(completed + ' done');
       if (errors > 0) doneBits.push(errors + ' error');
       if (blocked > 0) doneBits.push(blocked + ' blocked');
       if (doneBits.length) summary.text += ' · ' + doneBits.join(', ');
@@ -12680,6 +13637,10 @@ function chatPage() {
       if (String(payload.tool_failure_summary || '').trim()) {
         duplicate.tool_failure_summary = String(payload.tool_failure_summary || '').trim();
       }
+      if (!String(duplicate.text || '').trim() && typeof this.fallbackAssistantTextFromPayload === 'function') {
+        var repairedDuplicateText = String(this.fallbackAssistantTextFromPayload(duplicate, duplicate.tools || []) || '').trim();
+        if (repairedDuplicateText) duplicate.text = repairedDuplicateText;
+      }
       var nextMeta = String(payload.meta || '').trim();
       if (nextMeta) {
         var priorMeta = String(duplicate.meta || '').trim();
@@ -13033,13 +13994,10 @@ function chatPage() {
       if (activeThread) this.appendActiveChatMessage(message);
       else targetRows.push(message);
       if (canDedupe && canonicalText) this._systemMessageDedupeIndex[dedupeKey] = { id: message.id, ts: ts };
-      var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var saveAgentChatPreview = bridge && typeof bridge.method === 'function'
-        ? bridge.method('saveAgentChatPreview')
-        : null;
-      if (typeof saveAgentChatPreview === 'function') saveAgentChatPreview(targetId, targetRows);
+      var store = Alpine.store('app');
+      if (store && typeof store.saveAgentChatPreview === 'function') {
+        store.saveAgentChatPreview(targetId, targetRows);
+      }
       if (activeThread) {
         if (payload.auto_scroll !== false) this.scrollToBottom();
         this.scheduleConversationPersist();
@@ -13580,63 +14538,35 @@ function chatPage() {
           archived: false,
           state: 'running'
         });
-        var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var store = bridge && typeof bridge.current === 'function' ? bridge.current() : null;
+        var store = Alpine.store('app');
         if (store) {
-          var nextAgents = null;
           if (Array.isArray(store.agents)) {
-            nextAgents = store.agents.map(function(row) {
+            store.agents = store.agents.map(function(row) {
               if (!row || String((row && row.id) || '') !== agentId) return row;
               return Object.assign({}, row, { archived: false, state: 'running' });
             });
           }
-          var pendingPatch = {};
           if (store.pendingAgent && String((store.pendingAgent && store.pendingAgent.id) || '') === agentId) {
-            pendingPatch.pendingAgent = null;
-            pendingPatch.pendingFreshAgentId = null;
+            store.pendingAgent = null;
+            store.pendingFreshAgentId = null;
           }
-          var nextArchivedIds = null;
           if (Array.isArray(store.archivedAgentIds)) {
-            nextArchivedIds = store.archivedAgentIds.filter(function(id) {
+            store.archivedAgentIds = store.archivedAgentIds.filter(function(id) {
               return String(id || '') !== agentId;
             });
-          }
-          if (bridge && typeof bridge.assign === 'function') {
-            var patch = Object.assign({}, pendingPatch);
-            if (nextAgents) patch.agents = nextAgents;
-            if (nextArchivedIds) patch.archivedAgentIds = nextArchivedIds;
-            bridge.assign(patch);
-          } else {
-            if (nextAgents) store.agents = nextAgents;
-            if (Object.prototype.hasOwnProperty.call(pendingPatch, 'pendingAgent')) store.pendingAgent = pendingPatch.pendingAgent;
-            if (Object.prototype.hasOwnProperty.call(pendingPatch, 'pendingFreshAgentId')) store.pendingFreshAgentId = pendingPatch.pendingFreshAgentId;
-            if (nextArchivedIds) store.archivedAgentIds = nextArchivedIds;
-          }
-          if (nextArchivedIds) {
-            var persistArchivedAgentIds = bridge && typeof bridge.method === 'function'
-              ? bridge.method('persistArchivedAgentIds')
-              : null;
-            if (typeof persistArchivedAgentIds === 'function') {
-              persistArchivedAgentIds();
+            if (typeof store.persistArchivedAgentIds === 'function') {
+              store.persistArchivedAgentIds();
             } else {
               try {
-                localStorage.setItem('infring-archived-agent-ids', JSON.stringify(nextArchivedIds));
+                localStorage.setItem('infring-archived-agent-ids', JSON.stringify(store.archivedAgentIds));
               } catch(_) {}
             }
           }
-          var setActiveAgentId = bridge && typeof bridge.method === 'function'
-            ? bridge.method('setActiveAgentId')
-            : null;
-          if (typeof setActiveAgentId === 'function') setActiveAgentId(agentId);
-          else if (bridge && typeof bridge.set === 'function') bridge.set('activeAgentId', agentId);
+          if (typeof store.setActiveAgentId === 'function') store.setActiveAgentId(agentId);
           else store.activeAgentId = agentId;
-          var refreshAgents = bridge && typeof bridge.method === 'function'
-            ? bridge.method('refreshAgents')
-            : null;
-          if (typeof refreshAgents === 'function') {
-            await refreshAgents({ force: true });
+          if (typeof store.refreshAgents === 'function') {
+
+            await store.refreshAgents({ force: true });
           }
         }
         var resolved = this.resolveAgent(agentId);
@@ -13662,13 +14592,7 @@ function chatPage() {
     async syncDrawerAgentAfterChange() {
       if (!this.agentDrawer || !this.agentDrawer.id) return;
       try {
-        var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-          ? InfringSharedShellServices.appStore
-          : null;
-        var refreshAgents = bridge && typeof bridge.method === 'function'
-          ? bridge.method('refreshAgents')
-          : null;
-        if (typeof refreshAgents === 'function') await refreshAgents();
+        await Alpine.store('app').refreshAgents();
       } catch {}
       var refreshed = this.resolveAgent(this.agentDrawer.id);
       if (refreshed) {
@@ -13949,270 +14873,6 @@ function chatPage() {
           var fallbackProvider = fallbackParts.length > 1 ? fallbackParts[0] : this.agentDrawer.model_provider;
           var fallbackModel = fallbackParts.length > 1 ? fallbackParts.slice(1).join('/') : fallbackParts[0];
 
-          if (!Array.isArray(this.agentDrawer._fallbacks)) this.agentDrawer._fallbacks = [];
-          this.agentDrawer._fallbacks.push({ provider: fallbackProvider, model: fallbackModel });
-          appendedFallback = true;
-          configPayload.fallback_models = this.dedupeFallbackModelList(this.agentDrawer._fallbacks, {
-            primary_id: (this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || '',
-            primary_provider: (this.agentDrawer && this.agentDrawer.model_provider) || '',
-          });
-          this.agentDrawer._fallbacks = configPayload.fallback_models.slice();
-        } else if (Array.isArray(this.agentDrawer._fallbacks)) {
-          configPayload.fallback_models = this.dedupeFallbackModelList(this.agentDrawer._fallbacks, {
-            primary_id: (this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || '',
-            primary_provider: (this.agentDrawer && this.agentDrawer.model_provider) || '',
-          });
-          this.agentDrawer._fallbacks = configPayload.fallback_models.slice();
-        }
-
-        var configResponse = await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(agentId) + '/config', configPayload);
-        if (configResponse && configResponse.rename_notice) {
-          this.addNoticeEvent(configResponse.rename_notice);
-        } else if (requestedName && requestedName !== previousName) {
-          this.addAgentRenameNotice(previousName, requestedName);
-        }
-
-        if (this.drawerEditingProvider && String(this.drawerNewProviderValue || '').trim()) {
-          var previousProviderName = String((this.agentDrawer && this.agentDrawer.model_provider) || (this.currentAgent && this.currentAgent.model_provider) || '').trim();
-          var previousModelName = String((this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || (this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').trim();
-          var resolvedProviderModel = this.resolveProviderScopedModelCatalogOption(
-            this.drawerNewProviderValue,
-            (this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || '',
-            this.modelCatalogRows()
-          );
-          await this.switchAgentModelWithGuards(
-            resolvedProviderModel || { id: String(this.drawerNewProviderValue || '').trim() + '/' + (this.agentDrawer.model_name || '') },
-            {
-            agent_id: agentId,
-            previous_model: previousModelName,
-            previous_provider: previousProviderName
-            }
-          );
-        } else if (this.drawerEditingModel && String(this.drawerNewModelValue || '').trim()) {
-          var previousModelNameForModelEdit = String((this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || (this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').trim();
-          var previousProviderForModelEdit = String((this.agentDrawer && this.agentDrawer.model_provider) || (this.currentAgent && this.currentAgent.model_provider) || '').trim();
-          var resolvedDrawerModel = this.resolveModelCatalogOption(
-            this.drawerNewModelValue,
-            previousProviderForModelEdit,
-            this.modelCatalogRows()
-          );
-          await this.switchAgentModelWithGuards(
-            resolvedDrawerModel || { id: String(this.drawerNewModelValue || '').trim() },
-            {
-              agent_id: agentId,
-              previous_model: previousModelNameForModelEdit,
-              previous_provider: previousProviderForModelEdit
-            }
-          );
-        }
-
-        this.drawerEditingName = false;
-        this.drawerEditingEmoji = false;
-        this.drawerEditingModel = false;
-        this.drawerEditingProvider = false;
-        this.drawerEditingFallback = false;
-        this.drawerNewModelValue = '';
-        this.drawerNewProviderValue = '';
-        this.drawerNewFallbackValue = '';
-        InfringToast.success('Agent settings saved');
-        await this.syncDrawerAgentAfterChange();
-        this.closeAgentDrawer();
-      } catch (e) {
-        if (appendedFallback) {
-          this.agentDrawer._fallbacks = previousFallbacks;
-        }
-        InfringToast.error('Failed to save agent settings: ' + e.message);
-      } finally {
-        this.drawerSavePending = false;
-        this.drawerConfigSaving = false;
-        this.drawerModelSaving = false;
-        this.drawerIdentitySaving = false;
-      }
-    },
-
-    async saveDrawerConfig() {
-      if (!this.agentDrawer || !this.agentDrawer.id) return;
-      var previousName = String((this.agentDrawer && this.agentDrawer.name) || (this.currentAgent && this.currentAgent.name) || '').trim();
-      var requestedName = String((this.drawerConfigForm && this.drawerConfigForm.name) || '').trim();
-      this.drawerConfigSaving = true;
-      try {
-        var response = await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(this.agentDrawer.id) + '/config', this.drawerConfigForm || {});
-        if (response && response.rename_notice) {
-          this.addNoticeEvent(response.rename_notice);
-        } else if (requestedName && requestedName !== previousName) {
-          this.addAgentRenameNotice(previousName, requestedName);
-        }
-        InfringToast.success('Config updated');
-        await this.syncDrawerAgentAfterChange();
-        this.closeAgentDrawer();
-      } catch(e) {
-        InfringToast.error('Failed to save config: ' + e.message);
-      }
-      this.drawerConfigSaving = false;
-    },
-
-    async saveDrawerIdentity(part) {
-      if (!this.agentDrawer || !this.agentDrawer.id) return;
-      var payload = {};
-      var previousName = String((this.agentDrawer && this.agentDrawer.name) || (this.currentAgent && this.currentAgent.name) || '').trim();
-      if (part === 'name') {
-        payload.name = String((this.drawerConfigForm && this.drawerConfigForm.name) || '').trim();
-      } else if (part === 'emoji') {
-        payload.emoji = String((this.drawerConfigForm && this.drawerConfigForm.emoji) || '').trim();
-        if (this.sanitizeAgentEmojiForDisplay) {
-          payload.emoji = this.sanitizeAgentEmojiForDisplay(this.agentDrawer || this.currentAgent, payload.emoji);
-        }
-        if (!payload.emoji) {
-          InfringToast.info('The gear icon is reserved for the System thread.');
-          this.drawerIdentitySaving = false;
-          return;
-        }
-        payload.avatar_url = '';
-        if (this.drawerConfigForm && typeof this.drawerConfigForm === 'object') {
-          this.drawerConfigForm.avatar_url = '';
-        }
-        if (this.agentDrawer && typeof this.agentDrawer === 'object') {
-          this.agentDrawer.avatar_url = '';
-        }
-      } else if (part === 'avatar') {
-        payload.avatar_url = String((this.drawerConfigForm && this.drawerConfigForm.avatar_url) || '').trim();
-      } else {
-        return;
-      }
-      this.drawerIdentitySaving = true;
-      try {
-        var response = await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(this.agentDrawer.id) + '/config', payload);
-        if (response && response.rename_notice) {
-          this.addNoticeEvent(response.rename_notice);
-        } else if (part === 'name' && payload.name && payload.name !== previousName) {
-          this.addAgentRenameNotice(previousName, payload.name);
-        }
-        if (part === 'name') this.drawerEditingName = false;
-        if (part === 'emoji') this.drawerEditingEmoji = false;
-        if (part === 'avatar') {
-          this.drawerAvatarUploadError = '';
-          this.drawerAvatarUrlPickerOpen = false;
-          this.drawerAvatarUrlDraft = '';
-        }
-        InfringToast.success(
-          part === 'name'
-            ? 'Name updated'
-            : (part === 'emoji' ? 'Emoji updated' : 'Avatar updated')
-        );
-        await this.syncDrawerAgentAfterChange();
-        this.closeAgentDrawer();
-      } catch(e) {
-        InfringToast.error('Failed to save ' + part + ': ' + e.message);
-      }
-      this.drawerIdentitySaving = false;
-    },
-
-    async changeDrawerModel() {
-      if (!this.agentDrawer || !this.agentDrawer.id || !String(this.drawerNewModelValue || '').trim()) return;
-      this.drawerModelSaving = true;
-      try {
-        var previousModel = String((this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || (this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').trim();
-        var previousProvider = String((this.agentDrawer && this.agentDrawer.model_provider) || (this.currentAgent && this.currentAgent.model_provider) || '').trim();
-        var resolvedDrawerModel = this.resolveModelCatalogOption(
-          this.drawerNewModelValue,
-          previousProvider,
-          this.modelCatalogRows()
-        );
-        var resp = await this.switchAgentModelWithGuards(
-          resolvedDrawerModel || { id: String(this.drawerNewModelValue || '').trim() },
-          {
-            agent_id: this.agentDrawer.id,
-            previous_model: previousModel,
-            previous_provider: previousProvider
-          }
-        );
-        var providerInfo = (resp && resp.provider) ? ' (provider: ' + resp.provider + ')' : '';
-        InfringToast.success('Model changed' + providerInfo + ' (memory reset)');
-        this.drawerEditingModel = false;
-        this.drawerNewModelValue = '';
-        await this.syncDrawerAgentAfterChange();
-      } catch(e) {
-        InfringToast.error('Failed to change model: ' + e.message);
-      }
-      this.drawerModelSaving = false;
-    },
-
-    async changeDrawerProvider() {
-      if (!this.agentDrawer || !this.agentDrawer.id || !String(this.drawerNewProviderValue || '').trim()) return;
-      this.drawerModelSaving = true;
-      try {
-        var previousProvider = String((this.agentDrawer && this.agentDrawer.model_provider) || (this.currentAgent && this.currentAgent.model_provider) || '').trim();
-        var previousModel = String((this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || (this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').trim();
-        var resolvedProviderModel = this.resolveProviderScopedModelCatalogOption(
-          this.drawerNewProviderValue,
-          previousModel || (this.agentDrawer && this.agentDrawer.model_name) || '',
-          this.modelCatalogRows()
-        );
-        var resp = await this.switchAgentModelWithGuards(
-          resolvedProviderModel || { id: String(this.drawerNewProviderValue || '').trim() + '/' + (this.agentDrawer.model_name || '') },
-          {
-            agent_id: this.agentDrawer.id,
-            previous_model: previousModel,
-            previous_provider: previousProvider
-          }
-        );
-        InfringToast.success('Provider changed to ' + (resp && resp.provider ? resp.provider : String(this.drawerNewProviderValue || '').trim()));
-        this.drawerEditingProvider = false;
-        this.drawerNewProviderValue = '';
-        await this.syncDrawerAgentAfterChange();
-      } catch(e) {
-        InfringToast.error('Failed to change provider: ' + e.message);
-      }
-      this.drawerModelSaving = false;
-    },
-
-    async addDrawerFallback() {
-      if (!this.agentDrawer || !this.agentDrawer.id || !String(this.drawerNewFallbackValue || '').trim()) return;
-      var parts = String(this.drawerNewFallbackValue || '').trim().split('/');
-      var provider = parts.length > 1 ? parts[0] : this.agentDrawer.model_provider;
-      var model = parts.length > 1 ? parts.slice(1).join('/') : parts[0];
-      if (!this.agentDrawer._fallbacks) this.agentDrawer._fallbacks = [];
-      var previousFallbacks = this.agentDrawer._fallbacks.slice();
-      var nextFallbacks = this.dedupeFallbackModelList(
-        this.agentDrawer._fallbacks.concat([{ provider: provider, model: model }]),
-        {
-          primary_id: (this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || '',
-          primary_provider: (this.agentDrawer && this.agentDrawer.model_provider) || '',
-        }
-      );
-      if (nextFallbacks.length === this.agentDrawer._fallbacks.length) {
-        InfringToast.info('Fallback already exists or matches the primary model');
-        return;
-      }
-      this.agentDrawer._fallbacks = nextFallbacks;
-      try {
-        await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(this.agentDrawer.id) + '/config', {
-          fallback_models: this.agentDrawer._fallbacks
-        });
-        var latestFallback = this.agentDrawer._fallbacks[this.agentDrawer._fallbacks.length - 1] || {};
-        InfringToast.success('Fallback added: ' + String((latestFallback.provider || provider) || '').trim() + '/' + String((latestFallback.model || model) || '').trim());
-        this.drawerEditingFallback = false;
-        this.drawerNewFallbackValue = '';
-      } catch(e) {
-        InfringToast.error('Failed to save fallbacks: ' + e.message);
-        this.agentDrawer._fallbacks = previousFallbacks;
-      }
-    },
-
-    async removeDrawerFallback(idx) {
-      if (!this.agentDrawer || !this.agentDrawer.id || !Array.isArray(this.agentDrawer._fallbacks)) return;
-      var removed = this.agentDrawer._fallbacks.splice(idx, 1);
-      try {
-        await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(this.agentDrawer.id) + '/config', {
-          fallback_models: this.agentDrawer._fallbacks
-        });
-        InfringToast.success('Fallback removed');
-      } catch(e) {
-        InfringToast.error('Failed to save fallbacks: ' + e.message);
-        if (removed && removed.length) this.agentDrawer._fallbacks.splice(idx, 0, removed[0]);
-      }
-    },
-
     isBlockedTool: function(tool) {
       if (!tool) return false;
       if (tool.blocked === true) return true;
@@ -14465,6 +15125,10 @@ function chatPage() {
       for (var i = msg.tools.length - 1; i >= 0; i--) {
         var tool = msg.tools[i];
         if (!tool || this.isThoughtTool(tool) || !tool.running) continue;
+        if (tool.agent_runtime_live_activity || tool.agent_activity_event) {
+          var liveLabel = String(tool.display_text || tool.summary || tool.result_preview || tool.output_preview || tool.name || '').trim();
+          if (liveLabel) return liveLabel.split('\n')[0].replace(/\s+/g, ' ').slice(0, 220);
+        }
         return this.toolThinkingActionLabel(tool);
       }
       return '';
@@ -14554,6 +15218,7 @@ function chatPage() {
       if (!tool) return '';
       if (tool.running) return 'running...';
       if (tool._detail_loading) return 'loading detail...';
+      if (tool.agent_runtime_activity_trace) return '';
       if (this.isThoughtTool(tool)) return 'thought';
       if (this.isBlockedTool(tool)) return 'blocked';
       if (tool.is_error) return 'error';
@@ -14916,6 +15581,270 @@ function chatPage() {
       this.appendActiveChatMessage(msg);
       if (cwd) this.terminalCwd = cwd;
       return msg;
+    },
+
+          if (!Array.isArray(this.agentDrawer._fallbacks)) this.agentDrawer._fallbacks = [];
+          this.agentDrawer._fallbacks.push({ provider: fallbackProvider, model: fallbackModel });
+          appendedFallback = true;
+          configPayload.fallback_models = this.dedupeFallbackModelList(this.agentDrawer._fallbacks, {
+            primary_id: (this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || '',
+            primary_provider: (this.agentDrawer && this.agentDrawer.model_provider) || '',
+          });
+          this.agentDrawer._fallbacks = configPayload.fallback_models.slice();
+        } else if (Array.isArray(this.agentDrawer._fallbacks)) {
+          configPayload.fallback_models = this.dedupeFallbackModelList(this.agentDrawer._fallbacks, {
+            primary_id: (this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || '',
+            primary_provider: (this.agentDrawer && this.agentDrawer.model_provider) || '',
+          });
+          this.agentDrawer._fallbacks = configPayload.fallback_models.slice();
+        }
+
+        var configResponse = await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(agentId) + '/config', configPayload);
+        if (configResponse && configResponse.rename_notice) {
+          this.addNoticeEvent(configResponse.rename_notice);
+        } else if (requestedName && requestedName !== previousName) {
+          this.addAgentRenameNotice(previousName, requestedName);
+        }
+
+        if (this.drawerEditingProvider && String(this.drawerNewProviderValue || '').trim()) {
+          var previousProviderName = String((this.agentDrawer && this.agentDrawer.model_provider) || (this.currentAgent && this.currentAgent.model_provider) || '').trim();
+          var previousModelName = String((this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || (this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').trim();
+          var resolvedProviderModel = this.resolveProviderScopedModelCatalogOption(
+            this.drawerNewProviderValue,
+            (this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || '',
+            this.modelCatalogRows()
+          );
+          await this.switchAgentModelWithGuards(
+            resolvedProviderModel || { id: String(this.drawerNewProviderValue || '').trim() + '/' + (this.agentDrawer.model_name || '') },
+            {
+            agent_id: agentId,
+            previous_model: previousModelName,
+            previous_provider: previousProviderName
+            }
+          );
+        } else if (this.drawerEditingModel && String(this.drawerNewModelValue || '').trim()) {
+          var previousModelNameForModelEdit = String((this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || (this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').trim();
+          var previousProviderForModelEdit = String((this.agentDrawer && this.agentDrawer.model_provider) || (this.currentAgent && this.currentAgent.model_provider) || '').trim();
+          var resolvedDrawerModel = this.resolveModelCatalogOption(
+            this.drawerNewModelValue,
+            previousProviderForModelEdit,
+            this.modelCatalogRows()
+          );
+          await this.switchAgentModelWithGuards(
+            resolvedDrawerModel || { id: String(this.drawerNewModelValue || '').trim() },
+            {
+              agent_id: agentId,
+              previous_model: previousModelNameForModelEdit,
+              previous_provider: previousProviderForModelEdit
+            }
+          );
+        }
+
+        this.drawerEditingName = false;
+        this.drawerEditingEmoji = false;
+        this.drawerEditingModel = false;
+        this.drawerEditingProvider = false;
+        this.drawerEditingFallback = false;
+        this.drawerNewModelValue = '';
+        this.drawerNewProviderValue = '';
+        this.drawerNewFallbackValue = '';
+        InfringToast.success('Agent settings saved');
+        await this.syncDrawerAgentAfterChange();
+        this.closeAgentDrawer();
+      } catch (e) {
+        if (appendedFallback) {
+          this.agentDrawer._fallbacks = previousFallbacks;
+        }
+        InfringToast.error('Failed to save agent settings: ' + e.message);
+      } finally {
+        this.drawerSavePending = false;
+        this.drawerConfigSaving = false;
+        this.drawerModelSaving = false;
+        this.drawerIdentitySaving = false;
+      }
+    },
+
+    async saveDrawerConfig() {
+      if (!this.agentDrawer || !this.agentDrawer.id) return;
+      var previousName = String((this.agentDrawer && this.agentDrawer.name) || (this.currentAgent && this.currentAgent.name) || '').trim();
+      var requestedName = String((this.drawerConfigForm && this.drawerConfigForm.name) || '').trim();
+      this.drawerConfigSaving = true;
+      try {
+        var response = await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(this.agentDrawer.id) + '/config', this.drawerConfigForm || {});
+        if (response && response.rename_notice) {
+          this.addNoticeEvent(response.rename_notice);
+        } else if (requestedName && requestedName !== previousName) {
+          this.addAgentRenameNotice(previousName, requestedName);
+        }
+        InfringToast.success('Config updated');
+        await this.syncDrawerAgentAfterChange();
+        this.closeAgentDrawer();
+      } catch(e) {
+        InfringToast.error('Failed to save config: ' + e.message);
+      }
+      this.drawerConfigSaving = false;
+    },
+
+    async saveDrawerIdentity(part) {
+      if (!this.agentDrawer || !this.agentDrawer.id) return;
+      var payload = {};
+      var previousName = String((this.agentDrawer && this.agentDrawer.name) || (this.currentAgent && this.currentAgent.name) || '').trim();
+      if (part === 'name') {
+        payload.name = String((this.drawerConfigForm && this.drawerConfigForm.name) || '').trim();
+      } else if (part === 'emoji') {
+        payload.emoji = String((this.drawerConfigForm && this.drawerConfigForm.emoji) || '').trim();
+        if (this.sanitizeAgentEmojiForDisplay) {
+          payload.emoji = this.sanitizeAgentEmojiForDisplay(this.agentDrawer || this.currentAgent, payload.emoji);
+        }
+        if (!payload.emoji) {
+          InfringToast.info('The gear icon is reserved for the System thread.');
+          this.drawerIdentitySaving = false;
+          return;
+        }
+        payload.avatar_url = '';
+        if (this.drawerConfigForm && typeof this.drawerConfigForm === 'object') {
+          this.drawerConfigForm.avatar_url = '';
+        }
+        if (this.agentDrawer && typeof this.agentDrawer === 'object') {
+          this.agentDrawer.avatar_url = '';
+        }
+      } else if (part === 'avatar') {
+        payload.avatar_url = String((this.drawerConfigForm && this.drawerConfigForm.avatar_url) || '').trim();
+      } else {
+        return;
+      }
+      this.drawerIdentitySaving = true;
+      try {
+        var response = await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(this.agentDrawer.id) + '/config', payload);
+        if (response && response.rename_notice) {
+          this.addNoticeEvent(response.rename_notice);
+        } else if (part === 'name' && payload.name && payload.name !== previousName) {
+          this.addAgentRenameNotice(previousName, payload.name);
+        }
+        if (part === 'name') this.drawerEditingName = false;
+        if (part === 'emoji') this.drawerEditingEmoji = false;
+        if (part === 'avatar') {
+          this.drawerAvatarUploadError = '';
+          this.drawerAvatarUrlPickerOpen = false;
+          this.drawerAvatarUrlDraft = '';
+        }
+        InfringToast.success(
+          part === 'name'
+            ? 'Name updated'
+            : (part === 'emoji' ? 'Emoji updated' : 'Avatar updated')
+        );
+        await this.syncDrawerAgentAfterChange();
+        this.closeAgentDrawer();
+      } catch(e) {
+        InfringToast.error('Failed to save ' + part + ': ' + e.message);
+      }
+      this.drawerIdentitySaving = false;
+    },
+
+    async changeDrawerModel() {
+      if (!this.agentDrawer || !this.agentDrawer.id || !String(this.drawerNewModelValue || '').trim()) return;
+      this.drawerModelSaving = true;
+      try {
+        var previousModel = String((this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || (this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').trim();
+        var previousProvider = String((this.agentDrawer && this.agentDrawer.model_provider) || (this.currentAgent && this.currentAgent.model_provider) || '').trim();
+        var resolvedDrawerModel = this.resolveModelCatalogOption(
+          this.drawerNewModelValue,
+          previousProvider,
+          this.modelCatalogRows()
+        );
+        var resp = await this.switchAgentModelWithGuards(
+          resolvedDrawerModel || { id: String(this.drawerNewModelValue || '').trim() },
+          {
+            agent_id: this.agentDrawer.id,
+            previous_model: previousModel,
+            previous_provider: previousProvider
+          }
+        );
+        var providerInfo = (resp && resp.provider) ? ' (provider: ' + resp.provider + ')' : '';
+        InfringToast.success('Model changed' + providerInfo + ' (memory reset)');
+        this.drawerEditingModel = false;
+        this.drawerNewModelValue = '';
+        await this.syncDrawerAgentAfterChange();
+      } catch(e) {
+        InfringToast.error('Failed to change model: ' + e.message);
+      }
+      this.drawerModelSaving = false;
+    },
+
+    async changeDrawerProvider() {
+      if (!this.agentDrawer || !this.agentDrawer.id || !String(this.drawerNewProviderValue || '').trim()) return;
+      this.drawerModelSaving = true;
+      try {
+        var previousProvider = String((this.agentDrawer && this.agentDrawer.model_provider) || (this.currentAgent && this.currentAgent.model_provider) || '').trim();
+        var previousModel = String((this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || (this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').trim();
+        var resolvedProviderModel = this.resolveProviderScopedModelCatalogOption(
+          this.drawerNewProviderValue,
+          previousModel || (this.agentDrawer && this.agentDrawer.model_name) || '',
+          this.modelCatalogRows()
+        );
+        var resp = await this.switchAgentModelWithGuards(
+          resolvedProviderModel || { id: String(this.drawerNewProviderValue || '').trim() + '/' + (this.agentDrawer.model_name || '') },
+          {
+            agent_id: this.agentDrawer.id,
+            previous_model: previousModel,
+            previous_provider: previousProvider
+          }
+        );
+        InfringToast.success('Provider changed to ' + (resp && resp.provider ? resp.provider : String(this.drawerNewProviderValue || '').trim()));
+        this.drawerEditingProvider = false;
+        this.drawerNewProviderValue = '';
+        await this.syncDrawerAgentAfterChange();
+      } catch(e) {
+        InfringToast.error('Failed to change provider: ' + e.message);
+      }
+      this.drawerModelSaving = false;
+    },
+
+    async addDrawerFallback() {
+      if (!this.agentDrawer || !this.agentDrawer.id || !String(this.drawerNewFallbackValue || '').trim()) return;
+      var parts = String(this.drawerNewFallbackValue || '').trim().split('/');
+      var provider = parts.length > 1 ? parts[0] : this.agentDrawer.model_provider;
+      var model = parts.length > 1 ? parts.slice(1).join('/') : parts[0];
+      if (!this.agentDrawer._fallbacks) this.agentDrawer._fallbacks = [];
+      var previousFallbacks = this.agentDrawer._fallbacks.slice();
+      var nextFallbacks = this.dedupeFallbackModelList(
+        this.agentDrawer._fallbacks.concat([{ provider: provider, model: model }]),
+        {
+          primary_id: (this.agentDrawer && (this.agentDrawer.runtime_model || this.agentDrawer.model_name)) || '',
+          primary_provider: (this.agentDrawer && this.agentDrawer.model_provider) || '',
+        }
+      );
+      if (nextFallbacks.length === this.agentDrawer._fallbacks.length) {
+        InfringToast.info('Fallback already exists or matches the primary model');
+        return;
+      }
+      this.agentDrawer._fallbacks = nextFallbacks;
+      try {
+        await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(this.agentDrawer.id) + '/config', {
+          fallback_models: this.agentDrawer._fallbacks
+        });
+        var latestFallback = this.agentDrawer._fallbacks[this.agentDrawer._fallbacks.length - 1] || {};
+        InfringToast.success('Fallback added: ' + String((latestFallback.provider || provider) || '').trim() + '/' + String((latestFallback.model || model) || '').trim());
+        this.drawerEditingFallback = false;
+        this.drawerNewFallbackValue = '';
+      } catch(e) {
+        InfringToast.error('Failed to save fallbacks: ' + e.message);
+        this.agentDrawer._fallbacks = previousFallbacks;
+      }
+    },
+
+    async removeDrawerFallback(idx) {
+      if (!this.agentDrawer || !this.agentDrawer.id || !Array.isArray(this.agentDrawer._fallbacks)) return;
+      var removed = this.agentDrawer._fallbacks.splice(idx, 1);
+      try {
+        await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(this.agentDrawer.id) + '/config', {
+          fallback_models: this.agentDrawer._fallbacks
+        });
+        InfringToast.success('Fallback removed');
+      } catch(e) {
+        InfringToast.error('Failed to save fallbacks: ' + e.message);
+        if (removed && removed.length) this.agentDrawer._fallbacks.splice(idx, 0, removed[0]);
+      }
     },
 
     runSlashAlerts: async function() {
@@ -15306,13 +16235,10 @@ function chatPage() {
       targetRows.push(message);
       if (canDedupe && canonicalText) this._systemMessageDedupeIndex[dedupeKey] = { id: message.id, ts: ts };
 
-      var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-        ? InfringSharedShellServices.appStore
-        : null;
-      var saveAgentChatPreview = bridge && typeof bridge.method === 'function'
-        ? bridge.method('saveAgentChatPreview')
-        : null;
-      if (typeof saveAgentChatPreview === 'function') saveAgentChatPreview(targetId, targetRows);
+      var store = Alpine.store('app');
+      if (store && typeof store.saveAgentChatPreview === 'function') {
+        store.saveAgentChatPreview(targetId, targetRows);
+      }
       if (activeThread) {
         if (payload.auto_scroll !== false) this.scrollToBottom();
         this.scheduleConversationPersist();
@@ -16038,6 +16964,12 @@ function chatPage() {
       }
       return '';
     },
+    fallbackAssistantTextFromPayload: function(payload, tools) {
+      var data = payload && typeof payload === 'object' ? payload : {};
+      var workflowText = this.workflowResponseTextFromPayload(data);
+      if (workflowText) return workflowText;
+      return '';
+    },
     assistantTurnMetadataFromPayload: function(payload, tools) {
       var data = payload && typeof payload === 'object' ? payload : {};
       var out = {};
@@ -16073,7 +17005,7 @@ function chatPage() {
       var cmd = String(command || '').trim();
       if (!cmd) return;
       this.sending = true;
-      this.setAgentLiveActivity(this.systemThreadId || 'system', 'working', { optimistic: true, source: 'shell_display_hint' });
+      this.setAgentLiveActivity(this.systemThreadId || 'system', 'working');
       this._responseStartedAt = Date.now();
       this._appendTerminalMessage({
         role: 'terminal',
@@ -16174,7 +17106,9 @@ function chatPage() {
       var text = rawInput.trim();
       var condensedLargePaste = false;
       if (text && this.shouldConvertLargePasteToAttachment && this.shouldConvertLargePasteToAttachment(rawInput)) {
-        var largePasteAttachment = this.buildLargePasteMarkdownAttachment && this.buildLargePasteMarkdownAttachment(rawInput);
+        var largePasteAttachment = this.buildLargePasteTextAttachment
+          ? this.buildLargePasteTextAttachment(rawInput)
+          : (this.buildLargePasteMarkdownAttachment && this.buildLargePasteMarkdownAttachment(rawInput));
         if (largePasteAttachment && largePasteAttachment.file) {
           if (!Array.isArray(this.attachments)) this.attachments = [];
           this.attachments.push(largePasteAttachment);
@@ -16182,8 +17116,8 @@ function chatPage() {
           condensedLargePaste = true;
         }
       }
-      if (text || condensedLargePaste) this.pushInputHistoryEntry('chat', text || '[File: Pasted markdown.md]');
-      if (condensedLargePaste) InfringToast.info('Large paste moved to Pasted markdown.md');
+      if (text || condensedLargePaste) this.pushInputHistoryEntry('chat', text || '[File: pastedtext.txt]');
+      if (condensedLargePaste) InfringToast.info('Large paste moved to pastedtext.txt');
       if (text.startsWith('/') && !this.attachments.length) {
         var cmd = text.split(' ')[0].toLowerCase();
         var cmdArgs = text.substring(cmd.length).trim();
@@ -16191,11 +17125,12 @@ function chatPage() {
         var routedCmd = String(aliasResolution && aliasResolution.cmd ? aliasResolution.cmd : cmd).toLowerCase();
         var routedArgs = String(aliasResolution && typeof aliasResolution.args === 'string' ? aliasResolution.args : cmdArgs).trim();
         var matched = this.slashCommands.find(function(c) { return c.cmd === routedCmd; });
-        if (matched && this.isShellOwnedSlashCommand(matched.cmd)) {
+        if (matched) {
           this.executeSlashCommand(matched.cmd, routedArgs);
           return;
         }
       }
+      if (typeof this.restoreAgentRuntimeEngineSelection === 'function') this.restoreAgentRuntimeEngineSelection();
       var selectedRuntimeEngineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
       var usesExternalRuntime = typeof this.isExternalAgentRuntimeEngineSelected === 'function'
         ? this.isExternalAgentRuntimeEngineSelected(selectedRuntimeEngineId)
@@ -16222,7 +17157,18 @@ function chatPage() {
           try {
             var uploadRes = await InfringAPI.upload(activeAgent.id, att.file);
             fileRefs.push('[File: ' + att.file.name + ']');
-            uploadedFiles.push({ file_id: uploadRes.file_id, filename: uploadRes.filename, content_type: uploadRes.content_type });
+            var uploadedFileRow = {
+              file_id: uploadRes.file_id,
+              filename: uploadRes.filename,
+              content_type: uploadRes.content_type
+            };
+            if (att && att.pasted_text) {
+              uploadedFileRow.source_kind = 'pasted_text_attachment';
+              uploadedFileRow.size_bytes = Number(att.pasted_text_size || (att.file && att.file.size) || 0) || 0;
+              uploadedFileRow.content_preview = String(att.pasted_text_preview || '').slice(0, 12000);
+              uploadedFileRow.prompt_instruction = 'Read this pasted text attachment as supplemental user-provided context; do not require the user to paste it again.';
+            }
+            uploadedFiles.push(uploadedFileRow);
           } catch(e) {
             var reason = (e && e.message) ? String(e.message) : 'upload_failed';
             InfringToast.error('Failed to upload ' + att.file.name + ': ' + reason);
@@ -16281,35 +17227,938 @@ function chatPage() {
       return !!id && id !== 'infring_native';
     },
 
-    async _sendAgentRuntimeSocketPayload(targetAgentId, finalText, uploadedFiles, msgImages, runtimeEngineId) {
-      var engineId = String(runtimeEngineId || this.selectedAgentRuntimeEngineId || '').trim();
-      if (!engineId || engineId === 'infring_native') return;
-      var startedAt = Date.now();
-      this._responseStartedAt = startedAt;
-      this.messages.push({
+    shouldUseAgentRuntimeSocketPath: function(engineId) {
+      var id = String(engineId || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      return !!id;
+    },
+
+    loadAgentRuntimePermissionPolicy: function() {
+      if (this.agentRuntimePermissionPolicy && typeof this.agentRuntimePermissionPolicy === 'object') return this.agentRuntimePermissionPolicy;
+      var policy = { always_allowed_tool_calls: [], revoked_default_read_tools: [], default_allow_read_tools: true, gatekeeper_kind: 'user' };
+      try {
+        var raw = window.localStorage.getItem(this.agentRuntimePermissionPolicyStorageKey);
+        var parsed = raw ? JSON.parse(raw) : null;
+        if (parsed && typeof parsed === 'object') {
+          policy.always_allowed_tool_calls = Array.isArray(parsed.always_allowed_tool_calls) ? parsed.always_allowed_tool_calls : [];
+          policy.revoked_default_read_tools = Array.isArray(parsed.revoked_default_read_tools) ? parsed.revoked_default_read_tools : [];
+          policy.default_allow_read_tools = parsed.default_allow_read_tools !== false;
+          policy.gatekeeper_kind = String(parsed.gatekeeper_kind || 'user');
+        }
+      } catch (_e) {}
+      this.agentRuntimePermissionPolicy = policy;
+      return policy;
+    },
+
+    saveAgentRuntimePermissionPolicy: function(policy) {
+      var next = policy && typeof policy === 'object' ? policy : this.loadAgentRuntimePermissionPolicy();
+      this.agentRuntimePermissionPolicy = next;
+      try { window.localStorage.setItem(this.agentRuntimePermissionPolicyStorageKey, JSON.stringify(next)); } catch (_e) {}
+      return next;
+    },
+
+    agentRuntimePermissionPolicyProjection: function() {
+      var policy = this.loadAgentRuntimePermissionPolicy();
+      return {
+        gatekeeper_kind: 'user',
+        default_allow_read_tools: policy.default_allow_read_tools !== false,
+        revoked_default_read_tools: Array.isArray(policy.revoked_default_read_tools) ? policy.revoked_default_read_tools.slice(0, 24) : [],
+        always_allowed_tool_calls: Array.isArray(policy.always_allowed_tool_calls) ? policy.always_allowed_tool_calls.slice(0, 48) : []
+      };
+    },
+
+    appendAgentRuntimeApprovalExecutionMessage: function(request, result) {
+      var row = result && typeof result === 'object' ? result : {};
+      if (!row.ok) return false;
+      var engineId = String((request && request.engine_id) || this.selectedAgentRuntimeEngineId || '').trim();
+      var text = String(row.display_text || '').trim();
+      if (!text) text = row.path ? 'Created ' + String(row.path) + '.' : 'Approved action completed.';
+      var message = {
         id: ++msgId,
         role: 'agent',
-        text: '',
-        meta: 'Agent runtime: ' + engineId,
-        thinking: true,
+        text: text,
+        meta: 'runtime ' + (engineId || 'agent_runtime') + ' | approval executed',
         tools: [],
         ts: Date.now(),
+        result_ref: String(row.result_ref || '').slice(0, 240),
+        receipt_ref: String(row.receipt_ref || '').slice(0, 240),
+        agent_id: String((request && request.agent_id) || (this.currentAgent && (this.currentAgent.id || this.currentAgent.session_id)) || '').slice(0, 160),
+        agent_name: this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '',
+        isHtml: false,
+        _typingVisual: false,
         agent_runtime_engine_id: engineId
+      };
+      var pushed = this.pushAgentMessageDeduped(message, { dedupe_window_ms: 90000 }) || message;
+      this.markAgentMessageComplete(pushed);
+      this.scheduleConversationPersist();
+      return true;
+    },
+
+    permissionRequestPreview: function(row) {
+      var request = row && typeof row === 'object' ? row : {};
+      var tool = String(request.tool_id || request.capability || 'tool call');
+      var engine = String(request.engine_id || this.selectedAgentRuntimeEngineId || 'runtime');
+      return engine + ' requests ' + tool;
+    },
+
+    permissionRequestReason: function(row) {
+      return String(row && row.reason || 'Permission is required before this tool call can proceed.');
+    },
+
+    enqueueAgentRuntimePermissionRequest: function(request) {
+      var row = request && typeof request === 'object' ? request : null;
+      if (!row || !row.approval_id) return;
+      var pending = Array.isArray(this.pendingAgentRuntimePermissionRequests) ? this.pendingAgentRuntimePermissionRequests.slice() : [];
+      var id = String(row.approval_id);
+      var alreadyPending = pending.some(function(item) { return String(item && item.approval_id || '') === id; });
+      pending = pending.filter(function(item) { return String(item && item.approval_id || '') !== id; });
+      pending.unshift(row);
+      this.pendingAgentRuntimePermissionRequests = pending.slice(0, 5);
+      if (!alreadyPending) InfringToast.info('Permission requested: ' + this.permissionRequestPreview(row));
+    },
+
+    syncAgentRuntimePendingApprovals: function(options) {
+      var opts = options && typeof options === 'object' ? options : {};
+      var now = Date.now();
+      if (!opts.force && this._agentRuntimePendingApprovalSyncAt && (now - this._agentRuntimePendingApprovalSyncAt) < 4000) {
+        return Promise.resolve(this.pendingAgentRuntimePermissionRequests || []);
+      }
+      this._agentRuntimePendingApprovalSyncAt = now;
+      var self = this;
+      return InfringAPI.get('/api/shell-socket/approvals/pending').then(function(payload) {
+        var rows = payload && Array.isArray(payload.pending_requests) ? payload.pending_requests : [];
+        rows.slice(0, 5).forEach(function(row) {
+          if (row && row.approval_id) self.enqueueAgentRuntimePermissionRequest(row);
+        });
+        return rows;
+      }).catch(function() {
+        return self.pendingAgentRuntimePermissionRequests || [];
       });
+    },
+
+    ensureAgentRuntimePendingApprovalSyncLoop: function() {
+      if (this._agentRuntimePendingApprovalSyncLoop) return;
+      var self = this;
+      this._agentRuntimePendingApprovalSyncLoop = window.setInterval(function() {
+        if (typeof self.syncAgentRuntimePendingApprovals === 'function') {
+          self.syncAgentRuntimePendingApprovals({ force: false }).catch(function() {});
+        }
+      }, 5000);
+      this.syncAgentRuntimePendingApprovals({ force: true }).catch(function() {});
+    },
+
+    submitAgentRuntimePermissionDecision: function(row, decision) {
+      var request = row && typeof row === 'object' ? row : {};
+      var approvalId = String(request.approval_id || '').trim();
+      var choice = String(decision || '').trim();
+      if (!approvalId || ['allow_once', 'deny', 'always_allow_tool_call'].indexOf(choice) < 0) return Promise.resolve(null);
+      if (choice === 'always_allow_tool_call') {
+        var policy = this.loadAgentRuntimePermissionPolicy();
+        var toolId = String(request.tool_id || '').trim();
+        if (toolId) {
+          var always = Array.isArray(policy.always_allowed_tool_calls) ? policy.always_allowed_tool_calls.slice() : [];
+          if (always.indexOf(toolId) < 0) always.push(toolId);
+          policy.always_allowed_tool_calls = always;
+          this.saveAgentRuntimePermissionPolicy(policy);
+        }
+      }
+      var self = this;
+      return InfringAPI.post('/api/shell-socket/approvals/' + encodeURIComponent(approvalId) + '/decision', {
+        decision: choice,
+        tool_id: String(request.tool_id || ''),
+        tool_call_ref: String(request.tool_call_ref || ''),
+        engine_id: String(request.engine_id || this.selectedAgentRuntimeEngineId || ''),
+        session_id: String(request.session_id || (this.currentAgent && (this.currentAgent.session_id || this.currentAgent.id)) || ''),
+        proposal_arguments: request.proposal_arguments && typeof request.proposal_arguments === 'object' ? request.proposal_arguments : null,
+        capability: String(request.capability || ''),
+        reason: String(request.reason || ''),
+        gatekeeper_kind: 'user'
+      }).then(function(payload) {
+        self.pendingAgentRuntimePermissionRequests = (Array.isArray(self.pendingAgentRuntimePermissionRequests) ? self.pendingAgentRuntimePermissionRequests : [])
+          .filter(function(item) { return String(item && item.approval_id || '') !== approvalId; });
+        var liveRow = typeof self.findAgentRuntimeLiveThinkingRow === 'function'
+          ? self.findAgentRuntimeLiveThinkingRow(request.engine_id, request.live_message_id)
+          : null;
+        var liveEngineId = String(request.engine_id || self.selectedAgentRuntimeEngineId || '').trim();
+        if (choice === 'deny') {
+          var denyText = 'Permission denied: ' + self.permissionRequestPreview(request);
+          if (liveRow && typeof self.appendAgentRuntimeActivityToThinkingRow === 'function') {
+            self.appendAgentRuntimeActivityToThinkingRow({
+              activity_kind: 'permission_event',
+              provider_event_type: 'permission.denied',
+              status: 'blocked',
+              display_text: denyText,
+              text: denyText,
+              engine_id: liveEngineId,
+              item_id: approvalId
+            }, liveEngineId);
+            var denyEvents = Array.isArray(liveRow.agent_runtime_live_events) ? liveRow.agent_runtime_live_events.slice(-80) : [];
+            var denyDurationMs = Math.max(0, Date.now() - Number(liveRow._stream_started_at || liveRow.ts || Date.now()));
+            var denyTool = self.agentRuntimeActivityEventsToDecisionTool(denyEvents, liveEngineId, denyDurationMs, denyText);
+            self.finalizeAgentRuntimeThinkingRow(liveRow, {
+              text: denyText,
+              meta: 'runtime ' + (liveEngineId || 'agent_runtime') + ' | permission denied',
+              tools: denyTool ? [denyTool] : [],
+              agent_activity_events: denyEvents,
+              agent_activity_event_count: denyEvents.length,
+              pending_permission_request: request,
+              projection_kind: 'permission_request'
+            });
+          }
+          if (typeof self.addNoticeEvent === 'function') {
+            self.addNoticeEvent({
+              notice_label: 'Denied ' + self.permissionRequestPreview(request),
+              notice_type: 'warning',
+              ts: Date.now()
+            });
+          }
+          InfringToast.info('Permission denied for ' + self.permissionRequestPreview(request));
+        }
+        else {
+          InfringToast.success(choice === 'always_allow_tool_call' ? 'Always allowed: ' + String(request.tool_id || 'tool call') : 'Permission allowed once');
+          var approveText = 'Permission approved: ' + self.permissionRequestPreview(request);
+          if (liveRow && typeof self.appendAgentRuntimeActivityToThinkingRow === 'function') {
+            self.appendAgentRuntimeActivityToThinkingRow({
+              activity_kind: 'permission_event',
+              provider_event_type: 'permission.approved',
+              status: 'completed',
+              display_text: approveText,
+              text: approveText,
+              engine_id: liveEngineId,
+              item_id: approvalId
+            }, liveEngineId);
+          }
+          if (payload && payload.execution_result && payload.execution_result.ok) {
+            if (liveRow && typeof self.appendAgentRuntimeActivityToThinkingRow === 'function') {
+              var executedText = String(payload.execution_result.display_text || payload.execution_result.path || 'Approved action completed.').trim();
+              if (payload.execution_result.path && executedText === String(payload.execution_result.path).trim()) executedText = 'Created ' + executedText + '.';
+              self.appendAgentRuntimeActivityToThinkingRow({
+                activity_kind: 'tool_call_event',
+                provider_event_type: 'permission.effect.executed',
+                status: 'completed',
+                display_text: executedText,
+                text: executedText,
+                engine_id: liveEngineId,
+                item_id: approvalId + ':effect'
+              }, liveEngineId);
+              var execEvents = Array.isArray(liveRow.agent_runtime_live_events) ? liveRow.agent_runtime_live_events.slice(-80) : [];
+              var execDurationMs = Math.max(0, Date.now() - Number(liveRow._stream_started_at || liveRow.ts || Date.now()));
+              var execTool = self.agentRuntimeActivityEventsToDecisionTool(execEvents, liveEngineId, execDurationMs);
+              self.finalizeAgentRuntimeThinkingRow(liveRow, {
+                text: executedText,
+                meta: 'runtime ' + (liveEngineId || 'agent_runtime') + ' | approval executed',
+                tools: execTool ? [execTool] : [],
+                agent_activity_events: execEvents,
+                agent_activity_event_count: execEvents.length,
+                result_ref: String(payload.execution_result.result_ref || ''),
+                receipt_ref: String(payload.execution_result.receipt_ref || ''),
+                pending_permission_request: request,
+                projection_kind: 'permission_request'
+              });
+              return payload;
+            }
+            if (typeof self.addNoticeEvent === 'function') {
+              self.addNoticeEvent({
+                notice_label: 'Approved ' + self.permissionRequestPreview(request) + '; executed approved action.',
+                notice_type: 'info',
+                ts: Date.now()
+              });
+            }
+            self.appendAgentRuntimeApprovalExecutionMessage(request, payload.execution_result);
+            return payload;
+          }
+          var resume = request.resume_payload && typeof request.resume_payload === 'object' ? request.resume_payload : null;
+          if (resume && typeof self._sendAgentRuntimeSocketPayload === 'function') {
+            var resumeAgentId = String(resume.agent_id || request.agent_id || (self.currentAgent && (self.currentAgent.id || self.currentAgent.session_id)) || '').trim();
+            var resumeText = String(resume.final_text || resume.message || resume.text || '').trim();
+            var resumeEngineId = String(resume.agent_runtime_engine_id || request.engine_id || self.selectedAgentRuntimeEngineId || '').trim();
+            var resumeFiles = Array.isArray(resume.uploaded_files) ? resume.uploaded_files.slice(0, 12) : [];
+            var resumeImages = Array.isArray(resume.msg_images) ? resume.msg_images.slice(0, 12) : [];
+            if (resumeAgentId && resumeText && resumeEngineId) {
+              if (typeof self.addNoticeEvent === 'function') {
+                self.addNoticeEvent({
+                  notice_label: 'Approved ' + self.permissionRequestPreview(request) + '; resuming ' + resumeEngineId + '.',
+                  notice_type: 'info',
+                  ts: Date.now()
+                });
+              }
+              self.sending = true;
+              if (typeof self.setAgentLiveActivity === 'function') {
+                self.setAgentLiveActivity(resumeAgentId, 'working', { optimistic: true, source: 'agent_runtime_permission_resume' });
+              }
+              setTimeout(function() {
+              self._sendAgentRuntimeSocketPayload(resumeAgentId, resumeText, resumeFiles, resumeImages, resumeEngineId, {
+                approval_id: approvalId,
+                resume_token: String(payload && payload.resume_token || request.resume_token || '').trim(),
+                approved_tool_id: String(request.tool_id || '').trim(),
+                approval_decision: choice,
+                approval_resume_action: String(payload && payload.resume_action || '').trim(),
+                decision_receipt_ref: String(payload && payload.decision_receipt_ref || '').trim(),
+                live_message_id: String(request.live_message_id || '').trim()
+              });
+              }, 0);
+            }
+          }
+        }
+        return payload;
+      }).catch(function(e) {
+        InfringToast.error(e && e.message ? String(e.message) : 'permission decision failed');
+        return null;
+      });
+    },
+
+    agentRuntimeActivityKindLabel: function(kind) {
+      var value = String(kind || '').trim();
+      if (value === 'decision_dialog') return 'Decision dialog';
+      if (value === 'reasoning_summary') return 'Reasoning summary';
+      if (value === 'plan_update') return 'Plan update';
+      if (value === 'tool_call_event') return 'Tool call';
+      if (value === 'command_event') return 'Command';
+      if (value === 'file_change_event') return 'File change';
+      if (value === 'permission_event') return 'Permission';
+      if (value === 'assistant_delta') return 'Assistant draft';
+      if (value === 'error') return 'Runtime error';
+      if (value === 'started') return 'Started';
+      if (value === 'completed') return 'Completed';
+      return value ? value.replace(/_/g, ' ') : 'Activity';
+    },
+
+    agentRuntimeProviderEventLabel: function(providerType) {
+      var value = String(providerType || '').trim();
+      if (!value) return '';
+      var lower = value.toLowerCase();
+      if (lower.indexOf('tool') >= 0 && lower.indexOf('call') >= 0) return 'Tool call';
+      if (lower.indexOf('tool') >= 0 && (lower.indexOf('result') >= 0 || lower.indexOf('output') >= 0)) return 'Tool result';
+      if (lower.indexOf('command') >= 0 || lower.indexOf('exec') >= 0 || lower.indexOf('shell') >= 0) return 'Command';
+      if (lower.indexOf('permission') >= 0 || lower.indexOf('approval') >= 0) return 'Permission';
+      if (lower.indexOf('assistant') >= 0 || lower.indexOf('message') >= 0 || lower.indexOf('response') >= 0 || lower.indexOf('delta') >= 0) return 'Assistant draft';
+      if (lower.indexOf('error') >= 0 || lower.indexOf('fail') >= 0) return 'Runtime error';
+      if (lower.indexOf('start') >= 0) return 'Started';
+      if (lower.indexOf('complete') >= 0 || lower.indexOf('finish') >= 0 || lower.indexOf('done') >= 0) return 'Completed';
+      return value.replace(/[._:/-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    },
+
+    agentRuntimeActivityEventsToTools: function(events, engineId) {
+      var rows = Array.isArray(events) ? events : [];
+      var out = [];
+      for (var i = 0; i < rows.length && out.length < 40; i += 1) {
+        var event = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        var kind = String(event.activity_kind || event.kind || '').trim();
+        var text = String(event.display_text || event.text || event.summary || '').replace(/\r\n/g, '\n').trim();
+        var providerType = String(event.provider_event_type || event.event_type || '').trim();
+        if (!text && !providerType) continue;
+        if (kind === 'assistant_delta' && text.length > 900) continue;
+        var lineKind = this.agentRuntimeActivityLineKind(event);
+        var providerLabel = this.agentRuntimeProviderEventLabel(providerType);
+        var label = (!kind || kind === 'activity') && providerLabel
+          ? providerLabel
+          : this.agentRuntimeActivityKindLabel(kind);
+        var visibleName = text
+          ? text.split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 140)
+          : label;
+        out.push({
+          name: visibleName || label,
+          status: String(event.status || 'completed').trim() || 'completed',
+          input: providerType ? ((label && label !== visibleName ? label + ' | ' : '') + 'event: ' + providerType) : '',
+          result: text || providerType,
+          output: text || providerType,
+          summary: text || providerType,
+          display_text: text || providerType,
+          input_preview: providerType ? ('event: ' + providerType) : '',
+          result_preview: text || providerType,
+          receipt_ref: String(event.receipt_ref || '').slice(0, 240),
+          result_ref: String(event.result_ref || '').slice(0, 240),
+          tool_call_ref: String(event.item_id || event.sequence_no || ('activity-' + i)).slice(0, 160),
+          agent_runtime_engine_id: String(event.engine_id || engineId || '').trim(),
+          projection_kind: 'runtime_activity',
+          projection_schema_version: 1,
+          activity_line_kind: lineKind,
+          activity_text: text || providerType,
+          activity_status: String(event.status || 'completed').trim() || 'completed',
+          agent_activity_event: true,
+          agent_runtime_live_activity: true,
+          agent_runtime_dialog_line: lineKind === 'dialog',
+          agent_runtime_activity_dialog_text: text || providerType,
+          agent_runtime_activity_latest: false,
+          notice_type: kind,
+          running: false,
+          ts: Date.now()
+        });
+      }
+      return out;
+    },
+
+    agentRuntimeActivityLineKind: function(event) {
+      var row = event && typeof event === 'object' ? event : {};
+      var kind = String(row.activity_kind || row.kind || row.type || '').toLowerCase();
+      var providerType = String(row.provider_event_type || row.event_type || '').toLowerCase();
+      var joined = kind + ' ' + providerType;
+      if (
+        joined.indexOf('decision') >= 0 ||
+        joined.indexOf('reasoning') >= 0 ||
+        joined.indexOf('thought') >= 0 ||
+        joined.indexOf('plan') >= 0 ||
+        joined.indexOf('assistant_delta') >= 0
+      ) {
+        return 'dialog';
+      }
+      if (
+        joined.indexOf('command') >= 0 ||
+        joined.indexOf('exec') >= 0 ||
+        joined.indexOf('shell') >= 0 ||
+        joined.indexOf('file') >= 0 ||
+        joined.indexOf('patch') >= 0 ||
+        joined.indexOf('write') >= 0 ||
+        joined.indexOf('tool') >= 0 ||
+        joined.indexOf('search') >= 0 ||
+        joined.indexOf('permission') >= 0 ||
+        joined.indexOf('approval') >= 0 ||
+        joined.indexOf('error') >= 0
+      ) {
+        return 'tool';
+      }
+      return 'status';
+    },
+
+    agentRuntimeActivityEventToTraceLine: function(event, engineId) {
+      var row = event && typeof event === 'object' ? event : {};
+      var text = String(row.display_text || row.text || row.summary || '').replace(/\r\n/g, '\n').trim();
+      var providerType = String(row.provider_event_type || row.event_type || '').trim();
+      if (!text && providerType) text = this.agentRuntimeProviderEventLabel(providerType);
+      if (!text) return null;
+      var status = String(row.status || '').trim();
+      var kind = this.agentRuntimeActivityLineKind(row);
+      return {
+        id: String(row.item_id || row.sequence_no || (kind + '-' + Date.now() + '-' + Math.random())).slice(0, 180),
+        text: text.split('\n').map(function(part) {
+          return String(part || '').replace(/\s+/g, ' ').trim();
+        }).filter(Boolean).join('\n').slice(0, 1400),
+        line_kind: kind,
+        state: status === 'failed' || status === 'error'
+          ? 'error'
+          : status === 'paused_pending_approval'
+            ? 'blocked'
+            : status === 'running' || status === 'started' || status === 'activity'
+              ? 'running'
+              : 'done',
+        status: status,
+        engine_id: String(row.engine_id || engineId || '').trim(),
+        ts: Date.now()
+      };
+    },
+
+    appendActivityTraceLineToMessage: function(target, traceLine) {
+      if (!target || !traceLine || !traceLine.text) return false;
+      var traceRows = Array.isArray(target.agent_runtime_live_trace_rows) ? target.agent_runtime_live_trace_rows.slice(-47) : [];
+      var lastTrace = traceRows.length ? traceRows[traceRows.length - 1] : null;
+      var nextText = String(traceLine.text || '').trim();
+      var nextKind = String(traceLine.line_kind || 'status');
+      if (
+        lastTrace &&
+        String(lastTrace.line_kind || '') === nextKind &&
+        nextKind === 'dialog' &&
+        (
+          nextText.indexOf(String(lastTrace.text || '').trim()) === 0 ||
+          String(lastTrace.text || '').trim().indexOf(nextText) === 0
+        )
+      ) {
+        if (nextText.length >= String(lastTrace.text || '').length) lastTrace.text = nextText;
+        lastTrace.state = traceLine.state || lastTrace.state;
+        lastTrace.status = traceLine.status || lastTrace.status;
+        lastTrace.ts = traceLine.ts;
+      } else if (
+        lastTrace &&
+        String(lastTrace.text || '').trim() === nextText &&
+        String(lastTrace.line_kind || '') === nextKind
+      ) {
+        lastTrace.state = traceLine.state || lastTrace.state;
+        lastTrace.status = traceLine.status || lastTrace.status;
+        lastTrace.ts = traceLine.ts;
+      } else {
+        traceRows.push(traceLine);
+      }
+      target.agent_runtime_live_trace_rows = traceRows.slice(-48);
+      return true;
+    },
+
+    appendNativeWorkflowActivityToThinkingRow: function(target, event) {
+      if (!target || typeof target !== 'object') return false;
+      var row = event && typeof event === 'object' ? event : {};
+      var engineId = String(row.engine_id || target.agent_runtime_engine_id || 'infring_native').trim() || 'infring_native';
+      var normalized = Object.assign({}, row, {
+        type: 'agent_activity_event',
+        source: String(row.source || 'infring_native_workflow_projection'),
+        engine_id: engineId,
+        sequence_no: Number(row.sequence_no || 0) || ((Array.isArray(target.agent_runtime_live_events) ? target.agent_runtime_live_events.length : 0) + 1)
+      });
+      var traceLine = this.agentRuntimeActivityEventToTraceLine(normalized, engineId);
+      if (traceLine) this.appendActivityTraceLineToMessage(target, traceLine);
+      var liveEvents = Array.isArray(target.agent_runtime_live_events) ? target.agent_runtime_live_events.slice(-79) : [];
+      liveEvents.push(normalized);
+      target.agent_runtime_live_events = liveEvents;
+      var liveDialog = this.agentRuntimeActivityEventsToDecisionDialog(liveEvents);
+      if (liveDialog) target.agent_runtime_decision_dialog_text = liveDialog;
+      target.agent_runtime_engine_id = engineId;
+      target._stream_updated_at = Date.now();
+      return true;
+    },
+
+    nativeWorkflowDecisionToolFromMessage: function(msg, durationMs, extraDialog) {
+      var row = msg && typeof msg === 'object' ? msg : {};
+      var events = Array.isArray(row.agent_runtime_live_events) ? row.agent_runtime_live_events.slice(-80) : [];
+      var extra = String(extraDialog || row._thoughtText || row._reasoning || '').trim();
+      if (!events.length && !extra) return null;
+      if (typeof this.agentRuntimeActivityEventsToDecisionTool === 'function') {
+        return this.agentRuntimeActivityEventsToDecisionTool(events, row.agent_runtime_engine_id || 'infring_native', durationMs, extra);
+      }
+      return extra && typeof this.makeThoughtToolCard === 'function' ? this.makeThoughtToolCard(extra, durationMs) : null;
+    },
+
+    agentRuntimeActivityEventsToDecisionDialog: function(events) {
+      var rows = Array.isArray(events) ? events : [];
+      var lines = [];
+      var seen = Object.create(null);
+      for (var i = 0; i < rows.length && lines.length < 160; i += 1) {
+        var event = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        var text = String(event.display_text || event.text || event.summary || '').replace(/\r\n/g, '\n').trim();
+        var providerType = String(event.provider_event_type || event.event_type || '').trim();
+        if (!text && providerType) text = this.agentRuntimeProviderEventLabel(providerType);
+        if (!text) continue;
+        var status = String(event.status || '').trim();
+        var line = text.split('\n').map(function(part) {
+          return String(part || '').replace(/\s+/g, ' ').trim();
+        }).filter(Boolean).join('\n');
+        if (!line) continue;
+        var lowerLine = line.toLowerCase();
+        if (
+          lowerLine.indexOf('final answer is shown in the message') >= 0 ||
+          lowerLine.indexOf('assistant draft streamed') >= 0 ||
+          lowerLine.indexOf('returned completed') >= 0
+        ) {
+          continue;
+        }
+        if (status && status !== 'completed' && line.toLowerCase().indexOf(status.toLowerCase()) < 0) {
+          line += ' [' + status + ']';
+        }
+        var key = line.toLowerCase();
+        if (seen[key]) continue;
+        seen[key] = true;
+        lines.push(line);
+      }
+      return lines.join('\n');
+    },
+
+    agentRuntimePermissionRequestToDecisionDialog: function(request) {
+      var row = request && typeof request === 'object' ? request : {};
+      var lines = [];
+      var toolId = String(row.tool_id || '').trim();
+      var capability = String(row.capability || '').trim();
+      var reason = String(row.reason || '').trim();
+      if (toolId) lines.push('Permission requested: ' + toolId);
+      if (capability) lines.push('Capability: ' + capability);
+      if (reason) lines.push('Reason: ' + reason);
+      var args = row.proposal_arguments && typeof row.proposal_arguments === 'object'
+        ? row.proposal_arguments
+        : null;
+      if (args) {
+        try {
+          lines.push('Proposal arguments:');
+          lines.push('```json');
+          lines.push(JSON.stringify(args, null, 2));
+          lines.push('```');
+        } catch (_) {}
+      }
+      return lines.join('\n');
+    },
+
+    agentRuntimeActivityEventsToDecisionTool: function(events, engineId, durationMs, extraDialog) {
+      var dialog = this.agentRuntimeActivityEventsToDecisionDialog(events);
+      var extra = String(extraDialog || '').trim();
+      if (extra && dialog.indexOf(extra) < 0) dialog = dialog ? (dialog + '\n\n' + extra) : extra;
+      if (!dialog) return null;
+      var tool = typeof this.makeThoughtToolCard === 'function'
+        ? this.makeThoughtToolCard(dialog, durationMs)
+        : {
+            id: 'agent-decision-' + Date.now(),
+            name: 'thought_process',
+            running: false,
+            expanded: false,
+            input: dialog,
+            result: '',
+            is_error: false,
+            duration_ms: Math.max(0, Number(durationMs || 0))
+          };
+      tool.agent_decision_dialog = true;
+      tool.agent_runtime_decision_dialog = true;
+      tool.agent_runtime_activity_trace = true;
+      tool.projection_kind = 'decision_dialog';
+      tool.projection_schema_version = 1;
+      tool.agent_decision_dialog_text = dialog;
+      tool.agent_runtime_engine_id = String(engineId || '').trim();
+      tool.status = 'completed';
+      tool.input = dialog;
+      tool.input_preview = dialog;
+      tool.result_preview = dialog;
+      tool.summary = 'Agent decision dialog';
+      tool.display_text = dialog;
+      tool.expanded = false;
+      return tool;
+    },
+
+    appendAgentRuntimeActivityToThinkingRow: function(event, engineId) {
+      var rows = Array.isArray(this.messages) ? this.messages : [];
+      var target = null;
+      for (var i = rows.length - 1; i >= 0; i -= 1) {
+        var row = rows[i];
+        if (!row || !row.thinking) continue;
+        if (String(row.agent_runtime_engine_id || '') !== String(engineId || '')) continue;
+        target = row;
+        break;
+      }
+      if (!target) return;
+      var tools = this.agentRuntimeActivityEventsToTools([event], engineId);
+      var traceLine = this.agentRuntimeActivityEventToTraceLine(event, engineId);
+      if (!tools.length && !traceLine) return;
+      if (!Array.isArray(target.tools)) target.tools = [];
+      target.tools = target.tools.map(function(tool) {
+        if (tool && (tool.agent_runtime_live_activity || tool.agent_activity_event)) {
+          return Object.assign({}, tool, {
+            running: false,
+            agent_runtime_activity_latest: false,
+            status: tool.status === 'running' ? 'completed' : (tool.status || 'completed')
+          });
+        }
+        return tool;
+      });
+      if (traceLine && traceLine.text) this.appendActivityTraceLineToMessage(target, traceLine);
+      var liveEvents = Array.isArray(target.agent_runtime_live_events) ? target.agent_runtime_live_events.slice(-79) : [];
+      liveEvents.push(event);
+      target.agent_runtime_live_events = liveEvents;
+      var liveDialog = this.agentRuntimeActivityEventsToDecisionDialog(liveEvents);
+      if (liveDialog) target.agent_runtime_decision_dialog_text = liveDialog;
+      tools = tools.map(function(tool, index) {
+        var isLatest = index === tools.length - 1;
+        return Object.assign({}, tool, {
+          running: isLatest,
+          status: isLatest ? 'running' : (tool.status || 'completed'),
+          agent_runtime_activity_latest: isLatest
+        });
+      });
+      if (tools.length) target.tools = target.tools.concat(tools).slice(-40);
+      var latestTool = tools[tools.length - 1] || {};
+      var latestText = String(
+        (traceLine && traceLine.line_kind !== 'dialog' && traceLine.text) ||
+        latestTool.display_text ||
+        latestTool.summary ||
+        latestTool.name ||
+        ''
+      ).trim();
+      target.text = latestText || 'Working through runtime activity...';
+      target.thinking_status = latestText || 'Working through runtime activity...';
+      target.meta = 'Agent runtime: ' + String(engineId || 'runtime') + ' | streaming activity';
+      target._stream_updated_at = Date.now();
+      if (typeof this.syncActiveChatMessages === 'function') this.syncActiveChatMessages();
+      if (typeof this.scheduleMessageRenderWindowUpdate === 'function') this.scheduleMessageRenderWindowUpdate();
+      this.scrollToBottom();
+    },
+
+    findAgentRuntimeLiveThinkingRow: function(engineId, messageId) {
+      var rows = Array.isArray(this.messages) ? this.messages : [];
+      var targetId = String(messageId || '').trim();
+      var runtimeId = String(engineId || '').trim();
+      for (var i = rows.length - 1; i >= 0; i -= 1) {
+        var row = rows[i];
+        if (!row || !row.thinking) continue;
+        if (targetId && String(row.id || '') === targetId) return row;
+        if (!targetId && (!runtimeId || String(row.agent_runtime_engine_id || '') === runtimeId)) return row;
+      }
+      return null;
+    },
+
+    finalizeAgentRuntimeThinkingRow: function(row, payload) {
+      var target = row && typeof row === 'object' ? row : null;
+      var data = payload && typeof payload === 'object' ? payload : {};
+      if (!target) return false;
+      target.thinking = false;
+      target.streaming = false;
+      target.text = String(data.text || '').trim();
+      target.meta = String(data.meta || '').trim();
+      target.tools = Array.isArray(data.tools) ? data.tools : [];
+      target.agent_activity_events = Array.isArray(data.agent_activity_events) ? data.agent_activity_events : [];
+      target.agent_activity_event_count = Number(data.agent_activity_event_count || 0) || target.agent_activity_events.length;
+      target.result_ref = String(data.result_ref || '').slice(0, 240);
+      target.receipt_ref = String(data.receipt_ref || '').slice(0, 240);
+      target.isHtml = false;
+      target._typingVisual = false;
+      target.pending_permission_request = data.pending_permission_request || null;
+      if (data.projection_kind) target.projection_kind = data.projection_kind;
+      target.projection_schema_version = data.projection_schema_version || 1;
+      target._stream_updated_at = Date.now();
+      this.markAgentMessageComplete(target);
+      if (typeof this.syncActiveChatMessages === 'function') this.syncActiveChatMessages();
+      if (typeof this.scheduleMessageRenderWindowUpdate === 'function') this.scheduleMessageRenderWindowUpdate();
+      this.scheduleConversationPersist();
+      return true;
+    },
+
+    postAgentRuntimeTurnStreaming: async function(body, onActivity) {
+      if (typeof fetch !== 'function' || typeof TextDecoder === 'undefined') {
+        return InfringAPI.post('/api/shell-socket/agent-runtime/turn', body);
+      }
+      var response = await fetch('/api/shell-socket/agent-runtime/turn/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/x-ndjson'
+        },
+        body: JSON.stringify(body || {})
+      });
+      if (!response.ok || !response.body || typeof response.body.getReader !== 'function') {
+        throw new Error('agent_runtime_stream_unavailable');
+      }
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+      var finalPayload = null;
+      var drainLine = function(line) {
+        var text = String(line || '').trim();
+        if (!text) return;
+        var parsed = null;
+        try { parsed = JSON.parse(text); } catch (_e) { return; }
+        if (!parsed || typeof parsed !== 'object') return;
+        if (parsed.type === 'activity' && parsed.event && typeof onActivity === 'function') {
+          onActivity(parsed.event);
+          return;
+        }
+        if (parsed.type === 'final') finalPayload = parsed.payload || {};
+      };
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        var lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || '';
+        for (var i = 0; i < lines.length; i += 1) drainLine(lines[i]);
+      }
+      buffer += decoder.decode();
+      drainLine(buffer);
+      return finalPayload || { ok: false, error: 'agent_runtime_stream_missing_final' };
+    },
+
+    async _sendAgentRuntimeSocketPayload(targetAgentId, finalText, uploadedFiles, msgImages, runtimeEngineId, resumeOptions) {
+      var engineId = String(runtimeEngineId || this.selectedAgentRuntimeEngineId || '').trim();
+      if (!engineId) return;
+      var startedAt = Date.now();
+      this._responseStartedAt = startedAt;
+      var approvalResume = resumeOptions && typeof resumeOptions === 'object' ? resumeOptions : null;
+      var thinkingMessage = this.findAgentRuntimeLiveThinkingRow
+        ? this.findAgentRuntimeLiveThinkingRow(engineId, approvalResume && approvalResume.live_message_id)
+        : null;
+      if (thinkingMessage) {
+        thinkingMessage.thinking = true;
+        thinkingMessage.streaming = true;
+        thinkingMessage.meta = 'Agent runtime: ' + engineId + ' | resuming';
+        thinkingMessage.agent_runtime_engine_id = engineId;
+        thinkingMessage.agent_id = targetAgentId;
+        thinkingMessage.agent_name = this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '';
+        thinkingMessage._stream_updated_at = Date.now();
+        if (!Number.isFinite(Number(thinkingMessage._stream_started_at))) thinkingMessage._stream_started_at = startedAt;
+        if (typeof this.appendAgentRuntimeActivityToThinkingRow === 'function') {
+          this.appendAgentRuntimeActivityToThinkingRow({
+            activity_kind: 'permission_event',
+            provider_event_type: 'permission.resume',
+            status: 'running',
+            display_text: 'Resuming agent turn after approval.',
+            text: 'Resuming agent turn after approval.',
+            engine_id: engineId,
+            item_id: approvalResume && approvalResume.approval_id || 'approval-resume'
+          }, engineId);
+        }
+      } else {
+        thinkingMessage = {
+          id: ++msgId,
+          role: 'agent',
+          text: '',
+          meta: 'Agent runtime: ' + engineId,
+          thinking: true,
+          streaming: true,
+          tools: [],
+          ts: Date.now(),
+          _stream_started_at: startedAt,
+          _stream_updated_at: startedAt,
+          agent_id: targetAgentId,
+          agent_name: this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '',
+          agent_runtime_engine_id: engineId
+        };
+        this.messages.push(thinkingMessage);
+      }
       this.scrollToBottom();
       this.scheduleConversationPersist();
 
       try {
-        var res = await InfringAPI.post('/api/shell-socket/agent-runtime/turn', {
+        var contextRows = [];
+        var historyRows = Array.isArray(this.messages) ? this.messages : [];
+        var currentTextForContext = String(finalText || '').trim();
+        for (var ctxIdx = Math.max(0, historyRows.length - 64); ctxIdx < historyRows.length; ctxIdx++) {
+          var ctxMsg = historyRows[ctxIdx] || {};
+          if (ctxMsg.thinking) continue;
+          var ctxRole = String(ctxMsg.role || ctxMsg.origin_kind || '').trim() || 'message';
+          var ctxText = '';
+          if (typeof this.extractMessageVisibleText === 'function') {
+            ctxText = String(this.extractMessageVisibleText(ctxMsg) || '');
+          } else {
+            ctxText = String(ctxMsg.text || ctxMsg.message || ctxMsg.content || '');
+          }
+          ctxText = ctxText.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim();
+          if (!ctxText) continue;
+          if (ctxIdx === historyRows.length - 1 && ctxRole === 'user' && ctxText.trim() === currentTextForContext) continue;
+          if (ctxRole === 'agent' || ctxRole === 'ai') ctxRole = 'assistant';
+          if (ctxRole === 'human') ctxRole = 'user';
+          var ctxSourceKind = ctxRole === 'user'
+            ? 'user_message'
+            : ctxRole === 'assistant'
+              ? 'assistant_message'
+              : (ctxMsg.tool_call_ref || ctxRole === 'tool')
+                ? 'tool_receipt'
+                : ctxRole === 'system'
+                  ? 'system_event'
+                  : 'message_event';
+          contextRows.push({
+            id: String(ctxMsg.id || ('message-' + ctxIdx)).slice(0, 160),
+            role: ctxRole.slice(0, 40),
+            text_preview: ctxText.slice(0, 2400),
+            detail_ref: String(ctxMsg.detail_ref || ctxMsg.id || '').slice(0, 240),
+            timestamp: ctxMsg.ts || ctxMsg.timestamp || null,
+            source_kind: ctxSourceKind,
+            record_type: ctxSourceKind,
+            source_authority: 'shell_bounded_message_projection',
+            speaker_label: String(ctxMsg.agent_name || ctxMsg.origin_display_name || ctxMsg.name || ctxRole).slice(0, 120),
+            receipt_ref: String(ctxMsg.receipt_ref || '').slice(0, 240),
+            result_ref: String(ctxMsg.result_ref || '').slice(0, 240)
+          });
+        }
+        contextRows = contextRows.slice(-24);
+        var turnRequest = {
           engine_id: engineId,
           agent_id: targetAgentId,
           session_id: String((this.currentAgent && (this.currentAgent.session_id || this.currentAgent.id)) || targetAgentId || ''),
           message: String(finalText || ''),
-          attachments: Array.isArray(uploadedFiles) ? uploadedFiles.slice(0, 12) : []
+          cwd: typeof this.activeWorkspacePath === 'function' ? this.activeWorkspacePath() : '',
+          active_workspace: typeof this.activeWorkspaceTurnContextProjection === 'function' ? this.activeWorkspaceTurnContextProjection() : null,
+      model_provider_context: {
+        source_authority: 'shell_selected_model_projection',
+        provider: String((this.currentAgent && (this.currentAgent.model_provider || this.currentAgent.provider || this.currentAgent.selected_provider)) || '').slice(0, 120),
+        model: String((this.currentAgent && (this.currentAgent.model_name || this.currentAgent.runtime_model || this.currentAgent.selected_model || this.currentAgent.model)) || '').slice(0, 240),
+        runtime_model: String((this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').slice(0, 240),
+        selected_runtime_engine_id: engineId,
+        secrets_included: false
+      },
+          attachments: Array.isArray(uploadedFiles) ? uploadedFiles.slice(0, 12) : [],
+          permission_policy: this.agentRuntimePermissionPolicyProjection(),
+          approval_resume: approvalResume ? {
+            approval_id: String(approvalResume.approval_id || '').slice(0, 260),
+            resume_token: String(approvalResume.resume_token || '').slice(0, 260),
+            approved_tool_id: String(approvalResume.approved_tool_id || '').slice(0, 120),
+            approval_decision: String(approvalResume.approval_decision || '').slice(0, 80),
+            approval_resume_action: String(approvalResume.approval_resume_action || '').slice(0, 160),
+            decision_receipt_ref: String(approvalResume.decision_receipt_ref || '').slice(0, 240),
+            source_authority: 'shell_permission_resume_projection'
+          } : null,
+          context_projection: {
+            schema_version: 1,
+            source: 'shell_bounded_message_projection',
+            fanout_target: 7,
+            rows: contextRows
+          }
+        };
+        var streamedActivityEvents = [];
+        var selfRuntimeStream = this;
+        var res = await this.postAgentRuntimeTurnStreaming(turnRequest, function(event) {
+          streamedActivityEvents.push(event);
+          selfRuntimeStream.appendAgentRuntimeActivityToThinkingRow(event, engineId);
+        }).catch(function() {
+          return InfringAPI.post('/api/shell-socket/agent-runtime/turn', turnRequest);
         });
-        typeof this.clearTransientThinkingRows === 'function'
-          ? this.clearTransientThinkingRows({ force: true })
-          : (this.messages = this.messages.filter(function(m) { return !m.thinking; }));
+        if (res && res.pending_permission_request) {
+          var pendingPermissionRequest = res.pending_permission_request;
+          pendingPermissionRequest.projection_kind = 'permission_request';
+          pendingPermissionRequest.projection_schema_version = 1;
+          var pendingRuntimeDurationMs = Math.max(0, Date.now() - startedAt);
+          var pendingRuntimeDuration = this.formatResponseDuration(pendingRuntimeDurationMs);
+          var pendingResponseActivityEvents = Array.isArray(res && res.agent_activity_events) ? res.agent_activity_events : [];
+          var pendingFinalActivityEvents = pendingResponseActivityEvents.length ? pendingResponseActivityEvents : streamedActivityEvents;
+          var pendingLiveEvents = Array.isArray(thinkingMessage.agent_runtime_live_events) ? thinkingMessage.agent_runtime_live_events.slice(-80) : [];
+          if (pendingLiveEvents.length) pendingFinalActivityEvents = pendingLiveEvents;
+          var pendingDialogExtra = typeof this.agentRuntimePermissionRequestToDecisionDialog === 'function'
+            ? this.agentRuntimePermissionRequestToDecisionDialog(pendingPermissionRequest)
+            : '';
+          var pendingDecisionTool = this.agentRuntimeActivityEventsToDecisionTool(
+            pendingFinalActivityEvents,
+            engineId,
+            pendingRuntimeDurationMs,
+            pendingDialogExtra
+          );
+          var pendingToolId = String(pendingPermissionRequest.tool_id || pendingPermissionRequest.capability || 'tool call').trim();
+          var pendingMeta = 'runtime ' + engineId + ' | permission required';
+          if (pendingRuntimeDuration) pendingMeta += ' | ' + pendingRuntimeDuration;
+          pendingPermissionRequest.resume_payload = {
+            agent_id: targetAgentId,
+            final_text: String(finalText || ''),
+            uploaded_files: Array.isArray(uploadedFiles) ? uploadedFiles.slice(0, 12) : [],
+            msg_images: Array.isArray(msgImages) ? msgImages.slice(0, 12) : [],
+            agent_runtime_engine_id: engineId,
+            session_id: String(turnRequest.session_id || ''),
+            approval_id: String(pendingPermissionRequest.approval_id || ''),
+            resume_token: String(pendingPermissionRequest.resume_token || ''),
+            tool_id: String(pendingPermissionRequest.tool_id || ''),
+            proposal_ref: String(pendingPermissionRequest.proposal_ref || ''),
+            decision_receipt_ref: '',
+            live_message_id: String(thinkingMessage && thinkingMessage.id || ''),
+            paused_reason: 'waiting_for_permission_decision'
+          };
+          pendingPermissionRequest.live_message_id = String(thinkingMessage && thinkingMessage.id || '');
+          pendingPermissionRequest.status = 'paused_pending_approval';
+          this.enqueueAgentRuntimePermissionRequest(pendingPermissionRequest);
+          if (typeof this.appendAgentRuntimeActivityToThinkingRow === 'function') {
+            this.appendAgentRuntimeActivityToThinkingRow({
+              activity_kind: 'permission_request',
+              provider_event_type: 'permission.requested',
+              status: 'paused_pending_approval',
+              display_text: 'Waiting for approval: ' + pendingToolId,
+              text: 'Waiting for approval: ' + pendingToolId,
+              engine_id: engineId,
+              item_id: String(pendingPermissionRequest.approval_id || '')
+            }, engineId);
+          }
+          thinkingMessage.text = 'Waiting for approval: ' + pendingToolId;
+          thinkingMessage.thinking_status = 'Waiting for approval: ' + pendingToolId;
+          thinkingMessage.meta = pendingMeta;
+          thinkingMessage.tools = pendingDecisionTool ? [pendingDecisionTool] : (Array.isArray(thinkingMessage.tools) ? thinkingMessage.tools : []);
+          thinkingMessage.agent_activity_events = pendingFinalActivityEvents.slice(-80);
+          thinkingMessage.agent_activity_event_count = Number(res && res.activity_event_count) || pendingFinalActivityEvents.length;
+          thinkingMessage.result_ref = String(res && res.result_ref || '').slice(0, 240);
+          thinkingMessage.receipt_ref = String(res && res.receipt_ref || '').slice(0, 240);
+          thinkingMessage.agent_id = targetAgentId;
+          thinkingMessage.agent_name = this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '';
+          thinkingMessage.agent_runtime_engine_id = engineId;
+          thinkingMessage.pending_permission_request = pendingPermissionRequest;
+          thinkingMessage.approval_pause_active = true;
+          thinkingMessage.projection_kind = 'permission_request';
+          thinkingMessage.projection_schema_version = 1;
+          thinkingMessage.thinking = true;
+          thinkingMessage.streaming = true;
+          thinkingMessage._stream_updated_at = Date.now();
+          this._clearPendingWsRequest(targetAgentId);
+          this._inflightPayload = null;
+          this.sending = false;
+          this._responseStartedAt = 0;
+          this.tokenCount = 0;
+          this._clearTypingTimeout();
+          this.setAgentLiveActivity(targetAgentId, 'idle', { optimistic: true, source: 'agent_runtime_permission_wait' });
+          this.scheduleConversationPersist();
+          if (typeof this.syncActiveChatMessages === 'function') this.syncActiveChatMessages();
+          if (typeof this.scheduleMessageRenderWindowUpdate === 'function') this.scheduleMessageRenderWindowUpdate();
+          return;
+        }
         var runtimePayloadText = String((res && (res.display_text || res.output_text || res.text || res.response || res.output_preview)) || '').trim();
         var runtimeText = this.stripModelPrefix(this.sanitizeToolText(runtimePayloadText || ''));
         var runtimeDurationMs = Math.max(0, Date.now() - startedAt);
@@ -16318,8 +18167,45 @@ function chatPage() {
         if (res && res.status) runtimeMeta += ' | ' + String(res.status);
         if (runtimeDuration) runtimeMeta += ' | ' + runtimeDuration;
         if (res && res.result_ref) runtimeMeta += ' | result';
+        var responseActivityEvents = Array.isArray(res && res.agent_activity_events) ? res.agent_activity_events : [];
+        var finalActivityEvents = responseActivityEvents.length ? responseActivityEvents : streamedActivityEvents;
+        var accumulatedLiveEvents = Array.isArray(thinkingMessage.agent_runtime_live_events) ? thinkingMessage.agent_runtime_live_events.slice(-80) : [];
+        if (accumulatedLiveEvents.length) finalActivityEvents = accumulatedLiveEvents;
+        var runtimeDecisionTool = this.agentRuntimeActivityEventsToDecisionTool(finalActivityEvents, engineId, runtimeDurationMs);
+        var runtimeActivityTools = runtimeDecisionTool ? [runtimeDecisionTool] : [];
+        if (runtimeActivityTools.length && (res && (res.receipt_ref || res.result_ref))) {
+          runtimeActivityTools = runtimeActivityTools.map(function(row) {
+            return Object.assign({}, row, {
+              receipt_ref: String(res.receipt_ref || row.receipt_ref || '').slice(0, 240),
+              result_ref: String(res.result_ref || row.result_ref || '').slice(0, 240)
+            });
+          });
+        }
         if (!String(runtimeText || '').trim()) {
-          InfringToast.info('Agent runtime returned no display text.');
+          if (!(res && res.pending_permission_request)) InfringToast.info('Agent runtime returned no display text.');
+          var emptyText = 'Agent runtime returned no display text.';
+          if (typeof this.appendAgentRuntimeActivityToThinkingRow === 'function') {
+            this.appendAgentRuntimeActivityToThinkingRow({
+              activity_kind: 'error',
+              provider_event_type: 'turn.no_display_text',
+              status: 'failed',
+              display_text: emptyText,
+              text: emptyText,
+              engine_id: engineId,
+              item_id: 'turn-no-display-text'
+            }, engineId);
+          }
+          var emptyEvents = Array.isArray(thinkingMessage.agent_runtime_live_events) ? thinkingMessage.agent_runtime_live_events.slice(-80) : finalActivityEvents;
+          var emptyTool = this.agentRuntimeActivityEventsToDecisionTool(emptyEvents, engineId, runtimeDurationMs, emptyText);
+          this.finalizeAgentRuntimeThinkingRow(thinkingMessage, {
+            text: emptyText,
+            meta: runtimeMeta + ' | no display text',
+            tools: emptyTool ? [emptyTool] : runtimeActivityTools,
+            agent_activity_events: emptyEvents,
+            agent_activity_event_count: emptyEvents.length,
+            result_ref: String(res && res.result_ref || '').slice(0, 240),
+            receipt_ref: String(res && res.receipt_ref || '').slice(0, 240)
+          });
           this._clearPendingWsRequest(targetAgentId);
           this._inflightPayload = null;
           this.sending = false;
@@ -16330,21 +18216,35 @@ function chatPage() {
           this.scheduleConversationPersist();
           return;
         }
-        var runtimeMessage = {
-          id: ++msgId,
-          role: 'agent',
+        if (!this.finalizeAgentRuntimeThinkingRow(thinkingMessage, {
           text: runtimeText,
           meta: runtimeMeta,
-          tools: [],
-          ts: Date.now(),
-          agent_id: targetAgentId,
-          agent_name: this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '',
-          isHtml: false,
-          _typingVisual: false,
-          agent_runtime_engine_id: engineId
-        };
-        var pushedRuntimeMessage = this.pushAgentMessageDeduped(runtimeMessage, { dedupe_window_ms: 90000 }) || runtimeMessage;
-        this.markAgentMessageComplete(pushedRuntimeMessage);
+          tools: runtimeActivityTools,
+          agent_activity_events: finalActivityEvents.slice(-80),
+          agent_activity_event_count: Number(res && res.activity_event_count) || runtimeActivityTools.length,
+          result_ref: String(res && res.result_ref || '').slice(0, 240),
+          receipt_ref: String(res && res.receipt_ref || '').slice(0, 240)
+        })) {
+          var runtimeMessage = {
+            id: ++msgId,
+            role: 'agent',
+            text: runtimeText,
+            meta: runtimeMeta,
+            tools: runtimeActivityTools,
+            agent_activity_events: finalActivityEvents.slice(-80),
+            agent_activity_event_count: Number(res && res.activity_event_count) || runtimeActivityTools.length,
+            ts: Date.now(),
+            result_ref: String(res && res.result_ref || '').slice(0, 240),
+            receipt_ref: String(res && res.receipt_ref || '').slice(0, 240),
+            agent_id: targetAgentId,
+            agent_name: this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '',
+            isHtml: false,
+            _typingVisual: false,
+            agent_runtime_engine_id: engineId
+          };
+          var pushedRuntimeMessage = this.pushAgentMessageDeduped(runtimeMessage, { dedupe_window_ms: 90000 }) || runtimeMessage;
+          this.markAgentMessageComplete(pushedRuntimeMessage);
+        }
         this._clearPendingWsRequest(targetAgentId);
         this._inflightPayload = null;
         this.scheduleConversationPersist();
@@ -16369,8 +18269,16 @@ function chatPage() {
         await this._sendSystemTerminalPayload(command);
         return;
       }
+      var terminalAgent = this.resolveAgent ? (this.resolveAgent(targetAgentId) || this.currentAgent) : this.currentAgent;
+      if (terminalAgent && this.isArchivedAgentRecord && this.isArchivedAgentRecord(terminalAgent)) {
+        this.sending = false;
+        this._responseStartedAt = 0;
+        this._clearPendingWsRequest(targetAgentId);
+        InfringToast.info('Archived conversations are read-only. Revive this agent to run commands.');
+        return;
+      }
       this.sending = true;
-      this.setAgentLiveActivity(targetAgentId, 'working', { optimistic: true, source: 'shell_display_hint' });
+      this.setAgentLiveActivity(targetAgentId, 'working');
       this._responseStartedAt = Date.now();
       this._appendTerminalMessage({
         role: 'terminal',
@@ -16420,7 +18328,16 @@ function chatPage() {
         this._responseStartedAt = 0;
         return;
       }
-      this.setAgentLiveActivity(targetAgentId, 'typing', { optimistic: true, source: 'shell_display_hint' });
+      var targetAgent = ensuredAgent || (this.resolveAgent ? this.resolveAgent(targetAgentId) : null) || this.currentAgent;
+      if (!this.isSystemThreadId(targetAgentId) && targetAgent && this.isArchivedAgentRecord && this.isArchivedAgentRecord(targetAgent)) {
+        this.sending = false;
+        this._responseStartedAt = 0;
+        this._clearPendingWsRequest(targetAgentId);
+        this._inflightPayload = null;
+        InfringToast.info('Archived conversations are read-only. Revive this agent to continue this chat.');
+        return;
+      }
+      this.setAgentLiveActivity(targetAgentId, 'typing');
       var safeFiles = Array.isArray(uploadedFiles) ? uploadedFiles.slice() : [];
       var safeImages = Array.isArray(msgImages) ? msgImages.slice() : [];
       var runtimeEngineId = String(opts.agent_runtime_engine_id || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
@@ -16446,10 +18363,14 @@ function chatPage() {
         this._inflightPayload.retry_started_at = Date.now();
       }
       this._pendingAutoModelSwitchBaseline = '';
-      if (typeof this.isExternalAgentRuntimeEngineSelected === 'function' && this.isExternalAgentRuntimeEngineSelected(runtimeEngineId)) {
+      var useRuntimeSocketPath = typeof this.shouldUseAgentRuntimeSocketPath === 'function'
+        ? this.shouldUseAgentRuntimeSocketPath(runtimeEngineId)
+        : (typeof this.isExternalAgentRuntimeEngineSelected === 'function' && this.isExternalAgentRuntimeEngineSelected(runtimeEngineId));
+      if (useRuntimeSocketPath) {
         await this._sendAgentRuntimeSocketPayload(targetAgentId, finalText, safeFiles, safeImages, runtimeEngineId);
         return;
       }
+      var preflightRoute = null;
       var preflightMeta = '';
       if (!InfringAPI.isWsConnected() || String(this._wsAgent || '') !== targetAgentId) {
         this.connectWs(targetAgentId);
@@ -16510,7 +18431,7 @@ function chatPage() {
         var httpDurationMs = Math.max(0, Date.now() - httpStartedAt);
         var httpDuration = this.formatResponseDuration(httpDurationMs);
         if (httpDuration) httpMeta += ' | ' + httpDuration;
-        var httpRouteMeta = this.formatAutoRouteMeta(httpRoute);
+        var httpRouteMeta = this.formatAutoRouteMeta(httpRoute || preflightRoute);
         if (httpRouteMeta) httpMeta += ' | ' + httpRouteMeta;
         var httpTools = typeof this.responseToolRowsFromPayload === 'function'
           ? this.responseToolRowsFromPayload(res, 'http-tool')
@@ -16537,6 +18458,23 @@ function chatPage() {
         ) {
           httpText = '';
         }
+        var httpToolFailureSummary = httpMessageMetadata && typeof httpMessageMetadata.tool_failure_summary === 'string' ? String(httpMessageMetadata.tool_failure_summary || '').trim() : '';
+        var httpToolSummary = httpHasToolCompletion && typeof this.completedToolOnlySummary === 'function'
+          ? String(this.completedToolOnlySummary(httpTools) || '').trim()
+          : '';
+        var httpWorkflowFallbackSummary = typeof this.fallbackAssistantTextFromPayload === 'function'
+          ? String(this.fallbackAssistantTextFromPayload(res, httpTools) || '').trim()
+          : '';
+        var httpReplaceableFinalText =
+          !!httpCompact &&
+          (
+            (typeof this.textLooksNoFindingsPlaceholder === 'function' && this.textLooksNoFindingsPlaceholder(httpCompact)) ||
+            (typeof this.textLooksToolAckWithoutFindings === 'function' && this.textLooksToolAckWithoutFindings(httpCompact))
+          );
+        if (httpReplaceableFinalText && httpWorkflowFallbackSummary && httpWorkflowFallbackSummary !== httpCompact) {
+          httpText = httpWorkflowFallbackSummary;
+          httpCompact = String(httpText || '').replace(/\s+/g, ' ').trim();
+        }
         if (!String(httpText || '').trim()) {
           // Policy: do not inject system-authored fallback text into chat.
           this.maybeAddAutoModelSwitchNotice(httpAutoSwitchPrevious, httpRoute || preflightRoute);
@@ -16547,7 +18485,7 @@ function chatPage() {
           this._responseStartedAt = 0;
           this.tokenCount = 0;
           this._clearTypingTimeout();
-          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle', { optimistic: true, source: 'shell_display_hint' });
+          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle');
           this.scheduleConversationPersist();
           return;
         }
@@ -16559,7 +18497,7 @@ function chatPage() {
           this._responseStartedAt = 0;
           this.tokenCount = 0;
           this._clearTypingTimeout();
-          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle', { optimistic: true, source: 'shell_display_hint' });
+          this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle');
           handedOffToRecovery = await this.attemptAutomaticFailoverRecovery('http_response', httpText, {
             remove_last_agent_failure: false
           });
@@ -16599,7 +18537,7 @@ function chatPage() {
         this._responseStartedAt = 0;
         this.tokenCount = 0;
         this._clearTypingTimeout();
-        this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle', { optimistic: true, source: 'shell_display_hint' });
+        this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle');
         var rawHttpError = String(e && e.message ? e.message : e || '');
         var lowerHttpError = rawHttpError.toLowerCase();
         var isAbortError =
@@ -16706,7 +18644,7 @@ function chatPage() {
         }
       }
       if (handedOffToRecovery) return;
-      this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle', { optimistic: true, source: 'shell_display_hint' });
+      this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'idle');
       this._responseStartedAt = 0;
       this.sending = false;
       this.scrollToBottom();
@@ -16749,7 +18687,7 @@ function chatPage() {
       var name = this.currentAgent.name;
       InfringToast.confirm('Stop Agent', 'Stop agent "' + name + '"? The agent will be shut down.', async function() {
         try {
-          self.setAgentLiveActivity(self.currentAgent && self.currentAgent.id, 'idle', { optimistic: true, source: 'shell_display_hint' });
+          self.setAgentLiveActivity(self.currentAgent && self.currentAgent.id, 'idle');
           await InfringAPI.post('/api/shell-socket/agents/' + encodeURIComponent(self.currentAgent.id) + '/archive', { reason: 'user_archive' });
           InfringAPI.wsDisconnect();
           self._wsAgent = null;
@@ -16757,13 +18695,7 @@ function chatPage() {
           self.setStoreActiveAgentId(null);
           self.messages = [];
           InfringToast.success('Agent "' + name + '" stopped');
-          var bridge = typeof InfringSharedShellServices !== 'undefined' && InfringSharedShellServices.appStore
-            ? InfringSharedShellServices.appStore
-            : null;
-          var refreshAgents = bridge && typeof bridge.method === 'function'
-            ? bridge.method('refreshAgents')
-            : null;
-          if (typeof refreshAgents === 'function') refreshAgents();
+          Alpine.store('app').refreshAgents();
         } catch(e) {
           InfringToast.error('Failed to stop agent: ' + e.message);
         }
@@ -17111,6 +19043,22 @@ function chatPage() {
       if (files && files.length) this.addFiles(files);
       if (input) input.value = '';
       this.endAttachPickerSession();
+    },
+
+    handleComposerPaste(event) {
+      if (this.terminalMode) return false;
+      if (!event || !event.clipboardData || typeof event.clipboardData.getData !== 'function') return false;
+      var text = String(event.clipboardData.getData('text/plain') || '');
+      if (!text || !this.shouldConvertLargePasteToAttachment || !this.shouldConvertLargePasteToAttachment(text)) return false;
+      var attachment = this.buildLargePasteTextAttachment && this.buildLargePasteTextAttachment(text);
+      if (!attachment || !attachment.file) return false;
+      if (event && typeof event.preventDefault === 'function') event.preventDefault();
+      if (!Array.isArray(this.attachments)) this.attachments = [];
+      this.attachments.push(attachment);
+      if (typeof InfringToast !== 'undefined' && InfringToast && typeof InfringToast.info === 'function') {
+        InfringToast.info('Large paste moved to pastedtext.txt');
+      }
+      return true;
     },
 
     addFiles(files) {
@@ -17820,6 +19768,39 @@ function chatPage() {
       return rows.slice(0, 2).map(function(row) { return row.label; }).join(' · ');
     },
 
+    thinkingBubbleTraceRows: function(msg) {
+      if (!msg || !msg.thinking) return [];
+      var sourceRows = Array.isArray(msg.agent_runtime_live_trace_rows) ? msg.agent_runtime_live_trace_rows : [];
+      var out = [];
+      var seen = Object.create(null);
+      for (var i = 0; i < sourceRows.length && out.length < 48; i += 1) {
+        var row = sourceRows[i] && typeof sourceRows[i] === 'object' ? sourceRows[i] : {};
+        var text = String(row.text || row.display_text || row.summary || '').replace(/\r\n/g, '\n').trim();
+        if (!text) continue;
+        var lineKind = String(row.line_kind || row.kind || '').trim() || 'status';
+        var state = String(row.state || row.status || '').trim() || 'done';
+        var key = (lineKind + '|' + text).toLowerCase();
+        if (seen[key]) continue;
+        seen[key] = true;
+        out.push({
+          id: String(row.id || (lineKind + '-' + i)).slice(0, 180),
+          text: text,
+          line_kind: lineKind,
+          state: state,
+          shimmer: false
+        });
+      }
+      var latestShimmerIdx = -1;
+      for (var j = out.length - 1; j >= 0; j -= 1) {
+        if (out[j].line_kind !== 'dialog') {
+          latestShimmerIdx = j;
+          break;
+        }
+      }
+      if (latestShimmerIdx >= 0) out[latestShimmerIdx].shimmer = true;
+      return out;
+    },
+
     thinkingWorkflowStatusLine: function(msg) {
       if (!msg || !msg.thinking) return '';
       var toolDialog = typeof this.currentToolDialogLabel === 'function'
@@ -18053,31 +20034,6 @@ function chatPage() {
       return !!(service && typeof service.canFork === 'function' && service.canFork(msg, this.currentAgent));
     },
 
-    messageCanReportIssueFromMeta: function(msg) {
-      var service = typeof this.messageMetadataService === 'function' ? this.messageMetadataService() : null;
-      if (service && typeof service.canReportIssue === 'function') {
-        return service.canReportIssue(msg, this.currentAgent);
-      }
-      return false;
-    },
-
-    reportIssueFromMeta: async function(msg, idx) {
-      if (!this.messageCanReportIssueFromMeta(msg)) return;
-      try {
-        var result = await InfringAPI.post('/api/shell-socket/issues', {
-          agent_id: this.currentAgent.id,
-          message_id: String(msg && msg.id || ''),
-          message_index: idx
-        });
-        if (!result || result.ok === false) {
-          throw new Error(String((result && (result.error || result.message)) || 'eval_report_failed'));
-        }
-        if (typeof InfringToast !== 'undefined') InfringToast.success('Eval review queued.');
-      } catch (e) {
-        if (typeof InfringToast !== 'undefined') InfringToast.error('Failed to queue eval review: ' + String(e && e.message ? e.message : 'unknown error'));
-      }
-    },
-
     retryMessageFromMeta: async function(msg, idx, rows) {
       if (this.sending) return;
       var allowed = this.messageCanRetryFromMeta(msg, idx, rows);
@@ -18133,6 +20089,34 @@ function chatPage() {
         }
       } catch (e) {
         if (typeof InfringToast !== 'undefined') InfringToast.error('Failed to fork message: ' + (e && e.message ? e.message : 'unknown error'));
+      }
+    },
+
+    messageCanReportIssueFromMeta: function(msg) {
+      var service = typeof this.messageMetadataService === 'function' ? this.messageMetadataService() : null;
+      if (service && typeof service.canReportIssue === 'function') {
+        return service.canReportIssue(msg, this.currentAgent);
+      }
+      if (!this.currentAgent || !this.currentAgent.id) return false;
+      if (typeof this.messageIsAgentOrigin === 'function' && !this.messageIsAgentOrigin(msg)) return false;
+      if (!msg || msg.thinking || msg.terminal || msg.is_notice) return false;
+      return !!((msg.text && String(msg.text).trim()) || (msg.tools && msg.tools.length) || msg.meta || msg.ts);
+    },
+
+    reportIssueFromMeta: async function(msg, idx) {
+      if (!this.messageCanReportIssueFromMeta(msg)) return;
+      try {
+        var result = await InfringAPI.post('/api/shell-socket/issues', {
+          agent_id: this.currentAgent.id,
+          message_id: String(msg && msg.id || ''),
+          message_index: idx
+        });
+        if (!result || result.ok === false) {
+          throw new Error(String((result && (result.error || result.message)) || 'eval_report_failed'));
+        }
+        if (typeof InfringToast !== 'undefined') InfringToast.success('Eval review queued.');
+      } catch (e) {
+        if (typeof InfringToast !== 'undefined') InfringToast.error('Failed to queue eval review: ' + String(e && e.message ? e.message : 'unknown error'));
       }
     },
 
@@ -18411,7 +20395,19 @@ function chatPage() {
     },
 
     messageDisplayScopeKey: function() {
-      return chatMessageDisplayScopeKey(this);
+      var agentId = String((this.currentAgent && this.currentAgent.id) || '').trim();
+      var sessionId = '';
+      if (Array.isArray(this.sessions)) {
+        for (var i = 0; i < this.sessions.length; i += 1) {
+          var row = this.sessions[i];
+          if (row && row.active) {
+            sessionId = String((row.session_id || row.id || '')).trim();
+            break;
+          }
+        }
+      }
+      var search = String(this.searchQuery || '').trim().toLowerCase();
+      return agentId + '|' + sessionId + '|' + search;
     },
 
     // Backward-compat shim for legacy callers during naming migration.
@@ -18420,29 +20416,76 @@ function chatPage() {
     },
 
     ensureMessageDisplayWindow: function(totalCount) {
-      chatEnsureMessageDisplayWindow(this, totalCount);
+      var total = Number(totalCount || 0);
+      if (!Number.isFinite(total) || total < 0) total = 0;
+      var key = this.messageDisplayScopeKey();
+      if (String(this._messageDisplayKey || '') !== key) {
+        this._messageDisplayKey = key;
+        this.messageDisplayCount = Number(this.messageDisplayInitialLimit || 10);
+      }
+      var rawQuery = String(this.searchQuery || '').trim();
+      if (!rawQuery) {
+        // Normal chat mode should keep full history visible; virtualization handles perf.
+        this.messageDisplayCount = total;
+        return;
+      }
+      var base = Number(this.messageDisplayInitialLimit || 10);
+      if (!Number.isFinite(base) || base < 1) base = 10;
+      if (!Number.isFinite(Number(this.messageDisplayCount))) {
+        this.messageDisplayCount = base;
+      }
+      if (this.messageDisplayCount < base) this.messageDisplayCount = base;
+      if (this.messageDisplayCount > total) this.messageDisplayCount = total;
     },
 
     get canExpandDisplayedMessages() {
-      return chatCanExpandDisplayedMessages(this);
+      var total = Array.isArray(this.allFilteredMessages) ? this.allFilteredMessages.length : 0;
+      this.ensureMessageDisplayWindow(total);
+      return total > Number(this.messageDisplayCount || 0);
     },
 
     get expandRemainingCount() {
-      return chatExpandRemainingCount(this);
+      var total = Array.isArray(this.allFilteredMessages) ? this.allFilteredMessages.length : 0;
+      var visible = Number(this.messageDisplayCount || 0);
+      if (!Number.isFinite(visible)) visible = 0;
+      return Math.max(0, total - visible);
     },
 
     expandDisplayedMessages: function() {
-      chatExpandDisplayedMessages(this);
+      var total = Array.isArray(this.allFilteredMessages) ? this.allFilteredMessages.length : 0;
+      this.ensureMessageDisplayWindow(total);
+      if (total <= Number(this.messageDisplayCount || 0)) return;
+      var step = Number(this.messageDisplayStep || 5);
+      if (!Number.isFinite(step) || step < 1) step = 5;
+      this.messageDisplayCount = Math.min(total, Number(this.messageDisplayCount || 0) + step);
     },
 
     // Search: full filtered message set before display-window capping.
     get allFilteredMessages() {
-      return chatAllFilteredMessages(this);
+      var query = String(this.searchQuery || '').trim();
+      if (!query) return this.messages;
+      var self = this;
+      var filtered = this.messages.filter(function(m) {
+        if (typeof self.messageMatchesSearchQuery === 'function') return self.messageMatchesSearchQuery(m, query);
+        var text = typeof (m && m.text) === 'string' ? m.text : String((m && m.text) || '');
+        return text.toLowerCase().indexOf(query.toLowerCase()) !== -1;
+      });
+      if (filtered.length > 0) return filtered;
+      // Avoid "blank thread" states from stale hidden query filters.
+      if (!this.searchOpen && Array.isArray(this.messages) && this.messages.length > 0) {
+        return this.messages;
+      }
+      return filtered;
     },
 
     // Search: filter messages by query + apply incremental display capping.
     get filteredMessages() {
-      return chatFilteredMessages(this);
+      var all = Array.isArray(this.allFilteredMessages) ? this.allFilteredMessages : [];
+      this.ensureMessageDisplayWindow(all.length);
+      if (!all.length) return all;
+      var visible = Number(this.messageDisplayCount || 0);
+      if (!Number.isFinite(visible) || visible < 1 || visible >= all.length) return all;
+      return all.slice(Math.max(0, all.length - visible));
     },
 
     // Search: highlight matched text in a string
@@ -18522,4 +20565,208 @@ function chatPage() {
     renderMarkdown: renderMarkdown,
     escapeHtml: escapeHtml
   };
+}
+
+function cancelPinToLatestOnOpenJob(page) {
+  if (!page || typeof page !== 'object') return;
+  if (page._openPinRaf && typeof cancelAnimationFrame === 'function') {
+    cancelAnimationFrame(page._openPinRaf);
+  }
+  if (page._openPinTimer) {
+    clearTimeout(page._openPinTimer);
+  }
+  page._openPinRaf = 0;
+  page._openPinTimer = 0;
+}
+
+function runPinToLatestOnOpenJob(page, container, options) {
+  if (!page || typeof page !== 'object') return;
+  var opts = options || {};
+  var maxFrames = Number(opts.maxFrames || 18);
+  if (!Number.isFinite(maxFrames) || maxFrames < 4) maxFrames = 18;
+  if (maxFrames > 64) maxFrames = 64;
+  var stableFramesNeeded = Number(opts.stableFrames || 2);
+  if (!Number.isFinite(stableFramesNeeded) || stableFramesNeeded < 1) stableFramesNeeded = 2;
+  if (stableFramesNeeded > 6) stableFramesNeeded = 6;
+  var token = Number(page._openPinToken || 0) + 1;
+  var frame = 0;
+  var stable = 0;
+  var lastTop = -1;
+  var lastHeight = -1;
+  var lastClient = -1;
+  var target = container || null;
+  page._openPinToken = token;
+  cancelPinToLatestOnOpenJob(page);
+  var schedule = function() {
+    if (Number(page._openPinToken || 0) !== token) return;
+    if (typeof requestAnimationFrame === 'function') {
+      page._openPinRaf = requestAnimationFrame(tick);
+    } else {
+      page._openPinTimer = setTimeout(tick, 16);
+    }
+  };
+  var tick = function() {
+    if (Number(page._openPinToken || 0) !== token) return;
+    page._openPinRaf = 0;
+    page._openPinTimer = 0;
+    var el = typeof page.resolveMessagesScroller === 'function'
+      ? page.resolveMessagesScroller(target)
+      : null;
+    if (el) {
+      var scrollHeight = Math.max(0, Number(el.scrollHeight || 0));
+      var clientHeight = Math.max(0, Number(el.clientHeight || 0));
+      var targetTop = resolveLatestMessageScrollTop(page, el);
+      el.scrollTop = targetTop;
+      if (typeof page.syncGridBackgroundOffset === 'function') page.syncGridBackgroundOffset(el);
+      page.showScrollDown = false;
+      if (typeof page.syncMapSelectionToScroll === 'function') page.syncMapSelectionToScroll(el);
+      if (typeof page.scheduleMessageRenderWindowUpdate === 'function') page.scheduleMessageRenderWindowUpdate(el);
+      var top = Math.round(Number(el.scrollTop || 0));
+      var height = Math.round(scrollHeight);
+      var client = Math.round(clientHeight);
+      var nearBottom = Math.abs(top - targetTop) <= 2 || height <= (client + 2);
+      if (nearBottom && top === lastTop && height === lastHeight && client === lastClient) {
+        stable += 1;
+      } else if (nearBottom) {
+        stable = 1;
+      } else {
+        stable = 0;
+
+      }
+      lastTop = top;
+      lastHeight = height;
+      lastClient = client;
+    } else {
+      stable = 0;
+    }
+    frame += 1;
+    if (stable >= stableFramesNeeded || frame >= maxFrames) {
+      cancelPinToLatestOnOpenJob(page);
+      if (typeof page.scrollToBottomImmediate === 'function') page.scrollToBottomImmediate();
+      return;
+    }
+    schedule();
+  };
+  schedule();
+}
+
+function resolveBottomFollowTolerancePx(page, overridePx) {
+  var raw = Number(overridePx);
+  if (!Number.isFinite(raw) || raw < 1) raw = Number(page && page.scrollBottomFollowTolerancePx);
+  if (!Number.isFinite(raw) || raw < 1) raw = 32;
+  if (raw > 160) raw = 160;
+  return raw;
+}
+
+function extractChatMarkdownText(message) {
+  var row = message && typeof message === 'object' ? message : {};
+  var text = String(row.text || '').trim();
+  if (!text && row.file_output && row.file_output.content) {
+    text = String(row.file_output.content || '').trim();
+  }
+  if (!text && row.folder_output && row.folder_output.tree) {
+    text = String(row.folder_output.tree || '').trim();
+  }
+  return text;
+}
+
+function buildChatMarkdown(messages, assistantName) {
+  var rows = Array.isArray(messages) ? messages : [];
+  if (!rows.length) return '';
+  var assistantLabel = String(assistantName || 'Assistant').trim() || 'Assistant';
+  var lines = ['# Chat with ' + assistantLabel, ''];
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+    var role = String(row.role || '').toLowerCase();
+    var label = role === 'user'
+      ? 'You'
+      : (role === 'agent'
+        ? assistantLabel
+        : (role === 'system' ? 'System' : 'Tool'));
+    var content = extractChatMarkdownText(row);
+    if (!content) continue;
+    var ts = Number(row.ts || row.timestamp || 0);
+    var tsLabel = Number.isFinite(ts) && ts > 0 ? (' (' + new Date(ts).toISOString() + ')') : '';
+    lines.push('## ' + label + tsLabel, '', content, '');
+  }
+  return lines.join('\n').trim();
+}
+
+function exportChatMarkdown(messages, assistantName) {
+  var markdown = buildChatMarkdown(messages, assistantName);
+  if (!markdown) return false;
+  var blob = new Blob([markdown + '\n'], { type: 'text/markdown' });
+  var url = URL.createObjectURL(blob);
+  var anchor = document.createElement('a');
+  var label = String(assistantName || 'chat').trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'chat';
+  anchor.href = url;
+  anchor.download = 'chat-' + label + '-' + Date.now() + '.md';
+  anchor.click();
+  URL.revokeObjectURL(url);
+  return true;
+}
+
+function resolveDistanceFromLatestMessageBottom(page, el) {
+  var host = el || (page && typeof page.resolveMessagesScroller === 'function' ? page.resolveMessagesScroller() : null);
+  if (!host) return Number.POSITIVE_INFINITY;
+  var targetTop = resolveLatestMessageScrollTop(page, host);
+  var top = Math.max(0, Number(host.scrollTop || 0));
+  return Math.max(0, targetTop - top);
+}
+
+function syncLatestMessageBottomState(page, el, tolerancePx) {
+  if (!page || typeof page !== 'object') return;
+  var host = el || (typeof page.resolveMessagesScroller === 'function' ? page.resolveMessagesScroller() : null);
+  if (!host) return;
+  var hiddenBottom = resolveDistanceFromLatestMessageBottom(page, host);
+  page._stickToBottom = hiddenBottom <= resolveBottomFollowTolerancePx(page, tolerancePx);
+  page.showScrollDown = hiddenBottom > 120;
+}
+
+function isNearLatestMessageBottom(page, el, tolerancePx) {
+  var host = el || (page && typeof page.resolveMessagesScroller === 'function' ? page.resolveMessagesScroller() : null);
+  if (!host) return false;
+  return resolveDistanceFromLatestMessageBottom(page, host) <= resolveBottomFollowTolerancePx(page, tolerancePx);
+}
+
+function clampScrollToLatestMessageBottom(page, el) {
+  var host = el || (page && typeof page.resolveMessagesScroller === 'function' ? page.resolveMessagesScroller() : null);
+  if (!host) return 0;
+  var targetTop = resolveLatestMessageScrollTop(page, host);
+  if ((page && page.showFreshArchetypeTiles) || !host.querySelector('.chat-message-block[data-msg-idx], .chat-message-block')) return targetTop;
+  var top = Number(host.scrollTop || 0), clientHeight = Math.max(0, Number(host.clientHeight || 0));
+  var maxTop = Math.max(0, Number(host.scrollHeight || 0) - clientHeight);
+  var hardCapTop = Math.min(maxTop, targetTop);
+  var slack = Number(page && page.scrollBottomClampSlackPx);
+  if (!Number.isFinite(slack) || slack < 0) slack = 16;
+  if (top > (hardCapTop + slack)) {
+    var wheelAt = Number(page && page._lastMessagesWheelAt || 0), recentWheel = wheelAt > 0 && ((Date.now() - wheelAt) < 120);
+    if (!recentWheel) setTimeout(function() { host.scrollTop = Math.min(Number(host.scrollTop || 0), resolveLatestMessageScrollTop(page, host)); }, 24);
+  }
+  return hardCapTop;
+}
+function scheduleBottomHardCapClamp(page, el, targetTop, delayMs) {
+  if (!page || typeof page !== 'object') return;
+  if (page._bottomClampTimer) clearTimeout(page._bottomClampTimer);
+  var host = el || (typeof page.resolveMessagesScroller === 'function' ? page.resolveMessagesScroller() : null);
+  if (!host) return;
+  var hardCapTop = Number(targetTop), delay = Number(delayMs);
+  if (!Number.isFinite(hardCapTop)) hardCapTop = resolveLatestMessageScrollTop(page, host);
+  if (!Number.isFinite(delay) || delay < 24) delay = 120;
+  page._bottomClampTimer = setTimeout(function() {
+    page._bottomClampTimer = 0;
+    var now = Date.now(), recentAt = Math.max(Number(page._lastMessagesWheelAt || 0), Number(page._lastMessagesScrollAt || 0));
+    if (recentAt > 0 && (now - recentAt) < 96) return scheduleBottomHardCapClamp(page, host, hardCapTop, 72);
+    clampScrollToLatestMessageBottom(page, host);
+    if (typeof page.syncGridBackgroundOffset === 'function') page.syncGridBackgroundOffset(host);
+    syncLatestMessageBottomState(page, host);
+  }, delay);
+}
+function resolveLatestMessageScrollTop(page, el) {
+  var host = el || (page && typeof page.resolveMessagesScroller === 'function' ? page.resolveMessagesScroller() : null);
+  if (!host) return 0;
+  var clientHeight = Math.max(0, Number(host.clientHeight || 0));
+  var maxTop = Math.max(0, Number(host.scrollHeight || 0) - clientHeight);
+  void page;
+  return maxTop;
 }

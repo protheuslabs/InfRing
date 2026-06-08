@@ -281,6 +281,39 @@
       return rows.slice(0, 2).map(function(row) { return row.label; }).join(' · ');
     },
 
+    thinkingBubbleTraceRows: function(msg) {
+      if (!msg || !msg.thinking) return [];
+      var sourceRows = Array.isArray(msg.agent_runtime_live_trace_rows) ? msg.agent_runtime_live_trace_rows : [];
+      var out = [];
+      var seen = Object.create(null);
+      for (var i = 0; i < sourceRows.length && out.length < 48; i += 1) {
+        var row = sourceRows[i] && typeof sourceRows[i] === 'object' ? sourceRows[i] : {};
+        var text = String(row.text || row.display_text || row.summary || '').replace(/\r\n/g, '\n').trim();
+        if (!text) continue;
+        var lineKind = String(row.line_kind || row.kind || '').trim() || 'status';
+        var state = String(row.state || row.status || '').trim() || 'done';
+        var key = (lineKind + '|' + text).toLowerCase();
+        if (seen[key]) continue;
+        seen[key] = true;
+        out.push({
+          id: String(row.id || (lineKind + '-' + i)).slice(0, 180),
+          text: text,
+          line_kind: lineKind,
+          state: state,
+          shimmer: false
+        });
+      }
+      var latestShimmerIdx = -1;
+      for (var j = out.length - 1; j >= 0; j -= 1) {
+        if (out[j].line_kind !== 'dialog') {
+          latestShimmerIdx = j;
+          break;
+        }
+      }
+      if (latestShimmerIdx >= 0) out[latestShimmerIdx].shimmer = true;
+      return out;
+    },
+
     thinkingWorkflowStatusLine: function(msg) {
       if (!msg || !msg.thinking) return '';
       var toolDialog = typeof this.currentToolDialogLabel === 'function'

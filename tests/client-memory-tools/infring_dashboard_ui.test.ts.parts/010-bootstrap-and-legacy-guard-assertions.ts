@@ -11,6 +11,14 @@ const ENTRYPOINT = path.resolve(ROOT, 'client/runtime/lib/ts_entrypoint.ts');
 const TARGET = path.resolve(ROOT, 'client/runtime/systems/ui/infring_dashboard.ts');
 const TARGET_SOURCE = path.resolve(ROOT, 'client/runtime/systems/ui/infring_dashboard.ts');
 const ADAPTER_DASHBOARD_HOST_TS_PATH = path.resolve(ROOT, 'adapters/runtime/infring_dashboard.ts');
+const GATEWAY_SYSTEM_ROUTES_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_system_routes.ts');
+const GATEWAY_SYSTEM_ACTIONS_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_system_actions.ts');
+const GATEWAY_SYSTEM_ROUTE_ASSEMBLY_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_system_route_assembly.ts');
+const GATEWAY_HOST_LIFECYCLE_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_host_lifecycle.ts');
+const GATEWAY_BACKEND_FRESHNESS_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_backend_freshness.ts');
+const GATEWAY_BACKEND_STARTUP_STATE_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_backend_startup_state.ts');
+const GATEWAY_BACKEND_HOST_LAUNCHER_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_backend_host_launcher.ts');
+const GATEWAY_DASHBOARD_HOST_STATUS_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_dashboard_host_status.ts');
 const DASHBOARD_STATIC_ASSET_ROUTER_TS_PATH = path.resolve(
   ROOT,
   'client/runtime/systems/ui/dashboard_static_asset_router.ts'
@@ -480,6 +488,10 @@ function assertTaskbarHeroSystemMenu() {
   const appSource = readUtf8(APP_STATIC_TS_PATH);
   const htmlSource = readUtf8(path.resolve(ROOT, 'client/runtime/systems/ui/infring_static/index_body.html'));
   const hostSource = readUtf8(ADAPTER_DASHBOARD_HOST_TS_PATH);
+  const gatewaySystemRouteSource = readUtf8(GATEWAY_SYSTEM_ROUTES_TS_PATH);
+  const gatewaySystemActionSource = readUtf8(GATEWAY_SYSTEM_ACTIONS_TS_PATH);
+  const gatewaySystemRouteAssemblySource = readUtf8(GATEWAY_SYSTEM_ROUTE_ASSEMBLY_TS_PATH);
+  const gatewayHostLifecycleSource = readUtf8(GATEWAY_HOST_LIFECYCLE_TS_PATH);
   assertHeroMenuIsNotClipped();
   assertContains(htmlSource, 'class="taskbar-hero-menu dashboard-dropdown-surface"', 'taskbar hero dropdown container missing');
   assertContains(htmlSource, "runTaskbarHeroCommand('restart')", 'taskbar hero restart action missing');
@@ -497,22 +509,30 @@ function assertTaskbarHeroSystemMenu() {
   assertContains(appSource, "dashboardAction = 'dashboard.system.shutdown';", 'taskbar hero shutdown action bus route missing');
   assertContains(appSource, "result = await this.postTaskbarHeroSystemRoute(legacyRoute, body, {", 'taskbar hero should prefer the direct system route');
   assertContains(appSource, "result = await InfringAPI.post('/api/dashboard/action', {", 'taskbar hero should still support dashboard action bus fallback');
-  assertContains(appSource, "allowTransientSuccess: actionKey === 'restart' || actionKey === 'shutdown'", 'taskbar hero restart/shutdown should tolerate transient disconnect during lifecycle actions');
+  assertContains(appSource, "allowTransientSuccess: actionKey === 'restart'", 'taskbar hero should only tolerate transient disconnect for restart');
+  assertContains(appSource, 'async waitForTaskbarHeroGatewayHealth(options)', 'taskbar hero restart should verify Gateway health after transient disconnect');
+  assertContains(appSource, "InfringToast.success('Gateway restarted and healthy')", 'taskbar hero restart should report verified health, not only accepted command dispatch');
   assertContains(appSource, "legacyRoute = '/api/system/restart';", 'taskbar hero restart legacy fallback missing');
   assertContains(appSource, "legacyRoute = '/api/system/update';", 'taskbar hero update legacy fallback missing');
   assertContains(appSource, "legacyRoute = '/api/system/shutdown';", 'taskbar hero shutdown legacy fallback missing');
-  assertContains(hostSource, "pathname === '/api/system/restart'", 'dashboard host restart endpoint missing');
-  assertContains(hostSource, "pathname === '/api/system/update'", 'dashboard host update endpoint missing');
-  assertContains(hostSource, "pathname === '/api/system/shutdown'", 'dashboard host shutdown endpoint missing');
-  assertContains(hostSource, 'function dashboardSystemActionArgs(action, payload = {})', 'dashboard host system-action arg resolver missing');
-  assertContains(hostSource, 'function dispatchDashboardSystemAction(action, payload = {})', 'dashboard host should expose detached dispatch for lifecycle actions');
-  assertContains(hostSource, 'function scheduleDashboardHostExit(cleanup, delayMs = 180)', 'dashboard host should expose a local shutdown exit helper');
-  assertContains(hostSource, "const result = dispatchDashboardSystemAction('shutdown', body);", 'dashboard host shutdown should use detached dispatch');
-  assertContains(hostSource, "const result = dispatchDashboardSystemAction('restart', body);", 'dashboard host restart should use detached dispatch');
-  assertContains(hostSource, 'scheduleDashboardHostExit(cleanup, body && body.exit_delay_ms);', 'dashboard host shutdown should terminate the serving host after acknowledging the request');
-  assertContains(hostSource, "const upstream = await fetchBackend(flags, '/api/system/update', {", 'dashboard host update route should prefer the Rust backend update endpoint');
-  assertContains(hostSource, "if (normalized === 'update') {", 'dashboard host update command mapping missing');
-  assertContains(hostSource, "if (body.apply !== false) args.push('--apply');", 'dashboard host update action should default to apply mode');
+  assertContains(gatewaySystemRouteSource, "pathname === '/api/system/restart'", 'Gateway system route restart endpoint missing');
+  assertContains(gatewaySystemRouteSource, "pathname === '/api/system/update'", 'Gateway system route update endpoint missing');
+  assertContains(gatewaySystemRouteSource, "pathname === '/api/system/shutdown'", 'Gateway system route shutdown endpoint missing');
+  assertContains(gatewaySystemActionSource, "function dashboardSystemActionArgs(action, payload = {}, executablePath = '')", 'Gateway system-action arg resolver missing');
+  assertContains(gatewaySystemActionSource, "return ['daemon-control', 'heal', '--json', '--dashboard-open=0'];", 'Gateway dashboard-origin restart should route ops binaries through daemon-control heal');
+  assertContains(gatewaySystemActionSource, "return ['daemon-control', 'stop', '--json'];", 'Gateway system shutdown should route ops binaries through daemon-control stop');
+  assertContains(gatewaySystemActionSource, 'function dispatchDashboardSystemAction(action, payload = {})', 'Gateway system actions should expose detached dispatch for lifecycle actions');
+  assertContains(gatewayHostLifecycleSource, 'function scheduleGatewayHostExit(cleanup, delayMs)', 'Gateway host lifecycle should expose bounded shutdown exit scheduling');
+  assertContains(gatewaySystemRouteAssemblySource, "if (action === 'update') return runDashboardSystemAction('update', body);", 'Gateway route assembly should route update through system action runner');
+  assertContains(gatewaySystemRouteAssemblySource, 'return dispatchDashboardSystemAction(action, body);', 'Gateway route assembly should dispatch restart/shutdown lifecycle actions asynchronously');
+  assertContains(gatewaySystemRouteSource, "if (action === 'restart' || action === 'shutdown')", 'Gateway system routes should bypass backend forwarding for lifecycle actions');
+  assertContains(gatewaySystemRouteSource, "lifecycle_dispatch: true", 'Gateway system routes should mark lifecycle dispatch projections');
+  assertContains(gatewaySystemActionSource, "accepted_async: true", 'Gateway lifecycle dispatch should explicitly mark async acceptance');
+  assertContains(gatewaySystemActionSource, "kind: 'gateway_system_action_dispatch'", 'Gateway lifecycle dispatch should emit a dispatch receipt projection');
+  assertContains(hostSource, 'scheduleGatewayHostExit(cleanup, body && body.exit_delay_ms);', 'dashboard host should inject shutdown exit through Gateway lifecycle controller');
+  assertContains(gatewaySystemRouteSource, "const upstream = await fetchBackend(flags, pathname, {", 'Gateway system routes should prefer the Rust backend system endpoint');
+  assertContains(gatewaySystemActionSource, "if (normalized === 'update') {", 'Gateway update command mapping missing');
+  assertContains(gatewaySystemActionSource, "if (body.apply !== false) args.push('--apply');", 'Gateway update action should default to apply mode');
 }
 
 function assertDashboardHostOverlaysLiveVersion() {
@@ -553,25 +573,29 @@ function assertDashboardHostRejectsStaleBackendProcess() {
   const { installTsRequireHook } = require(TS_BOOTSTRAP_TS_PATH);
   installTsRequireHook();
   const hostSource = readUtf8(ADAPTER_DASHBOARD_HOST_TS_PATH);
+  const gatewayBackendFreshnessSource = readUtf8(GATEWAY_BACKEND_FRESHNESS_TS_PATH);
+  const gatewayBackendStartupStateSource = readUtf8(GATEWAY_BACKEND_STARTUP_STATE_TS_PATH);
+  const gatewayBackendHostLauncherSource = readUtf8(GATEWAY_BACKEND_HOST_LAUNCHER_TS_PATH);
+  const gatewayDashboardHostStatusSource = readUtf8(GATEWAY_DASHBOARD_HOST_STATUS_TS_PATH);
   assertContains(
-    hostSource,
-    'function backendFreshnessSnapshot(flags)',
-    'dashboard host should expose a backend process freshness probe'
+    gatewayBackendFreshnessSource,
+    'function backendFreshnessSnapshot(flags, options = {})',
+    'Gateway should expose a backend process freshness probe'
   );
   assertContains(
-    hostSource,
+    gatewayBackendFreshnessSource,
     'backend_process_older_than_resolved_binary',
-    'dashboard host should mark a healthy-but-stale backend as unsafe to reuse'
+    'Gateway should mark a healthy-but-stale backend as unsafe to reuse'
   );
   assertContains(
-    hostSource,
-    'const result = await ensureBackend(flags);',
-    'dashboard host should inspect an already-healthy backend before reusing it'
+    gatewayBackendHostLauncherSource,
+    'if (await backendHealth(flags, 1500))',
+    'Gateway backend host launcher should inspect an already-healthy backend before reusing it'
   );
   assertContains(
-    hostSource,
-    'backend_freshness: backend.freshness',
-    'dashboard host status should publish backend freshness diagnostics'
+    gatewayDashboardHostStatusSource,
+    'backend_freshness: backend.freshness || null',
+    'Gateway dashboard host status should publish backend freshness diagnostics'
   );
   const dashboardHost = require(TARGET_SOURCE);
   assert.strictEqual(

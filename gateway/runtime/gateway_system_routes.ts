@@ -55,6 +55,13 @@ function systemActionEffectMode(action, body) {
   return 'mutating';
 }
 
+function cleanRouteReason(value) {
+  return String(value && value.message ? value.message : value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240) || 'gateway_lifecycle_action';
+}
+
 function systemActionReceiptProjection(action, body, payload, source) {
   const receiptRef = receiptRefFromPayload(payload);
   const receiptRequired = systemActionRequiresReceipt(action, body);
@@ -169,6 +176,66 @@ function createGatewaySystemRouteHandler(options = {}) {
     if (req.method === 'POST' && (pathname === '/api/system/restart' || pathname === '/api/system/update' || pathname === '/api/system/shutdown')) {
       const action = pathname.split('/').pop() || '';
       const body = await readJsonBody(req).catch(() => ({}));
+      const sendGatewayLifecycleAction = (reason) => {
+        if (typeof legacyHostFallback !== 'function') {
+          sendJson(res, 503, {
+            ok: false,
+            type: 'gateway_system_action_lifecycle_unavailable',
+            trace_id: traceId,
+            action,
+            error: 'gateway_lifecycle_dispatch_unavailable',
+            gateway_projection: {
+              ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
+              authority_owner: 'gateway.runtime',
+              forwarded_to_core: false,
+              lifecycle_dispatch_available: false,
+            },
+          });
+          return true;
+        }
+        const fallback = legacyHostFallback(action, body, { traceId, coreError: reason });
+        const payload = fallback && typeof fallback === 'object' ? fallback : { ok: false, error: 'gateway_lifecycle_dispatch_invalid' };
+        const receiptProjection = systemActionReceiptProjection(action, body, payload, 'legacy');
+        if (payload.ok && receiptProjection.receipt_required && !receiptProjection.receipt_present) {
+          sendJson(res, 502, {
+            ok: false,
+            type: 'gateway_system_action_lifecycle_receipt_missing',
+            trace_id: traceId,
+            action,
+            error: 'gateway_lifecycle_dispatch_missing_receipt',
+            gateway_projection: {
+              ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
+              authority_owner: 'gateway.runtime',
+              target_authority_owner: 'core.ops',
+              forwarded_to_core: false,
+              lifecycle_dispatch: true,
+              lifecycle_dispatch_reason: cleanRouteReason(reason),
+              system_action_receipt: receiptProjection,
+            },
+          });
+          return true;
+        }
+        sendJson(res, payload.ok ? 200 : 500, {
+          ...payload,
+          trace_id: traceId,
+          gateway_projection: {
+            ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
+            authority_owner: 'gateway.runtime',
+            target_authority_owner: 'core.ops',
+            forwarded_to_core: false,
+            lifecycle_dispatch: true,
+            lifecycle_dispatch_reason: cleanRouteReason(reason),
+            system_action_receipt: receiptProjection,
+          },
+        });
+        if (action === 'shutdown' && payload.ok && typeof onHostShutdownAccepted === 'function') {
+          onHostShutdownAccepted(body, payload);
+        }
+        return true;
+      };
+      if (action === 'restart' || action === 'shutdown') {
+        return sendGatewayLifecycleAction('gateway_lifecycle_action');
+      }
       try {
         const upstream = await fetchBackend(flags, pathname, {
           method: 'POST',
@@ -215,61 +282,7 @@ function createGatewaySystemRouteHandler(options = {}) {
         }
         return true;
       } catch (error) {
-        if (typeof legacyHostFallback !== 'function') {
-          sendJson(res, 503, {
-            ok: false,
-            type: 'gateway_system_action_core_unavailable',
-            trace_id: traceId,
-            action,
-            error: String(error && error.message ? error.message : error).replace(/\s+/g, ' ').trim().slice(0, 240),
-            gateway_projection: {
-              ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
-              authority_owner: 'core.ops',
-              forwarded_to_core: false,
-              legacy_host_fallback_available: false,
-            },
-          });
-          return true;
-        }
-        const fallback = legacyHostFallback(action, body, { traceId, coreError: error });
-        const payload = fallback && typeof fallback === 'object' ? fallback : { ok: false, error: 'legacy_host_fallback_invalid' };
-        const receiptProjection = systemActionReceiptProjection(action, body, payload, 'legacy');
-        if (payload.ok && receiptProjection.receipt_required && !receiptProjection.receipt_present) {
-          sendJson(res, 502, {
-            ok: false,
-            type: 'gateway_system_action_legacy_fallback_receipt_missing',
-            trace_id: traceId,
-            action,
-            error: 'legacy_dashboard_host_fallback_missing_receipt',
-            gateway_projection: {
-              ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
-              authority_owner: 'legacy_dashboard_host_shim',
-              target_authority_owner: 'core.ops',
-              forwarded_to_core: false,
-              legacy_host_fallback: true,
-              legacy_host_fallback_reason: 'core_system_action_route_unavailable',
-              system_action_receipt: receiptProjection,
-            },
-          });
-          return true;
-        }
-        sendJson(res, payload.ok ? 200 : 500, {
-          ...payload,
-          trace_id: traceId,
-          gateway_projection: {
-            ...systemProjection(traceId, `gateway.system.${action}`, 'request_ingress'),
-            authority_owner: 'legacy_dashboard_host_shim',
-            target_authority_owner: 'core.ops',
-            forwarded_to_core: false,
-            legacy_host_fallback: true,
-            legacy_host_fallback_reason: 'core_system_action_route_unavailable',
-            system_action_receipt: receiptProjection,
-          },
-        });
-        if (action === 'shutdown' && payload.ok && typeof onHostShutdownAccepted === 'function') {
-          onHostShutdownAccepted(body, payload);
-        }
-        return true;
+        return sendGatewayLifecycleAction(error);
       }
     }
 

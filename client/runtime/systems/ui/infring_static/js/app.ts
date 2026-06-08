@@ -3082,6 +3082,76 @@ function app() {
       this.taskbarHeroMenuOpen = false;
     },
 
+    async waitForTaskbarHeroGatewayHealth(options) {
+      var opts = (options && typeof options === 'object') ? options : {};
+      var timeoutMs = Number(opts.timeoutMs);
+      if (!Number.isFinite(timeoutMs) || timeoutMs < 1000) timeoutMs = 24000;
+      var intervalMs = Number(opts.intervalMs);
+      if (!Number.isFinite(intervalMs) || intervalMs < 200) intervalMs = 750;
+      var requestTimeoutMs = Number(opts.requestTimeoutMs);
+      if (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs < 250) requestTimeoutMs = 1600;
+      var deadline = Date.now() + timeoutMs;
+      var lastError = '';
+      var setTimer = (typeof window !== 'undefined' && typeof window.setTimeout === 'function')
+        ? window.setTimeout.bind(window)
+        : setTimeout;
+      var clearTimer = (typeof window !== 'undefined' && typeof window.clearTimeout === 'function')
+        ? window.clearTimeout.bind(window)
+        : clearTimeout;
+      while (Date.now() <= deadline) {
+        var controller = null;
+        var timer = 0;
+        try {
+          if (typeof AbortController !== 'undefined') controller = new AbortController();
+        } catch (_) {
+          controller = null;
+        }
+        try {
+          if (controller) {
+            timer = setTimer(function() {
+              try {
+                controller.abort();
+              } catch (_) {}
+            }, requestTimeoutMs);
+          }
+          var response = await fetch('/healthz?taskbar_restart_probe=' + encodeURIComponent(String(Date.now())), {
+            method: 'GET',
+            cache: 'no-store',
+            signal: controller ? controller.signal : undefined
+          });
+          if (response && response.ok) {
+            var parsed = {};
+            try {
+              parsed = await response.json();
+            } catch (_) {
+              parsed = {};
+            }
+            if (!parsed || parsed.ok !== false) {
+              return { ok: true, type: 'gateway_health_recovered', payload: parsed };
+            }
+          }
+          lastError = 'health_http_' + (response && response.status ? response.status : 'unknown');
+        } catch (error) {
+          lastError = String(error && error.message ? error.message : error || 'health_probe_failed').slice(0, 180);
+        } finally {
+          if (timer) {
+            try {
+              clearTimer(timer);
+            } catch (_) {}
+          }
+        }
+        if (Date.now() > deadline) break;
+        await new Promise(function(resolve) {
+          setTimer(resolve, intervalMs);
+        });
+      }
+      return {
+        ok: false,
+        type: 'gateway_health_reconnect_timeout',
+        error: lastError || 'gateway_health_unavailable'
+      };
+    },
+
     closeTaskbarTextMenu() {
       this.taskbarTextMenuOpen = '';
     },
@@ -3307,7 +3377,7 @@ function app() {
         try {
           result = await this.postTaskbarHeroSystemRoute(legacyRoute, body, {
             timeoutMs: actionKey === 'update' ? 12000 : 1400,
-            allowTransientSuccess: actionKey === 'restart' || actionKey === 'shutdown'
+            allowTransientSuccess: actionKey === 'restart'
           });
         } catch (routeError) {
           var routeStatus = Number(routeError && routeError.status || 0);
@@ -3339,7 +3409,23 @@ function app() {
         }
         this.closeTaskbarHeroMenu();
         if (actionKey === 'restart') {
-          InfringToast.success('Restart requested');
+          InfringToast.success('Restart requested; waiting for Gateway health');
+          this.connected = false;
+          this.connectionState = 'reconnecting';
+          var health = await this.waitForTaskbarHeroGatewayHealth({
+            timeoutMs: 26000,
+            intervalMs: 750,
+            requestTimeoutMs: 1600
+          });
+          if (!health || health.ok !== true) {
+            this.connected = false;
+            this.connectionState = 'disconnected';
+            this.wsConnected = false;
+            throw new Error(String((health && health.error) || 'gateway_restart_health_timeout'));
+          }
+          this.connected = true;
+          this.connectionState = 'connected';
+          InfringToast.success('Gateway restarted and healthy');
           this.requestTaskbarRefresh();
         } else if (actionKey === 'shutdown') {
           InfringToast.success('Shut down requested');

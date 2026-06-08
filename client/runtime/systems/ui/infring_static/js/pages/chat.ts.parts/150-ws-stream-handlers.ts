@@ -11,6 +11,16 @@
             var visibleText = this.stripModelPrefix(streamingSplit.content || '');
             last._cleanText = visibleText;
             last._thoughtText = streamingSplit.thought || '';
+            if (streamingSplit.thought && typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+              this.appendNativeWorkflowActivityToThinkingRow(last, {
+                activity_kind: 'decision_dialog',
+                provider_event_type: 'native.text_delta.thought',
+                status: 'running',
+                display_text: streamingSplit.thought,
+                text: streamingSplit.thought,
+                item_id: 'native-text-delta-thought'
+              });
+            }
             if (streamingSplit.thought && !visibleText.trim()) {
               this._clearMessageTypewriter(last);
               last.isHtml = true;
@@ -73,6 +83,16 @@
               firstMessage.text = this.renderLiveThoughtHtml(firstSplit.thought, firstMessage);
             }
             this.messages.push(firstMessage);
+            if (firstSplit.thought && typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+              this.appendNativeWorkflowActivityToThinkingRow(firstMessage, {
+                activity_kind: 'decision_dialog',
+                provider_event_type: 'native.text_delta.thought',
+                status: 'running',
+                display_text: firstSplit.thought,
+                text: firstSplit.thought,
+                item_id: 'native-text-delta-thought'
+              });
+            }
             if (!firstMessage.isHtml) {
               this._clearMessageTypewriter(firstMessage);
               firstMessage._typingVisual = false;
@@ -100,6 +120,16 @@
           if (!Number.isFinite(Number(lastMsg._stream_started_at))) lastMsg._stream_started_at = Date.now(); var receiptStartLabel = String(data && data.tool_status ? data.tool_status : '').trim();
           if (receiptStartLabel && typeof this.normalizeThinkingStatusCandidate === 'function') receiptStartLabel = this.normalizeThinkingStatusCandidate(receiptStartLabel); var startLabel = receiptStartLabel || (typeof this.toolThinkingActionLabel === 'function' ? this.toolThinkingActionLabel({ name: data.tool, input: data.input || '' }) : String(data.tool || 'tool'));
           if (startLabel && lastMsg.thinking_status !== startLabel) lastMsg.thinking_status = startLabel;
+          if (startLabel && typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+            this.appendNativeWorkflowActivityToThinkingRow(lastMsg, {
+              activity_kind: 'tool_call_event',
+              provider_event_type: 'native.tool_start',
+              status: 'running',
+              display_text: startLabel,
+              text: startLabel,
+              item_id: data && (data.attempt_id || data.tool) ? String(data.attempt_id || data.tool) : 'native-tool-start'
+            });
+          }
           if (startLabel && typeof this._setPendingWsStatusText === 'function') this._setPendingWsStatusText(toolStartAgentId, startLabel);
           this._resetTypingTimeout();
           this.scrollToBottom();
@@ -115,6 +145,19 @@
               lastMsg2.thinking_status = activeToolLabel;
             } else if (!activeToolLabel) {
               lastMsg2.thinking_status = 'Thinking';
+            }
+            if (typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+              var endedToolLabel = endedTool && typeof this.toolDisplayName === 'function'
+                ? this.toolDisplayName(endedTool)
+                : String(data && data.tool || 'tool');
+              this.appendNativeWorkflowActivityToThinkingRow(lastMsg2, {
+                activity_kind: 'tool_call_event',
+                provider_event_type: 'native.tool_end',
+                status: 'completed',
+                display_text: 'Completed ' + endedToolLabel,
+                text: 'Completed ' + endedToolLabel,
+                item_id: data && (data.attempt_id || data.tool) ? String(data.attempt_id || data.tool) + ':end' : 'native-tool-end'
+              });
             }
             if (typeof this._setPendingWsStatusText === 'function') {
               this._setPendingWsStatusText(toolEndAgentId, lastMsg2.thinking_status || activeToolLabel || 'Thinking');
@@ -157,6 +200,19 @@
               lastMsg3.thinking_status = nextActiveToolLabel;
             } else if (!nextActiveToolLabel) {
               lastMsg3.thinking_status = 'Thinking';
+            }
+            if (typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+              var resultToolLabel = resultTool && typeof this.toolDisplayName === 'function'
+                ? this.toolDisplayName(resultTool)
+                : String(data && data.tool || 'tool');
+              this.appendNativeWorkflowActivityToThinkingRow(lastMsg3, {
+                activity_kind: data && data.is_error ? 'error' : 'tool_call_event',
+                provider_event_type: data && data.is_error ? 'native.tool_result.error' : 'native.tool_result',
+                status: data && data.is_error ? 'failed' : 'completed',
+                display_text: (data && data.is_error ? 'Failed ' : 'Completed ') + resultToolLabel,
+                text: (data && data.is_error ? 'Failed ' : 'Completed ') + resultToolLabel,
+                item_id: data && (data.attempt_id || data.tool) ? String(data.attempt_id || data.tool) + ':result' : 'native-tool-result'
+              });
             }
             if (typeof this._setPendingWsStatusText === 'function') {
               this._setPendingWsStatusText(toolResultAgentId, lastMsg3.thinking_status || nextActiveToolLabel || 'Thinking');
@@ -237,7 +293,21 @@
           var maybePlaceholder = /^(thinking|processing|working)\.\.\.$/i.test(compactFinal);
           if (typeof this.isThinkingPlaceholderText === 'function' && this.isThinkingPlaceholderText(compactFinal)) maybePlaceholder = true;
           if (maybePlaceholder) finalText = '';
-          if (collapsedThought && !streamedTools.some(function(tool) { return !!(tool && String(tool.name || '').toLowerCase() === 'thought_process'); })) streamedTools.unshift(this.makeThoughtToolCard(collapsedThought, wsDurationMs));
+          var nativeTraceSourceMessage = this.messages.length ? this.messages[this.messages.length - 1] : null;
+          var nativeDecisionTool = typeof this.nativeWorkflowDecisionToolFromMessage === 'function'
+            ? this.nativeWorkflowDecisionToolFromMessage(nativeTraceSourceMessage, wsDurationMs, collapsedThought)
+            : null;
+          if (
+            nativeDecisionTool &&
+            !streamedTools.some(function(tool) { return !!(tool && (tool.agent_runtime_activity_trace || tool.agent_runtime_decision_dialog)); })
+          ) {
+            streamedTools.unshift(nativeDecisionTool);
+          } else if (collapsedThought && !streamedTools.some(function(tool) { return !!(tool && String(tool.name || '').toLowerCase() === 'thought_process'); })) {
+            streamedTools.unshift(this.makeThoughtToolCard(collapsedThought, wsDurationMs));
+          }
+          var nativeActivityEvents = nativeTraceSourceMessage && Array.isArray(nativeTraceSourceMessage.agent_runtime_live_events)
+            ? nativeTraceSourceMessage.agent_runtime_live_events.slice(-80)
+            : [];
           var usedFallback = false;
           var toolFailureSummary = messageMetadata && typeof messageMetadata.tool_failure_summary === 'string' ? String(messageMetadata.tool_failure_summary || '').trim() : '';
           var toolOnlySummary = responseHasToolCompletion && typeof this.completedToolOnlySummary === 'function'
@@ -267,6 +337,9 @@
             text: finalText,
             meta: meta,
             tools: streamedTools,
+            agent_activity_events: nativeActivityEvents,
+            agent_activity_event_count: nativeActivityEvents.length,
+            agent_runtime_engine_id: nativeActivityEvents.length ? 'infring_native' : '',
             ts: Date.now(),
             _turn_started_at: responseTurnStartedAt,
             _auto_fallback: usedFallback,

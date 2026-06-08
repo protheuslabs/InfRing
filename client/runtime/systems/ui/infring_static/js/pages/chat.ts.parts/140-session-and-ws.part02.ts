@@ -65,6 +65,16 @@
                 if (chunkChanged) {
                   phaseMsg._thoughtText = this.appendThoughtChunk(phaseMsg._thoughtText, thoughtChunk);
                   phaseMsg._reasoning = phaseMsg._thoughtText;
+                  if (typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+                    this.appendNativeWorkflowActivityToThinkingRow(phaseMsg, {
+                      activity_kind: 'decision_dialog',
+                      provider_event_type: 'native.workflow.' + (phaseKey || 'reasoning'),
+                      status: 'running',
+                      display_text: thoughtChunk,
+                      text: thoughtChunk,
+                      item_id: 'native-workflow-dialog-' + (phaseKey || 'reasoning')
+                    });
+                  }
                   phaseMsg.isHtml = true;
                   phaseMsg.thoughtStreaming = true;
                   phaseMsg.text = this.renderLiveThoughtHtml(phaseMsg._thoughtText, phaseMsg);
@@ -77,6 +87,16 @@
                 }
               }
             } else if (phaseMsg.thinking) {
+              if (phaseStatusCandidate && typeof this.appendNativeWorkflowActivityToThinkingRow === 'function') {
+                this.appendNativeWorkflowActivityToThinkingRow(phaseMsg, {
+                  activity_kind: 'runtime_activity',
+                  provider_event_type: 'native.workflow.phase',
+                  status: 'running',
+                  display_text: phaseStatusCandidate,
+                  text: phaseStatusCandidate,
+                  item_id: 'native-workflow-phase-' + (phaseKey || 'status')
+                });
+              }
               if (phaseStatusCandidate && phaseMsg.thinking_status !== phaseStatusCandidate) phaseMsg.thinking_status = phaseStatusCandidate;
             }
             if (phaseStatusCandidate && phaseMsg.status_text !== phaseStatusCandidate) phaseMsg.status_text = phaseStatusCandidate;

@@ -26,11 +26,22 @@ function parseGatewayLastJson(stdout) {
   return null;
 }
 
-function dashboardSystemActionArgs(action, payload = {}) {
+function isDashboardDaemonExecutable(executablePath) {
+  const name = path.basename(cleanText(executablePath, 260)).toLowerCase();
+  return name.includes('infringd');
+}
+
+function dashboardSystemActionArgs(action, payload = {}, executablePath = '') {
   const normalized = cleanText(action, 40).toLowerCase();
   const body = (payload && typeof payload === 'object' && !Array.isArray(payload)) ? payload : {};
-  if (normalized === 'restart') return ['restart', '--json'];
-  if (normalized === 'shutdown') return ['stop', '--json'];
+  if (normalized === 'restart') {
+    if (isDashboardDaemonExecutable(executablePath)) return ['restart', '--json'];
+    return ['daemon-control', 'heal', '--json', '--dashboard-open=0'];
+  }
+  if (normalized === 'shutdown') {
+    if (isDashboardDaemonExecutable(executablePath)) return ['stop', '--json'];
+    return ['daemon-control', 'stop', '--json'];
+  }
   if (normalized === 'update') {
     const args = ['update', '--json'];
     if (body.force === true) args.push('--force');
@@ -61,7 +72,7 @@ function createGatewayDashboardSystemActionDispatcher(options = {}) {
   }
 
   function runDashboardSystemAction(action, payload = {}) {
-    const args = dashboardSystemActionArgs(action, payload);
+    const args = dashboardSystemActionArgs(action, payload, 'infring-ops');
     const run = invokeBridge
       ? invokeBridge(args, {
           allowProcessFallback: false,
@@ -98,9 +109,9 @@ function createGatewayDashboardSystemActionDispatcher(options = {}) {
   }
 
   function dispatchDashboardSystemAction(action, payload = {}) {
-    const args = dashboardSystemActionArgs(action, payload);
     const env = actionEnv();
     const bin = resolveBinary ? resolveBinary({ env }) : '';
+    const args = dashboardSystemActionArgs(action, payload, bin || 'infring-ops');
     if (!bin) {
       return {
         ok: false,
@@ -129,6 +140,7 @@ function createGatewayDashboardSystemActionDispatcher(options = {}) {
         stdio: 'ignore',
       });
       if (child && typeof child.unref === 'function') child.unref();
+      const receiptRef = `receipt/gateway-system-action-dispatch/${cleanText(action, 40).toLowerCase()}/${Number(child && child.pid) || 0}`;
       return {
         ok: true,
         type: 'dashboard_system_action',
@@ -137,6 +149,14 @@ function createGatewayDashboardSystemActionDispatcher(options = {}) {
         args: args.slice(1),
         dispatch_mode: 'detached_subprocess',
         pid: Number(child && child.pid) || 0,
+        accepted_async: true,
+        receipt_ref: receiptRef,
+        receipt: {
+          id: receiptRef,
+          ref: receiptRef,
+          receipt_ref: receiptRef,
+          kind: 'gateway_system_action_dispatch',
+        },
         payload: null,
         error: '',
       };

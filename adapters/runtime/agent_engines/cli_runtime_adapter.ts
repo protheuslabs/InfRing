@@ -1027,8 +1027,8 @@ function classifyActivityKind(eventType, row) {
   const item = row && row.item && typeof row.item === 'object' ? row.item : {};
   const itemType = cleanString(item.type || item.kind || item.name, 160).toLowerCase();
   const joined = `${type} ${itemType}`;
-  if (joined.includes('reasoning')) return 'reasoning_summary';
-  if (joined.includes('thought')) return 'reasoning_summary';
+  if (joined.includes('reasoning')) return 'decision_dialog';
+  if (joined.includes('thought')) return 'decision_dialog';
   if (joined.includes('plan')) return 'plan_update';
   if (joined.includes('permission') || joined.includes('approval')) return 'permission_event';
   if (joined.includes('tool') || joined.includes('mcp')) return 'tool_call_event';
@@ -1131,7 +1131,8 @@ function shouldStreamCliActivityEvent(event) {
   const row = event && typeof event === 'object' ? event : {};
   const kind = cleanString(row.activity_kind || row.kind || '', 80);
   if (kind === 'assistant_delta') return false;
-  if (kind === 'reasoning_summary') return false;
+  if (kind === 'reasoning_summary') return true;
+  if (kind === 'decision_dialog') return true;
   return true;
 }
 
@@ -1162,8 +1163,19 @@ function compactCliActivityEvents(rows, ctx, defaultEngineId) {
       if (event.display_text) assistantPreview = cleanDisplayString(`${assistantPreview}${event.display_text}`, 1200);
       continue;
     }
-    if (event.activity_kind === 'reasoning_summary') {
-      reasoningCount += 1;
+    if (event.activity_kind === 'reasoning_summary' || event.activity_kind === 'decision_dialog') {
+      const dialogText = cleanDisplayString(event.display_text || event.text || '', 2000);
+      if (dialogText && dialogText.toLowerCase() !== 'thinking') {
+        out.push({
+          ...event,
+          activity_kind: 'decision_dialog',
+          provider_event_type: event.provider_event_type || 'decision_dialog',
+          text: dialogText,
+          display_text: dialogText,
+        });
+      } else {
+        reasoningCount += 1;
+      }
       continue;
     }
     if (event.activity_kind === 'completed' && cleanString(event.provider_event_type, 80).toLowerCase() === 'end') {
@@ -1601,6 +1613,7 @@ function semanticProviderQuery(row) {
 
 function semanticActivityKindFromRow(row) {
   const type = compactEventType(row).toLowerCase();
+  if (type.includes('reasoning') || type.includes('thought') || type.includes('plan')) return 'decision_dialog';
   if (type.includes('command') || type.includes('bash') || type.includes('shell') || type.includes('exec')) return 'command';
   if (type.includes('file') || type.includes('edit') || type.includes('patch') || type.includes('write')) return 'file_change';
   if (type.includes('search') || type.includes('grep') || type.includes('find')) return 'search';
@@ -1613,6 +1626,10 @@ function semanticActivityTextFromRow(row, defaultEngineId) {
   const type = compactEventType(row).toLowerCase();
   if (!type || type === 'thread.started' || type === 'turn.started') return '';
   if (type === 'assistant_delta' || type === 'assistant_delta.compacted' || type.includes('partial')) return '';
+  if (type.includes('reasoning') || type.includes('thought') || type.includes('plan')) {
+    const dialog = firstSemanticString(row, ['message', 'summary', 'title', 'description', 'reason', 'text'], 0);
+    if (dialog && !dialog.startsWith('{')) return dialog;
+  }
   const status = semanticProviderStatus(row);
   const statusPrefix = status === 'completed' ? 'Completed' : status === 'failed' ? 'Failed' : 'Working on';
   const command = semanticProviderCommand(row);
