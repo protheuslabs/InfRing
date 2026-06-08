@@ -741,6 +741,39 @@ if (!exists(cliRuntimeAdapterPath)) {
           result: parsedPermission,
         });
       }
+      const claudeWritePermissionText = 'Permission required: {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_validation","name":"Write","input":{"file_path":"' + ROOT + '/tmp/approval_resume.txt","content":"approved after pause"}}]}}';
+      const parsedClaudeWritePermission = cliAdapter.parseCliActivityOutput(
+        claudeWritePermissionText,
+        '',
+        {
+          message: {
+            trace_id: 'trace-cli-claude-write-permission-conformance',
+            request_id: 'request-cli-claude-write-permission-conformance',
+            engine_id: 'claude_code',
+            session_id: 'session-cli-claude-write-permission-conformance',
+            turn_id: 'turn-cli-claude-write-permission-conformance',
+            working_directory: ROOT,
+          },
+        },
+        'claude_code',
+      );
+      const claudeWriteRequest = parsedClaudeWritePermission && parsedClaudeWritePermission.permission_request;
+      if (
+        !claudeWriteRequest ||
+        claudeWriteRequest.type !== 'permission.requested' ||
+        claudeWriteRequest.status !== 'paused_pending_approval' ||
+        claudeWriteRequest.turn_status !== 'permission_required' ||
+        claudeWriteRequest.resume_strategy !== 'gateway_apply_approved_effect' ||
+        claudeWriteRequest.tool_id !== 'artifact.create_propose' ||
+        claudeWriteRequest.proposal_arguments?.path !== 'tmp/approval_resume.txt' ||
+        claudeWriteRequest.proposal_arguments?.content !== 'approved after pause'
+      ) {
+        violations.push({
+          kind: 'cli_runtime_denied_write_json_not_normalized_to_artifact_proposal',
+          path: cliRuntimeAdapterPath,
+          result: parsedClaudeWritePermission,
+        });
+      }
     }
   } catch (error) {
     violations.push({ kind: 'cli_runtime_permission_text_probe_failed', path: cliRuntimeAdapterPath, error: String(error && error.message || error) });

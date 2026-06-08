@@ -1405,6 +1405,22 @@ function inferEffectiveProposalToolId(rawToolId, args) {
   return toolId;
 }
 
+function rowLooksLikeDeniedArtifactProposal(row) {
+  if (!row || typeof row !== 'object') return false;
+  let text = '';
+  try {
+    text = JSON.stringify(row);
+  } catch {
+    return false;
+  }
+  const lower = text.toLowerCase();
+  return (
+    (lower.includes('"tool_name":"write"') || lower.includes('"name":"write"') || lower.includes('"tool":"write"')) &&
+    (lower.includes('"file_path"') || lower.includes('"path"')) &&
+    lower.includes('"content"')
+  );
+}
+
 function collectPermissionDenials(rows, fallbackText) {
   const out = [];
   const add = (value) => {
@@ -1413,6 +1429,10 @@ function collectPermissionDenials(rows, fallbackText) {
   };
   for (const row of Array.isArray(rows) ? rows : []) {
     if (!row || typeof row !== 'object') continue;
+    if (rowLooksLikeDeniedArtifactProposal(row)) {
+      const rowText = cleanDisplayString(JSON.stringify(row), 4000);
+      if (rowText) out.push(rowText);
+    }
     const denials = Array.isArray(row.permission_denials) ? row.permission_denials : [];
     for (const denial of denials) {
       const denialText = cleanDisplayString(extractTextFromContent(denial, 4000) || JSON.stringify(denial), 4000);
@@ -1445,10 +1465,98 @@ function inferPermissionToolId(text) {
   return 'permission.request';
 }
 
+function parseJsonObjectFromText(text) {
+  const value = cleanDisplayString(text, 12000);
+  const start = value.indexOf('{');
+  const end = value.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(value.slice(start, end + 1));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function relativeDeniedArtifactPath(rawPath, ctx) {
+  const value = cleanString(rawPath, 1200).replace(/^file:\/\//, '');
+  const cwd = requestWorkingDirectory(ctx);
+  if (cwd && value.startsWith(`${cwd}/`)) return value.slice(cwd.length + 1);
+  return value;
+}
+
+function findWriteToolInput(value, depth = 0) {
+  if (!value || depth > 6) return null;
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 32)) {
+      const found = findWriteToolInput(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value !== 'object') return null;
+  const toolName = cleanString(value.tool_name || value.name || value.tool || '', 120).toLowerCase();
+  const input = value.tool_input && typeof value.tool_input === 'object'
+    ? value.tool_input
+    : value.input && typeof value.input === 'object'
+      ? value.input
+      : value.arguments && typeof value.arguments === 'object'
+        ? value.arguments
+        : value.params && typeof value.params === 'object'
+          ? value.params
+          : null;
+  if (toolName && /write|edit|create|save|patch|artifact/.test(toolName) && input) {
+    return { toolName, input };
+  }
+  for (const child of Object.values(value).slice(0, 48)) {
+    const found = findWriteToolInput(child, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function deniedArtifactProposalArguments(text, ctx) {
+  const parsed = parseJsonObjectFromText(text);
+  if (!parsed) return {};
+  const found = findWriteToolInput(parsed);
+  const toolName = found
+    ? found.toolName
+    : cleanString(parsed.tool_name || parsed.name || parsed.tool || '', 120).toLowerCase();
+  const input = found
+    ? found.input
+    : parsed.tool_input && typeof parsed.tool_input === 'object'
+    ? parsed.tool_input
+    : parsed.input && typeof parsed.input === 'object'
+      ? parsed.input
+      : parsed.arguments && typeof parsed.arguments === 'object'
+        ? parsed.arguments
+        : parsed.params && typeof parsed.params === 'object'
+          ? parsed.params
+          : {};
+  const rawPath = input.file_path || input.path || input.file || input.filename || input.relative_path || parsed.file_path || parsed.path;
+  const content = input.content != null
+    ? input.content
+    : input.text != null
+      ? input.text
+      : input.body != null
+        ? input.body
+        : undefined;
+  if (!rawPath || content == null) return {};
+  if (toolName && !/write|edit|create|save|patch|artifact/.test(toolName)) return {};
+  return {
+    path: relativeDeniedArtifactPath(rawPath, ctx),
+    mime_type: cleanString(input.mime_type || input.content_type || 'text/plain', 120),
+    content: cleanDisplayString(content, 262144),
+  };
+}
+
 function buildPermissionRequestFromDenials(denials, ctx, defaultEngineId) {
   if (!Array.isArray(denials) || !denials.length) return null;
-  const text = cleanDisplayString(denials[0], 1000);
+  const rawText = cleanDisplayString(denials[0], 12000);
+  const text = cleanDisplayString(rawText, 1000);
+  const deniedArtifactArguments = deniedArtifactProposalArguments(rawText, ctx);
   const toolId = inferPermissionToolId(text);
+  const proposalArguments = toolId === 'artifact.create_propose' ? deniedArtifactArguments : {};
   const base = baseEvent(ctx, 'permission.requested', defaultEngineId);
   const turnId = base.turn_id || base.request_id || 'turn';
   const approvalId = cleanString(`approval_${toolId}_${base.trace_id || 'trace'}_${turnId}`, 260)
@@ -1471,11 +1579,14 @@ function buildPermissionRequestFromDenials(denials, ctx, defaultEngineId) {
         ? 'propose_memory_write'
         : 'request_permission',
     reason: cleanDisplayString(text || 'External runtime requested permission to continue.', 1000),
-    argument_keys: [],
+    argument_keys: Object.keys(proposalArguments || {}).map((key) => cleanString(key, 80)).filter(Boolean).slice(0, 24),
+    proposal_arguments: proposalArguments,
     status: 'paused_pending_approval',
     turn_status: 'permission_required',
     pause_reason: cleanDisplayString(text || 'External runtime requested permission to continue.', 1000),
-    resume_strategy: 'grant_then_retry_next_turn',
+    resume_strategy: Object.keys(proposalArguments || {}).length
+      ? 'gateway_apply_approved_effect'
+      : 'grant_then_retry_next_turn',
     gatekeeper_kind: 'user',
     future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor'],
     decisions: ['allow_once', 'deny', 'always_allow_tool_call'],
