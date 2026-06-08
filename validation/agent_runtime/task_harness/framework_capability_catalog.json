@@ -238,6 +238,8 @@
         "file_write",
         "shell_command",
         "activity_dialog_stream",
+        "model_selection",
+        "provider_auth_discovery",
         "failure_reporting"
       ],
       "known_gaps": [
@@ -292,6 +294,7 @@
         "activity_dialog_stream",
         "decision_dialog",
         "model_selection",
+        "provider_auth_discovery",
         "failure_reporting"
       ],
       "known_gaps": [

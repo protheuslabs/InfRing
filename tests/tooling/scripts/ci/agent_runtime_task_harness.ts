@@ -158,6 +158,13 @@ function resolveListTemplate(values: string[], context: Record<string, string>):
   return values.map((value) => resolveToken(value, context)).filter((value) => value.length > 0);
 }
 
+function expandCandidatePath(value: string, context: Record<string, string>): string {
+  const resolved = resolveToken(value, context);
+  if (resolved === "~") return os.homedir();
+  if (resolved.startsWith("~/")) return path.join(os.homedir(), resolved.slice(2));
+  return path.resolve(REPO_ROOT, resolved);
+}
+
 function selectedRows(rows: AnyJson[], selected: string, idField = "id"): AnyJson[] {
   if (!selected || selected === "all") {
     return rows;
@@ -421,14 +428,24 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
 
 function scoreResult(task: AnyJson, native: RunOutcome, infring: RunOutcome, mode: string, live: boolean): AnyJson {
   const expected = new Set<string>(Array.isArray(task.expected_capabilities) ? task.expected_capabilities : []);
-  const unknown = live ? "unknown" : "unknown";
+  const relevantOk = (): "pass" | "warn" | "fail" | "unknown" => {
+    if (!live) return "unknown";
+    const nativeRelevant = mode === "native" || mode === "both";
+    const infringRelevant = mode === "infring" || mode === "both";
+    if (nativeRelevant && infringRelevant) {
+      if (native.ok && infring.ok) return "pass";
+      if (native.ok || infring.ok) return "warn";
+      return "fail";
+    }
+    return native.ok || infring.ok ? "pass" : "fail";
+  };
   const score: AnyJson = {
-    context_continuity: expected.has("conversation_context") || expected.has("multi_turn_continuity") ? unknown : "pass",
-    activity_trace: expected.has("activity_dialog_stream") || expected.has("decision_dialog") || expected.has("tool_trace_visibility") ? unknown : "pass",
-    approval_flow: expected.has("approval_pause_resume") || expected.has("permission_request") ? unknown : "pass",
-    artifact_effect: expected.has("file_write") || expected.has("artifact_receipt") ? unknown : "pass",
-    model_control: expected.has("model_selection") || expected.has("provider_identity") ? unknown : "pass",
-    failure_reporting: expected.has("failure_reporting") || expected.has("hard_failure_chat_injection") ? unknown : "pass",
+    context_continuity: expected.has("conversation_context") || expected.has("multi_turn_continuity") ? relevantOk() : "unknown",
+    activity_trace: expected.has("activity_dialog_stream") || expected.has("decision_dialog") || expected.has("tool_trace_visibility") ? relevantOk() : "unknown",
+    approval_flow: expected.has("approval_pause_resume") || expected.has("permission_request") ? relevantOk() : "unknown",
+    artifact_effect: expected.has("file_read") || expected.has("file_write") || expected.has("artifact_receipt") ? relevantOk() : "unknown",
+    model_control: expected.has("model_selection") || expected.has("provider_identity") ? relevantOk() : "unknown",
+    failure_reporting: expected.has("failure_reporting") || expected.has("hard_failure_chat_injection") ? relevantOk() : "unknown",
     parity: "unknown"
   };
   if (!live) {
@@ -520,6 +537,187 @@ function buildRegistryCoverage(catalog: AnyJson, registry: AnyJson, registryPath
   };
 }
 
+function buildAvailabilityMatrix(catalog: AnyJson, args: HarnessArgs): AnyJson[] {
+  const context = {
+    repo: REPO_ROOT,
+    framework_root: args.frameworkRoot
+  };
+  return (catalog.frameworks ?? []).map((framework: AnyJson) => {
+    const probe = framework.availability_probe ?? {};
+    const native = framework.native_invocation ?? {};
+    const commandCandidates = Array.from(new Set([
+      ...(Array.isArray(probe.commands) ? probe.commands : []),
+      ...(Array.isArray(native.command_candidates) ? native.command_candidates : [])
+    ].map((value) => String(value || "").trim()).filter(Boolean)));
+    const pathCandidates = [
+      ...(args.frameworkRoot ? [args.frameworkRoot] : []),
+      ...(Array.isArray(probe.paths) ? probe.paths : [])
+    ].map((value) => expandCandidatePath(String(value), context));
+    const availableCommands = commandCandidates.filter((command) => commandExists(command));
+    const existingPaths = pathCandidates.filter((candidatePath) => fs.existsSync(candidatePath));
+    const nativeSupported = native.supported === true;
+    const gatewayNative = framework.kind === "native_engine" || probe.type === "gateway_provider_registry";
+    const configuredSocket = probe.type === "configured_socket_endpoint";
+    const available = gatewayNative || availableCommands.length > 0 || existingPaths.length > 0;
+    return {
+      framework_id: framework.id,
+      display_name: framework.display_name,
+      kind: framework.kind,
+      socket_engine_id: framework.socket_engine_id ?? framework.id,
+      native_supported: nativeSupported,
+      availability_probe_type: probe.type ?? "unspecified",
+      command_candidates: commandCandidates,
+      available_commands: availableCommands,
+      path_candidates: pathCandidates,
+      existing_paths: existingPaths,
+      status: available
+        ? (nativeSupported && availableCommands.length === 0 && existingPaths.length > 0 ? "path_only_available" : "available")
+        : (configuredSocket ? "requires_configured_endpoint" : "unavailable"),
+      next_action: available
+        ? "Run dry-run or live native/InfRing parity tasks for this framework."
+        : configuredSocket
+          ? "Configure the socket endpoint before live harness testing."
+          : "Install the framework command or pass --framework-root to a checked-out framework path."
+    };
+  });
+}
+
+function buildGapId(parts: Array<string | number | undefined | null>): string {
+  return parts
+    .map((part) => String(part ?? ""))
+    .filter(Boolean)
+    .join(":")
+    .replace(/[^a-zA-Z0-9_.:-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 180);
+}
+
+function buildCapabilityGaps(capabilityMatrix: AnyJson[], frameworkResults: AnyJson[], registryCoverage: AnyJson, availabilityMatrix: AnyJson[]): AnyJson[] {
+  const gaps: AnyJson[] = [];
+  const availabilityByFramework = new Map<string, AnyJson>(
+    availabilityMatrix.map((row: AnyJson) => [String(row.framework_id || ""), row])
+  );
+  for (const violation of registryCoverage?.violations ?? []) {
+    gaps.push({
+      id: buildGapId(["registry", violation.kind, violation.engine_id]),
+      severity: "red",
+      kind: violation.kind,
+      framework_id: violation.engine_id,
+      summary: `Registry/catalog coverage violation for ${violation.engine_id}.`,
+      next_action: "Align the Agent Runtime task harness catalog with the engine registry."
+    });
+  }
+  for (const row of capabilityMatrix) {
+    const frameworkId = String(row.framework_id ?? "");
+    const availability = availabilityByFramework.get(frameworkId) ?? {};
+    const missing = Array.isArray(row.missing_from_socket_expectations) ? row.missing_from_socket_expectations : [];
+    const unknown = Array.isArray(row.unknown_native_capabilities) ? row.unknown_native_capabilities : [];
+    if (availability.native_supported && availability.status === "unavailable") {
+      gaps.push({
+        id: buildGapId(["native_unavailable", frameworkId]),
+        severity: "yellow",
+        kind: "native_runtime_unavailable_for_live_testing",
+        framework_id: frameworkId,
+        summary: `${row.display_name || frameworkId} has a native harness invocation but no local command/path is currently available.`,
+        next_action: availability.next_action || "Install/configure the framework before live parity testing."
+      });
+    }
+    if (missing.length > 0) {
+      gaps.push({
+        id: buildGapId(["socket_expectation", frameworkId]),
+        severity: "red",
+        kind: "native_capability_missing_from_socket_expectations",
+        framework_id: frameworkId,
+        capabilities: missing,
+        summary: `${row.display_name || frameworkId} has native capabilities not represented in socket expectations: ${missing.join(", ")}.`,
+        next_action: "Either add socket expectation coverage or explicitly downgrade the native capability claim."
+      });
+    }
+    if (unknown.length > 0) {
+      gaps.push({
+        id: buildGapId(["native_unknowns", frameworkId]),
+        severity: "yellow",
+        kind: "native_capability_unknown",
+        framework_id: frameworkId,
+        capabilities: unknown,
+        summary: `${row.display_name || frameworkId} has ${unknown.length} unconfirmed native capability rows.`,
+        next_action: availability.status === "unavailable"
+          ? "Install/configure the native runtime first, then run native capability discovery."
+          : "Run native capability discovery or mark the capability unsupported with evidence."
+      });
+    }
+    for (const [index, gap] of (row.known_gaps ?? []).entries()) {
+      gaps.push({
+        id: buildGapId(["known_gap", frameworkId, index]),
+        severity: "yellow",
+        kind: "known_framework_gap",
+        framework_id: frameworkId,
+        summary: String(gap),
+        next_action: "Promote this known gap into a targeted live harness task or close it with evidence."
+      });
+    }
+  }
+  for (const result of frameworkResults) {
+    for (const side of ["native", "infring"]) {
+      const outcome = result[side] ?? {};
+      if (outcome.status === "failed") {
+        gaps.push({
+          id: buildGapId(["run_failed", result.framework_id, result.task_id, side]),
+          severity: "red",
+          kind: "task_run_failed",
+          framework_id: result.framework_id,
+          task_id: result.task_id,
+          side,
+          summary: `${side} run failed for ${result.framework_id}/${result.task_id}: ${outcome.summary || "no summary"}`,
+          next_action: "Inspect the referenced artifact and patch the runtime adapter or socket projection."
+        });
+      } else if (outcome.attempted && outcome.status === "skipped" && outcome.available === false) {
+        gaps.push({
+          id: buildGapId(["run_unavailable", result.framework_id, result.task_id, side]),
+          severity: "yellow",
+          kind: "task_run_unavailable",
+          framework_id: result.framework_id,
+          task_id: result.task_id,
+          side,
+          summary: `${side} run unavailable for ${result.framework_id}/${result.task_id}: ${outcome.summary || "no summary"}`,
+          next_action: "Install/configure the framework or mark the harness row as planned-only."
+        });
+      }
+    }
+    if (result.score?.parity === "fail") {
+      gaps.push({
+        id: buildGapId(["parity_failed", result.framework_id, result.task_id]),
+        severity: "red",
+        kind: "native_infring_parity_failed",
+        framework_id: result.framework_id,
+        task_id: result.task_id,
+        summary: `Native and InfRing outcomes diverged for ${result.framework_id}/${result.task_id}.`,
+        next_action: "Compare native stdout/stderr with InfRing response and tighten adapter projection parity."
+      });
+    } else if (result.score?.parity === "warn") {
+      gaps.push({
+        id: buildGapId(["parity_warn", result.framework_id, result.task_id]),
+        severity: "yellow",
+        kind: "native_infring_parity_warn",
+        framework_id: result.framework_id,
+        task_id: result.task_id,
+        summary: `Native and InfRing outcomes are inconclusive for ${result.framework_id}/${result.task_id}.`,
+        next_action: "Rerun live with stricter pass signals or add task-specific scoring."
+      });
+    }
+  }
+  return gaps;
+}
+
+function buildGapSummary(gaps: AnyJson[]): AnyJson {
+  return gaps.reduce((acc: AnyJson, gap: AnyJson) => {
+    const severity = String(gap.severity || "white");
+    acc.total += 1;
+    acc[severity] = Number(acc[severity] || 0) + 1;
+    return acc;
+  }, { total: 0, red: 0, yellow: 0, white: 0 });
+}
+
 function buildMarkdown(report: AnyJson): string {
   const lines: string[] = [];
   lines.push("# Agent Runtime Task Harness Report");
@@ -531,6 +729,7 @@ function buildMarkdown(report: AnyJson): string {
   lines.push(`- Frameworks: ${report.frameworks.join(", ") || "none"}`);
   lines.push(`- Tasks: ${report.tasks.join(", ") || "none"}`);
   lines.push(`- Registry coverage: ${report.registry_coverage?.ok ? "pass" : "fail"}`);
+  lines.push(`- Available runtimes: ${(report.availability_matrix ?? []).filter((row: AnyJson) => row.status === "available" || row.status === "path_only_available").length}/${(report.availability_matrix ?? []).length}`);
   lines.push("");
   lines.push("## Summary");
   lines.push("");
@@ -538,6 +737,15 @@ function buildMarkdown(report: AnyJson): string {
   lines.push(`- Completed: ${report.summary.completed}`);
   lines.push(`- Failed: ${report.summary.failed}`);
   lines.push(`- Skipped: ${report.summary.skipped}`);
+  lines.push(`- Gaps: red=${report.gap_summary?.red ?? 0}, yellow=${report.gap_summary?.yellow ?? 0}, white=${report.gap_summary?.white ?? 0}`);
+  lines.push("");
+  lines.push("## Availability");
+  lines.push("");
+  lines.push("| Framework | Status | Commands | Paths | Next action |");
+  lines.push("|---|---|---|---|---|");
+  for (const row of report.availability_matrix ?? []) {
+    lines.push(`| ${row.framework_id} | ${row.status} | ${(row.available_commands ?? []).join(", ") || "-"} | ${(row.existing_paths ?? []).join(", ") || "-"} | ${row.next_action || ""} |`);
+  }
   lines.push("");
   lines.push("## Results");
   lines.push("");
@@ -552,6 +760,16 @@ function buildMarkdown(report: AnyJson): string {
     lines.push("");
     for (const violation of report.registry_coverage?.violations ?? []) {
       lines.push(`- ${violation.kind}: ${violation.engine_id}`);
+    }
+    lines.push("");
+  }
+  if ((report.gaps ?? []).length > 0) {
+    lines.push("## Gap Rollup");
+    lines.push("");
+    lines.push("| Severity | Framework | Task | Kind | Next action |");
+    lines.push("|---|---|---|---|---|");
+    for (const gap of report.gaps) {
+      lines.push(`| ${gap.severity || ""} | ${gap.framework_id || ""} | ${gap.task_id || ""} | ${gap.kind || ""} | ${gap.next_action || ""} |`);
     }
     lines.push("");
   }
@@ -600,6 +818,7 @@ async function main(): Promise<void> {
     .slice(0, 16);
   const capabilityMatrix = buildCapabilityMatrix(catalog);
   const registryCoverage = buildRegistryCoverage(catalog, registry, args.registry);
+  const availabilityMatrix = buildAvailabilityMatrix(catalog, args);
   const frameworkResults: AnyJson[] = [];
 
   if (args.mode !== "catalog") {
@@ -634,6 +853,8 @@ async function main(): Promise<void> {
     }
     return acc;
   }, { planned: 0, completed: 0, failed: 0, skipped: 0 });
+  const gaps = buildCapabilityGaps(capabilityMatrix, frameworkResults, registryCoverage, availabilityMatrix);
+  const gapSummary = buildGapSummary(gaps);
 
   const report = {
     type: "agent_runtime_task_harness_report",
@@ -646,9 +867,12 @@ async function main(): Promise<void> {
     frameworks: frameworks.map((framework: AnyJson) => framework.id),
     tasks: tasks.map((task: AnyJson) => task.id),
     summary,
+    gap_summary: gapSummary,
+    availability_matrix: availabilityMatrix,
     registry_coverage: registryCoverage,
     framework_results: frameworkResults,
     capability_matrix: capabilityMatrix,
+    gaps,
     artifact_paths: [] as string[]
   };
 
@@ -668,6 +892,9 @@ async function main(): Promise<void> {
     frameworks: report.frameworks.length,
     tasks: report.tasks.length,
     summary,
+    gap_summary: gapSummary,
+    gap_count: gaps.length,
+    available_runtimes: availabilityMatrix.filter((row: AnyJson) => row.status === "available" || row.status === "path_only_available").length,
     registry_coverage_ok: registryCoverage.ok,
     registry_coverage_violations: registryCoverage.violations,
     artifact_paths: report.artifact_paths

@@ -8,6 +8,7 @@
     "generated_at": "iso8601",
     "live": "boolean",
     "mode": "native|infring|both|catalog",
+    "availability_matrix": "array",
     "framework_results": "array",
     "capability_matrix": "array",
     "gaps": "array",
