@@ -54,6 +54,20 @@ function push(list: any[], kind: string, rel: string, detail: string, extra: Rec
   list.push({ kind, path: rel, detail, ...extra });
 }
 
+function parseDateOnly(value: unknown): number | null {
+  const text = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const parsed = Date.parse(`${text}T00:00:00.000Z`);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function daysUntil(targetMs: number | null): number | null {
+  if (targetMs === null) return null;
+  const now = new Date();
+  const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.ceil((targetMs - todayMs) / 86400000);
+}
+
 const violations: any[] = [];
 const debt: any[] = [];
 const policy = json(policyPath);
@@ -67,6 +81,38 @@ if (!String(policy.canonical_rule || '').includes('adapters/** translates')) {
 }
 if (policy.todo_id !== 'ADAPTER-TRANSLATOR-ONLY-GUARD') {
   push(violations, 'todo_id_missing', policyPath, 'Policy must reference ADAPTER-TRANSLATOR-ONLY-GUARD.');
+}
+
+const debtManagement = policy.legacy_debt_management && typeof policy.legacy_debt_management === 'object'
+  ? policy.legacy_debt_management
+  : {};
+const debtCliffMs = parseDateOnly(debtManagement.debt_cliff);
+const reviewRequiredByMs = parseDateOnly(debtManagement.review_required_by);
+const reviewDaysRemaining = daysUntil(reviewRequiredByMs);
+const cliffDaysRemaining = daysUntil(debtCliffMs);
+
+if (debtCliffMs === null) {
+  push(violations, 'legacy_debt_cliff_missing', policyPath, 'legacy_debt_management.debt_cliff must be a YYYY-MM-DD date.');
+}
+if (reviewRequiredByMs === null) {
+  push(violations, 'legacy_review_date_missing', policyPath, 'legacy_debt_management.review_required_by must be a YYYY-MM-DD date.');
+}
+if (debtCliffMs !== null && reviewRequiredByMs !== null && reviewRequiredByMs > debtCliffMs) {
+  push(violations, 'legacy_review_after_debt_cliff', policyPath, 'Adapter legacy review must happen before or on the debt cliff.');
+}
+if (reviewDaysRemaining !== null && reviewDaysRemaining < 0) {
+  push(
+    violations,
+    'legacy_adapter_review_overdue',
+    policyPath,
+    `Declared adapter legacy exceptions require review by ${debtManagement.review_required_by}.`,
+  );
+}
+if (!String(debtManagement.expired_exception_policy || '').includes('fail_closed')) {
+  push(violations, 'legacy_expired_policy_not_fail_closed', policyPath, 'Expired adapter legacy exceptions must fail closed.');
+}
+if (!Array.isArray(debtManagement.renewal_requires) || debtManagement.renewal_requires.length < 5) {
+  push(violations, 'legacy_renewal_policy_too_weak', policyPath, 'Renewing adapter legacy exceptions must require owner, rationale, risk, TODO, and next removal step.');
 }
 
 const translatorRoots = Array.isArray(policy.translator_roots) ? policy.translator_roots : [];
@@ -98,12 +144,23 @@ for (const row of legacyRows) {
     continue;
   }
   if (!String(row.retirement_todo || '').trim()) push(violations, 'legacy_row_missing_retirement_todo', policyPath, rel);
-  if (!String(row.allowed_until || '').trim()) push(violations, 'legacy_row_missing_allowed_until', policyPath, rel);
+  const allowedUntilMs = parseDateOnly(row.allowed_until);
+  if (allowedUntilMs === null) {
+    push(violations, 'legacy_row_missing_allowed_until', policyPath, rel);
+  } else {
+    const daysRemaining = daysUntil(allowedUntilMs);
+    if (daysRemaining !== null && daysRemaining < 0) {
+      push(violations, 'legacy_row_allowed_until_expired', rel, `Legacy adapter exception expired on ${row.allowed_until}.`);
+    }
+    if (debtCliffMs !== null && allowedUntilMs > debtCliffMs) {
+      push(violations, 'legacy_row_extends_past_debt_cliff', rel, `allowed_until=${row.allowed_until} exceeds policy debt_cliff=${debtManagement.debt_cliff}.`);
+    }
+  }
   if (!rel.endsWith('/**') && !exists(rel)) push(violations, 'legacy_file_missing', rel, 'Declared legacy adapter file does not exist.');
   debt.push({
     kind: 'declared_legacy_non_translator_adapter',
     path: rel,
-    detail: `retirement_todo=${row.retirement_todo || 'missing'} allowed_until=${row.allowed_until || 'missing'}`,
+    detail: `retirement_todo=${row.retirement_todo || 'missing'} allowed_until=${row.allowed_until || 'missing'} review_required_by=${debtManagement.review_required_by || 'missing'}`,
   });
 }
 
@@ -203,6 +260,10 @@ const payload = {
     declared_gateway_shims: classified.shim,
     violations: violations.length,
     debt: debt.length,
+    legacy_debt_cliff: debtManagement.debt_cliff || null,
+    legacy_days_until_debt_cliff: cliffDaysRemaining,
+    legacy_review_required_by: debtManagement.review_required_by || null,
+    legacy_days_until_review: reviewDaysRemaining,
   },
   violations,
   debt,
@@ -224,6 +285,10 @@ const markdown = [
   `- translator_files: ${payload.summary.translator_files}`,
   `- declared_legacy_files: ${payload.summary.declared_legacy_files}`,
   `- declared_gateway_shims: ${payload.summary.declared_gateway_shims}`,
+  `- legacy_debt_cliff: ${payload.summary.legacy_debt_cliff || 'missing'}`,
+  `- legacy_days_until_debt_cliff: ${payload.summary.legacy_days_until_debt_cliff ?? 'unknown'}`,
+  `- legacy_review_required_by: ${payload.summary.legacy_review_required_by || 'missing'}`,
+  `- legacy_days_until_review: ${payload.summary.legacy_days_until_review ?? 'unknown'}`,
   '',
   '## Violations',
   violations.length ? violations.map((row) => `- ${row.kind}: ${row.path} - ${row.detail}`).join('\n') : '- none',

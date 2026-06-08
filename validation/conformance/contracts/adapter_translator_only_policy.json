@@ -5,6 +5,20 @@
   "scope": "adapters/** translation boundaries",
   "canonical_rule": "adapters/** translates private provider, protocol, process, CLI, HTTP, WebSocket, importer, and framework schemas behind Gateway sockets; adapters must not own Gateway policy, Shell presentation state, Kernel authority, Orchestration planning, Validation scoring, Observability storage truth, route admission, payload budgets, or permission decisions.",
   "todo_id": "ADAPTER-TRANSLATOR-ONLY-GUARD",
+  "legacy_debt_management": {
+    "debt_cliff": "2026-07-01",
+    "review_required_by": "2026-06-24",
+    "expired_exception_policy": "fail_closed",
+    "renewal_requires": [
+      "new allowed_until date",
+      "explicit owner",
+      "fresh retirement_todo",
+      "why retirement was not possible",
+      "risk of retaining the exception",
+      "next concrete removal step"
+    ],
+    "purpose": "Prevent declared non-translator adapter exceptions from becoming permanent compatibility infrastructure."
+  },
   "translator_roots": [
     {
       "path": "adapters/protocol/**",
