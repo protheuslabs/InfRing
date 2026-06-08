@@ -12,6 +12,7 @@ type HarnessArgs = {
   catalog: string;
   tasks: string;
   contract: string;
+  registry: string;
   framework: string;
   task: string;
   mode: string;
@@ -42,6 +43,7 @@ const REPO_ROOT = process.cwd();
 const DEFAULT_CATALOG = "validation/agent_runtime/task_harness/framework_capability_catalog.json";
 const DEFAULT_TASKS = "validation/agent_runtime/task_harness/agentic_task_matrix.json";
 const DEFAULT_CONTRACT = "validation/agent_runtime/task_harness/agent_runtime_task_harness_contract.json";
+const DEFAULT_REGISTRY = "validation/conformance/contracts/agent_runtime_engine_registry.json";
 const DEFAULT_ARTIFACT_ROOT = "core/local/artifacts/agent-runtime-task-harness";
 
 function usage(): string {
@@ -96,6 +98,7 @@ function parseArgs(argv: string[]): HarnessArgs {
     catalog: String(raw.catalog ?? DEFAULT_CATALOG),
     tasks: String(raw.tasks ?? DEFAULT_TASKS),
     contract: String(raw.contract ?? DEFAULT_CONTRACT),
+    registry: String(raw.registry ?? DEFAULT_REGISTRY),
     framework: String(raw.framework ?? "all"),
     task: String(raw.task ?? "all"),
     mode: String(raw.mode ?? "catalog"),
@@ -470,6 +473,53 @@ function buildCapabilityMatrix(catalog: AnyJson): AnyJson[] {
   });
 }
 
+function buildRegistryCoverage(catalog: AnyJson, registry: AnyJson, registryPath: string): AnyJson {
+  const catalogIds = new Set<string>((catalog.frameworks ?? []).map((framework: AnyJson) => String(framework.id ?? "").trim()).filter(Boolean));
+  const socketIds = new Set<string>((catalog.frameworks ?? []).map((framework: AnyJson) => String(framework.socket_engine_id ?? framework.id ?? "").trim()).filter(Boolean));
+  const registryRows = Array.isArray(registry.engines) ? registry.engines : [];
+  const trackedRegistryRows = registryRows
+    .map((engine: AnyJson) => ({
+      engine_id: String(engine.engine_id ?? "").trim(),
+      engine_kind: String(engine.engine_kind ?? "").trim(),
+      status: String(engine.status ?? "").trim()
+    }))
+    .filter((engine: AnyJson) => engine.engine_id.length > 0);
+  const missingFromCatalog = trackedRegistryRows
+    .filter((engine: AnyJson) => !catalogIds.has(engine.engine_id) && !socketIds.has(engine.engine_id));
+  const extraCatalogRows = Array.from(catalogIds)
+    .filter((id) => !trackedRegistryRows.some((engine: AnyJson) => engine.engine_id === id));
+  const duplicateCatalogRows = Array.from(catalogIds)
+    .filter((id) => (catalog.frameworks ?? []).filter((framework: AnyJson) => framework.id === id).length > 1);
+  const violations = [
+    ...missingFromCatalog.map((engine: AnyJson) => ({
+      kind: "registry_engine_missing_from_task_harness_catalog",
+      engine_id: engine.engine_id,
+      engine_kind: engine.engine_kind,
+      status: engine.status
+    })),
+    ...extraCatalogRows.map((id) => ({
+      kind: "task_harness_catalog_framework_missing_from_registry",
+      engine_id: id
+    })),
+    ...duplicateCatalogRows.map((id) => ({
+      kind: "task_harness_catalog_duplicate_framework",
+      engine_id: id
+    }))
+  ];
+  return {
+    ok: violations.length === 0,
+    registry_path: registryPath,
+    registry_engine_count: trackedRegistryRows.length,
+    catalog_framework_count: catalogIds.size,
+    registry_engine_ids: trackedRegistryRows.map((engine: AnyJson) => engine.engine_id),
+    catalog_framework_ids: Array.from(catalogIds),
+    missing_from_catalog: missingFromCatalog,
+    extra_catalog_rows: extraCatalogRows,
+    duplicate_catalog_rows: duplicateCatalogRows,
+    violations
+  };
+}
+
 function buildMarkdown(report: AnyJson): string {
   const lines: string[] = [];
   lines.push("# Agent Runtime Task Harness Report");
@@ -480,6 +530,7 @@ function buildMarkdown(report: AnyJson): string {
   lines.push(`- Live: ${report.live}`);
   lines.push(`- Frameworks: ${report.frameworks.join(", ") || "none"}`);
   lines.push(`- Tasks: ${report.tasks.join(", ") || "none"}`);
+  lines.push(`- Registry coverage: ${report.registry_coverage?.ok ? "pass" : "fail"}`);
   lines.push("");
   lines.push("## Summary");
   lines.push("");
@@ -494,6 +545,15 @@ function buildMarkdown(report: AnyJson): string {
   lines.push("|---|---|---:|---:|---:|");
   for (const row of report.framework_results) {
     lines.push(`| ${row.framework_id} | ${row.task_id} | ${row.native.status} | ${row.infring.status} | ${row.score.parity} |`);
+  }
+  lines.push("");
+  if (!report.registry_coverage?.ok) {
+    lines.push("## Registry Coverage Violations");
+    lines.push("");
+    for (const violation of report.registry_coverage?.violations ?? []) {
+      lines.push(`- ${violation.kind}: ${violation.engine_id}`);
+    }
+    lines.push("");
   }
   lines.push("");
   lines.push("## Capability Gaps");
@@ -528,6 +588,7 @@ async function main(): Promise<void> {
   const catalog = readJson(args.catalog);
   const taskMatrix = readJson(args.tasks);
   const contract = readJson(args.contract);
+  const registry = readJson(args.registry);
   const frameworks = selectedRows(catalog.frameworks ?? [], args.framework);
   const tasks = args.mode === "catalog" ? [] : selectedRows(taskMatrix.tasks ?? [], args.task);
   const outDir = path.resolve(REPO_ROOT, args.outDir);
@@ -538,6 +599,7 @@ async function main(): Promise<void> {
     .digest("hex")
     .slice(0, 16);
   const capabilityMatrix = buildCapabilityMatrix(catalog);
+  const registryCoverage = buildRegistryCoverage(catalog, registry, args.registry);
   const frameworkResults: AnyJson[] = [];
 
   if (args.mode !== "catalog") {
@@ -584,6 +646,7 @@ async function main(): Promise<void> {
     frameworks: frameworks.map((framework: AnyJson) => framework.id),
     tasks: tasks.map((task: AnyJson) => task.id),
     summary,
+    registry_coverage: registryCoverage,
     framework_results: frameworkResults,
     capability_matrix: capabilityMatrix,
     artifact_paths: [] as string[]
@@ -597,7 +660,7 @@ async function main(): Promise<void> {
   writeJson(jsonPath, report);
 
   console.log(JSON.stringify({
-    ok: summary.failed === 0,
+    ok: summary.failed === 0 && registryCoverage.ok,
     type: report.type,
     run_id: runId,
     live: args.live,
@@ -605,8 +668,13 @@ async function main(): Promise<void> {
     frameworks: report.frameworks.length,
     tasks: report.tasks.length,
     summary,
+    registry_coverage_ok: registryCoverage.ok,
+    registry_coverage_violations: registryCoverage.violations,
     artifact_paths: report.artifact_paths
   }, null, 2));
+  if (!registryCoverage.ok) {
+    process.exit(1);
+  }
 }
 
 main().catch((error) => {

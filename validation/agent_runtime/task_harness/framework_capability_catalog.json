@@ -411,6 +411,145 @@
       "known_gaps": [
         "Capability catalog is intentionally conservative until native Hermes tests are run."
       ]
+    },
+    {
+      "id": "openhands",
+      "display_name": "OpenHands",
+      "kind": "external_framework",
+      "socket_engine_id": "openhands",
+      "availability_probe": {
+        "type": "path_or_command_candidates",
+        "paths": [
+          "{repo}/external/openhands",
+          "{repo}/../openhands"
+        ],
+        "commands": [
+          "openhands"
+        ]
+      },
+      "native_invocation": {
+        "supported": false,
+        "reason": "OpenHands is registered as a planned structured adapter; native invocation is not confirmed for this harness yet."
+      },
+      "native_features": {
+        "conversation_context": "unknown",
+        "multi_turn_continuity": "unknown",
+        "working_directory_control": "unknown",
+        "file_read": "unknown",
+        "file_write": "unknown",
+        "shell_command": "unknown",
+        "approval_pause_resume": "unknown",
+        "activity_dialog_stream": "unknown",
+        "decision_dialog": "unknown",
+        "model_selection": "unknown",
+        "provider_auth_discovery": "unknown",
+        "failure_reporting": "unknown"
+      },
+      "socket_features_expected": [
+        "conversation_context",
+        "working_directory_control",
+        "file_read",
+        "file_write",
+        "approval_pause_resume",
+        "activity_dialog_stream",
+        "decision_dialog",
+        "model_selection",
+        "failure_reporting"
+      ],
+      "known_gaps": [
+        "Registry row exists, but a live OpenHands adapter and native task invocation are still planned rather than proven."
+      ]
+    },
+    {
+      "id": "openfang",
+      "display_name": "OpenFang",
+      "kind": "external_framework",
+      "socket_engine_id": "openfang",
+      "availability_probe": {
+        "type": "path_or_command_candidates",
+        "paths": [
+          "{repo}/external/openfang",
+          "{repo}/../openfang"
+        ],
+        "commands": [
+          "openfang"
+        ]
+      },
+      "native_invocation": {
+        "supported": false,
+        "reason": "OpenFang is registered as a planned structured adapter; native invocation is not confirmed for this harness yet."
+      },
+      "native_features": {
+        "conversation_context": "unknown",
+        "multi_turn_continuity": "unknown",
+        "working_directory_control": "unknown",
+        "file_read": "unknown",
+        "file_write": "unknown",
+        "shell_command": "unknown",
+        "approval_pause_resume": "unknown",
+        "activity_dialog_stream": "unknown",
+        "decision_dialog": "unknown",
+        "model_selection": "unknown",
+        "provider_auth_discovery": "unknown",
+        "failure_reporting": "unknown"
+      },
+      "socket_features_expected": [
+        "conversation_context",
+        "working_directory_control",
+        "file_read",
+        "file_write",
+        "approval_pause_resume",
+        "activity_dialog_stream",
+        "decision_dialog",
+        "model_selection",
+        "failure_reporting"
+      ],
+      "known_gaps": [
+        "Registry row exists, but a live OpenFang adapter and native task invocation are still planned rather than proven."
+      ]
+    },
+    {
+      "id": "custom_socket_engine",
+      "display_name": "Custom Socket Engine",
+      "kind": "external_socket",
+      "socket_engine_id": "custom_socket_engine",
+      "availability_probe": {
+        "type": "configured_socket_endpoint",
+        "config_key": "agent_runtimes.custom_socket_engine.endpoint"
+      },
+      "native_invocation": {
+        "supported": false,
+        "reason": "Custom socket engines are measured through the InfRing socket path and do not have a universal native CLI invocation."
+      },
+      "native_features": {
+        "conversation_context": "unknown",
+        "multi_turn_continuity": "unknown",
+        "working_directory_control": "unknown",
+        "file_read": "unknown",
+        "file_write": "unknown",
+        "shell_command": "unknown",
+        "approval_pause_resume": "unknown",
+        "activity_dialog_stream": "unknown",
+        "decision_dialog": "unknown",
+        "model_selection": "unknown",
+        "provider_auth_discovery": "unknown",
+        "failure_reporting": "unknown"
+      },
+      "socket_features_expected": [
+        "conversation_context",
+        "multi_turn_continuity",
+        "working_directory_control",
+        "file_read",
+        "file_write",
+        "approval_pause_resume",
+        "activity_dialog_stream",
+        "decision_dialog",
+        "model_selection",
+        "failure_reporting"
+      ],
+      "known_gaps": [
+        "Registry row exists, but each custom socket engine must declare its own endpoint schema, capability map, and approval semantics before live parity can be scored."
+      ]
     }
   ]
 }
