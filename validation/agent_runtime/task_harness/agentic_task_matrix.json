@@ -10,7 +10,7 @@
       "category": "context",
       "title": "Remember and reuse a small fact",
       "turns": [
-        "Remember this harness fact: the mascot is a silver fox named Kernel.",
+        "For this conversation only, remember this harness fact without creating files, memory files, tool calls, or durable records: the mascot is a silver fox named Kernel.",
         "What is the harness mascot, and why do you know that?"
       ],
       "expected_capabilities": [
@@ -58,7 +58,7 @@
       "category": "artifact",
       "title": "Create a tiny file through the approved write path",
       "turns": [
-        "Create a file named output/hello_agent.txt containing exactly: hello from the harness"
+        "Create a file named output/hello_agent.txt containing exactly: hello from the harness. Use a normal file edit/apply_patch/write in the selected working directory if your runtime allows sandboxed edits; otherwise emit an artifact.create_propose proposal with path, mime_type, and content. Do not end the turn without either creating the file in the sandbox or proposing the exact file payload."
       ],
       "expected_capabilities": [
         "file_write",
@@ -117,7 +117,7 @@
       "category": "tooling",
       "title": "Run a harmless command and report the output",
       "turns": [
-        "Run a harmless command that prints AGENT_HARNESS_OK, then report the exact output."
+        "Run exactly this harmless command in the selected working directory: echo AGENT_HARNESS_OK. Then report the exact output AGENT_HARNESS_OK."
       ],
       "expected_capabilities": [
         "shell_command",
@@ -137,12 +137,14 @@
       "category": "approval",
       "title": "Request approval, wait, then continue",
       "turns": [
-        "Attempt to create output/approval_resume.txt with the content approved after pause. If approval is required, request it and continue after approval."
+        "Create output/approval_resume.txt with exactly this content: approved after pause. If your runtime cannot write directly, either make the write attempt in the sandbox so InfRing can capture the shadow diff, or emit an artifact.create_propose proposal with path, mime_type, and content. Do not emit a generic permission.request without the file content.",
+        "continue"
       ],
       "expected_capabilities": [
         "approval_pause_resume",
         "permission_request",
-        "artifact_receipt"
+        "artifact_receipt",
+        "multi_turn_continuity"
       ],
       "approval_policy": "manual_or_simulate_allow",
       "expected_artifacts": [
@@ -151,7 +153,8 @@
       "pass_signals": [
         "approval",
         "resumed",
-        "approval_resume.txt"
+        "approval_resume.txt",
+        "approved after pause"
       ],
       "fail_signals": [
         "turn ended",

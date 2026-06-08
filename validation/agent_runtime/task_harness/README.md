@@ -7,6 +7,15 @@ This harness exists to compare agentic frameworks in two modes:
 
 The purpose is not only "does it answer?" The purpose is to catalog what each framework can do natively, then prove whether InfRing can preserve those capabilities through a clean socket boundary.
 
+## Proof accounting
+
+External-engine success is substrate proof, not native InfRing intelligence proof.
+
+- `substrate/platform proof`: InfRing safely hosts, constrains, scores, and normalizes an external runtime through Gateway.
+- `native intelligence proof`: InfRing-native workflows, tools, memory, and receipts perform useful work without relying on an external framework as the primary actor.
+
+The harness primarily produces substrate/platform proof. Native InfRing promotion targets must remain on a separate scoreboard.
+
 ## Ownership
 
 This is a Validation-domain asset.

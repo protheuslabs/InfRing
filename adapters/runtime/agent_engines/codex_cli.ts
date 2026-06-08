@@ -27,9 +27,9 @@ function codexSandboxMode(ctx) {
 function createCodexCliEngineAdapter(options = {}) {
   return createCliRuntimeEngineAdapter({
     engineId: 'codex_cli',
-    contextTransportMode: 'prompt_text_compat',
-    structuredTransportTarget: 'structured_json',
-    transportMigrationStatus: 'transitional_bootstrap',
+    contextTransportMode: 'bounded_stdin_context_envelope',
+    structuredTransportTarget: 'native_structured_context_api',
+    transportMigrationStatus: 'bounded_stdin_active_upstream_structured_input_pending',
     command: options.command || process.env.INFRING_CODEX_CLI_BIN || process.env.INFRING_CODEX_CLI_PATH,
     commandFallback: 'codex',
     liveEnvVar: 'INFRING_AGENT_RUNTIME_CODEX_LIVE',
@@ -45,7 +45,7 @@ function createCodexCliEngineAdapter(options = {}) {
       timeoutMs: 8000,
       maxOutputBytes: 1048576,
     },
-    runArgs: (prompt, ctx) => {
+    runArgs: (_prompt, ctx) => {
       const modelArg = selectedRuntimeModelArg(ctx, ['codex_cli', 'codex', 'openai']);
       return [
         'exec',
@@ -57,9 +57,10 @@ function createCodexCliEngineAdapter(options = {}) {
         '--color',
         'never',
         ...(modelArg ? ['--model', modelArg] : []),
-        prompt,
+        '-',
       ];
     },
+    runStdin: (prompt) => prompt,
     ...options,
   });
 }

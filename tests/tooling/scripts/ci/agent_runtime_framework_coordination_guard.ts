@@ -77,6 +77,11 @@ const GATES = [
     coverage_scope: 'adapter_ready_subset',
   },
   {
+    id: 'shadow_attachment_bridge',
+    script: 'tests/tooling/scripts/ci/agent_runtime_shadow_attachment_guard.ts',
+    coverage_scope: 'adapter_capability_policy',
+  },
+  {
     id: 'real_work_replay',
     script: 'tests/tooling/scripts/ci/agent_runtime_real_work_replay_guard.ts',
     coverage_scope: 'full_engine_registry',

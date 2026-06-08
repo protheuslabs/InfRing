@@ -185,12 +185,29 @@ function runConduitSecurityKernel(command: string, payload: Record<string, unkno
     : parsed;
 }
 
+function conduitProductionModeActive(): boolean {
+  const values = [
+    process.env.NODE_ENV,
+    process.env.INFRING_ENV,
+    process.env.INFRING_RUNTIME_ENV,
+    process.env.INFRING_PROFILE,
+  ].map((value) => String(value || '').trim().toLowerCase());
+  return values.some((value) => value === 'production' || value === 'prod' || value === 'release');
+}
+
+function assertConduitFailSoftAllowed(reason: string): void {
+  if (conduitProductionModeActive()) {
+    throw new Error(`conduit_security_kernel_${reason}_failed_closed_production`);
+  }
+}
+
 function resolveSecurityConfigViaKernel(
   override?: Partial<ConduitClientSecurityConfig>,
 ): ConduitClientSecurityConfig {
   try {
     return runConduitSecurityKernel('resolve-security-config', { override }) as ConduitClientSecurityConfig;
   } catch {
+    assertConduitFailSoftAllowed('resolve_security_config');
     return {
       client_id: 'conduit-client-fail-soft',
       signing_key_id: 'conduit-client-fail-soft-signing-key',
@@ -227,6 +244,7 @@ function buildEnvelopeViaKernel(
   security: ConduitClientSecurityConfig,
 ): CommandEnvelope {
   if (String(process.env.INFRING_CONDUIT_TS_FALLBACK || '') === '1') {
+    assertConduitFailSoftAllowed('build_envelope_ts_fallback');
     const token = `fallback-token-${request_id}-${security.client_id}-${ts_ms}`;
     return {
       schema_id: CONDUIT_SCHEMA_ID,
@@ -254,6 +272,7 @@ function buildEnvelopeViaKernel(
   try {
     return runConduitSecurityKernel('build-envelope', payload) as CommandEnvelope;
   } catch {
+    assertConduitFailSoftAllowed('build_envelope');
     const previousFallback = process.env.INFRING_CONDUIT_TS_FALLBACK;
     process.env.INFRING_CONDUIT_TS_FALLBACK = '1';
     try {

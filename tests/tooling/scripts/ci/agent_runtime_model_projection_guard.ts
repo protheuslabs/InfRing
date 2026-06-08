@@ -199,6 +199,29 @@ function healthForEngine(engineId) {
       },
     };
   }
+  if (engineId === 'openclaw') {
+    return {
+      ...common,
+      status: 'runtime_requirement_missing',
+      provider_readiness: 'runtime_requirement_missing',
+      error_code: 'openclaw_runtime_requirement_missing',
+      reason: 'OpenClaw reference checkout exposes openclaw.mjs, but requires Node 22.19.0+ while this Gateway is running Node 20.19.2.',
+      runtime_requirement: 'node>=22.19.0',
+      current_runtime: 'node=20.19.2',
+      download_available: false,
+    };
+  }
+  if (engineId === 'hermes_agent') {
+    return {
+      ...common,
+      status: 'auth_required',
+      provider_readiness: 'blocked',
+      error_code: 'hermes_agent_provider_auth_required',
+      reason: 'No Hermes inference provider/model/API credential is configured.',
+      setup_action_ref: 'agent_runtime_setup/hermes_agent_provider',
+      download_available: false,
+    };
+  }
 
   return common;
 }
@@ -226,6 +249,18 @@ async function main() {
     const engineId = clean(row.engine_id, 120);
     const available = row.available_models && typeof row.available_models === 'object' ? row.available_models : {};
     const modelRows = Array.isArray(available.rows) ? available.rows : [];
+    const issueStatus = ['auth_required', 'runtime_requirement_missing', 'reference_checkout_entrypoint_available', 'installed_not_running', 'health_only'].includes(clean(row.status, 120));
+    if (issueStatus) {
+      if (row.selectable !== false) violations.push({ kind: 'issue_engine_selectable', engine_id: engineId, status: row.status });
+      if (row.download_available === true) violations.push({ kind: 'issue_engine_download_available', engine_id: engineId, status: row.status });
+      if (row.install_action_available === true) violations.push({ kind: 'issue_engine_install_action_available', engine_id: engineId, status: row.status });
+      if (row.command_line_install_available === true) violations.push({ kind: 'issue_engine_command_line_install_available', engine_id: engineId, status: row.status });
+      if (row.display_when_missing !== 'issue_indicator') violations.push({ kind: 'issue_engine_indicator_wrong', engine_id: engineId, status: row.status, display_when_missing: row.display_when_missing });
+      if (clean(row.status, 120) === 'auth_required' && !clean(row.setup_action_ref, 240)) violations.push({ kind: 'auth_issue_engine_setup_action_missing', engine_id: engineId });
+      if (clean(row.status, 120) === 'runtime_requirement_missing' && (!clean(row.runtime_requirement, 160) || !clean(row.current_runtime, 160))) {
+        violations.push({ kind: 'runtime_issue_engine_runtime_metadata_missing', engine_id: engineId, runtime_requirement: row.runtime_requirement, current_runtime: row.current_runtime });
+      }
+    }
     if (!available || available.type !== 'agent_runtime_available_models_projection') {
       violations.push({ kind: 'available_models_projection_missing', engine_id: engineId });
       continue;
@@ -285,6 +320,14 @@ async function main() {
     engines: rows.map((row) => ({
       engine_id: row.engine_id,
       status: row.status,
+      selectable: row.selectable,
+      download_available: row.download_available,
+      install_action_available: row.install_action_available,
+      command_line_install_available: row.command_line_install_available,
+      display_when_missing: row.display_when_missing,
+      setup_action_ref: row.setup_action_ref,
+      runtime_requirement: row.runtime_requirement,
+      current_runtime: row.current_runtime,
       model_source: row.available_models && row.available_models.source,
       catalog_source: row.available_models && row.available_models.catalog_source,
       row_count: row.available_models && row.available_models.row_count,

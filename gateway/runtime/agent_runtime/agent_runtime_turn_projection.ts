@@ -242,6 +242,9 @@ function classifyAgentRuntimePreTurnFailureCode(engineId, source, fallback = 'ag
     source && source.error_code,
     source && source.reason,
     source && source.status,
+    source && source.provider_status,
+    source && source.provider_reason,
+    source && source.setup_action_ref,
     source && source.version_preview,
     source && source.stderr_preview,
     source && source.message,
@@ -260,13 +263,19 @@ function classifyAgentRuntimePreTurnFailureCode(engineId, source, fallback = 'ag
     text.includes('unauthorized') ||
     text.includes('not authorized') ||
     text.includes('authentication') ||
+    text.includes('auth_required') ||
     text.includes('auth required') ||
     text.includes('login required') ||
     text.includes('please login') ||
     text.includes('please log in') ||
     text.includes('api key') ||
     text.includes('invalid token') ||
-    text.includes('token expired')
+    text.includes('token expired') ||
+    text.includes('model: (not set)') ||
+    text.includes('model not set') ||
+    text.includes('provider: auto') ||
+    text.includes('not configured') ||
+    text.includes('(not set)')
   ) {
     return `${cleanEngine}_provider_auth_required`;
   }
@@ -315,8 +324,8 @@ function agentRuntimeFailureNextActions(errorCode, engineId) {
   }
   if (code.includes('provider_quota_or_subscription_unavailable')) {
     return [
-      `Check ${engine} billing, subscription, or quota status.`,
-      'Switch to another runtime engine or provider until quota is restored.',
+      `Diagnostic: check ${engine} billing, subscription, or quota status.`,
+      'Recover: switch to another runtime engine or provider until quota is restored.',
     ];
   }
   if (code.includes('provider_rate_limited')) {

@@ -40,6 +40,7 @@ type RunOutcome = {
   approval_pause?: boolean;
   approval_decision_ok?: boolean;
   expected_artifacts_ok?: boolean;
+  expected_artifact_refs?: string[];
   error_code?: string;
   projection_status?: string;
   next_actions?: string[];
@@ -136,6 +137,21 @@ function writeText(fullPath: string, value: string): void {
   fs.writeFileSync(fullPath, value.endsWith("\n") ? value : `${value}\n`);
 }
 
+function fileFingerprint(fullPath: string): { exists: boolean; size: number; hash: string } {
+  try {
+    const stat = fs.statSync(fullPath);
+    if (!stat.isFile()) return { exists: false, size: 0, hash: "" };
+    const content = fs.readFileSync(fullPath);
+    return {
+      exists: true,
+      size: stat.size,
+      hash: crypto.createHash("sha256").update(content).digest("hex")
+    };
+  } catch {
+    return { exists: false, size: 0, hash: "" };
+  }
+}
+
 function signalList(value: any): string[] {
   return Array.isArray(value)
     ? value.map((item) => String(item ?? "").trim()).filter(Boolean)
@@ -211,7 +227,10 @@ function runEvidenceText(outcome: RunOutcome): string {
     readArtifactRef(outcome.stdout_ref),
     readArtifactRef(outcome.stderr_ref),
     readResponseEvidenceRef(outcome.response_ref),
-    readArtifactRef(outcome.approval_decision_ref)
+    readArtifactRef(outcome.approval_decision_ref),
+    ...(Array.isArray(outcome.expected_artifact_refs)
+      ? outcome.expected_artifact_refs.map((ref) => readArtifactRef(ref))
+      : [])
   ].map((part) => String(part || "")).join("\n");
 }
 
@@ -223,7 +242,19 @@ function evaluateSignals(task: AnyJson, outcome: RunOutcome, live: boolean): Any
   const hasSignal = (signal: string): boolean => lowerEvidence.includes(signal.toLowerCase());
   const matchedPassSignals = passSignals.filter(hasSignal);
   const missingPassSignals = passSignals.filter((signal) => !hasSignal(signal));
-  const matchedFailSignals = failSignals.filter(hasSignal);
+  let matchedFailSignals = failSignals.filter(hasSignal);
+  const approvalRecovered = outcome.ok &&
+    outcome.approval_pause === true &&
+    outcome.approval_decision_ok === true &&
+    outcome.expected_artifacts_ok === true;
+  if (approvalRecovered) {
+    const recoveredBlockerSignals = new Set([
+      "read-only",
+      "approval policy is never",
+      "cannot modify",
+    ]);
+    matchedFailSignals = matchedFailSignals.filter((signal) => !recoveredBlockerSignals.has(signal.toLowerCase()));
+  }
   let status: "pass" | "warn" | "fail" | "unknown" = "unknown";
   if (live && outcome.attempted && outcome.status !== "planned" && outcome.status !== "skipped") {
     if (matchedFailSignals.length > 0) {
@@ -301,8 +332,18 @@ function resolveToken(value: string, context: Record<string, string>): string {
   return String(value).replace(/\{([a-zA-Z0-9_]+)\}/g, (_match, key) => context[key] ?? "");
 }
 
-function resolveListTemplate(values: string[], context: Record<string, string>): string[] {
-  return values.map((value) => resolveToken(value, context)).filter((value) => value.length > 0);
+function resolveListTemplate(values: string[], context: Record<string, string | string[]>): string[] {
+  const out: string[] = [];
+  for (const value of values) {
+    const exact = String(value || "").match(/^\{([a-zA-Z0-9_]+)\}$/);
+    if (exact && Array.isArray(context[exact[1]])) {
+      out.push(...(context[exact[1]] as string[]).filter((item) => item.length > 0));
+      continue;
+    }
+    const resolved = resolveToken(value, context as Record<string, string>);
+    if (resolved.length > 0) out.push(resolved);
+  }
+  return out;
 }
 
 function expandCandidatePath(value: string, context: Record<string, string>): string {
@@ -310,6 +351,107 @@ function expandCandidatePath(value: string, context: Record<string, string>): st
   if (resolved === "~") return os.homedir();
   if (resolved.startsWith("~/")) return path.join(os.homedir(), resolved.slice(2));
   return path.resolve(REPO_ROOT, resolved);
+}
+
+function parseVersionParts(value: string): number[] {
+  return String(value || "")
+    .replace(/^v/i, "")
+    .split(".")
+    .map((part) => Number.parseInt(part, 10))
+    .map((part) => (Number.isFinite(part) ? part : 0));
+}
+
+function versionAtLeast(current: string, required: string): boolean {
+  const cur = parseVersionParts(current);
+  const req = parseVersionParts(required);
+  const length = Math.max(cur.length, req.length, 3);
+  for (let index = 0; index < length; index += 1) {
+    const left = cur[index] ?? 0;
+    const right = req[index] ?? 0;
+    if (left > right) return true;
+    if (left < right) return false;
+  }
+  return true;
+}
+
+function executableIfPresent(fullPath: string): boolean {
+  try {
+    fs.accessSync(fullPath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return fs.existsSync(fullPath);
+  }
+}
+
+function referenceCheckoutReadiness(framework: AnyJson, existingPaths: string[]): AnyJson {
+  const frameworkId = String(framework.id ?? "").trim();
+  const checkoutPaths = existingPaths.filter((candidatePath) => {
+    try {
+      return fs.statSync(candidatePath).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+  if (!checkoutPaths.length) return {};
+  if (frameworkId === "openclaw") {
+    const checkout = checkoutPaths.find((candidatePath) => fs.existsSync(path.join(candidatePath, "openclaw.mjs"))) ?? checkoutPaths[0];
+    const entrypoint = path.join(checkout, "openclaw.mjs");
+    if (fs.existsSync(entrypoint)) {
+      const requiredNode = "22.19.0";
+      const currentNode = process.versions.node;
+      const nodeOk = versionAtLeast(currentNode, requiredNode);
+      return {
+        status: nodeOk ? "reference_checkout_entrypoint_available" : "runtime_requirement_missing",
+        checkout_path: checkout,
+        checkout_entrypoint: entrypoint,
+        runtime_requirement: `node>=${requiredNode}`,
+        current_runtime: `node=${currentNode}`,
+        diagnostic: nodeOk
+          ? "OpenClaw reference checkout exposes openclaw.mjs and the local Node runtime satisfies its minimum version."
+          : `OpenClaw reference checkout exposes openclaw.mjs, but requires Node ${requiredNode}+ while this process is running Node ${currentNode}.`,
+        next_action: nodeOk
+          ? `Configure INFRING_OPENCLAW_COMMAND=${entrypoint} or install the openclaw command before live parity testing.`
+          : "Install/use Node 22.19+ for OpenClaw reference checkout testing, or install a compatible openclaw command/socket."
+      };
+    }
+  }
+  if (frameworkId === "hermes_agent") {
+    const checkout = checkoutPaths.find((candidatePath) => fs.existsSync(path.join(candidatePath, "hermes"))) ?? checkoutPaths[0];
+    const entrypoint = path.join(checkout, "hermes");
+    if (executableIfPresent(entrypoint)) {
+      const probe = spawnSync(entrypoint, ["status"], {
+        cwd: checkout,
+        encoding: "utf8",
+        timeout: 15000,
+        maxBuffer: 512000
+      });
+      const probeText = String(`${probe.stdout || ""}\n${probe.stderr || ""}`).toLowerCase();
+      const authRequired = probe.error || probe.status !== 0
+        ? false
+        : (
+          probeText.includes("model:      (not set)") ||
+          probeText.includes("model:        (not set)") ||
+          probeText.includes(".env file:") && probeText.includes("not found") ||
+          probeText.includes("openrouter") && probeText.includes("(not set)") ||
+          probeText.includes("openai") && probeText.includes("(not set)") ||
+          probeText.includes("anthropic") && probeText.includes("(not set)")
+        );
+      return {
+        status: authRequired ? "auth_required" : "reference_checkout_entrypoint_available",
+        checkout_path: checkout,
+        checkout_entrypoint: entrypoint,
+        runtime_requirement: "python>=3.11,<3.14",
+        current_runtime: "",
+        diagnostic: authRequired
+          ? "Hermes Agent reference checkout is runnable, but no inference provider/model/API credential is configured."
+          : "Hermes Agent reference checkout exposes a local hermes CLI entrypoint.",
+        next_action: authRequired
+          ? "Run `hermes model`, `hermes setup`, or configure Hermes provider credentials before live parity testing."
+          : `Configure INFRING_HERMES_AGENT_COMMAND=${entrypoint} or install the hermes command before live parity testing.`
+      };
+    }
+  }
+  return {};
 }
 
 function selectedRows(rows: AnyJson[], selected: string, idField = "id"): AnyJson[] {
@@ -332,8 +474,9 @@ function taskPrompt(task: AnyJson): string {
   return taskTurns(task).join("\n\n--- next turn ---\n\n");
 }
 
-function makeHarnessWorkspace(outDir: string, frameworkId: string, taskId: string, task: AnyJson): string {
-  const safeId = `${frameworkId}-${taskId}`.replace(/[^a-zA-Z0-9_.-]/g, "_");
+function makeHarnessWorkspace(outDir: string, frameworkId: string, taskId: string, task: AnyJson, side: string): string {
+  const safeSide = String(side || "run").replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const safeId = `${frameworkId}-${taskId}-${safeSide}`.replace(/[^a-zA-Z0-9_.-]/g, "_");
   const workDir = path.resolve(REPO_ROOT, outDir, "workdirs", safeId);
   ensureDir(workDir);
   ensureDir(path.join(workDir, "output"));
@@ -370,11 +513,25 @@ function buildNativePlan(framework: AnyJson, task: AnyJson, workDir: string, arg
     };
   }
   const command = firstAvailableCommand(native.command_candidates ?? []);
-  const prompt = taskPrompt(task);
+  const attachmentPath = task.large_context?.path
+    ? path.resolve(workDir, String(task.large_context.path))
+    : "";
+  const attachmentPrompt = attachmentPath
+    ? [
+      "",
+      "Native harness attachment path:",
+      attachmentPath,
+      "Read this file as supplemental user-provided large pasted text context. Do not ask the user to paste it again.",
+    ].join("\n")
+    : "";
+  const prompt = `${taskPrompt(task)}${attachmentPrompt}`;
   const context = {
     command: command ?? String((native.command_candidates ?? [framework.id])[0] ?? framework.id),
     cwd: workDir,
     prompt,
+    task_attachment_args: task.large_context?.path
+      ? ["--file", attachmentPath]
+      : [],
     repo: REPO_ROOT,
     framework_root: args.frameworkRoot
   };
@@ -470,22 +627,31 @@ async function postJson(url: string, body: any, timeoutMs: number): Promise<{ ok
     return { ok: false, status: 0, text: "global fetch is unavailable in this Node runtime", duration_ms: 0 };
   }
   const started = Date.now();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetchFn(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
-    const text = await response.text();
-    return { ok: response.ok, status: response.status, text, duration_ms: Date.now() - started };
-  } catch (error: any) {
-    return { ok: false, status: 0, text: String(error?.message ?? error), duration_ms: Date.now() - started };
-  } finally {
-    clearTimeout(timer);
+  const maxAttempts = 4;
+  let lastText = "";
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetchFn(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      const text = await response.text();
+      return { ok: response.ok, status: response.status, text, duration_ms: Date.now() - started };
+    } catch (error: any) {
+      lastText = String(error?.message ?? error);
+      if (attempt >= maxAttempts) {
+        return { ok: false, status: 0, text: lastText, duration_ms: Date.now() - started };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  return { ok: false, status: 0, text: lastText || "fetch failed", duration_ms: Date.now() - started };
 }
 
 async function executeNative(plan: RunOutcome, workDir: string, outDir: string, frameworkId: string, taskId: string, timeoutMs: number, live: boolean): Promise<RunOutcome> {
@@ -540,18 +706,21 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
       projection_status: "missing_input"
     };
   }
+  const runSessionScope = path.basename(path.resolve(REPO_ROOT, args.outDir)).replace(/[^a-zA-Z0-9_.-]+/g, "_");
   const basePayload = {
     type: "agent_runtime_task_harness_turn",
     harness_version: 1,
     engine_id: framework.socket_engine_id ?? framework.id,
     framework_id: framework.id,
-    session_id: `harness-${framework.id}-${task.id}`,
-    conversation_id: `harness-${framework.id}-${task.id}`,
+    agent_id: framework.id === "infring_native" ? "agent-runtime-live-work-eval" : "default",
+    session_id: `harness-${runSessionScope}-${framework.id}-${task.id}`,
+    conversation_id: `harness-${runSessionScope}-${framework.id}-${task.id}`,
     working_directory: workDir,
     task_id: task.id,
     approval_policy: task.approval_policy ?? "none",
     expected_capabilities: task.expected_capabilities ?? [],
-    large_context_ref: task.large_context?.path ?? null
+    large_context_ref: task.large_context?.path ?? null,
+    test_probe: framework.id === "infring_native"
   };
   if (!args.live) {
     return {
@@ -572,7 +741,28 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
   let approvalDecisionOk = false;
   let approvalDecisionRef: string | null = null;
   let approvalDecisionSummary = "";
-  let expectedArtifactsOk = true;
+  let approvalResume: AnyJson | null = null;
+  let approvalResumeForwarded = false;
+  let postApprovalResumeFailure = false;
+  let postApprovalResumeFailureReason = "";
+  const expectedArtifacts = Array.isArray(task.expected_artifacts) ? task.expected_artifacts.map((artifact: string) => String(artifact)) : [];
+  const expectedArtifactBaselines = new Map<string, { exists: boolean; size: number; hash: string }>();
+  for (const artifact of expectedArtifacts) {
+    const artifactPath = path.resolve(workDir, String(artifact));
+    if (artifactPath.startsWith(workDir)) {
+      expectedArtifactBaselines.set(artifact, fileFingerprint(artifactPath));
+    }
+  }
+  const refreshExpectedArtifactsOk = () => expectedArtifacts.length === 0 || expectedArtifacts.every((artifact: string) => {
+    const artifactPath = path.resolve(workDir, String(artifact));
+    if (!artifactPath.startsWith(workDir)) return false;
+    const current = fileFingerprint(artifactPath);
+    if (!current.exists) return false;
+    const baseline = expectedArtifactBaselines.get(artifact);
+    if (!baseline || !baseline.exists) return true;
+    return current.size !== baseline.size || current.hash !== baseline.hash;
+  });
+  let expectedArtifactsOk = expectedArtifacts.length === 0;
   let lastHttpStatus = 0;
   let totalDurationMs = 0;
   for (const [turnIndex, turnText] of turns.entries()) {
@@ -581,8 +771,12 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
       message: turnText,
       input_text: turnText,
       harness_turn_index: turnIndex + 1,
-      harness_turn_count: turns.length
+      harness_turn_count: turns.length,
+      ...(approvalResume ? { approval_resume: approvalResume } : {})
     };
+    if (approvalResume) {
+      approvalResumeForwarded = true;
+    }
     const result = await postJson(String(plan.endpoint), payload, args.timeoutMs);
     lastHttpStatus = result.status;
     totalDurationMs += Number(result.duration_ms || 0);
@@ -617,11 +811,22 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
       projectionNextActions = Array.isArray(projection.next_actions)
         ? projection.next_actions.map((action: any) => String(action || "").trim()).filter(Boolean).slice(0, 8)
         : [];
+      const projectionFailed = projection.ok === false ||
+        ["failed", "failed_with_reason", "timed_out", "timed_out_with_reason"].includes(projectionStatus) ||
+        Boolean(projectionErrorCode);
+      if (approvalResumeForwarded && projectionFailed) {
+        postApprovalResumeFailure = true;
+        postApprovalResumeFailureReason = [
+          projectionStatus || "unknown_status",
+          projectionErrorCode,
+          projectionReason
+        ].filter(Boolean).join(": ");
+      }
       const turnApprovalPause = projectionStatus === "permission_required" || projection.pending_permission === true || projection.approval_pause_active === true;
       approvalPause = approvalPause || turnApprovalPause;
+      const approvalRequest = projection.pending_permission_request || projection.permission_request || projection.approval_pause || null;
       const approvalRoute = String(
-        projection.pending_permission_request?.approval_route ||
-          projection.permission_request?.approval_route ||
+        approvalRequest?.approval_route ||
           projection.approval_pause?.decision_route ||
           ""
       );
@@ -643,18 +848,23 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
               decisionProjection?.error ||
               ""
           );
+          const nextApprovalResume = {
+            approval_id: String(decisionProjection?.approval_id || approvalRequest?.approval_id || ""),
+            resume_token: String(decisionProjection?.resume_token || approvalRequest?.resume_token || ""),
+            approved_tool_id: String(decisionProjection?.tool_id || approvalRequest?.tool_id || ""),
+            approval_decision: String(decisionProjection?.decision || "allow_once"),
+            approval_resume_action: String(decisionProjection?.resume_action || decisionProjection?.next_action || ""),
+            decision_receipt_ref: String(decisionProjection?.decision_receipt_ref || decisionProjection?.decision_receipt?.receipt_ref || "")
+          };
+          approvalResume = Object.values(nextApprovalResume).some((value) => String(value || "").trim())
+            ? nextApprovalResume
+            : null;
         } catch {
           approvalDecisionOk = decision.ok;
           approvalDecisionSummary = decision.text.slice(0, 240);
         }
       }
-      const expectedArtifacts = Array.isArray(task.expected_artifacts) ? task.expected_artifacts : [];
-      if (expectedArtifacts.length > 0) {
-        expectedArtifactsOk = expectedArtifacts.every((artifact: string) => {
-          const artifactPath = path.resolve(workDir, String(artifact));
-          return artifactPath.startsWith(workDir) && fs.existsSync(artifactPath);
-        });
-      }
+      expectedArtifactsOk = refreshExpectedArtifactsOk();
       if (!projectionOk) break;
       continue;
     }
@@ -670,11 +880,12 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
     expectedCapabilities.has("permission_request");
   if (approvalPause) {
     if (approvalExpected) {
-      projectionOk = approvalDecisionOk && expectedArtifactsOk;
+      projectionOk = approvalDecisionOk && expectedArtifactsOk && !postApprovalResumeFailure;
       projectionReason = [
         projectionReason,
         approvalDecisionOk ? `approval decision accepted${approvalDecisionSummary ? ` (${approvalDecisionSummary})` : ""}` : "approval decision was not completed",
-        expectedArtifactsOk ? "" : "expected artifact(s) were not created after approval"
+        expectedArtifactsOk ? "" : "expected artifact(s) were not created after approval",
+        postApprovalResumeFailure ? `post-approval resumed turn failed${postApprovalResumeFailureReason ? ` (${postApprovalResumeFailureReason})` : ""}` : ""
       ].filter(Boolean).join("; ");
     } else {
       projectionReason = [
@@ -683,7 +894,8 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
       ].filter(Boolean).join("; ");
     }
   }
-  if (approvalExpected && expectedArtifactsOk && !approvalPause && !approvalDecisionOk && (Array.isArray(task.expected_artifacts) && task.expected_artifacts.length > 0)) {
+  expectedArtifactsOk = refreshExpectedArtifactsOk();
+  if (approvalExpected && expectedArtifactsOk && !approvalPause && !approvalDecisionOk && expectedArtifacts.length > 0) {
     projectionOk = false;
     projectionErrorCode = projectionErrorCode || "agent_runtime_unmediated_artifact_write";
     projectionReason = [
@@ -697,6 +909,34 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
       projectionReason,
       "expected artifact(s) were not created"
     ].filter(Boolean).join("; ");
+  }
+  const failureExpected = expectedCapabilities.has("failure_reporting") || expectedCapabilities.has("hard_failure_chat_injection");
+  const providerFailureClassified = /provider_(quota_or_subscription_unavailable|auth_required|rate_limited|network_unavailable)|runtime_not_available|agent_runtime_engine_unavailable/.test(projectionErrorCode) ||
+    /is unavailable:|not_downloaded|subscription required|auth required|quota/i.test(projectionReason);
+  if (failureExpected && providerFailureClassified && projectionNextActions.length > 0) {
+    projectionOk = true;
+    projectionReason = [
+      projectionReason,
+      "classified provider/runtime failure with diagnostic recovery next actions"
+    ].filter(Boolean).join("; ");
+  }
+  let expectedArtifactRefs: string[] = [];
+  if (expectedArtifacts.length > 0 && expectedArtifactsOk) {
+    const artifactEvidencePath = path.resolve(REPO_ROOT, outDir, "infring", `${frameworkId}-${taskId}.expected-artifacts.txt`);
+    const artifactLines: string[] = [];
+    for (const artifact of expectedArtifacts) {
+      const artifactPath = path.resolve(workDir, String(artifact));
+      if (!artifactPath.startsWith(workDir) || !fs.existsSync(artifactPath)) continue;
+      const baseline = expectedArtifactBaselines.get(artifact);
+      const current = fileFingerprint(artifactPath);
+      const effect = baseline && baseline.exists ? "updated" : "created";
+      artifactLines.push(`expected artifact ${effect}: ${artifact}`);
+      artifactLines.push(fs.readFileSync(artifactPath, "utf8").slice(0, 12000));
+    }
+    if (artifactLines.length > 0) {
+      writeText(artifactEvidencePath, artifactLines.join("\n\n"));
+      expectedArtifactRefs = [path.relative(REPO_ROOT, artifactEvidencePath)];
+    }
   }
   return {
     ...plan,
@@ -712,7 +952,10 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
     approval_decision_ref: approvalDecisionRef,
     approval_pause: approvalPause,
     approval_decision_ok: approvalDecisionOk,
+    approval_resume_forwarded: approvalResumeForwarded,
+    post_approval_resume_failure: postApprovalResumeFailure,
     expected_artifacts_ok: expectedArtifactsOk,
+    expected_artifact_refs: expectedArtifactRefs,
     duration_ms: totalDurationMs
   };
 }
@@ -864,11 +1107,16 @@ function buildAvailabilityMatrix(catalog: AnyJson, args: HarnessArgs): AnyJson[]
     ].map((value) => expandCandidatePath(String(value), context));
     const availableCommands = commandCandidates.filter((command) => commandExists(command));
     const existingPaths = pathCandidates.filter((candidatePath) => fs.existsSync(candidatePath));
+    const referenceReadiness = referenceCheckoutReadiness(framework, existingPaths);
     const nativeSupported = native.supported === true;
     const gatewayNative = framework.kind === "native_engine" || probe.type === "gateway_provider_registry";
     const configuredSocket = probe.type === "configured_socket_endpoint";
     const runnableAvailable = gatewayNative || availableCommands.length > 0;
     const referenceOnly = nativeSupported && availableCommands.length === 0 && existingPaths.length > 0;
+    const referenceStatus = String(referenceReadiness.status ?? "").trim();
+    const status = runnableAvailable
+      ? "available"
+      : (referenceStatus || (referenceOnly ? "reference_only_available" : (configuredSocket ? "requires_configured_endpoint" : "unavailable")));
     return {
       framework_id: framework.id,
       display_name: framework.display_name,
@@ -880,11 +1128,12 @@ function buildAvailabilityMatrix(catalog: AnyJson, args: HarnessArgs): AnyJson[]
       available_commands: availableCommands,
       path_candidates: pathCandidates,
       existing_paths: existingPaths,
-      status: runnableAvailable
-        ? "available"
-        : (referenceOnly ? "reference_only_available" : (configuredSocket ? "requires_configured_endpoint" : "unavailable")),
+      reference_readiness: referenceReadiness,
+      status,
       next_action: runnableAvailable
         ? "Run dry-run or live native/InfRing parity tasks for this framework."
+        : referenceReadiness.next_action
+          ? referenceReadiness.next_action
         : referenceOnly
           ? "Reference checkout detected; install the runnable command or configure a socket endpoint before live turns."
         : configuredSocket
@@ -933,6 +1182,42 @@ function buildCapabilityGaps(capabilityMatrix: AnyJson[], frameworkResults: AnyJ
         reference_paths: availability.existing_paths ?? [],
         summary: `${row.display_name || frameworkId} has a reference checkout, but no runnable command/socket is configured for live agent turns.`,
         next_action: "Install the framework command, configure a runtime socket endpoint, or pass --framework-root plus a runnable command override before live parity testing."
+      });
+    }
+    if (availability.native_supported && availability.status === "runtime_requirement_missing") {
+      gaps.push({
+        id: buildGapId(["runtime_requirement", frameworkId]),
+        severity: "yellow",
+        kind: "reference_checkout_runtime_requirement_missing",
+        framework_id: frameworkId,
+        reference_paths: availability.existing_paths ?? [],
+        reference_readiness: availability.reference_readiness ?? {},
+        summary: availability.reference_readiness?.diagnostic || `${row.display_name || frameworkId} reference checkout has an unmet local runtime requirement.`,
+        next_action: availability.next_action || "Install the required local runtime before live parity testing."
+      });
+    }
+    if (availability.native_supported && availability.status === "reference_checkout_entrypoint_available") {
+      gaps.push({
+        id: buildGapId(["reference_entrypoint", frameworkId]),
+        severity: "yellow",
+        kind: "reference_checkout_entrypoint_not_configured",
+        framework_id: frameworkId,
+        reference_paths: availability.existing_paths ?? [],
+        reference_readiness: availability.reference_readiness ?? {},
+        summary: availability.reference_readiness?.diagnostic || `${row.display_name || frameworkId} reference checkout has a local entrypoint, but it is not configured as a runtime command.`,
+        next_action: availability.next_action || "Configure the discovered checkout entrypoint or install the framework command before live parity testing."
+      });
+    }
+    if (availability.native_supported && availability.status === "auth_required") {
+      gaps.push({
+        id: buildGapId(["provider_auth", frameworkId]),
+        severity: "yellow",
+        kind: "runtime_provider_auth_required",
+        framework_id: frameworkId,
+        reference_paths: availability.existing_paths ?? [],
+        reference_readiness: availability.reference_readiness ?? {},
+        summary: availability.reference_readiness?.diagnostic || `${row.display_name || frameworkId} is runnable, but provider credentials or model configuration are missing.`,
+        next_action: availability.next_action || "Configure runtime provider credentials before live parity testing."
       });
     }
     if (availability.native_supported && availability.status === "unavailable") {
@@ -1186,15 +1471,16 @@ async function main(): Promise<void> {
   if (args.mode !== "catalog") {
     for (const framework of frameworks) {
       for (const task of tasks) {
-        const workDir = makeHarnessWorkspace(args.outDir, framework.id, task.id, task);
-        const nativePlan = buildNativePlan(framework, task, workDir, args);
+        const nativeWorkDir = makeHarnessWorkspace(args.outDir, framework.id, task.id, task, "native");
+        const infringWorkDir = makeHarnessWorkspace(args.outDir, framework.id, task.id, task, "infring");
+        const nativePlan = buildNativePlan(framework, task, nativeWorkDir, args);
         const infringPlan = buildInfringPlan(framework, task, args);
-        const native = args.mode === "native" || args.mode === "both"
-          ? await executeNative(nativePlan, workDir, args.outDir, framework.id, task.id, args.timeoutMs, args.live)
-          : { attempted: false, available: false, ok: true, status: "skipped", summary: "Native mode not selected." } as RunOutcome;
         const infring = args.mode === "infring" || args.mode === "both"
-          ? await executeInfring(infringPlan, framework, task, workDir, args.outDir, framework.id, task.id, args)
+          ? await executeInfring(infringPlan, framework, task, infringWorkDir, args.outDir, framework.id, task.id, args)
           : { attempted: false, available: false, ok: true, status: "skipped", summary: "InfRing mode not selected." } as RunOutcome;
+        const native = args.mode === "native" || args.mode === "both"
+          ? await executeNative(nativePlan, nativeWorkDir, args.outDir, framework.id, task.id, args.timeoutMs, args.live)
+          : { attempted: false, available: false, ok: true, status: "skipped", summary: "Native mode not selected." } as RunOutcome;
         frameworkResults.push({
           framework_id: framework.id,
           task_id: task.id,

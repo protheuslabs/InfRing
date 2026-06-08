@@ -312,6 +312,35 @@ function parseGrokModels(stdout) {
   };
 }
 
+function parseOpenCodeModels(stdout) {
+  const rows = [];
+  const lines = String(stdout || '').split(/\r?\n/);
+  for (const line of lines) {
+    const value = cleanString(line, 280);
+    if (!value || !value.includes('/')) continue;
+    if (/^\s*(opencode\s+models|Positionals:|Options:|-h,|--help|---)/i.test(value)) continue;
+    const parts = value.split('/');
+    const provider = cleanString(parts.shift(), 120).toLowerCase();
+    const model = cleanString(parts.join('/'), 240);
+    if (!provider || !model) continue;
+    rows.push(normalizeDiscoveredModelRow({
+      provider,
+      model,
+      qualified_model_ref: `${provider}/${model}`,
+      display_name: titleCaseModelId(model),
+      availability: provider === 'ollama' ? 'local_or_downloadable' : 'cloud_or_provider_runtime',
+      source: 'opencode_models_command',
+      adapter_model_arg: `${provider}/${model}`,
+      available: true,
+    }));
+  }
+  return {
+    rows: dedupeDiscoveredModelRows(rows),
+    defaultModel: '',
+    source: 'opencode_models_command',
+  };
+}
+
 function claudeConfiguredModelFromEnv(env = process.env) {
   return cleanString(
     env.ANTHROPIC_MODEL ||
@@ -339,7 +368,18 @@ function parseClaudeCodeHelpModels(stdout, env = process.env) {
     model,
     qualified_model_ref: `anthropic/${model}`,
     display_name: displayName,
-    availability: 'claude_code_alias_or_model',
+    availability: 'cloud_or_provider_runtime',
+    deployment_kind: 'cloud',
+    cloud: true,
+    api_backed: true,
+    local: false,
+    installed: false,
+    downloadable: false,
+    download_available: false,
+    updatable: false,
+    update_available: false,
+    requires_auth: true,
+    available: true,
     source: 'claude_code_help_model_aliases',
     adapter_model_arg: adapterModelArg,
   })).filter(Boolean);
@@ -405,6 +445,7 @@ async function discoverCliRuntimeModelMenu(command, spec, ctx, registryMenu) {
   let discovery = null;
   if (kind === 'codex_debug_models') discovery = parseCodexDebugModels(run.stdout);
   else if (kind === 'grok_models_command') discovery = parseGrokModels(output);
+  else if (kind === 'opencode_models_command') discovery = parseOpenCodeModels(output);
   else if (kind === 'claude_code_help_model_aliases') discovery = parseClaudeCodeHelpModels(output, { ...process.env, ...(spec.env || {}) });
   const modelMenu = buildDiscoveredModelMenu(cleanString((ctx && ctx.engine && ctx.engine.engine_id) || '', 120), spec, discovery, registryMenu);
   if (modelMenu) {
@@ -536,12 +577,21 @@ function spawnActivityCapture(command, args, options = {}) {
   });
 }
 
-function extractPrompt(ctx) {
+function extractCurrentPrompt(ctx) {
   const input = ctx && ctx.message && ctx.message.input;
-  const current = typeof input === 'string'
+  return typeof input === 'string'
     ? cleanDisplayString(input, 12000)
     : (input && typeof input === 'object' ? cleanDisplayString(input.text || input.message || input.prompt || '', 12000) : '');
-  return buildPromptWithContext(ctx && ctx.message && ctx.message.context_pack, current);
+}
+
+function extractPrompt(ctx, options = {}) {
+  const current = extractCurrentPrompt(ctx);
+  const contextPack = ctx && ctx.message && ctx.message.context_pack;
+  if (typeof options.promptBuilder === 'function') {
+    const custom = options.promptBuilder({ ctx, current, contextPack });
+    if (typeof custom === 'string') return cleanDisplayString(custom, 16000);
+  }
+  return buildPromptWithContext(contextPack, current);
 }
 
 function fragmentSortValue(fragment) {
@@ -825,6 +875,48 @@ function cliRuntimeFailureText(engineId, run, timeoutMs) {
   return `${cleanEngine} exited without a usable assistant response (exit_code=${exitCode}).`;
 }
 
+function cliRuntimeNoAssistantOutputText(engineId, run) {
+  const cleanEngine = cleanString(engineId || 'external_cli', 120);
+  const combined = cleanDisplayString([
+    run && run.stderr,
+    run && run.stdout,
+  ].filter(Boolean).join('\n'), 12000);
+  const lower = combined.toLowerCase();
+  if (
+    lower.includes('quota') ||
+    lower.includes('credit') ||
+    lower.includes('billing') ||
+    lower.includes('subscription') ||
+    lower.includes('payment required') ||
+    lower.includes('insufficient balance')
+  ) {
+    return `${cleanEngine} produced no assistant response because the provider appears unavailable due to quota, billing, subscription, or credit state.`;
+  }
+  if (
+    lower.includes('unauthorized') ||
+    lower.includes('not authorized') ||
+    lower.includes('authentication') ||
+    lower.includes('auth required') ||
+    lower.includes('login required') ||
+    lower.includes('please login') ||
+    lower.includes('please log in') ||
+    lower.includes('api key') ||
+    lower.includes('invalid token') ||
+    lower.includes('token expired')
+  ) {
+    return `${cleanEngine} produced no assistant response because the provider appears to require authentication or a refreshed token.`;
+  }
+  if (
+    lower.includes('rate limit') ||
+    lower.includes('rate-limit') ||
+    lower.includes('too many requests') ||
+    lower.includes('429')
+  ) {
+    return `${cleanEngine} produced no assistant response because the provider appears rate-limited.`;
+  }
+  return `${cleanEngine} completed without a usable assistant response. The external runtime emitted lifecycle/tool events but no final assistant text.`;
+}
+
 function dedupeFailureLines(value, max = 4000) {
   const lines = cleanDisplayString(value, max * 2).split(/\n+/);
   const out = [];
@@ -942,18 +1034,19 @@ async function runProviderReadinessProbe(engineId, command, spec, ctx, options =
   return value;
 }
 
-function appendCliRuntimeFailureEvent(events, ctx, engineId, run, timeoutMs) {
+function appendCliRuntimeFailureEvent(events, ctx, engineId, run, timeoutMs, forcedText = '') {
   const rows = Array.isArray(events) ? events.slice() : [];
-  if (run && run.ok) return rows;
-  const text = cliRuntimeFailureText(engineId, run, timeoutMs);
+  const diagnosticText = cleanDisplayString(forcedText, 4000);
+  if (run && run.ok && !diagnosticText) return rows;
+  const text = diagnosticText || cliRuntimeFailureText(engineId, run, timeoutMs);
   rows.push({
     ...baseEvent(ctx, 'agent_activity_event', engineId),
     type: 'agent_activity_event',
     activity_kind: 'error',
-    provider_event_type: run && run.timed_out ? 'turn.timeout' : 'turn.failed',
+    provider_event_type: run && run.timed_out ? 'turn.timeout' : (diagnosticText ? 'turn.no_assistant_output' : 'turn.failed'),
     source: 'external_cli_process_lifecycle',
     sequence_no: rows.length + 1,
-    item_id: run && run.timed_out ? 'external-cli-timeout' : 'external-cli-failure',
+    item_id: run && run.timed_out ? 'external-cli-timeout' : (diagnosticText ? 'external-cli-no-assistant-output' : 'external-cli-failure'),
     status: 'failed',
     text,
     display_text: text,
@@ -1057,6 +1150,10 @@ function extractTextFromContent(value, maxLen = 4000, preserveWhitespace = false
     return preserveWhitespace ? cleanTextChunk(joined, maxLen) : cleanDisplayString(joined, maxLen);
   }
   if (typeof value !== 'object') return cleanDisplayString(value, maxLen);
+  if (value.part != null) {
+    const partText = extractTextFromContent(value.part, maxLen, preserveWhitespace);
+    if (partText) return partText;
+  }
   if (cleanString(value.type || value.kind, 80).toLowerCase() === 'text' && value.data != null) {
     return extractTextFromContent(value.data, maxLen, true);
   }
@@ -1081,6 +1178,7 @@ function extractTextFromContent(value, maxLen = 4000, preserveWhitespace = false
 function extractActivityText(row, kind) {
   if (!row || typeof row !== 'object') return '';
   const item = row.item && typeof row.item === 'object' ? row.item : {};
+  const part = row.part && typeof row.part === 'object' ? row.part : {};
   const direct = extractTextFromContent(
     row.delta ||
       row.text ||
@@ -1098,7 +1196,15 @@ function extractActivityText(row, kind) {
       item.content ||
       item.data ||
       item.output_text ||
-      item.output,
+      item.output ||
+      part.delta ||
+      part.text ||
+      part.message ||
+      part.summary ||
+      part.content ||
+      part.data ||
+      part.output_text ||
+      part.output,
     kind === 'assistant_delta' ? 12000 : 4000,
     kind === 'assistant_delta',
   );
@@ -1511,6 +1617,8 @@ function relativeDeniedArtifactPath(rawPath, ctx) {
   const value = cleanString(rawPath, 1200).replace(/^file:\/\//, '');
   const cwd = requestWorkingDirectory(ctx);
   if (cwd && value.startsWith(`${cwd}/`)) return value.slice(cwd.length + 1);
+  const shadowMatch = value.match(/\/infring-[^/]+-shadow-[^/]+\/(.+)$/);
+  if (shadowMatch) return safeRelativePath(shadowMatch[1]);
   return value;
 }
 
@@ -1648,6 +1756,9 @@ function buildPermissionRequestFromProposal(proposal, ctx, defaultEngineId) {
     1000,
   );
   const proposalArguments = sanitizeProposalArguments(args, toolId);
+  if (toolId === 'artifact.create_propose' && proposalArguments.path) {
+    proposalArguments.path = relativeDeniedArtifactPath(proposalArguments.path, ctx);
+  }
   const resumeStrategy = toolId === 'permission.request'
     ? 'grant_then_retry_next_turn'
     : Object.keys(proposalArguments || {}).length
@@ -1674,6 +1785,9 @@ function buildPermissionRequestFromProposal(proposal, ctx, defaultEngineId) {
     reason,
     argument_keys: Object.keys(args).map((key) => cleanString(key, 80)).filter(Boolean).slice(0, 24),
     proposal_arguments: proposalArguments,
+    status: 'paused_pending_approval',
+    turn_status: 'permission_required',
+    pause_reason: reason,
     resume_strategy: resumeStrategy,
     gatekeeper_kind: 'user',
     future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor'],
@@ -1784,17 +1898,97 @@ function snapshotWorkspace(root, state = { files: 0, bytes: 0, maxFiles: 2500, m
   return out;
 }
 
-function prepareCliShadowWorkspace(realCwd, ctx, engineId) {
+function prepareCliShadowWorkspace(realCwd, ctx, engineId, options = {}) {
   const cwd = cleanString(realCwd || process.cwd(), 1200);
   if (!cwd || nativeDirectMutationGrantActive(ctx)) return { active: false, cwd };
   let stat = null;
   try { stat = fs.statSync(cwd); } catch { return { active: false, cwd, error: 'selected_working_directory_unavailable' }; }
   if (!stat.isDirectory()) return { active: false, cwd, error: 'selected_working_directory_not_directory' };
-  const shadowRoot = fs.mkdtempSync(path.join(os.tmpdir(), `infring-${engineId}-shadow-`));
+  const stableKey = cleanString(options.stableKey || '', 500);
+  const stableDigest = stableKey ? crypto.createHash('sha256').update(`${engineId}:${cwd}:${stableKey}`).digest('hex').slice(0, 24) : '';
+  const shadowRoot = stableDigest
+    ? path.join(os.tmpdir(), `infring-${engineId}-stable-shadow-${stableDigest}`)
+    : fs.mkdtempSync(path.join(os.tmpdir(), `infring-${engineId}-shadow-`));
   const copyState = { files: 0, bytes: 0, maxFiles: 2500, maxBytes: 25 * 1024 * 1024, maxFileBytes: 512 * 1024, skipped: 0 };
-  copyShadowTree(cwd, shadowRoot, copyState);
+  if (stableDigest) fs.mkdirSync(shadowRoot, { recursive: true });
+  if (!stableDigest || snapshotWorkspace(shadowRoot).size === 0) copyShadowTree(cwd, shadowRoot, copyState);
   const before = snapshotWorkspace(shadowRoot);
-  return { active: true, cwd: shadowRoot, real_cwd: cwd, shadow_root: shadowRoot, before, copy_state: copyState };
+  return { active: true, cwd: shadowRoot, real_cwd: cwd, shadow_root: shadowRoot, before, copy_state: copyState, stable: !!stableDigest };
+}
+
+function mirrorRuntimeAttachmentsIntoShadow(ctx, shadow, engineId) {
+  if (!ctx || !shadow || !shadow.active || !shadow.shadow_root) return ctx;
+  const message = ctx.message && typeof ctx.message === 'object' ? ctx.message : {};
+  const contextPack = message.context_pack && typeof message.context_pack === 'object' ? message.context_pack : {};
+  const refs = contextPack.runtime_attachment_refs && typeof contextPack.runtime_attachment_refs === 'object'
+    ? contextPack.runtime_attachment_refs
+    : null;
+  const rows = refs && Array.isArray(refs.attachments) ? refs.attachments : [];
+  if (!rows.length) return ctx;
+  const mirroredRows = [];
+  let copied = 0;
+  let copiedBytes = 0;
+  const maxFiles = 8;
+  const maxBytes = 5 * 1024 * 1024;
+  const attachmentRoot = path.join(shadow.shadow_root, '.infring-runtime-attachments');
+  for (const row of rows.slice(0, 12)) {
+    const item = row && typeof row === 'object' ? row : {};
+    const readPath = cleanString(item.local_read_path || item.read_path || '', 1200);
+    if (!readPath || !path.isAbsolute(readPath) || readPath.startsWith(`${shadow.shadow_root}${path.sep}`)) {
+      mirroredRows.push(item);
+      continue;
+    }
+    let stat = null;
+    try { stat = fs.statSync(readPath); } catch {
+      mirroredRows.push(item);
+      continue;
+    }
+    if (!stat || !stat.isFile() || copied >= maxFiles || copiedBytes + stat.size > maxBytes) {
+      mirroredRows.push(item);
+      continue;
+    }
+    const basename = safeRelativePath(path.basename(readPath)) || 'attachment.txt';
+    const digest = crypto.createHash('sha256').update(`${engineId}:${readPath}`).digest('hex').slice(0, 16);
+    const mirroredPath = path.join(attachmentRoot, `${digest}-${basename}`);
+    try {
+      fs.mkdirSync(path.dirname(mirroredPath), { recursive: true });
+      fs.copyFileSync(readPath, mirroredPath);
+      copied += 1;
+      copiedBytes += stat.size;
+      mirroredRows.push({
+        ...item,
+        local_read_path: mirroredPath,
+        read_path: mirroredPath,
+        original_read_path: readPath,
+        source_kind: cleanString(item.source_kind || 'runtime_attachment', 80),
+        prompt_instruction: cleanDisplayString(
+          item.prompt_instruction ||
+            `Read ${mirroredPath} as supplemental user-provided attachment context. Do not ask the user to paste it again.`,
+          1000,
+        ).replace(readPath, mirroredPath),
+      });
+    } catch {
+      mirroredRows.push(item);
+    }
+  }
+  if (!copied) return ctx;
+  shadow.before = snapshotWorkspace(shadow.shadow_root);
+  return {
+    ...ctx,
+    message: {
+      ...message,
+      context_pack: {
+        ...contextPack,
+        runtime_attachment_refs: {
+          ...refs,
+          attachments: mirroredRows,
+          attachment_count: mirroredRows.length,
+          mirrored_for_shadow_workspace: true,
+          mirror_source_authority: 'adapters.runtime.cli_runtime_adapter',
+        },
+      },
+    },
+  };
 }
 
 function diffShadowWorkspace(shadow) {
@@ -1843,8 +2037,46 @@ function buildPermissionRequestFromShadowChange(change, shadow, ctx, defaultEngi
   };
 }
 
+function buildPermissionRequestFromProviderPatchRows(stdout, shadow, ctx, defaultEngineId) {
+  if (!shadow || !shadow.active || !shadow.shadow_root) return null;
+  const rows = parseJsonlRows(stdout);
+  for (const row of rows) {
+    const source = row && typeof row === 'object' ? row : {};
+    const part = source.part && typeof source.part === 'object' ? source.part : source;
+    const state = part.state && typeof part.state === 'object' ? part.state : {};
+    const metadata = state.metadata && typeof state.metadata === 'object' ? state.metadata : {};
+    const tool = cleanString(part.tool || part.name || source.tool || '', 120).toLowerCase();
+    const status = cleanString(state.status || part.status || source.status || '', 80).toLowerCase();
+    if (tool !== 'apply_patch' || !/complete|success/.test(status)) continue;
+    const files = Array.isArray(metadata.files) ? metadata.files : [];
+    for (const file of files) {
+      const item = file && typeof file === 'object' ? file : {};
+      const rel = relativeDeniedArtifactPath(item.filePath || item.path || item.relativePath || '');
+      if (!rel) continue;
+      const fullPath = path.join(shadow.shadow_root, rel);
+      if (!fs.existsSync(fullPath)) continue;
+      const request = buildPermissionRequestFromShadowChange({
+        path: rel,
+        size: 0,
+        hash: '',
+        kind: cleanString(item.type || 'modified', 40),
+      }, shadow, ctx, defaultEngineId);
+      if (request) {
+        return {
+          ...request,
+          source: 'external_cli_provider_patch_event',
+          reason: `External runtime proposed ${cleanString(item.type || 'modifying', 40)} ${rel} via apply_patch in a shadow workspace.`,
+          pause_reason: `External runtime proposed ${cleanString(item.type || 'modifying', 40)} ${rel} via apply_patch in a shadow workspace.`,
+        };
+      }
+    }
+  }
+  return null;
+}
+
 function cleanupShadowWorkspace(shadow) {
   if (!shadow || !shadow.active || !shadow.shadow_root) return;
+  if (shadow.stable) return;
   try { fs.rmSync(shadow.shadow_root, { recursive: true, force: true }); } catch {}
 }
 
@@ -2071,6 +2303,7 @@ function createCliRuntimeEngineAdapter(options = {}) {
   const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 60000, 300000));
   const versionArgs = Array.isArray(options.versionArgs) ? options.versionArgs : ['--version'];
   const runArgs = typeof options.runArgs === 'function' ? options.runArgs : (prompt) => [prompt];
+  const runStdin = typeof options.runStdin === 'function' ? options.runStdin : () => '';
   let selectedCommand = cleanString(options.command || options.commandFallback || engineId, 500);
 
   function discover(ctx) {
@@ -2085,7 +2318,7 @@ function createCliRuntimeEngineAdapter(options = {}) {
   }
 
   async function submitTurnWithOptionalStream(ctx) {
-    const prompt = extractPrompt(ctx);
+    const prompt = extractPrompt(ctx, options);
     if (!prompt) {
       return {
         ...baseEvent(ctx, 'error', engineId),
@@ -2106,8 +2339,19 @@ function createCliRuntimeEngineAdapter(options = {}) {
     const command = cleanString(discovery.command || selectedCommand || options.commandFallback || engineId, 500);
     const runner = typeof ctx.onActivity === 'function' ? spawnActivityCapture : spawnCapture;
     const turnTimeoutMs = resolveTurnTimeoutMs(ctx, timeoutMs);
-    const requestedCwd = options.cwd || (ctx && ctx.message && (ctx.message.cwd || ctx.message.workspace_dir)) || process.cwd();
-    const shadow = prepareCliShadowWorkspace(requestedCwd, ctx, engineId);
+    const requestedCwd = options.cwd || (ctx && ctx.message && (
+      ctx.message.working_directory ||
+      ctx.message.current_working_directory ||
+      ctx.message.present_working_directory ||
+      ctx.message.cwd ||
+      ctx.message.workspace_dir
+    )) || process.cwd();
+    const stableShadowWorkspaceKey = typeof options.stableShadowWorkspaceKey === 'function'
+      ? cleanString(options.stableShadowWorkspaceKey(ctx, requestedCwd), 500)
+      : cleanString(options.stableShadowWorkspaceKey || '', 500);
+    const shadow = prepareCliShadowWorkspace(requestedCwd, ctx, engineId, {
+      stableKey: stableShadowWorkspaceKey,
+    });
     if (shadow && shadow.error && !shadow.active) {
       return {
         ...baseEvent(ctx, 'error', engineId),
@@ -2120,11 +2364,29 @@ function createCliRuntimeEngineAdapter(options = {}) {
     let run;
     let shadowChanges = [];
     let shadowPermissionRequest = null;
+    let providerPatchPermissionRequest = null;
     try {
-      run = await runner(command, runArgs(prompt, ctx), {
+      const runArgCtx = shadow && shadow.active
+        ? {
+          ...ctx,
+          message: {
+            ...((ctx && ctx.message) || {}),
+            working_directory: shadow.cwd,
+            current_working_directory: shadow.cwd,
+            present_working_directory: shadow.cwd,
+            cwd: shadow.cwd,
+            real_working_directory: requestedCwd,
+          },
+        }
+        : ctx;
+      const cliRunCtx = shadow && shadow.active
+        ? mirrorRuntimeAttachmentsIntoShadow(runArgCtx, shadow, engineId)
+        : runArgCtx;
+      run = await runner(command, runArgs(prompt, cliRunCtx), {
         timeoutMs: turnTimeoutMs,
         maxOutputBytes: 64000,
         cwd: shadow && shadow.active ? shadow.cwd : requestedCwd,
+        stdin: runStdin(prompt, cliRunCtx),
         env: {
           ...mergedRuntimeEnv(ctx, options),
           ...(shadow && shadow.active ? {
@@ -2136,37 +2398,46 @@ function createCliRuntimeEngineAdapter(options = {}) {
         engineId,
         onActivity: ctx.onActivity,
       });
+      if (typeof options.afterRun === 'function') {
+        try { options.afterRun(run, cliRunCtx); } catch {}
+      }
       shadowChanges = diffShadowWorkspace(shadow);
       shadowPermissionRequest = shadowChanges.length
         ? buildPermissionRequestFromShadowChange(shadowChanges[0], shadow, ctx, engineId)
         : null;
+      providerPatchPermissionRequest = shadowPermissionRequest
+        ? null
+        : buildPermissionRequestFromProviderPatchRows(run.stdout, shadow, ctx, engineId);
     } finally {
       cleanupShadowWorkspace(shadow);
     }
     const parsed = parseCliActivityOutput(run.stdout, run.stderr, ctx, engineId);
-    const permissionRequest = parsed.permission_request || shadowPermissionRequest;
-    const failureText = run.ok ? '' : cliRuntimeFailureText(engineId, run, turnTimeoutMs);
+    const permissionRequest = parsed.permission_request || shadowPermissionRequest || providerPatchPermissionRequest;
+    const noAssistantOutput = run.ok && !permissionRequest && !cleanDisplayString(parsed.output_text || '', 1000);
+    const noAssistantOutputText = noAssistantOutput ? cliRuntimeNoAssistantOutputText(engineId, run) : '';
+    const failureText = noAssistantOutput ? noAssistantOutputText : (run.ok ? '' : cliRuntimeFailureText(engineId, run, turnTimeoutMs));
     const outputText = run.ok ? (parsed.output_text || failureText) : failureText;
     const projectedOutputText = permissionRequest
       ? `Permission required: ${permissionRequest.reason || permissionRequest.pause_reason || 'External runtime proposed a gated effect.'}`
       : outputText;
-    const errorCode = permissionRequest ? '' : run.ok ? '' : classifyCliRuntimeFailureCode(engineId, run, failureText);
-    const activityEvents = appendCliRuntimeFailureEvent(parsed.activity_events, ctx, engineId, run, turnTimeoutMs);
-    if (shadowPermissionRequest) {
+    const errorCode = permissionRequest ? '' : (run.ok && !noAssistantOutput) ? '' : classifyCliRuntimeFailureCode(engineId, run, failureText);
+    const activityEvents = appendCliRuntimeFailureEvent(parsed.activity_events, ctx, engineId, run, turnTimeoutMs, noAssistantOutputText);
+    const shadowBackedPermissionRequest = shadowPermissionRequest || providerPatchPermissionRequest;
+    if (shadowBackedPermissionRequest) {
       activityEvents.push({
         ...baseEvent(ctx, 'permission.requested', engineId),
         activity_kind: 'permission_request',
-        provider_event_type: 'shadow_workspace.diff',
+        provider_event_type: shadowPermissionRequest ? 'shadow_workspace.diff' : 'provider_patch_event.diff',
         status: 'paused_pending_approval',
-        display_text: shadowPermissionRequest.reason,
+        display_text: shadowBackedPermissionRequest.reason,
       });
     }
     return {
       ...baseEvent(ctx, 'turn.complete', engineId),
-      status: permissionRequest ? 'permission_required' : run.ok ? 'completed' : run.timed_out ? 'timed_out' : 'failed',
+      status: permissionRequest ? 'permission_required' : noAssistantOutput ? 'failed' : run.ok ? 'completed' : run.timed_out ? 'timed_out' : 'failed',
       error_code: errorCode,
       reason: permissionRequest ? permissionRequest.pause_reason || permissionRequest.reason || '' : failureText,
-      retryable: run.timed_out === true,
+      retryable: run.timed_out === true || noAssistantOutput,
       result_ref: stableRef(`artifact/${engineId}/result`, ctx, engineId),
       receipt_ref: stableRef(`receipt/${engineId}/turn`, ctx, engineId),
       output_text: projectedOutputText,
@@ -2176,7 +2447,7 @@ function createCliRuntimeEngineAdapter(options = {}) {
       structured_activity: parsed.structured_activity,
       permission_denials: parsed.permission_denials,
       permission_request: permissionRequest,
-      shadow_workspace: shadowPermissionRequest ? shadowPermissionRequest.shadow_workspace : undefined,
+      shadow_workspace: shadowBackedPermissionRequest ? shadowBackedPermissionRequest.shadow_workspace : undefined,
       exit_code: run.exit_code,
       timed_out: run.timed_out === true,
       timeout_ms: turnTimeoutMs,

@@ -35,10 +35,10 @@
     {
       "id": "gateways",
       "canonical_owner": "Gateways",
-      "paths": ["adapters/"],
+      "paths": ["gateway/"],
       "public_contracts": ["request ingress", "event/output egress", "health/status", "detail fetch", "bounded search/query"],
       "allowed_dependencies": ["conduit", "kernel contracts", "orchestration contracts"],
-      "forbidden_dependencies": ["authority mirrors", "full runtime state dumps", "shell-local cache truth"]
+      "forbidden_dependencies": ["adapter-private provider schemas", "authority mirrors", "full runtime state dumps", "shell-local cache truth"]
     },
     {
       "id": "shell",
@@ -90,11 +90,11 @@
     },
     {
       "id": "adapters",
-      "canonical_owner": "Gateway implementation compatibility",
+      "canonical_owner": "Adapters",
       "paths": ["adapters/"],
-      "public_contracts": ["external integration adapters", "gateway membranes", "bounded detail routes"],
+      "public_contracts": ["external provider translators", "private protocol adapters", "engine/framework schema translation"],
       "allowed_dependencies": ["gateways", "conduit", "kernel contracts"],
-      "forbidden_dependencies": ["scheduler/admission truth", "shell cache ownership"]
+      "forbidden_dependencies": ["gateway route admission", "gateway payload budgets", "gateway permission decisions", "scheduler/admission truth", "shell cache ownership"]
     }
   ]
 }

@@ -365,9 +365,18 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
     const nativeReady = engineId === 'infring_native' && registryStatus === 'adapter_seam_ready';
     const status = healthStatus || (nativeReady ? 'available' : (registryStatus || 'unknown'));
     const selectable = status === 'available' || status === 'adapter_ready' || nativeReady;
-    const downloadAvailable = install.download_available === true || (health && health.download_available === true);
     const commandLineInstall = selectAgentRuntimeInstallCommand(install);
-    const installActionAvailable = cleanText(install.preferred_install_method || '', 80) === 'command_line' && !!commandLineInstall;
+    const issueStatus = [
+      'auth_required',
+      'runtime_requirement_missing',
+      'reference_checkout_entrypoint_available',
+      'installed_not_running',
+      'health_only',
+    ].includes(status);
+    const setupActionRef = cleanText(health && health.setup_action_ref ? health.setup_action_ref : '', 240);
+    const downloadAvailable = !issueStatus && (install.download_available === true || (health && health.download_available === true));
+    const installActionAvailable = !issueStatus && cleanText(install.preferred_install_method || '', 80) === 'command_line' && !!commandLineInstall;
+    const commandLineInstallAvailable = !issueStatus && !!commandLineInstall;
     const registryCapabilities = Array.isArray(row.capabilities) ? row.capabilities.map((item) => cleanText(item, 120)).filter(Boolean).slice(0, 12) : [];
     const supportsLiveSteering = (health && health.supports_live_steering === true) || row.supports_live_steering === true;
     const supportsNextTurnSteering = (health && health.supports_next_turn_steering === true) || row.supports_next_turn_steering === true || engineId !== 'infring_native';
@@ -407,13 +416,16 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
       },
       download_available: !!downloadAvailable,
       install_action_available: !!installActionAvailable,
-      command_line_install_available: !!commandLineInstall,
+      command_line_install_available: !!commandLineInstallAvailable,
+      setup_action_ref: setupActionRef,
+      runtime_requirement: cleanText(health && health.runtime_requirement ? health.runtime_requirement : '', 160),
+      current_runtime: cleanText(health && health.current_runtime ? health.current_runtime : '', 160),
       install_permission_state: agentRuntimeInstallAllowed() ? 'allowed' : 'permission_required',
       download_action_ref: cleanText(install.download_action_ref || (health && health.download_action_ref) || '', 240),
       preferred_install_method: cleanText(install.preferred_install_method || '', 80),
       command_line_hint: cleanText(install.command_line_hint || '', 500),
       browser_fallback_url: cleanText(install.browser_fallback_url || '', 500),
-      display_when_missing: cleanText(install.display_when_missing || (downloadAvailable ? 'download_icon' : ''), 80),
+      display_when_missing: cleanText(issueStatus ? 'issue_indicator' : (install.display_when_missing || (downloadAvailable ? 'download_icon' : '')), 80),
       version_preview: cleanText(health && health.version_preview ? health.version_preview : '', 240),
     };
   }

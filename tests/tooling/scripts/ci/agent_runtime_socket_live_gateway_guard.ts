@@ -19,6 +19,7 @@ const STATUS_PATH = path.join(ROOT, 'client/runtime/local/state/ui/infring_dashb
 const DEFAULT_HOST = process.env.INFRING_GATEWAY_HOST || '127.0.0.1';
 const DEFAULT_PORT = Number(process.env.INFRING_GATEWAY_PORT || process.env.INFRING_DASHBOARD_PORT || 4173);
 const TIMEOUT_MS = Number(process.env.INFRING_AGENT_RUNTIME_LIVE_GATEWAY_TIMEOUT_MS || 7000);
+const SERVER_FRAME_MAX_BYTES = Number(process.env.INFRING_AGENT_RUNTIME_LIVE_GATEWAY_SERVER_FRAME_MAX_BYTES || 262144);
 
 function clean(value, max = 4000) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -122,7 +123,10 @@ function createLiveReader(socket) {
     } else {
       frameBuffer = Buffer.concat([frameBuffer, Buffer.from(chunk || '')]);
     }
-    const decoded = decodeAgentRuntimeSocketFrames(frameBuffer, { expectMasked: false });
+    const decoded = decodeAgentRuntimeSocketFrames(frameBuffer, {
+      expectMasked: false,
+      maxBytes: SERVER_FRAME_MAX_BYTES,
+    });
     if (!decoded.ok) {
       rejectAll(new Error(decoded.error || 'server_frame_decode_failed'));
       return;
@@ -220,6 +224,7 @@ async function main() {
       mode: 'live_gateway_websocket_client',
       canonical_socket_route: '/ws/agent-runtime',
       target,
+      server_frame_max_bytes: SERVER_FRAME_MAX_BYTES,
       trace_id: traceId,
       event_types: [...new Set(events.map((event) => clean(event && event.type, 120)).filter(Boolean))],
       engine_count: Array.isArray(engineList.event && engineList.event.engines) ? engineList.event.engines.length : 0,

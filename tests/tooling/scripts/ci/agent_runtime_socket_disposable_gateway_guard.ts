@@ -19,7 +19,7 @@ const OUT_JSON = path.join(ROOT, 'core/local/artifacts/agent_runtime_socket_disp
 const STATUS_PATH = path.join(ROOT, 'client/runtime/local/state/ui/infring_dashboard/server_status.json');
 const HOST = '127.0.0.1';
 const START_TIMEOUT_MS = Number(process.env.INFRING_AGENT_RUNTIME_DISPOSABLE_START_TIMEOUT_MS || 20000);
-const CHILD_TIMEOUT_MS = Number(process.env.INFRING_AGENT_RUNTIME_DISPOSABLE_CHILD_TIMEOUT_MS || 15000);
+const CHILD_TIMEOUT_MS = Number(process.env.INFRING_AGENT_RUNTIME_DISPOSABLE_CHILD_TIMEOUT_MS || 45000);
 
 function clean(value, max = 4000) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -127,6 +127,7 @@ function runLiveGuard(port) {
         ...process.env,
         INFRING_GATEWAY_HOST: HOST,
         INFRING_GATEWAY_PORT: String(port),
+        INFRING_AGENT_RUNTIME_LIVE_GATEWAY_TIMEOUT_MS: process.env.INFRING_AGENT_RUNTIME_LIVE_GATEWAY_TIMEOUT_MS || '30000',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

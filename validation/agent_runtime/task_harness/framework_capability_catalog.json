@@ -129,8 +129,13 @@
         "failure_reporting"
       ],
       "known_gaps": [
-        "Native structured context transport is still behind prompt-text compatibility for many CLI turns.",
-        "Approval pause/resume parity must be proven live, not only by proposal text."
+        "True native structured context input remains blocked on upstream Codex CLI support; InfRing now uses a bounded stdin context envelope with JSONL output until a native structured input API exists."
+      ],
+      "evidence_notes": [
+        "Live InfRing harness run 20260608180634-9feef1cc completed safe file creation, patching, command smoke, working-directory, and large-paste tasks through codex_cli with zero task failures.",
+        "Codex exec help confirms instructions can be read from stdin when the prompt argument is -, while JSONL events are emitted with --json.",
+        "Codex adapter now sends the bounded InfRing context envelope over stdin instead of argv, reducing prompt argument bloat while preserving Gateway-owned context shaping.",
+        "Live InfRing harness run 20260608184930-d3f00d9f completed codex_cli command_run_smoke through the Shell socket with the bounded stdin context envelope active."
       ]
     },
     {
@@ -184,9 +189,10 @@
         "provider_auth_discovery",
         "failure_reporting"
       ],
-      "known_gaps": [
-        "Native CLI approval semantics must be mapped to InfRing approval-gate pause/resume.",
-        "Model list discovery should distinguish cloud-native Claude models from downloadable local models."
+      "known_gaps": [],
+      "evidence_notes": [
+        "Live InfRing harness run 20260608180634-9feef1cc completed safe file creation, patching, command smoke, working-directory, and large-paste tasks through claude_code with zero task failures.",
+        "Gateway engine projection now classifies Claude Code model aliases as cloud/API-backed, auth-required, non-local, and non-downloadable so the model menu can render cloud status without download actions."
       ]
     },
     {
@@ -243,8 +249,13 @@
         "failure_reporting"
       ],
       "known_gaps": [
-        "Recent live attempts suggest no-response/hard-failure behavior needs explicit diagnostics.",
-        "Native command shape and streaming event schema need catalog confirmation."
+        "Successful non-error Grok streaming activity schema remains unconfirmed until provider subscription access is restored."
+      ],
+      "evidence_notes": [
+        "Live InfRing harness run 20260608184547-525761be returned a bounded Grok Code provider diagnostic with error_code grok_code_provider_quota_or_subscription_unavailable and recovery next actions when SuperGrok Heavy subscription was required.",
+        "Native grok --help confirms --cwd, --output-format streaming-json, --permission-mode, --always-approve, --single, and --model command flags used by the adapter.",
+        "Native grok models reports the logged-in provider default and available models; current environment reports default grok-composer-2.5-fast plus grok-build and infring-kimi-control.",
+        "Native streaming-json probe emits a structured error row when the provider returns 403 SuperGrok Heavy subscription required; successful non-error event schema still requires restored provider access."
       ]
     },
     {
@@ -270,13 +281,18 @@
         "argv_template": [
           "{command}",
           "run",
-          "{prompt}"
+          "--format",
+          "json",
+          "--dir",
+          "{cwd}",
+          "{prompt}",
+          "{task_attachment_args}"
         ],
         "notes": "Command shape is provisional until a local OpenCode install is available for live discovery; InfRing adapter health must report unavailable when the command is absent."
       },
       "native_features": {
         "conversation_context": true,
-        "multi_turn_continuity": "unknown",
+        "multi_turn_continuity": true,
         "working_directory_control": true,
         "file_read": true,
         "file_write": "policy_dependent",
@@ -299,11 +315,16 @@
         "decision_dialog",
         "model_selection",
         "provider_auth_discovery",
-        "failure_reporting"
+        "failure_reporting",
+        "multi_turn_continuity",
+        "large_paste_attachment",
+        "context_budgeting"
       ],
-      "known_gaps": [
-        "Native stream schema and model discovery need live parity capture.",
-        "Local OpenCode command discovery is proven via ~/.opencode/bin/opencode; remaining live parity work is stream schema and model discovery capture."
+      "known_gaps": [],
+      "evidence_notes": [
+        "Live InfRing harness run 20260608180634-9feef1cc completed safe file creation, patching, command smoke, working-directory, and large-paste tasks through opencode with zero task failures.",
+        "OpenCode adapter now uses --format json for live stream capture and --file for runtime attachment refs.",
+        "Gateway engine projection now discovers OpenCode models from the live opencode models command, including provider, cloud/API/local, downloadability, update, installed, and auth capability flags."
       ]
     },
     {
@@ -362,7 +383,12 @@
         "failure_reporting"
       ],
       "known_gaps": [
-        "Must avoid treating the InfRing workspace itself as the default OpenClaw install during tests."
+        "OpenClaw reference checkout exposes openclaw.mjs, but local live checkout testing requires Node 22.19+ or a compatible installed/socket OpenClaw runtime."
+      ],
+      "evidence_notes": [
+        "OpenClaw reference checkout exposes package bin openclaw -> openclaw.mjs under references/coding-agent-systems/openclaw.",
+        "Local OpenClaw checkout probe reports Node.js v22.19+ is required while this harness process is running Node 20.19.2.",
+        "Agent runtime task harness now classifies this as reference_checkout_runtime_requirement_missing instead of ambiguous reference-only availability."
       ]
     },
     {
@@ -407,8 +433,8 @@
         "activity_dialog_stream": "unknown",
         "decision_dialog": "unknown",
         "model_selection": "unknown",
-        "provider_auth_discovery": "unknown",
-        "failure_reporting": "unknown"
+        "provider_auth_discovery": true,
+        "failure_reporting": true
       },
       "socket_features_expected": [
         "conversation_context",
@@ -416,10 +442,16 @@
         "file_read",
         "file_write",
         "activity_dialog_stream",
-        "failure_reporting"
+        "failure_reporting",
+        "provider_auth_discovery"
       ],
       "known_gaps": [
-        "Capability catalog is intentionally conservative until native Hermes tests are run."
+        "Successful Hermes Agent live turns remain blocked until a provider/model/API credential is configured; CLI status/version and InfRing auth-required diagnostics are proven."
+      ],
+      "evidence_notes": [
+        "Hermes reference checkout exposes a runnable hermes CLI at references/coding-agent-systems/hermes-agent/hermes and reports Hermes Agent v0.15.1.",
+        "Hermes native status probe reports no configured model/provider/API credential in this environment.",
+        "Live InfRing harness run 20260608185706-b872817d classifies Hermes pre-turn failure as hermes_agent_provider_auth_required with credential setup next actions."
       ]
     },
     {

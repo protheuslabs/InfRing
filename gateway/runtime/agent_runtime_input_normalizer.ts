@@ -69,6 +69,61 @@ function extractAttachmentRows(body) {
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) rows.push(...candidate);
   }
+  const largeContextRef = cleanText(
+    body && (
+      body.large_context_ref ||
+      body.large_paste_ref ||
+      body.pasted_text_ref ||
+      input.large_context_ref ||
+      input.large_paste_ref ||
+      input.pasted_text_ref
+    ),
+    1000,
+  );
+  if (largeContextRef) {
+    const workingDirectory = cleanText(
+      body && (
+        body.working_directory ||
+        body.current_working_directory ||
+        body.present_working_directory ||
+        body.cwd
+      ),
+      1000,
+    );
+    const candidatePath = path.isAbsolute(largeContextRef)
+      ? largeContextRef
+      : (workingDirectory ? path.resolve(workingDirectory, largeContextRef) : '');
+    const safeReadPath = candidatePath && (
+      path.isAbsolute(largeContextRef) ||
+      (workingDirectory && candidatePath.startsWith(path.resolve(workingDirectory)))
+    ) ? candidatePath : '';
+    let sizeBytes = 0;
+    let preview = '';
+    if (safeReadPath) {
+      try {
+        const stat = fs.statSync(safeReadPath);
+        if (stat.isFile()) {
+          sizeBytes = stat.size;
+          preview = fs.readFileSync(safeReadPath, 'utf8').slice(0, 12000);
+        }
+      } catch {}
+    }
+    rows.push({
+      type: 'agent_runtime_attachment_ref',
+      attachment_id: `large_context_ref_${createHash('sha256').update(largeContextRef).digest('hex').slice(0, 16)}`,
+      file_id: `large_context_ref_${createHash('sha256').update(largeContextRef).digest('hex').slice(0, 16)}`,
+      filename: path.basename(largeContextRef) || 'pastedtext.txt',
+      content_type: 'text/plain;charset=utf-8',
+      source_kind: 'gateway_large_context_ref',
+      source_authority: 'gateway_agent_runtime_input_normalizer',
+      size_bytes: sizeBytes,
+      local_read_path: safeReadPath,
+      content_preview: preview,
+      prompt_instruction: safeReadPath
+        ? `Read ${safeReadPath} as supplemental user-provided large pasted text context. Do not ask the user to paste it again.`
+        : `Use attachment ref ${largeContextRef} as supplemental user-provided large pasted text context. Do not ask the user to paste it again.`,
+    });
+  }
   return rows;
 }
 

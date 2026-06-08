@@ -1,6 +1,6 @@
 # Kernel Sentinel System Understanding Worksheet
 
-- generated_at: 2026-05-08T03:32:06.155Z
+- generated_at: 2026-06-08T18:29:19.443Z
 - cadence: every_kernel_sentinel_auto_run
 - method: soul_then_runtime_then_structure_then_syntax
 - ready_to_zoom_down: false
@@ -18,13 +18,12 @@
   - Required next probe: collect_authority_boundary_receipts
 - `boundary_map`: complete (0.79/0.70)
   - Question: Where do authority, projection, gateway, validation, and observability boundaries meet?
-- `drift`: needs_probe (0.56/0.65)
+- `drift`: complete (0.71/0.65)
   - Question: Where does current behavior diverge from doctrine, prior runs, or intended boundaries?
-  - Required next probe: accumulate_trend_and_regression_evidence
 - `gaps`: needs_probe (0.79/0.80)
   - Question: What is still unknown enough to block structural changes or assimilation transfer?
   - Required next probe: close_blocking_unknowns_before_transfer
-- `confidence`: needs_probe (0.65/0.75)
+- `confidence`: needs_probe (0.67/0.75)
   - Question: Is the self-model strong enough to guide implementation without symptom patching?
   - Required next probe: raise_dossier_confidence_before_zooming_down
 - `syntax_detail`: complete (0.66/0.55)

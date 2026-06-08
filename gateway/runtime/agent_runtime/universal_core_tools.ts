@@ -212,6 +212,8 @@ function renderUniversalToolGrantPromptSection(grants) {
     '- You may write one of these proposal JSON objects when needed. Do not claim the proposal executed.',
     '- The host app validates proposals. Durable effects happen only after approval and emit receipts.',
     '- Read-only proposals may be default-allowed unless revoked; mutating proposals require an approval gate.',
+    '- For file creation or file editing, prefer artifact.create_propose and include arguments.path, arguments.mime_type, and arguments.content. Do not use permission.request when you already know the exact file payload.',
+    '- Use permission.request only when you need a permission grant but cannot yet provide a concrete artifact or memory proposal payload.',
     '- If your native runtime reports missing approval for a mutating action, include the blocked action and permission reason clearly so the host app can ask the user/admin gatekeeper.',
     '- Gatekeepers are user-owned today and may later include system_policy, agent_supervisor, or admin_agent. Do not invent approval; surface the request.',
     '- Proposal JSON shape: {"type":"infring_universal_tool_proposal","tool_id":"memory.read","reason":"why needed","arguments":{}}',

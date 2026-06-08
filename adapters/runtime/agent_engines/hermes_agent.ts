@@ -3,6 +3,8 @@
 'use strict';
 
 const childProcess = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const { createHttpSocketRuntimeEngineAdapter } = require('./http_socket_runtime_adapter.ts');
 const { createCliRuntimeEngineAdapter } = require('./cli_runtime_adapter.ts');
 
@@ -95,11 +97,13 @@ function classifyHermesProviderReadiness(statusProbe) {
     };
   }
   if (
-    lower.includes('model:        (not set)') ||
-    lower.includes('.env file:    ✗ not found') ||
-    lower.includes('openrouter    ✗ (not set)') ||
-    lower.includes('openai        ✗ (not set)') ||
-    lower.includes('anthropic     ✗ (not set)')
+    lower.includes('model: (not set)') ||
+    lower.includes('.env file: ✗ not found') ||
+    lower.includes('openrouter ✗ (not set)') ||
+    lower.includes('openai ✗ (not set)') ||
+    lower.includes('anthropic ✗ (not set)') ||
+    lower.includes('not configured') ||
+    lower.includes('not logged in')
   ) {
     return {
       provider_status: 'auth_required',
@@ -112,6 +116,21 @@ function classifyHermesProviderReadiness(statusProbe) {
     provider_reason: '',
     status_preview: text,
   };
+}
+
+function referenceCheckoutHermesCommand() {
+  const candidate = path.resolve(process.cwd(), 'references/coding-agent-systems/hermes-agent/hermes');
+  try {
+    return fs.existsSync(candidate) ? candidate : '';
+  } catch {
+    return '';
+  }
+}
+
+function hermesCommandOverride(options = {}) {
+  return options.command ||
+    process.env.INFRING_HERMES_AGENT_COMMAND ||
+    referenceCheckoutHermesCommand();
 }
 
 function createHermesAgentEngineAdapter(options = {}) {
@@ -134,7 +153,7 @@ function createHermesAgentEngineAdapter(options = {}) {
     ...options,
     engineId: 'hermes_agent',
     engineKind: 'external_framework_cli_safe_adapter',
-    command: options.command || process.env.INFRING_HERMES_AGENT_COMMAND,
+    command: hermesCommandOverride(options),
     commandFallback: 'hermes',
     liveEnvVar: 'INFRING_AGENT_RUNTIME_HERMES_AGENT_LIVE',
     downloadActionRef: 'agent_runtime_download/hermes_agent',
@@ -166,8 +185,12 @@ function createHermesAgentEngineAdapter(options = {}) {
           status: providerReadiness.provider_status === 'auth_required' ? 'auth_required' : cliHealth.status,
           bridge_mode: 'cli_safe_oneshot',
           safe_toolsets: cleanToolsetList(options.safeToolsets || process.env.INFRING_HERMES_AGENT_SAFE_TOOLSETS || 'safe'),
+          provider_readiness: providerReadiness.provider_status === 'auth_required' ? 'blocked' : providerReadiness.provider_status,
           provider_status: providerReadiness.provider_status,
           provider_reason: providerReadiness.provider_reason,
+          status_reason: providerReadiness.provider_reason,
+          reason: providerReadiness.provider_reason,
+          error_code: providerReadiness.provider_status === 'auth_required' ? 'hermes_agent_provider_auth_required' : '',
           setup_action_ref: providerReadiness.provider_status === 'auth_required' ? 'agent_runtime_setup/hermes_agent_provider' : '',
           mutating_tool_bridge_ready: false,
           mutating_tool_bridge_reason: 'Hermes oneshot auto-bypasses native approvals, so InfRing only enables non-mutating safe toolsets until a mediated approval bridge exists.',

@@ -166,6 +166,7 @@ async function main() {
     'codex_cli',
     'claude_code',
     'grok_code',
+    'opencode',
     'openclaw',
     'hermes_agent',
     'openhands',

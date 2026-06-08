@@ -3,6 +3,12 @@
   "version": 1,
   "owner": "validation.agent_runtime",
   "question": "Can InfRing preserve native agent-framework capabilities through the Agent Runtime socket?",
+  "proof_accounting_rule": {
+    "external_engine_success": "substrate_platform_proof",
+    "infring_native_success": "native_intelligence_runtime_proof",
+    "must_not_conflate_ledgers": true,
+    "note": "Agent Runtime harness success proves InfRing can mediate and govern external frameworks. It does not by itself prove native InfRing intelligence or native workflow usefulness."
+  },
   "result_shape": {
     "run_id": "string",
     "generated_at": "iso8601",
