@@ -115,6 +115,18 @@ async function main() {
     )
     : null;
   const approvalRoute = request && request.approval_route || '';
+  const pendingListReq = { method: 'GET', __body: {} };
+  const pendingListRes = makeResponse();
+  const pendingListHandled = await assembly.handleAgentRuntimeApprovalRoute({
+    req: pendingListReq,
+    res: pendingListRes,
+    pathname: '/api/shell-socket/approvals/pending',
+    traceId,
+  });
+  const pendingListPayload = pendingListRes.payload || {};
+  const listedPending = Array.isArray(pendingListPayload.pending_requests)
+    ? pendingListPayload.pending_requests.find((row) => row && request && row.approval_id === request.approval_id)
+    : null;
   const decisionReq = { method: 'POST', __body: { decision: 'allow_once' } };
   const decisionRes = makeResponse();
   const decisionHandled = approvalRoute
@@ -142,6 +154,14 @@ async function main() {
     request.proposal_arguments_ref &&
     !request.proposal_arguments &&
     permissionActivity &&
+    pendingListHandled === true &&
+    pendingListRes.statusCode === 200 &&
+    pendingListPayload.ok === true &&
+    pendingListPayload.pending_count >= 1 &&
+    listedPending &&
+    listedPending.projection_kind === 'permission_request' &&
+    listedPending.proposal_arguments_ref &&
+    !listedPending.proposal_arguments &&
     decisionHandled === true &&
     decisionRes.statusCode === 200 &&
     decisionPayload.ok === true &&
@@ -168,6 +188,11 @@ async function main() {
       resume_strategy: clean(request && request.resume_strategy, 160),
       shell_projection_bounded: !!(request && request.proposal_arguments_ref && !request.proposal_arguments),
       permission_activity_emitted: !!permissionActivity,
+      pending_list_handled: pendingListHandled,
+      pending_list_status_code: pendingListRes.statusCode,
+      pending_list_count: Number(pendingListPayload.pending_count) || 0,
+      pending_list_contains_request: !!listedPending,
+      pending_list_projection_bounded: !!(listedPending && listedPending.proposal_arguments_ref && !listedPending.proposal_arguments),
     },
     decision_probe: {
       decision_handled: decisionHandled,

@@ -13,7 +13,9 @@ function cleanText(value, maxLen = 240) {
 }
 
 function isAgentRuntimeApprovalRoute(pathname) {
-  return /^\/api\/shell-socket\/approvals\/[^/]+\/decision$/.test(String(pathname || ''));
+  return String(pathname || '') === '/api/shell-socket/approvals/pending' ||
+    String(pathname || '') === '/api/agent-runtime/approvals/pending' ||
+    /^\/api\/shell-socket\/approvals\/[^/]+\/decision$/.test(String(pathname || ''));
 }
 
 function createAgentRuntimeApprovalRouteHandler(options = {}) {
@@ -22,6 +24,9 @@ function createAgentRuntimeApprovalRouteHandler(options = {}) {
   const sendJson = options.sendJson;
   if (!approvalStore || typeof approvalStore.agentRuntimeApprovalDecisionProjection !== 'function') {
     throw new Error('agent_runtime_approval_route_store_missing');
+  }
+  if (typeof approvalStore.agentRuntimePendingApprovalsProjection !== 'function') {
+    throw new Error('agent_runtime_approval_route_pending_projection_missing');
   }
   if (typeof readJsonBody !== 'function') {
     throw new Error('agent_runtime_approval_route_read_json_body_missing');
@@ -36,6 +41,12 @@ function createAgentRuntimeApprovalRouteHandler(options = {}) {
     const pathname = String(args.pathname || '');
     const traceId = String(args.traceId || '');
     if (!req || !res || !isAgentRuntimeApprovalRoute(pathname)) return false;
+
+    if (req.method === 'GET' && (pathname === '/api/shell-socket/approvals/pending' || pathname === '/api/agent-runtime/approvals/pending')) {
+      const payload = approvalStore.agentRuntimePendingApprovalsProjection(traceId);
+      sendJson(res, payload.status_code || 200, payload);
+      return true;
+    }
 
     if (req.method === 'POST') {
       const match = pathname.match(/^\/api\/shell-socket\/approvals\/([^/]+)\/decision$/);

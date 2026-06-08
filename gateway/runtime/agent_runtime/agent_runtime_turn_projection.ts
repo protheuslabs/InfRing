@@ -15,6 +15,7 @@ const { buildUniversalToolGrants: defaultBuildUniversalToolGrants } = require('.
 const { buildAgentRuntimeStructuredTurn: defaultBuildAgentRuntimeStructuredTurn } = require('./agent_runtime_structured_transport.ts');
 
 const DEFAULT_CONTEXT_FANOUT_TARGET = 7;
+const AGENT_RUNTIME_FALLBACK_CONTEXT_ROW_LIMIT = 24;
 
 function cleanText(value, maxLen = 200) { return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen); }
 function stripTerminalControls(value) {
@@ -30,6 +31,34 @@ function cleanWorkingDirectory(value) {
   const raw = String(value == null ? '' : value).replace(/\0/g, '').trim();
   if (!raw || raw.startsWith('~')) return '';
   return path.resolve(raw);
+}
+
+function agentRuntimeContextRowKey(row) {
+  if (!row || typeof row !== 'object') return '';
+  const stableRef = cleanText(row.source_ref || row.ref || row.id || row.message_id || '', 240);
+  if (stableRef) return stableRef;
+  const role = cleanText(row.role || row.origin_kind || row.speaker || '', 64).toLowerCase();
+  const kind = cleanText(row.source_kind || row.record_type || row.type || '', 96).toLowerCase();
+  const text = cleanDisplayText(row.text_preview || row.preview || row.text || row.content || '', 800)
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  return role || kind || text ? `${role}:${kind}:${text}` : '';
+}
+
+function boundAgentRuntimeFallbackContextRows(rows) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  const selected = [];
+  const seen = new Set();
+  for (let idx = sourceRows.length - 1; idx >= 0; idx -= 1) {
+    const row = sourceRows[idx];
+    const key = agentRuntimeContextRowKey(row);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    selected.push(row);
+    if (selected.length >= AGENT_RUNTIME_FALLBACK_CONTEXT_ROW_LIMIT) break;
+  }
+  return selected.reverse();
 }
 
 function parseRawProviderActivityText(value) {
@@ -799,13 +828,17 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
         projection: body && body.context_projection,
       });
     } catch {}
-    const fallbackContextRows = deps.loadAgentRuntimeContextRows
+    const rawFallbackContextRows = deps.loadAgentRuntimeContextRows
       ? deps.loadAgentRuntimeContextRows({ root, sessionId, agentId })
       : [];
+    const fallbackContextRows = boundAgentRuntimeFallbackContextRows(rawFallbackContextRows);
+    const loadedContextText = rawFallbackContextRows.length === fallbackContextRows.length
+      ? `Loaded ${fallbackContextRows.length} prior context row${fallbackContextRows.length === 1 ? '' : 's'} for ${engineId}.`
+      : `Loaded ${fallbackContextRows.length} of ${rawFallbackContextRows.length} prior context rows for ${engineId}.`;
     emitSyntheticActivity(
       'activity',
       'context.loaded',
-      `Loaded ${fallbackContextRows.length} prior context row${fallbackContextRows.length === 1 ? '' : 's'} for ${engineId}.`,
+      loadedContextText,
     );
     const kernelContext = await (deps.materializeKernelAgentRuntimeContextPack
       ? deps.materializeKernelAgentRuntimeContextPack({

@@ -253,6 +253,7 @@
     loadRuntimeEnginesSafely: function(options) {
       var opts = options && typeof options === 'object' ? options : {};
       var self = this;
+      if (typeof this.ensureAgentRuntimePendingApprovalSyncLoop === 'function') this.ensureAgentRuntimePendingApprovalSyncLoop();
       if (!opts.force && Array.isArray(this.runtimeEngineRows) && this.runtimeEngineRows.length && (Date.now() - Number(this.runtimeEngineCacheTime || 0)) < 120000) {
         return Promise.resolve(this.runtimeEngineRows);
       }

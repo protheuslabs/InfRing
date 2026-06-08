@@ -271,10 +271,41 @@
       if (!row || !row.approval_id) return;
       var pending = Array.isArray(this.pendingAgentRuntimePermissionRequests) ? this.pendingAgentRuntimePermissionRequests.slice() : [];
       var id = String(row.approval_id);
+      var alreadyPending = pending.some(function(item) { return String(item && item.approval_id || '') === id; });
       pending = pending.filter(function(item) { return String(item && item.approval_id || '') !== id; });
       pending.unshift(row);
       this.pendingAgentRuntimePermissionRequests = pending.slice(0, 5);
-      InfringToast.info('Permission requested: ' + this.permissionRequestPreview(row));
+      if (!alreadyPending) InfringToast.info('Permission requested: ' + this.permissionRequestPreview(row));
+    },
+
+    syncAgentRuntimePendingApprovals: function(options) {
+      var opts = options && typeof options === 'object' ? options : {};
+      var now = Date.now();
+      if (!opts.force && this._agentRuntimePendingApprovalSyncAt && (now - this._agentRuntimePendingApprovalSyncAt) < 4000) {
+        return Promise.resolve(this.pendingAgentRuntimePermissionRequests || []);
+      }
+      this._agentRuntimePendingApprovalSyncAt = now;
+      var self = this;
+      return InfringAPI.get('/api/shell-socket/approvals/pending').then(function(payload) {
+        var rows = payload && Array.isArray(payload.pending_requests) ? payload.pending_requests : [];
+        rows.slice(0, 5).forEach(function(row) {
+          if (row && row.approval_id) self.enqueueAgentRuntimePermissionRequest(row);
+        });
+        return rows;
+      }).catch(function() {
+        return self.pendingAgentRuntimePermissionRequests || [];
+      });
+    },
+
+    ensureAgentRuntimePendingApprovalSyncLoop: function() {
+      if (this._agentRuntimePendingApprovalSyncLoop) return;
+      var self = this;
+      this._agentRuntimePendingApprovalSyncLoop = window.setInterval(function() {
+        if (typeof self.syncAgentRuntimePendingApprovals === 'function') {
+          self.syncAgentRuntimePendingApprovals({ force: false }).catch(function() {});
+        }
+      }, 5000);
+      this.syncAgentRuntimePendingApprovals({ force: true }).catch(function() {});
     },
 
     submitAgentRuntimePermissionDecision: function(row, decision) {
