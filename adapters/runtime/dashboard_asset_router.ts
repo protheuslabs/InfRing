@@ -384,7 +384,7 @@ function buildPrimaryDashboardHtml(staticDir) {
   if (!head || !body) return '';
   const headWithExternalAssets = injectBeforeHeadClose(
     head,
-    `<script src="${HIGHLIGHT_JS_CDN_URL}"></script>`
+    `<script defer src="${HIGHLIGHT_JS_CDN_URL}"></script>`
   );
   const css = [
     readSegmentedText(path.resolve(staticDir, 'css/theme.css'), ''),
@@ -394,6 +394,7 @@ function buildPrimaryDashboardHtml(staticDir) {
   ].join('\n');
   const scripts = [
     readForkScript(staticDir, 'vendor/marked.min'),
+    readForkScript(staticDir, 'vendor/highlight.min'),
     readForkScript(staticDir, 'vendor/chart.umd.min'),
     readForkScript(staticDir, 'js/shell/app_store_shell_services'),
     readForkScript(staticDir, 'js/chat_store'),
