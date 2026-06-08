@@ -29,6 +29,8 @@ type RunOutcome = {
   status: "planned" | "completed" | "failed" | "skipped";
   summary: string;
   command?: string[];
+  stdin?: string;
+  uses_stdin?: boolean;
   endpoint?: string;
   stdout_ref?: string | null;
   stderr_ref?: string | null;
@@ -213,6 +215,9 @@ function buildNativePlan(framework: AnyJson, task: AnyJson, workDir: string, arg
     framework_root: args.frameworkRoot
   };
   const argv = resolveListTemplate(native.argv_template ?? [], context);
+  const stdin = native.stdin_template
+    ? resolveToken(String(native.stdin_template), context)
+    : "";
   return {
     attempted: true,
     available: Boolean(command),
@@ -221,7 +226,9 @@ function buildNativePlan(framework: AnyJson, task: AnyJson, workDir: string, arg
     summary: command
       ? "Native command is available and planned."
       : `No native command found from candidates: ${(native.command_candidates ?? []).join(", ")}`,
-    command: argv
+    command: argv,
+    stdin,
+    uses_stdin: Boolean(stdin)
   };
 }
 
@@ -237,7 +244,7 @@ function buildInfringPlan(framework: AnyJson, task: AnyJson, args: HarnessArgs):
   };
 }
 
-function runCommand(argv: string[], cwd: string, timeoutMs: number): Promise<{ ok: boolean; stdout: string; stderr: string; duration_ms: number; exit_code: number | null; signal: NodeJS.Signals | null; timed_out: boolean }> {
+function runCommand(argv: string[], cwd: string, timeoutMs: number, stdinText = ""): Promise<{ ok: boolean; stdout: string; stderr: string; duration_ms: number; exit_code: number | null; signal: NodeJS.Signals | null; timed_out: boolean }> {
   const started = Date.now();
   return new Promise((resolve) => {
     if (argv.length === 0) {
@@ -262,6 +269,10 @@ function runCommand(argv: string[], cwd: string, timeoutMs: number): Promise<{ o
     child.stderr.on("data", (chunk) => {
       stderr += String(chunk);
     });
+    if (stdinText) {
+      child.stdin.write(stdinText);
+    }
+    child.stdin.end();
     child.on("close", (code, signal) => {
       clearTimeout(timer);
       resolve({
@@ -318,20 +329,22 @@ async function executeNative(plan: RunOutcome, workDir: string, outDir: string, 
     return plan;
   }
   if (!live) {
+    const { stdin: _stdin, ...safePlan } = plan;
     return {
-      ...plan,
+      ...safePlan,
       ok: true,
       status: "planned",
-      summary: `Dry-run native command: ${plan.command.join(" ")}`
+      summary: `Dry-run native command: ${plan.command.join(" ")}${plan.uses_stdin ? " < prompt via stdin" : ""}`
     };
   }
-  const result = await runCommand(plan.command, workDir, timeoutMs);
+  const result = await runCommand(plan.command, workDir, timeoutMs, plan.stdin ?? "");
   const stdoutPath = path.resolve(REPO_ROOT, outDir, "native", `${frameworkId}-${taskId}.stdout.txt`);
   const stderrPath = path.resolve(REPO_ROOT, outDir, "native", `${frameworkId}-${taskId}.stderr.txt`);
   writeText(stdoutPath, result.stdout);
   writeText(stderrPath, result.stderr);
+  const { stdin: _stdin, ...safePlan } = plan;
   return {
-    ...plan,
+    ...safePlan,
     ok: result.ok,
     status: result.ok ? "completed" : "failed",
     summary: result.ok
@@ -371,13 +384,28 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
   const result = await postJson(String(plan.endpoint), payload, args.timeoutMs);
   const responsePath = path.resolve(REPO_ROOT, outDir, "infring", `${frameworkId}-${taskId}.response.txt`);
   writeText(responsePath, result.text);
+  let projectionOk = result.ok;
+  let projectionStatus = "";
+  let projectionReason = "";
+  try {
+    const projection = JSON.parse(result.text);
+    if (projection && typeof projection === "object") {
+      if (projection.ok === false) {
+        projectionOk = false;
+      }
+      projectionStatus = String(projection.status ?? "");
+      projectionReason = String(projection.reason || projection.error_code || projection.text || "");
+    }
+  } catch {
+    projectionReason = result.text.slice(0, 240);
+  }
   return {
     ...plan,
-    ok: result.ok,
-    status: result.ok ? "completed" : "failed",
-    summary: result.ok
+    ok: projectionOk,
+    status: projectionOk ? "completed" : "failed",
+    summary: projectionOk
       ? `InfRing socket run completed with HTTP ${result.status}.`
-      : `InfRing socket run failed with HTTP ${result.status}.`,
+      : `InfRing socket run failed with HTTP ${result.status}${projectionStatus ? ` (${projectionStatus})` : ""}${projectionReason ? `: ${projectionReason}` : ""}.`,
     response_ref: path.relative(REPO_ROOT, responsePath),
     duration_ms: result.duration_ms
   };

@@ -87,7 +87,8 @@
       "native_invocation": {
         "supported": true,
         "command_candidates": ["codex"],
-        "argv_template": ["{command}", "exec", "--cd", "{cwd}", "{prompt}"],
+        "argv_template": ["{command}", "exec", "--cd", "{cwd}"],
+        "stdin_template": "{prompt}",
         "notes": "Live native invocation may require local Codex auth and operator-controlled sandbox settings."
       },
       "native_features": {
@@ -183,8 +184,8 @@
       "native_invocation": {
         "supported": true,
         "command_candidates": ["grok", "grok-code"],
-        "argv_template": ["{command}", "{prompt}"],
-        "notes": "Command shape is cataloged as provisional until live discovery confirms the exact installed CLI."
+        "argv_template": ["{command}", "--cwd", "{cwd}", "-p", "{prompt}"],
+        "notes": "Live discovery confirmed headless single-turn prompts use -p/--single; provider access may still require an active Grok subscription."
       },
       "native_features": {
         "conversation_context": "unknown",
