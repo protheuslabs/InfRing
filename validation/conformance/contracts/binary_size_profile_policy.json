@@ -1,0 +1,47 @@
+{
+  "type": "binary_size_profile_policy",
+  "schema_version": 1,
+  "owner_domain": "validation.conformance",
+  "status": "active",
+  "purpose": "Keep rich host binary-size gates separate from pure/tiny edge viability claims so the pragmatic 35 MB host gate cannot become proof that InfRing runs on constrained hardware.",
+  "profiles": [
+    {
+      "id": "rich_host_static",
+      "status": "release_gate",
+      "target": "x86_64-unknown-linux-musl",
+      "binary": "infringd",
+      "min_mb": 0.5,
+      "max_mb": 35,
+      "claim_scope": "Host/developer/release binary remains bounded enough for ordinary machines.",
+      "not_claimed_as": ["tiny_pure_edge", "mcu_flashable", "runs_on_anything_proof"],
+      "workflow_refs": [
+        ".github/workflows/infringd-static-size-gate.yml",
+        ".github/workflows/release.yml",
+        ".github/workflows/release-security-artifacts.yml"
+      ]
+    },
+    {
+      "id": "tiny_pure_edge",
+      "status": "target_profile_not_release_gate",
+      "binary": "future tiny/pure artifact",
+      "satisfied_by_rich_host_gate": false,
+      "claim_scope": "Constrained hardware viability requires a separate tiny/pure profile, artifact, budget, and proof pack.",
+      "required_future_evidence": [
+        "separate tiny/pure binary or package artifact",
+        "explicit target hardware class",
+        "memory budget",
+        "storage budget",
+        "cold-start budget",
+        "capability shedding receipt",
+        "release proof-pack entry distinct from rich_host_static"
+      ],
+      "workflow_refs": []
+    }
+  ],
+  "invariants": [
+    "35 MB gates are rich_host_static gates only.",
+    "A passing rich_host_static gate is not tiny_pure_edge proof.",
+    "tiny_pure_edge promotion requires a separate budget and evidence artifact.",
+    "Release notes must identify the 35 MB binary as rich-host static, not generic constrained-device proof."
+  ]
+}

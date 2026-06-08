@@ -48,7 +48,7 @@ jobs:
           SIZE_MB="$(awk -v b="$SIZE_BYTES" 'BEGIN { printf "%.2f", b/(1024*1024) }')"
           MAX_BYTES=$((35 * 1024 * 1024))
           if [ "$SIZE_BYTES" -gt "$MAX_BYTES" ]; then
-            echo "::error::infringd static musl binary is ${SIZE_MB} MB, exceeds the 35 MB release gate."
+            echo "::error::infringd static musl binary is ${SIZE_MB} MB, exceeds the rich-host 35 MB release gate; this is not tiny/pure edge proof."
             exit 1
           fi
           SHA1="$(sha256sum "$BIN" | awk '{print $1}')"

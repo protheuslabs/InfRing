@@ -43,7 +43,7 @@ jobs:
           ls -lh target/x86_64-unknown-linux-musl/release/infringd
           file target/x86_64-unknown-linux-musl/release/infringd
 
-      - name: Enforce static size gate (0.5 MB - 35 MB)
+      - name: Enforce rich-host static size gate (0.5 MB - 35 MB)
         run: |
           set -euo pipefail
           BIN="target/x86_64-unknown-linux-musl/release/infringd"
@@ -52,12 +52,12 @@ jobs:
           MIN_BYTES=$((512 * 1024))
           MAX_BYTES=$((35 * 1024 * 1024))
           if [ "$SIZE_BYTES" -lt "$MIN_BYTES" ] || [ "$SIZE_BYTES" -gt "$MAX_BYTES" ]; then
-            echo "::error::infringd static musl binary is ${SIZE_MB} MB, outside the 0.5 MB - 35 MB CI gate."
+            echo "::error::infringd static musl binary is ${SIZE_MB} MB, outside the rich-host 0.5 MB - 35 MB CI gate; this is not the tiny/pure edge profile gate."
             exit 1
           fi
           cargo run --quiet --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops -- \
             top1-assurance size-gate --strict=1 --binary-path="$BIN" --max-mb=35
-          echo "infringd static binary: ${SIZE_MB} MB (musl)"
+          echo "infringd rich-host static binary: ${SIZE_MB} MB (musl); not tiny/pure edge proof"
 
       - name: Enforce full install size gate (80 MB - 95 MB)
         run: |

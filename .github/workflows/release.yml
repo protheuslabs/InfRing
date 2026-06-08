@@ -468,7 +468,7 @@ jobs:
             fi
           done
 
-      - name: Enforce static infringd size gate (35 MB)
+      - name: Enforce rich-host static infringd size gate (35 MB)
         if: steps.semver.outputs.release_ready == '1'
         id: size_gate
         run: |
@@ -480,19 +480,19 @@ jobs:
           echo "infringd_static_size_bytes=${SIZE_BYTES}" >> "$GITHUB_OUTPUT"
           echo "infringd_static_size_mb=${SIZE_MB}" >> "$GITHUB_OUTPUT"
           if [ "$SIZE_BYTES" -gt "$MAX_BYTES" ]; then
-            echo "::error::infringd static musl binary is ${SIZE_MB} MB, exceeds the 35 MB CI gate."
+            echo "::error::infringd static musl binary is ${SIZE_MB} MB, exceeds the rich-host 35 MB CI gate."
             exit 1
           fi
           cargo run --quiet --manifest-path core/layer0/ops/Cargo.toml --bin infring-ops -- \
             top1-assurance size-gate --strict=1 \
             --binary-path=client/runtime/local/state/release/artifacts/infringd-x86_64-unknown-linux-musl \
             --max-mb=35
-          echo "infringd static binary: ${SIZE_MB} MB (musl)"
+          echo "infringd rich-host static binary: ${SIZE_MB} MB (musl); not tiny/pure edge proof"
 
       - name: Append static binary size to release notes
         if: steps.semver.outputs.release_ready == '1'
         run: |
-          printf '\ninfringd static binary: %s MB (musl)\n' \
+          printf '\ninfringd rich-host static binary: %s MB (musl; not tiny/pure edge proof)\n' \
             "${{ steps.size_gate.outputs.infringd_static_size_mb }}" \
             >> client/runtime/local/state/release/CHANGELOG.auto.md
 

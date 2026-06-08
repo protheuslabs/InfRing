@@ -1563,7 +1563,7 @@ function checkReleaseWorkflowLicensingManifestContract(root: string): GateCheck 
 
 function checkReleaseWorkflowSizeGateContract(root: string): GateCheck {
   return checkWorkflowNeedleSet(root, 'release_workflow_size_gate_contract', [
-    'Enforce static infringd size gate (35 MB)',
+    'Enforce rich-host static infringd size gate (35 MB)',
     '--max-mb=35',
     'infringd_static_size_mb',
     'Append static binary size to release notes',
