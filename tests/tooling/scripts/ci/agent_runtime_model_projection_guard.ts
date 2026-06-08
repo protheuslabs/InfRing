@@ -207,10 +207,18 @@ async function main() {
       const id = clean(model.id || model.model || model.model_name || model.adapter_model_arg, 240).toLowerCase();
       const display = clean(model.display_name, 240).toLowerCase();
       if (!id) violations.push({ kind: 'model_row_missing_id', engine_id: engineId, model });
+      if (!clean(model.capability_kind || model.action_kind, 120)) violations.push({ kind: 'model_row_capability_missing', engine_id: engineId, model_id: id });
+      if (!clean(model.deployment_kind, 120)) violations.push({ kind: 'model_row_deployment_missing', engine_id: engineId, model_id: id });
       if (id === 'default' || id.endsWith('/default') || id === 'framework-default' || id.endsWith('/framework-default') || display === 'default' || display.endsWith(' default')) {
         violations.push({ kind: 'fake_default_model_row_leaked', engine_id: engineId, model });
       }
       if (model.secrets_included === true) violations.push({ kind: 'model_row_secrets_leaked', engine_id: engineId, model_id: id });
+      if (model.cloud === true || model.api_backed === true) {
+        if (model.deployment_kind !== 'cloud') violations.push({ kind: 'cloud_model_deployment_not_cloud', engine_id: engineId, model_id: id, deployment_kind: model.deployment_kind });
+        if (model.action_kind !== 'cloud' && model.capability_kind !== 'cloud') violations.push({ kind: 'cloud_model_action_not_cloud', engine_id: engineId, model_id: id, action_kind: model.action_kind, capability_kind: model.capability_kind });
+        if (model.downloadable === true || model.download_available === true) violations.push({ kind: 'cloud_model_marked_downloadable', engine_id: engineId, model_id: id });
+      }
+      if (model.downloadable === true && model.cloud === true) violations.push({ kind: 'downloadable_model_marked_cloud', engine_id: engineId, model_id: id });
     }
     if (['codex_cli', 'claude_code', 'grok_code'].includes(engineId)) {
       if (available.source !== 'framework_native') violations.push({ kind: 'native_framework_model_source_wrong', engine_id: engineId, source: available.source });
@@ -218,6 +226,10 @@ async function main() {
       if (!modelRows.length) violations.push({ kind: 'native_framework_model_rows_missing', engine_id: engineId });
       if (!available.default_selection_policy || available.default_selection_policy.menu_row !== false) {
         violations.push({ kind: 'native_framework_default_policy_missing_or_rowed', engine_id: engineId });
+      }
+      for (const model of modelRows) {
+        const id = clean(model.id || model.model || model.model_name || model.adapter_model_arg, 240).toLowerCase();
+        if (model.cloud !== true || model.api_backed !== true) violations.push({ kind: 'native_framework_model_not_cloud_api', engine_id: engineId, model_id: id });
       }
     }
     if (['infring_native', 'openclaw', 'hermes_agent'].includes(engineId)) {
@@ -249,6 +261,15 @@ async function main() {
       empty_catalog_reason: row.available_models && row.available_models.empty_catalog_reason,
       models: row.available_models && Array.isArray(row.available_models.rows)
         ? row.available_models.rows.map((model) => model.id)
+        : [],
+      capabilities: row.available_models && Array.isArray(row.available_models.rows)
+        ? row.available_models.rows.map((model) => ({
+          id: model.id,
+          capability_kind: model.capability_kind,
+          deployment_kind: model.deployment_kind,
+          downloadable: model.downloadable,
+          cloud: model.cloud,
+        }))
         : [],
     })),
     violations,

@@ -624,6 +624,11 @@ function attachStructuredTurnEnvelope(contextPack, input) {
   const relevantMemory = buildRelevantMemory(pack);
   const contextBudget = buildContextBudget(pack);
   const permissionScope = buildPermissionScope(pack, input.permissionPolicy);
+  const approvalResume = input.approvalResume && typeof input.approvalResume === 'object'
+    ? input.approvalResume
+    : pack.approval_resume && typeof pack.approval_resume === 'object'
+      ? pack.approval_resume
+      : null;
   const envelope = {
     schema_version: 1,
     type: 'AgentRuntimeTurnEnvelope',
@@ -644,6 +649,7 @@ function attachStructuredTurnEnvelope(contextPack, input) {
     },
     artifact_refs: attachmentRefs,
     permission_scope: permissionScope,
+    approval_resume: approvalResume,
     universal_tool_grants: pack.universal_tool_grants,
     context_budget: contextBudget,
     model_provider_context: pack.model_provider_context || null,
@@ -656,6 +662,7 @@ function attachStructuredTurnEnvelope(contextPack, input) {
   pack.agent_profile = envelope.agent_profile;
   pack.artifact_refs = attachmentRefs;
   pack.permission_scope = permissionScope;
+  pack.approval_resume = approvalResume;
   pack.context_budget = contextBudget;
   pack.turn_envelope = envelope;
   return envelope;
@@ -847,6 +854,23 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
     const permissionPolicy = deps.mergeAgentRuntimeApprovalPermissionPolicy
       ? deps.mergeAgentRuntimeApprovalPermissionPolicy(body && body.permission_policy, sessionId, engineId)
       : body && body.permission_policy;
+    const approvalResumeSource = body && body.approval_resume && typeof body.approval_resume === 'object'
+      ? body.approval_resume
+      : null;
+    const approvalResume = approvalResumeSource ? {
+      type: 'agent_runtime_approval_resume_projection',
+      schema_version: 1,
+      approval_id: cleanApprovalId(approvalResumeSource.approval_id),
+      resume_token: cleanApprovalId(approvalResumeSource.resume_token),
+      approved_tool_id: cleanText(approvalResumeSource.approved_tool_id, 120),
+      approval_decision: cleanText(approvalResumeSource.approval_decision, 80),
+      approval_resume_action: cleanText(approvalResumeSource.approval_resume_action, 160),
+      decision_receipt_ref: cleanText(approvalResumeSource.decision_receipt_ref, 240),
+      source_authority: 'gateway.runtime.agent_runtime_turn_projection',
+    } : null;
+    if (approvalResume && (approvalResume.approval_id || approvalResume.resume_token || approvalResume.approved_tool_id)) {
+      contextPack.approval_resume = approvalResume;
+    }
     contextPack.universal_tool_grants = buildUniversalToolGrants({
       traceId,
       sessionId,
@@ -944,6 +968,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       text,
       attachmentRefs,
       permissionPolicy,
+      approvalResume,
     });
     const structuredTurn = buildAgentRuntimeStructuredTurn({
       traceId,
@@ -980,6 +1005,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       workspace_dir: activeWorkspaceDir,
       active_workspace: workspace,
       model_provider_context: modelProviderContext,
+      approval_resume: approvalResume,
       input: { text, attachments: attachmentRefs },
       turn_envelope: turnEnvelope,
       structured_turn: structuredTurn,

@@ -33,6 +33,23 @@ function createGrokCodeEngineAdapter(options = {}) {
       timeoutMs: 8000,
       maxOutputBytes: 65536,
     },
+    providerReadinessProbe: {
+      source: 'grok_code_minimal_turn_probe',
+      timeout_ms: 12000,
+      max_output_bytes: 12000,
+      cache_ttl_ms: 300000,
+      args: [
+        '--disable-web-search',
+        '--no-subagents',
+        '--output-format',
+        'streaming-json',
+        '--permission-mode',
+        'default',
+        '--verbatim',
+        '--single',
+        'Reply exactly INFRING_GROK_READY.',
+      ],
+    },
     runArgs: (prompt, ctx) => {
       const modelArg = selectedRuntimeModelArg(ctx, ['grok_code', 'grok', 'xai']);
       const mutationGrant = mutationGrantActive(ctx);

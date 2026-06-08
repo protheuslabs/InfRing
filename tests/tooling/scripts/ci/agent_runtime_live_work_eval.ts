@@ -13,9 +13,13 @@ const ENGINE_REGISTRY_PATH = path.join(ROOT, 'validation', 'conformance', 'contr
 
 function argValue(name: string, fallback = ''): string {
   const prefix = `${name}=`;
-  const found = process.argv.slice(2).find((arg) => arg === name || arg.startsWith(prefix));
-  if (!found) return fallback;
-  if (found === name) return '1';
+  const args = process.argv.slice(2);
+  const foundIndex = args.findIndex((arg) => arg === name || arg.startsWith(prefix));
+  if (foundIndex < 0) return fallback;
+  const found = args[foundIndex];
+  if (found === name) return args[foundIndex + 1] && !args[foundIndex + 1].startsWith('--')
+    ? args[foundIndex + 1]
+    : '1';
   return found.slice(prefix.length);
 }
 
@@ -58,13 +62,15 @@ function isLiveSelectableRegistryRow(row: JsonObject): boolean {
   return status === 'adapter_seam_ready' || status === 'safe_cli_bridge';
 }
 
-function resolveEngineSelection(rawEngines: string[], primaryEngine: string, rows: JsonObject[]): { engines: string[]; selection: JsonObject } {
+function resolveEngineSelection(rawEngines: string[], primaryEngine: string, rows: JsonObject[], selectableOverride: string[] = []): { engines: string[]; selection: JsonObject } {
   const normalized = unique(rawEngines.length ? rawEngines : [primaryEngine]);
   const registryIds = registryEngineIds(rows);
-  const selectable = rows
-    .filter(isLiveSelectableRegistryRow)
-    .map((row) => clean(row.engine_id, 120))
-    .filter(Boolean);
+  const selectable = selectableOverride.length
+    ? selectableOverride
+    : rows
+      .filter(isLiveSelectableRegistryRow)
+      .map((row) => clean(row.engine_id, 120))
+      .filter(Boolean);
   const aliases = new Set(normalized.map((value) => value.toLowerCase()));
   if (aliases.has('registry') || aliases.has('all')) {
     return {
@@ -79,8 +85,10 @@ function resolveEngineSelection(rawEngines: string[], primaryEngine: string, row
     return {
       engines: selectable,
       selection: {
-        mode: 'adapter_ready_or_safe_bridge',
-        rule: 'status in adapter_seam_ready or safe_cli_bridge',
+        mode: selectableOverride.length ? 'gateway_projected_selectable' : 'adapter_ready_or_safe_bridge',
+        rule: selectableOverride.length
+          ? 'Gateway engine projection selectable=true'
+          : 'status in adapter_seam_ready or safe_cli_bridge',
       },
     };
   }
@@ -132,6 +140,41 @@ function postJson(url: string, payload: JsonObject, timeoutMs = 180000): Promise
     req.write(body);
     req.end();
   });
+}
+
+function getJson(url: string, timeoutMs = 10000): Promise<{ statusCode: number; parsed: JsonObject | null; raw: string; error?: string }> {
+  return new Promise((resolve) => {
+    const req = http.request(url, { method: 'GET', timeout: timeoutMs }, (res) => {
+      let raw = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { raw += chunk; });
+      res.on('end', () => {
+        let parsed: JsonObject | null = null;
+        try { parsed = JSON.parse(raw); } catch {}
+        resolve({ statusCode: res.statusCode || 0, parsed, raw });
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('request_timeout')));
+    req.on('error', (error) => resolve({ statusCode: 0, parsed: null, raw: '', error: String(error && error.message || error) }));
+    req.end();
+  });
+}
+
+async function projectedLiveSelectableEngines(baseUrl: string): Promise<{ ids: string[]; source: string; ok: boolean; error: string }> {
+  const endpoint = `${baseUrl.replace(/\/+$/, '')}/api/shell-socket/agent-runtime/engines`;
+  const response = await getJson(endpoint, 10000);
+  const payload = response.parsed || {};
+  const rows = Array.isArray(payload.engines) ? payload.engines : [];
+  const ids = unique(rows
+    .filter((row: JsonObject) => row && row.selectable === true)
+    .map((row: JsonObject) => clean(row.engine_id, 120))
+    .filter(Boolean));
+  return {
+    ids,
+    source: ids.length ? 'gateway_agent_runtime_engine_projection' : 'registry_status_fallback',
+    ok: response.statusCode === 200 && payload.ok !== false,
+    error: response.error || '',
+  };
 }
 
 function outputText(row: JsonObject | null): string {
@@ -402,14 +445,21 @@ async function main() {
   const registry = registryRows();
   const registryIds = registryEngineIds(registry);
   const requestedEngines = argList('--engines', process.env.INFRING_AGENT_RUNTIME_EVAL_ENGINES || primaryEngine);
-  const resolvedSelection = resolveEngineSelection(requestedEngines, primaryEngine, registry);
-  const engines = resolvedSelection.engines;
-  const timeoutMs = Math.max(30000, Math.min(Number(argValue('--timeout-ms', process.env.INFRING_AGENT_RUNTIME_EVAL_TIMEOUT_MS || '180000')) || 180000, 300000));
-  const workingDirectory = normalizePathValue(argValue('--working-directory', process.env.INFRING_AGENT_RUNTIME_EVAL_WORKING_DIRECTORY || ROOT));
-  const liveSelectableEngines = registry
+  const registryLiveSelectableEngines = registry
     .filter(isLiveSelectableRegistryRow)
     .map((row) => clean(row.engine_id, 120))
     .filter(Boolean);
+  const projectedSelectable = await projectedLiveSelectableEngines(baseUrl).catch((error) => ({
+    ids: [],
+    source: 'registry_status_fallback',
+    ok: false,
+    error: clean(error && error.message ? error.message : error, 240),
+  }));
+  const liveSelectableEngines = projectedSelectable.ids.length ? projectedSelectable.ids : registryLiveSelectableEngines;
+  const resolvedSelection = resolveEngineSelection(requestedEngines, primaryEngine, registry, liveSelectableEngines);
+  const engines = resolvedSelection.engines;
+  const timeoutMs = Math.max(30000, Math.min(Number(argValue('--timeout-ms', process.env.INFRING_AGENT_RUNTIME_EVAL_TIMEOUT_MS || '180000')) || 180000, 300000));
+  const workingDirectory = normalizePathValue(argValue('--working-directory', process.env.INFRING_AGENT_RUNTIME_EVAL_WORKING_DIRECTORY || ROOT));
   const sampledSetForPlan = new Set(engines);
   const unsampledRegistryEnginesForPlan = registryIds.filter((id) => !sampledSetForPlan.has(id));
   const unsampledLiveSelectableEnginesForPlan = liveSelectableEngines.filter((id) => !sampledSetForPlan.has(id));
@@ -430,6 +480,9 @@ async function main() {
       registry_engine_count: registryIds.length,
       registry_engines: registryIds,
       live_selectable_engines: liveSelectableEngines,
+      live_selectable_source: projectedSelectable.source,
+      live_selectable_projection_ok: projectedSelectable.ok,
+      live_selectable_projection_error: projectedSelectable.error,
       sampled_engines: engines,
       unsampled_registry_engines: unsampledRegistryEnginesForPlan,
       unsampled_live_selectable_engines: unsampledLiveSelectableEnginesForPlan,
@@ -474,6 +527,9 @@ async function main() {
     registry_engine_count: registryIds.length,
     registry_engines: registryIds,
     live_selectable_engines: liveSelectableEngines,
+    live_selectable_source: projectedSelectable.source,
+    live_selectable_projection_ok: projectedSelectable.ok,
+    live_selectable_projection_error: projectedSelectable.error,
     unsampled_registry_engines: unsampledRegistryEngines,
     unsampled_live_selectable_engines: unsampledLiveSelectableEngines,
     sampled_planned_or_non_live_engines: sampledPlannedEngines,

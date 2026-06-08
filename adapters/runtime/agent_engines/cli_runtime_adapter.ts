@@ -146,6 +146,7 @@ const PROVIDER_ENV_CANDIDATES = Object.freeze({
   ollama: ['OLLAMA_HOST'],
   llama_cpp: ['LLAMA_CPP_SERVER_URL'],
 });
+const PROVIDER_READINESS_CACHE = new Map();
 
 function inheritedProviderEnv(ctx, options = {}) {
   const selected = selectedRuntimeModelContext(ctx);
@@ -684,6 +685,27 @@ function renderRuntimeAttachmentPromptSection(runtimeAttachmentRefs) {
   ].join('\n');
 }
 
+function renderApprovalResumePromptSection(approvalResume) {
+  const row = approvalResume && typeof approvalResume === 'object' ? approvalResume : null;
+  if (!row) return '';
+  const approvalId = cleanString(row.approval_id, 160);
+  const resumeToken = cleanString(row.resume_token, 160);
+  const toolId = cleanString(row.approved_tool_id || row.tool_id, 120);
+  const decision = cleanString(row.approval_decision, 80);
+  const receiptRef = cleanString(row.decision_receipt_ref, 240);
+  if (!approvalId && !resumeToken && !toolId && !decision && !receiptRef) return '';
+  const lines = [
+    'Approval resume:',
+    '- policy: This turn is resuming after a Gateway approval decision. Treat the approval as scoped permission for the named tool only; do not claim durable effects unless an execution receipt or result is present.',
+  ];
+  if (toolId) lines.push(`- approved_tool_id: ${toolId}`);
+  if (decision) lines.push(`- decision: ${decision}`);
+  if (approvalId) lines.push(`- approval_id: ${approvalId}`);
+  if (resumeToken) lines.push(`- resume_token: ${resumeToken}`);
+  if (receiptRef) lines.push(`- decision_receipt_ref: ${receiptRef}`);
+  return lines.join('\n');
+}
+
 function buildPromptWithContext(contextPack, currentPrompt) {
   const current = cleanDisplayString(currentPrompt || '', 12000);
   if (!current) return '';
@@ -693,6 +715,7 @@ function buildPromptWithContext(contextPack, currentPrompt) {
   const toolGrantSection = renderUniversalToolGrantPromptSection(pack && pack.universal_tool_grants);
   const steeringSection = renderRuntimeSteeringPromptSection(pack && pack.runtime_steering);
   const attachmentSection = renderRuntimeAttachmentPromptSection(pack && pack.runtime_attachment_refs);
+  const approvalResumeSection = renderApprovalResumePromptSection(pack && pack.approval_resume);
   const structuredConversationRows = Array.isArray(envelope && envelope.conversation_window)
     ? envelope.conversation_window
     : [];
@@ -706,24 +729,25 @@ function buildPromptWithContext(contextPack, currentPrompt) {
     structuredRelevantMemoryRows.length === 0 &&
     !toolGrantSection &&
     !steeringSection &&
-    !attachmentSection
+    !attachmentSection &&
+    !approvalResumeSection
   ) return current;
   const hot = fragments
     .filter((row) => row && row.kind === 'atom')
     .sort((a, b) => fragmentSortValue(a) - fragmentSortValue(b))
-    .slice(-12);
+    .slice(-8);
   const hotContextFragments = hot
     .map(formatContextFragment)
     .filter(Boolean)
-    .slice(-6);
+    .slice(-4);
   const conversationTranscript = dedupePromptLines(
     structuredConversationRows.length
       ? structuredConversationRows.map(formatStructuredConversationLine)
       : hot.map(formatConversationTranscriptLine),
-  ).slice(-12);
+  ).slice(-8);
   const relevantMemoryLines = dedupePromptLines(
     structuredRelevantMemoryRows.map(formatRelevantMemoryLine),
-  ).slice(-8);
+  ).slice(-5);
   const spans = fragments
     .filter((row) => row && row.kind === 'span')
     .sort((a, b) => {
@@ -732,7 +756,7 @@ function buildPromptWithContext(contextPack, currentPrompt) {
     })
     .map(formatContextFragment)
     .filter(Boolean)
-    .slice(-8);
+    .slice(-4);
   const lines = [
     'Current user turn:',
     current,
@@ -745,10 +769,11 @@ function buildPromptWithContext(contextPack, currentPrompt) {
   if (spans.length) lines.push('', 'Additional summarized context:', ...spans);
   if (hotContextFragments.length) lines.push('', 'Recent context notes:', ...hotContextFragments);
   if (attachmentSection) lines.push('', attachmentSection);
+  if (approvalResumeSection) lines.push('', approvalResumeSection);
   if (steeringSection) lines.push('', steeringSection);
   if (toolGrantSection) lines.push('', toolGrantSection);
   lines.push('', 'End session continuity excerpt.');
-  return cleanDisplayString(lines.join('\n'), 24000);
+  return cleanDisplayString(lines.join('\n'), 16000);
 }
 
 function resolveTurnTimeoutMs(ctx, fallbackTimeoutMs) {
@@ -864,6 +889,54 @@ function classifyCliRuntimeFailureCode(engineId, run, failureText) {
     return `${cleanEngine}_provider_network_unavailable`;
   }
   return `${cleanEngine}_turn_failed`;
+}
+
+function providerReadinessStatusFromFailureCode(errorCode) {
+  const code = cleanString(errorCode, 200).toLowerCase();
+  if (code.includes('provider_quota_or_subscription_unavailable')) return 'provider_blocked';
+  if (code.includes('provider_auth_required')) return 'auth_required';
+  if (code.includes('provider_rate_limited')) return 'rate_limited';
+  if (code.includes('provider_network_unavailable')) return 'provider_network_unavailable';
+  if (code.includes('turn_timeout')) return 'provider_readiness_timeout';
+  return 'provider_readiness_failed';
+}
+
+async function runProviderReadinessProbe(engineId, command, spec, ctx, options = {}) {
+  const row = spec && typeof spec === 'object' ? spec : {};
+  const args = Array.isArray(row.args) ? row.args.map((item) => cleanString(item, 4000)) : [];
+  if (!args.length) return null;
+  const cacheTtlMs = Math.max(0, Math.min(Number(row.cache_ttl_ms || 0) || 0, 3600000));
+  const cacheKey = `${engineId}:${command}:${args.join('\u0000')}`;
+  const cached = PROVIDER_READINESS_CACHE.get(cacheKey);
+  const now = Date.now();
+  if (cached && cacheTtlMs > 0 && now - cached.at_ms <= cacheTtlMs) return cached.value;
+  const timeoutMs = Math.max(1000, Math.min(Number(row.timeout_ms || 0) || 10000, 60000));
+  const maxOutputBytes = Math.max(1024, Math.min(Number(row.max_output_bytes || 0) || 12000, 65536));
+  const run = await spawnCapture(command, args, {
+    timeoutMs,
+    maxOutputBytes,
+    cwd: options.cwd || process.cwd(),
+    env: mergedRuntimeEnv(ctx, options),
+  });
+  const failureText = run.ok ? '' : cliRuntimeFailureText(engineId, run, timeoutMs);
+  const errorCode = run.ok ? '' : classifyCliRuntimeFailureCode(engineId, run, failureText);
+  const value = run.ok
+    ? {
+      status: 'available',
+      provider_readiness: 'ready',
+      provider_readiness_source: cleanString(row.source || 'provider_readiness_probe', 120),
+    }
+    : {
+      status: providerReadinessStatusFromFailureCode(errorCode),
+      provider_readiness: 'blocked',
+      provider_readiness_source: cleanString(row.source || 'provider_readiness_probe', 120),
+      error_code: errorCode,
+      reason: failureText,
+      retryable: providerReadinessStatusFromFailureCode(errorCode) !== 'provider_blocked' &&
+        providerReadinessStatusFromFailureCode(errorCode) !== 'auth_required',
+    };
+  if (cacheTtlMs > 0) PROVIDER_READINESS_CACHE.set(cacheKey, { at_ms: now, value });
+  return value;
 }
 
 function appendCliRuntimeFailureEvent(events, ctx, engineId, run, timeoutMs) {
@@ -1735,9 +1808,21 @@ function createCliRuntimeEngineAdapter(options = {}) {
       const modelMenu = probe.ok
         ? await discoverCliRuntimeModelMenu(command, options.modelDiscovery, ctx, registryMenu).catch(() => null)
         : null;
+      const providerReadiness = probe.ok && options.providerReadinessProbe
+        ? await runProviderReadinessProbe(engineId, command, options.providerReadinessProbe, ctx, options).catch((error) => ({
+          status: 'provider_readiness_failed',
+          provider_readiness: 'blocked',
+          provider_readiness_source: 'provider_readiness_probe',
+          error_code: `${engineId}_provider_readiness_failed`,
+          reason: cleanString(error && error.message ? error.message : error, 500),
+          retryable: true,
+        }))
+        : null;
       return {
         ...baseEvent(ctx, 'engine.health.result', engineId),
-        status: probe.ok ? 'available' : discovery.status || 'not_downloaded',
+        status: providerReadiness && providerReadiness.status !== 'available'
+          ? providerReadiness.status
+          : (probe.ok ? 'available' : discovery.status || 'not_downloaded'),
         engine_kind: engineKind,
         command,
         discovery_source: discovery.discovery_source,
@@ -1753,6 +1838,11 @@ function createCliRuntimeEngineAdapter(options = {}) {
         steering_transport: 'gateway_next_turn_intervention',
         version_preview: cleanString(probe.stdout || probe.stderr, 500),
         model_menu: modelMenu,
+        provider_readiness: providerReadiness ? providerReadiness.provider_readiness : (probe.ok ? 'not_checked' : 'unavailable'),
+        provider_readiness_source: providerReadiness ? providerReadiness.provider_readiness_source : '',
+        error_code: providerReadiness && providerReadiness.error_code || '',
+        reason: providerReadiness && providerReadiness.reason || '',
+        retryable: providerReadiness && providerReadiness.retryable === true,
       };
     },
 

@@ -85,6 +85,9 @@ function createInfringNativeEngineAdapter(options = {}) {
           context_transport_mode: 'native_session_bridge',
           structured_transport_target: 'native_session_bridge',
           transport_migration_status: 'native_target',
+          supports_live_steering: false,
+          supports_next_turn_steering: true,
+          steering_transport: 'gateway_next_turn_intervention',
           reason: 'orchestration_client_not_attached',
         };
       }
@@ -100,6 +103,9 @@ function createInfringNativeEngineAdapter(options = {}) {
         context_transport_mode: 'native_session_bridge',
         structured_transport_target: 'native_session_bridge',
         transport_migration_status: 'native_target',
+        supports_live_steering: false,
+        supports_next_turn_steering: true,
+        steering_transport: 'gateway_next_turn_intervention',
         ...(result && typeof result === 'object' ? result : {}),
       };
     },

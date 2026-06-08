@@ -57,6 +57,111 @@ function findAgentRuntimeEngine(registryInfo, engineId) {
   return engines.find((engine) => cleanEngineId(engine && engine.engine_id) === target) || null;
 }
 
+function classifyAgentRuntimeModelCapability(model, menuSource) {
+  const row = model && typeof model === 'object' ? model : {};
+  const provider = cleanText(row.provider || row.model_provider || row.provider_id || row.source_provider || menuSource || '', 120);
+  const providerKey = provider.toLowerCase();
+  const deploymentSource = cleanText(row.deployment_kind || row.deployment || row.hosting || row.availability || row.status || '', 120);
+  const deploymentText = [
+    deploymentSource,
+    row.source || '',
+    row.availability || '',
+    row.status || '',
+  ].join(' ').toLowerCase();
+  const localProvider = providerKey === 'ollama' ||
+    providerKey === 'llama.cpp' ||
+    providerKey === 'llamacpp' ||
+    providerKey.includes('local');
+  const cloudProvider = providerKey.includes('openai') ||
+    providerKey.includes('anthropic') ||
+    providerKey.includes('claude') ||
+    providerKey.includes('codex') ||
+    providerKey.includes('grok') ||
+    providerKey.includes('xai') ||
+    providerKey.includes('google') ||
+    providerKey.includes('gemini') ||
+    providerKey.includes('mistral') ||
+    providerKey.includes('perplexity');
+  const cloud = row.cloud === true ||
+    row.api_backed === true ||
+    row.requires_auth === true ||
+    cloudProvider ||
+    deploymentText.includes('cloud') ||
+    deploymentText.includes('api') ||
+    deploymentText.includes('remote') ||
+    deploymentText.includes('hosted');
+  const local = row.local === true ||
+    row.local_available === true ||
+    row.local_installed === true ||
+    row.installed === true ||
+    row.downloaded === true ||
+    localProvider ||
+    deploymentText.includes('local');
+  const installed = row.installed === true ||
+    row.downloaded === true ||
+    row.local_available === true ||
+    row.local_installed === true ||
+    deploymentText.includes('installed');
+  const updatable = installed && (
+    row.update_available === true ||
+    row.local_update_available === true ||
+    row.can_update === true ||
+    !!cleanText(row.update_command || row.ollama_update_command || '', 1000)
+  );
+  const explicitDownload = row.download_available === true ||
+    row.local_download_available === true ||
+    row.install_available === true ||
+    row.ollama_pull_available === true ||
+    row.can_download === true ||
+    row.can_pull === true ||
+    !!cleanText(row.download_url || row.download_command || row.pull_command || row.install_command || '', 1000);
+  const downloadable = !cloud && !installed && explicitDownload;
+  const available = row.available !== false;
+  const blocked = available === false || row.blocked === true;
+  const requiresAuth = row.requires_auth === true || (cloud && row.authenticated !== true);
+  const deploymentKind = cloud
+    ? 'cloud'
+    : local
+      ? 'local'
+      : cleanText(deploymentSource || 'unknown', 80).toLowerCase() || 'unknown';
+  const actionKind = blocked
+    ? 'blocked'
+    : cloud
+      ? 'cloud'
+      : updatable
+        ? 'update'
+        : installed
+          ? 'locked'
+          : downloadable
+            ? 'download'
+            : '';
+  const capabilityKind = actionKind || (available ? 'available' : 'blocked');
+  return {
+    capability_kind: capabilityKind,
+    action_kind: actionKind,
+    deployment_kind: deploymentKind,
+    cloud,
+    api_backed: cloud,
+    local,
+    installed,
+    downloadable,
+    updatable,
+    requires_auth: requiresAuth,
+    selectable: available && !blocked,
+    capability_status: blocked
+      ? 'blocked'
+      : cloud
+        ? (requiresAuth ? 'cloud_requires_auth' : 'cloud_available')
+        : updatable
+          ? 'local_update_available'
+          : installed
+            ? 'local_installed'
+            : downloadable
+              ? 'local_download_available'
+              : 'available',
+  };
+}
+
 function projectAgentRuntimeModelMenu(engine, health) {
   const row = engine && typeof engine === 'object' ? engine : {};
   const source = row.model_menu && typeof row.model_menu === 'object' ? row.model_menu : {};
@@ -67,15 +172,29 @@ function projectAgentRuntimeModelMenu(engine, health) {
     : (Array.isArray(source.model_rows) ? source.model_rows : []);
   const modelRows = modelRowsSource.map((item) => {
     const model = item && typeof item === 'object' ? item : {};
+    const capability = classifyAgentRuntimeModelCapability(model, menuSource);
     return {
       id: cleanText(model.id || model.qualified_model_ref || model.model || '', 240),
       provider: cleanText(model.provider || model.model_provider || '', 120),
       model: cleanText(model.model || model.model_name || '', 180),
       model_name: cleanText(model.model_name || model.model || '', 180),
       display_name: cleanText(model.display_name || model.model_name || model.model || model.id || '', 180),
-      available: model.available !== false,
+      available: capability.selectable,
       source: cleanText(model.source || menuSource || '', 120),
       adapter_model_arg: cleanText(model.adapter_model_arg || model.model || model.model_name || '', 180),
+      capability_kind: capability.capability_kind,
+      capability_status: capability.capability_status,
+      action_kind: capability.action_kind,
+      deployment_kind: capability.deployment_kind,
+      cloud: capability.cloud,
+      api_backed: capability.api_backed,
+      local: capability.local,
+      installed: capability.installed,
+      downloadable: capability.downloadable,
+      download_available: capability.downloadable,
+      updatable: capability.updatable,
+      update_available: capability.updatable,
+      requires_auth: capability.requires_auth,
     };
   }).filter((item) => {
     const modelId = cleanText(item.id || item.model || item.model_name || item.adapter_model_arg || '', 240).toLowerCase();
@@ -239,6 +358,9 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
     const engineId = cleanEngineId(row.engine_id);
     const healthStatus = cleanText(health && health.status ? health.status : '', 80);
     const registryStatus = cleanText(row.status || '', 80);
+    const providerReadiness = cleanText(health && health.provider_readiness ? health.provider_readiness : '', 80);
+    const errorCode = cleanText(health && health.error_code ? health.error_code : '', 120);
+    const reason = cleanText(health && (health.reason || health.status_reason) ? (health.reason || health.status_reason) : '', 500);
     const nativeReady = engineId === 'infring_native' && registryStatus === 'adapter_seam_ready';
     const status = healthStatus || (nativeReady ? 'available' : (registryStatus || 'unknown'));
     const selectable = status === 'available' || status === 'adapter_ready' || nativeReady;
@@ -260,6 +382,9 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
       transport_kind: cleanText(row.transport_kind || '', 120),
       status,
       selectable,
+      provider_readiness: providerReadiness,
+      error_code: errorCode,
+      reason,
       capabilities: capabilities.slice(0, 14),
       supports_live_steering: supportsLiveSteering,
       supports_next_turn_steering: supportsNextTurnSteering,

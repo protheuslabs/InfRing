@@ -149,6 +149,8 @@ function createAgentRuntimeApprovalStore(options = {}) {
     return {
       type: 'agent_runtime_pending_approval',
       schema_version: 1,
+      projection_kind: 'permission_request',
+      projection_schema_version: 1,
       approval_id: approvalId,
       trace_id: traceId,
       request_id: cleanText(source.request_id, 200),
@@ -267,6 +269,8 @@ function createAgentRuntimeApprovalStore(options = {}) {
     const decisionReceiptBase = {
       type: 'agent_runtime_approval_decision_receipt',
       schema_version: 1,
+      projection_kind: 'receipt',
+      projection_schema_version: 1,
       receipt_ref: `receipt/agent-runtime-approval-decision/${cleanReceiptComponent(id, 240)}`,
       trace_id: cleanText(traceId, 200),
       approval_id: id,
@@ -287,6 +291,8 @@ function createAgentRuntimeApprovalStore(options = {}) {
     };
     const row = {
       type: 'approval_decision_ack',
+      projection_kind: 'permission_decision',
+      projection_schema_version: 1,
       ok: true,
       trace_id: traceId,
       approval_id: id,
