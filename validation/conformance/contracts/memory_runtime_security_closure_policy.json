@@ -7,7 +7,9 @@
   "source_roots": [
     "core/layer0/memory_runtime/src",
     "tests/tooling/scripts/ci",
-    "adapters/runtime"
+    "adapters/runtime",
+    "client/runtime/systems/conduit",
+    "gateway/runtime"
   ],
   "code_scanning_classes": [
     {
@@ -48,9 +50,11 @@
       ],
       "severity": "high",
       "scope": [
+        "gateway/runtime/gateway_host_config.ts",
+        "gateway/runtime/gateway_host_lifecycle.ts",
         "adapters/runtime/infring_dashboard.ts"
       ],
-      "closure_expectation": "Dashboard shutdown timers must normalize user-provided delay values through bounded min/max constants before setTimeout receives the duration."
+      "closure_expectation": "Gateway host shutdown timers must normalize user-provided delay values through bounded min/max constants before setTimeout receives the duration; adapter hosts may consume but must not own this policy."
     },
     {
       "id": "codeql_js_incomplete_sanitization_markdown_table",
@@ -64,6 +68,17 @@
         "tests/tooling/scripts/ci/todo_audit_full.ts"
       ],
       "closure_expectation": "Markdown table cells must escape backslashes before pipe escaping so generated audit tables cannot produce ambiguous escaped delimiters."
+    },
+    {
+      "id": "conduit_fail_soft_crypto_fallback",
+      "tool": "InfRing security closure",
+      "rule_id": "infring/conduit-fail-soft-production-guard",
+      "github_alert_ids": [],
+      "severity": "critical",
+      "scope": [
+        "client/runtime/systems/conduit/conduit-client.ts"
+      ],
+      "closure_expectation": "Conduit fail-soft signing/token fallbacks may exist only in dev/test harness lanes; production/release mode must fail closed before any fallback signing secret or fallback signature is materialized."
     }
   ],
   "required_checks": [
@@ -141,13 +156,13 @@
       "github_alert_ids": [
         123
       ],
-      "path": "adapters/runtime/infring_dashboard.ts",
+      "path": "gateway/runtime/gateway_host_config.ts",
       "must_contain_all": [
-        "const DASHBOARD_SHUTDOWN_EXIT_DELAY_MIN_MS = 80;",
-        "const DASHBOARD_SHUTDOWN_EXIT_DELAY_MAX_MS = 5000;",
-        "function normalizeShutdownExitDelayMs(value)",
-        "const waitMs = normalizeShutdownExitDelayMs(normalizedDelayMs);",
-        "}, waitMs);"
+        "const GATEWAY_SHUTDOWN_EXIT_DELAY_MIN_MS = 80;",
+        "const GATEWAY_SHUTDOWN_EXIT_DELAY_MAX_MS = 5000;",
+        "function normalizeGatewayShutdownExitDelayMs(value)",
+        "Math.min(GATEWAY_SHUTDOWN_EXIT_DELAY_MAX_MS, Math.floor(num))",
+        "normalizeGatewayShutdownExitDelayMs,"
       ],
       "must_not_match": [
         {
@@ -173,6 +188,42 @@
         {
           "pattern": "\\$\\{\\(row\\.section \\|\\| \"\"\\)\\.replace\\(/\\\\\\|/g,\\s*\"\\\\\\\\\\|\"\\)\\}",
           "reason": "inline pipe-only escaping can reopen CodeQL alert #109 because backslashes are not escaped first"
+        }
+      ]
+    },
+    {
+      "id": "conduit_fail_soft_signing_is_production_fail_closed",
+      "code_scanning_rule_id": "infring/conduit-fail-soft-production-guard",
+      "github_alert_ids": [],
+      "path": "client/runtime/systems/conduit/conduit-client.ts",
+      "must_contain_all": [
+        "function conduitProductionModeActive(): boolean",
+        "function assertConduitFailSoftAllowed(reason: string): void",
+        "conduit_security_kernel_${reason}_failed_closed_production",
+        "assertConduitFailSoftAllowed('resolve_security_config')",
+        "assertConduitFailSoftAllowed('build_envelope_ts_fallback')",
+        "assertConduitFailSoftAllowed('build_envelope')",
+        "client_id: 'conduit-client-fail-soft'",
+        "signing_secret: 'conduit-client-fail-soft-signing-secret'",
+        "token_secret: 'conduit-client-fail-soft-token-secret'",
+        "signature: `fallback-signature-${request_id}-${ts_ms}`"
+      ],
+      "must_match": [
+        {
+          "pattern": "catch\\s*\\{\\s*assertConduitFailSoftAllowed\\('resolve_security_config'\\);[\\s\\S]{0,700}client_id:\\s*'conduit-client-fail-soft'",
+          "reason": "security config fail-soft fallback must assert production fail-closed before materializing fallback signing/token secrets"
+        },
+        {
+          "pattern": "if\\s*\\(String\\(process\\.env\\.INFRING_CONDUIT_TS_FALLBACK \\|\\| ''\\) === '1'\\)\\s*\\{\\s*assertConduitFailSoftAllowed\\('build_envelope_ts_fallback'\\);[\\s\\S]{0,1200}signature:\\s*`fallback-signature-\\$\\{request_id\\}-\\$\\{ts_ms\\}`",
+          "reason": "explicit TypeScript envelope fallback must assert production fail-closed before emitting fallback signatures"
+        },
+        {
+          "pattern": "catch\\s*\\{\\s*assertConduitFailSoftAllowed\\('build_envelope'\\);[\\s\\S]{0,700}process\\.env\\.INFRING_CONDUIT_TS_FALLBACK = '1';",
+          "reason": "kernel build-envelope failures must fail closed in production before entering the TypeScript fallback lane"
+        },
+        {
+          "pattern": "function conduitProductionModeActive\\(\\): boolean \\{[\\s\\S]{0,700}production[\\s\\S]{0,200}prod[\\s\\S]{0,200}release",
+          "reason": "production detector must include production/prod/release environment labels"
         }
       ]
     }
@@ -232,6 +283,20 @@
       ],
       "pattern": "setTimeout\\(\\s*\\(\\)\\s*=>[\\s\\S]{0,200}\\},\\s*normalizedDelayMs\\s*\\)",
       "reason": "dashboard timers must use normalized bounded durations, not user-provided values directly"
+    },
+    {
+      "id": "gateway_shutdown_direct_user_timer_regression",
+      "code_scanning_rule_id": "js/resource-exhaustion",
+      "github_alert_ids": [
+        123
+      ],
+      "root": "gateway/runtime",
+      "include_extensions": [
+        ".ts",
+        ".js"
+      ],
+      "pattern": "setTimeout\\(\\s*\\(\\)\\s*=>[\\s\\S]{0,200}\\},\\s*normalizedDelayMs\\s*\\)",
+      "reason": "gateway shutdown timers must use normalized bounded durations, not user-provided values directly"
     },
     {
       "id": "todo_audit_inline_pipe_only_escape_regression",
