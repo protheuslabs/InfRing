@@ -52,6 +52,11 @@ const GATES = [
     coverage_scope: 'selectable_projection_subset',
   },
   {
+    id: 'engine_focus',
+    script: 'tests/tooling/scripts/ci/agent_runtime_engine_focus_guard.ts',
+    coverage_scope: 'agent_runtime_promotion_focus_policy',
+  },
+  {
     id: 'shell_replaceability',
     script: 'tests/tooling/scripts/ci/agent_runtime_shell_replaceability_guard.ts',
     coverage_scope: 'gateway_socket_contract',

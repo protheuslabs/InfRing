@@ -20,6 +20,39 @@
   "turn_outcome_contract": "validation/conformance/contracts/agent_runtime_turn_outcome_contract.json",
   "router_scope_contract": "validation/conformance/contracts/agent_runtime_router_scope_contract.json",
   "selection_rule": "Shell and external clients may select engine_id only through the Gateway socket. Engine-specific execution remains behind Gateway adapters.",
+  "validation_focus_policy": {
+    "broad_registry_allowed": true,
+    "ui_selectable_is_not_promotion_scope": true,
+    "active_promotion_engines": [
+      "infring_native",
+      "codex_cli",
+      "claude_code"
+    ],
+    "native_engine": "infring_native",
+    "primary_external_engine": "codex_cli",
+    "secondary_comparison_engines": [
+      "claude_code"
+    ],
+    "catalog_only_engines": [
+      "grok_code",
+      "opencode",
+      "openclaw",
+      "hermes_agent",
+      "openhands",
+      "openfang",
+      "custom_socket_engine"
+    ],
+    "default_live_work_scope": "active_promotion_engines",
+    "broad_sampling_requires_explicit_alias": true,
+    "allowed_broad_sampling_aliases": [
+      "adapter-ready",
+      "adapter_ready",
+      "selectable",
+      "registry",
+      "all"
+    ],
+    "rule": "Keep the engine registry broad for catalog and future socket support, but only the active_promotion_engines lane may be used for promotion/readiness claims unless a new engine is explicitly promoted with live evidence."
+  },
   "available_models_projection_contract": {
     "field": "available_models",
     "source_authority": "gateway.agent_runtime_engine_projection",
