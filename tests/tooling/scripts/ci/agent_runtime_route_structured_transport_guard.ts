@@ -17,6 +17,7 @@ const SCRATCH_DIR = path.join(ROOT, 'core/local/artifacts/agent-runtime-route-st
 const SESSION_ID = 'agent-runtime-route-structured-transport-session';
 const AGENT_ID = 'agent-runtime-route-structured-transport-agent';
 const ENGINES = ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'opencode', 'openclaw', 'hermes_agent'];
+const INSTALLABLE_ENGINES = ['codex_cli', 'claude_code', 'grok_code', 'opencode', 'openclaw', 'hermes_agent'];
 
 function clean(value, max = 4000) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -87,6 +88,21 @@ function createCaptureAdapter(engineId, captures) {
   };
 }
 
+function createUnavailableInstallAdapter(engineId) {
+  return {
+    health_check: async ({ message }) => ({
+      type: 'engine.health.result',
+      trace_id: message && message.trace_id,
+      engine_id: engineId,
+      status: 'not_downloaded',
+      download_available: true,
+      download_action_ref: `agent_runtime_download/${engineId}`,
+      discovery_source: 'route_install_permission_guard',
+      reason: `${engineId} intentionally unavailable in install permission guard.`,
+    }),
+  };
+}
+
 async function submitTurn(assembly, engineId, index) {
   const res = makeResponse();
   const sessionId = `${SESSION_ID}-${engineId}`;
@@ -123,6 +139,33 @@ async function submitTurn(assembly, engineId, index) {
   };
 }
 
+async function submitInstallBlocked(assembly, engineId, index) {
+  const res = makeResponse();
+  const handled = await assembly.handleAgentRuntimeEngineRoute({
+    req: {
+      method: 'POST',
+      __body: {
+        reason: 'validation guard must not execute installers without approval',
+      },
+    },
+    res,
+    pathname: `/api/shell-socket/agent-runtime/engines/${encodeURIComponent(engineId)}/install`,
+    traceId: `validation:agent-runtime-route-install:${engineId}:${Date.now()}`,
+    flags: {},
+  });
+  return {
+    engine_id: engineId,
+    handled,
+    status_code: res.statusCode,
+    status: clean(res.payload && res.payload.status, 120),
+    ok: !!(handled && res.statusCode === 403 && res.payload && res.payload.status === 'permission_required'),
+    stdout_preview_present: !!(res.payload && res.payload.stdout_preview),
+    stderr_preview_present: !!(res.payload && res.payload.stderr_preview),
+    command_line_hint_present: !!(res.payload && res.payload.command_line_hint),
+    type: clean(res.payload && res.payload.type, 120),
+  };
+}
+
 async function main() {
   try { fs.rmSync(SCRATCH_DIR, { recursive: true, force: true }); } catch {}
   for (const engineId of ENGINES) {
@@ -151,9 +194,43 @@ async function main() {
     turnResults.push(await submitTurn(assembly, ENGINES[index], index + 1));
   }
 
+  const previousInstallAllowed = process.env.INFRING_AGENT_RUNTIME_INSTALL_ALLOWED;
+  process.env.INFRING_AGENT_RUNTIME_INSTALL_ALLOWED = '0';
+  const installAdapterFactories = {};
+  for (const engineId of INSTALLABLE_ENGINES) installAdapterFactories[engineId] = () => createUnavailableInstallAdapter(engineId);
+  const installAssembly = createGatewayAgentRuntimeRouteAssembly({
+    root: ROOT,
+    statusDir: path.join(SCRATCH_DIR, 'install-state'),
+    adapterFactories: installAdapterFactories,
+    readJsonBody: async (req) => (req && req.__body) || {},
+    sendJson: (res, statusCode, payload) => {
+      res.statusCode = statusCode;
+      res.payload = payload;
+    },
+    fetchBackendJson: async () => ({}),
+    createNativeOrchestrationClient: () => ({}),
+  });
+  const installResults = [];
+  for (let index = 0; index < INSTALLABLE_ENGINES.length; index += 1) {
+    installResults.push(await submitInstallBlocked(installAssembly, INSTALLABLE_ENGINES[index], index + 1));
+  }
+  if (previousInstallAllowed == null) delete process.env.INFRING_AGENT_RUNTIME_INSTALL_ALLOWED;
+  else process.env.INFRING_AGENT_RUNTIME_INSTALL_ALLOWED = previousInstallAllowed;
+
   const violations = [];
   if (!turnResults.every((row) => row.ok)) {
     violations.push({ kind: 'public_route_structured_turn_submission_failed', failed: turnResults.filter((row) => !row.ok) });
+  }
+  if (!installResults.every((row) => row.ok)) {
+    violations.push({ kind: 'install_route_permission_gate_failed', failed: installResults.filter((row) => !row.ok) });
+  }
+  for (const row of installResults) {
+    if (row.stdout_preview_present || row.stderr_preview_present) {
+      violations.push({ kind: 'install_route_executed_or_leaked_process_output_while_permission_denied', engine_id: row.engine_id });
+    }
+    if (!row.command_line_hint_present) {
+      violations.push({ kind: 'install_route_permission_denied_missing_command_line_hint', engine_id: row.engine_id });
+    }
   }
   const captureSummaries = [];
   for (const engineId of ENGINES) {
@@ -199,7 +276,9 @@ async function main() {
     generated_at: new Date().toISOString(),
     mode: 'deterministic_public_gateway_route_matrix',
     engines_tested: ENGINES,
+    install_engines_tested: INSTALLABLE_ENGINES,
     turn_results: turnResults,
+    install_permission_results: installResults,
     captures: captureSummaries,
     violations,
   };
