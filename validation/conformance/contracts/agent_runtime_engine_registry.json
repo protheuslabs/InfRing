@@ -578,6 +578,154 @@
       }
     },
     {
+      "engine_id": "opencode",
+      "display_name": "OpenCode",
+      "engine_kind": "external_cli_adapter",
+      "implementation_path": "adapters/runtime/agent_engines/opencode.ts",
+      "transport_kind": "local_process_or_socket",
+      "status": "adapter_seam_ready",
+      "capabilities": [
+        "coding_agent_loop",
+        "workspace_read",
+        "workspace_edit_proposal",
+        "command_proposal",
+        "artifact_collection"
+      ],
+      "health_contract": "adapter resolves command availability and startup readiness without leaking process internals",
+      "adapter_boundary": "Gateway launches or connects to the adapter and normalizes stdout/socket events into the agent runtime event stream.",
+      "authority_constraints": [
+        "no_direct_kernel_write",
+        "no_direct_shell_socket",
+        "workspace_scope_required",
+        "mutation_approval_required"
+      ],
+      "install": {
+        "install_state_source": "adapter_health_check",
+        "download_available": true,
+        "download_action_ref": "agent_runtime_download/opencode",
+        "preferred_install_method": "command_line",
+        "command_line_hint": "Install OpenCode with the official OpenCode installer for this machine, then refresh provider discovery.",
+        "browser_fallback_url": "https://opencode.ai",
+        "display_when_missing": "download_icon",
+        "command_line_install": {
+          "permission_mode": "allowed",
+          "commands": [
+            {
+              "platforms": [
+                "darwin",
+                "linux"
+              ],
+              "shell_command": "curl -fsSL https://opencode.ai/install | bash",
+              "timeout_ms": 240000
+            },
+            {
+              "platforms": [
+                "win32"
+              ],
+              "command": "powershell.exe",
+              "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "irm https://opencode.ai/install.ps1 | iex"
+              ],
+              "timeout_ms": 240000
+            }
+          ]
+        }
+      },
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_config_key": "agent_runtimes.opencode.command",
+        "env_vars": [
+          "INFRING_OPENCODE_PATH",
+          "INFRING_OPENCODE_BIN"
+        ],
+        "path_commands": [
+          "opencode"
+        ],
+        "default_paths": [
+          "~/.local/bin/opencode",
+          "/opt/homebrew/bin/opencode",
+          "/usr/local/bin/opencode",
+          "%USERPROFILE%\\.local\\bin\\opencode.cmd"
+        ],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "path_discovery",
+          "default_location_probe",
+          "missing_installable"
+        ]
+      },
+      "context_transport_mode": "prompt_text_compat",
+      "structured_transport_target": "structured_json",
+      "transport_migration_status": "transitional_bootstrap",
+      "model_menu": {
+        "show_in_llm_menu": true,
+        "source": "framework_native_catalog_static_seed",
+        "framework_native_models": true,
+        "inherit_active_llm_when_unconfigured": false,
+        "credential_inheritance_allowed": false,
+        "model_rows": [
+          {
+            "provider": "openrouter",
+            "model": "openrouter/auto",
+            "qualified_model_ref": "openrouter/openrouter/auto",
+            "display_name": "OpenRouter Auto",
+            "availability": "if_supported_by_opencode",
+            "source": "opencode_runtime_seed_pending_discovery",
+            "adapter_model_arg": "openrouter/auto"
+          },
+          {
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+            "qualified_model_ref": "anthropic/claude-sonnet-4-6",
+            "display_name": "Claude Sonnet 4.6",
+            "availability": "if_supported_by_opencode",
+            "source": "opencode_runtime_seed_pending_discovery",
+            "adapter_model_arg": "claude-sonnet-4-6"
+          },
+          {
+            "provider": "openai",
+            "model": "gpt-5.5",
+            "qualified_model_ref": "openai/gpt-5.5",
+            "display_name": "GPT-5.5",
+            "availability": "if_supported_by_opencode",
+            "source": "opencode_runtime_seed_pending_discovery",
+            "adapter_model_arg": "gpt-5.5"
+          }
+        ],
+        "default_selection_policy": {
+          "type": "framework_configured_default",
+          "menu_row": false,
+          "rule": "Default is a provider/framework selection policy, not a model. Omit model_provider_context.model to let OpenCode choose its configured default."
+        },
+        "catalog_refresh_policy": {
+          "mode": "static_seed_until_framework_model_discovery_is_wired",
+          "freshness_authority": "opencode_runtime_discovery",
+          "rule": "These rows are model seeds, not truth. Prefer OpenCode/provider discovery when available; do not fabricate default rows."
+        }
+      },
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": true,
+        "framework_native_models": true,
+        "inherit_active_infring_provider_when_unconfigured": false,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      },
+      "prompt_text_compatibility": {
+        "status": "transitional",
+        "retire_by": "2026-07-05",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Prompt text may only be rendered from AgentRuntimeStructuredTurn and must not become provider authority.",
+        "next_step": "Replace prompt preamble with OpenCode structured/native session transport when a stable typed bridge is available."
+      }
+    },
+    {
       "engine_id": "openhands",
       "display_name": "OpenHands",
       "engine_kind": "external_framework_adapter",

@@ -82,12 +82,21 @@
       "socket_engine_id": "codex_cli",
       "availability_probe": {
         "type": "command_candidates",
-        "commands": ["codex"]
+        "commands": [
+          "codex"
+        ]
       },
       "native_invocation": {
         "supported": true,
-        "command_candidates": ["codex"],
-        "argv_template": ["{command}", "exec", "--cd", "{cwd}"],
+        "command_candidates": [
+          "codex"
+        ],
+        "argv_template": [
+          "{command}",
+          "exec",
+          "--cd",
+          "{cwd}"
+        ],
         "stdin_template": "{prompt}",
         "notes": "Live native invocation may require local Codex auth and operator-controlled sandbox settings."
       },
@@ -131,12 +140,20 @@
       "socket_engine_id": "claude_code",
       "availability_probe": {
         "type": "command_candidates",
-        "commands": ["claude"]
+        "commands": [
+          "claude"
+        ]
       },
       "native_invocation": {
         "supported": true,
-        "command_candidates": ["claude"],
-        "argv_template": ["{command}", "--print", "{prompt}"],
+        "command_candidates": [
+          "claude"
+        ],
+        "argv_template": [
+          "{command}",
+          "--print",
+          "{prompt}"
+        ],
         "notes": "Live native invocation may require local Claude Code auth and may need cwd passed through process working directory."
       },
       "native_features": {
@@ -179,12 +196,24 @@
       "socket_engine_id": "grok_code",
       "availability_probe": {
         "type": "command_candidates",
-        "commands": ["grok", "grok-code"]
+        "commands": [
+          "grok",
+          "grok-code"
+        ]
       },
       "native_invocation": {
         "supported": true,
-        "command_candidates": ["grok", "grok-code"],
-        "argv_template": ["{command}", "--cwd", "{cwd}", "-p", "{prompt}"],
+        "command_candidates": [
+          "grok",
+          "grok-code"
+        ],
+        "argv_template": [
+          "{command}",
+          "--cwd",
+          "{cwd}",
+          "-p",
+          "{prompt}"
+        ],
         "notes": "Live discovery confirmed headless single-turn prompts use -p/--single; provider access may still require an active Grok subscription."
       },
       "native_features": {
@@ -223,13 +252,21 @@
       "socket_engine_id": "opencode",
       "availability_probe": {
         "type": "command_candidates",
-        "commands": ["opencode"]
+        "commands": [
+          "opencode"
+        ]
       },
       "native_invocation": {
         "supported": true,
-        "command_candidates": ["opencode"],
-        "argv_template": ["{command}", "run", "{prompt}"],
-        "notes": "Command shape is provisional and should be confirmed against the installed OpenCode version."
+        "command_candidates": [
+          "opencode"
+        ],
+        "argv_template": [
+          "{command}",
+          "run",
+          "{prompt}"
+        ],
+        "notes": "Command shape is provisional until a local OpenCode install is available for live discovery; InfRing adapter health must report unavailable when the command is absent."
       },
       "native_features": {
         "conversation_context": true,
@@ -258,7 +295,8 @@
         "failure_reporting"
       ],
       "known_gaps": [
-        "Native stream schema and model discovery need live parity capture."
+        "Native stream schema and model discovery need live parity capture.",
+        "InfRing Gateway adapter is wired, but local CLI availability depends on an installed opencode command."
       ]
     },
     {
@@ -268,13 +306,25 @@
       "socket_engine_id": "openclaw",
       "availability_probe": {
         "type": "path_or_command_candidates",
-        "paths": ["~/.openclaw", "{repo}/../openclaw", "{repo}/external/openclaw"],
-        "commands": ["openclaw"]
+        "paths": [
+          "~/.openclaw",
+          "{repo}/../openclaw",
+          "{repo}/external/openclaw"
+        ],
+        "commands": [
+          "openclaw"
+        ]
       },
       "native_invocation": {
         "supported": true,
-        "command_candidates": ["openclaw"],
-        "argv_template": ["{command}", "run", "{prompt}"],
+        "command_candidates": [
+          "openclaw"
+        ],
+        "argv_template": [
+          "{command}",
+          "run",
+          "{prompt}"
+        ],
         "notes": "Default install path may overlap InfRing development workspaces; harness supports override by --framework-root."
       },
       "native_features": {
@@ -314,13 +364,26 @@
       "socket_engine_id": "hermes_agent",
       "availability_probe": {
         "type": "path_or_command_candidates",
-        "paths": ["{repo}/external/hermes-agent", "{repo}/../hermes-agent"],
-        "commands": ["hermes", "hermes-agent"]
+        "paths": [
+          "{repo}/external/hermes-agent",
+          "{repo}/../hermes-agent"
+        ],
+        "commands": [
+          "hermes",
+          "hermes-agent"
+        ]
       },
       "native_invocation": {
         "supported": true,
-        "command_candidates": ["hermes", "hermes-agent"],
-        "argv_template": ["{command}", "run", "{prompt}"],
+        "command_candidates": [
+          "hermes",
+          "hermes-agent"
+        ],
+        "argv_template": [
+          "{command}",
+          "run",
+          "{prompt}"
+        ],
         "notes": "Command shape is provisional until the cloned Hermes repository and runtime contract are confirmed."
       },
       "native_features": {

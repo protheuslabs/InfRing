@@ -76,6 +76,15 @@ function engineRegistryRows() {
       },
     },
     {
+      engine_id: 'opencode',
+      display_name: 'OpenCode',
+      status: 'adapter_seam_ready',
+      model_menu: {
+        source: 'opencode_registry_seed',
+        framework_native_models: true,
+      },
+    },
+    {
       engine_id: 'openclaw',
       display_name: 'OpenClaw',
       status: 'planned_adapter',
@@ -170,6 +179,27 @@ function healthForEngine(engineId) {
       },
     };
   }
+  if (engineId === 'opencode') {
+    return {
+      ...common,
+      model_menu: {
+        source: 'opencode_runtime_discovery_fixture',
+        framework_native_models: true,
+        model_rows: [
+          modelRow('openrouter', 'openrouter/auto', 'OpenRouter Auto'),
+          modelRow('anthropic', 'claude-sonnet-4-6', 'Claude Sonnet 4.6'),
+          modelRow('openai', 'gpt-5.5', 'GPT-5.5'),
+        ],
+        default_selection_policy: {
+          type: 'framework_configured_default',
+          menu_row: false,
+          current_model: 'openrouter/auto',
+          rule: 'Default is metadata, not a selectable model row.',
+        },
+      },
+    };
+  }
+
   return common;
 }
 
@@ -220,7 +250,7 @@ async function main() {
       }
       if (model.downloadable === true && model.cloud === true) violations.push({ kind: 'downloadable_model_marked_cloud', engine_id: engineId, model_id: id });
     }
-    if (['codex_cli', 'claude_code', 'grok_code'].includes(engineId)) {
+    if (['codex_cli', 'claude_code', 'grok_code', 'opencode'].includes(engineId)) {
       if (available.source !== 'framework_native') violations.push({ kind: 'native_framework_model_source_wrong', engine_id: engineId, source: available.source });
       if (!available.framework_native_models) violations.push({ kind: 'native_framework_models_flag_missing', engine_id: engineId });
       if (!modelRows.length) violations.push({ kind: 'native_framework_model_rows_missing', engine_id: engineId });
@@ -242,7 +272,7 @@ async function main() {
     }
   }
 
-  for (const expectedEngine of ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'openclaw', 'hermes_agent']) {
+  for (const expectedEngine of ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'opencode', 'openclaw', 'hermes_agent']) {
     if (!rows.some((row) => row.engine_id === expectedEngine)) violations.push({ kind: 'expected_engine_missing', engine_id: expectedEngine });
   }
 

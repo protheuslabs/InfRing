@@ -69,12 +69,14 @@ async function main() {
   const { createCodexCliEngineAdapter } = load('adapters/runtime/agent_engines/codex_cli.ts');
   const { createClaudeCodeEngineAdapter } = load('adapters/runtime/agent_engines/claude_code.ts');
   const { createGrokCodeEngineAdapter } = load('adapters/runtime/agent_engines/grok_code.ts');
+  const { createOpenCodeEngineAdapter } = load('adapters/runtime/agent_engines/opencode.ts');
 
   const router = createAgentRuntimeRouter({ root: ROOT, disableTraceWriter: true });
   const factories = {
     codex_cli: () => createCodexCliEngineAdapter({ liveDispatch: true }),
     claude_code: () => createClaudeCodeEngineAdapter({ liveDispatch: true }),
     grok_code: () => createGrokCodeEngineAdapter({ liveDispatch: true }),
+    opencode: () => createOpenCodeEngineAdapter({ liveDispatch: true }),
   };
 
   const results = [];

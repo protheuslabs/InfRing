@@ -440,7 +440,7 @@ for (const engine of engines) {
       violations.push({ kind: 'openclaw_upstream_default_workspace_not_preserved', engine_id: id });
     }
   }
-  if (['codex_cli', 'claude_code', 'grok_code'].includes(id)) {
+  if (['codex_cli', 'claude_code', 'grok_code', 'opencode'].includes(id)) {
     const install = engine.install || {};
     const commandLineInstall = install.command_line_install || {};
     if (install.preferred_install_method !== 'command_line') violations.push({ kind: 'engine_install_not_command_line', engine_id: id });
@@ -452,6 +452,7 @@ if (!ids.has('infring_native')) violations.push({ kind: 'infring_native_missing'
 if (!ids.has('codex_cli')) violations.push({ kind: 'first_external_adapter_missing', path: registryPath });
 if (!ids.has('claude_code')) violations.push({ kind: 'claude_code_missing', path: registryPath });
 if (!ids.has('grok_code')) violations.push({ kind: 'grok_code_missing', path: registryPath });
+if (!ids.has('opencode')) violations.push({ kind: 'opencode_missing', path: registryPath });
 if (!ids.has('hermes_agent')) violations.push({ kind: 'hermes_agent_missing', path: registryPath });
 
 const adapterRows = Array.isArray(adapterContracts.adapter_contracts) ? adapterContracts.adapter_contracts : [];
@@ -524,7 +525,7 @@ for (const row of adapterRows) {
   if (id !== 'infring_native' && (!Array.isArray(row.discovery?.authority_order) || !row.discovery.authority_order.includes('user_override') || !row.discovery.authority_order.includes('missing_installable'))) {
     violations.push({ kind: 'adapter_discovery_authority_order_incomplete', engine_id: id });
   }
-  if (['codex_cli', 'claude_code', 'grok_code'].includes(id) && (!Array.isArray(row.discovery?.path_commands) || row.discovery.path_commands.length === 0)) violations.push({ kind: 'adapter_cli_path_commands_missing', engine_id: id });
+  if (['codex_cli', 'claude_code', 'grok_code', 'opencode'].includes(id) && (!Array.isArray(row.discovery?.path_commands) || row.discovery.path_commands.length === 0)) violations.push({ kind: 'adapter_cli_path_commands_missing', engine_id: id });
   if (['openhands', 'openclaw', 'hermes_agent', 'openfang'].includes(id) && (!Array.isArray(row.discovery?.default_urls) || row.discovery.default_urls.length === 0)) violations.push({ kind: 'adapter_socket_default_urls_missing', engine_id: id });
 }
 for (const engine of engines) {
@@ -556,6 +557,7 @@ const codexPath = 'adapters/runtime/agent_engines/codex_cli.ts';
 const cliRuntimePath = 'adapters/runtime/agent_engines/cli_runtime_adapter.ts';
 const claudePath = 'adapters/runtime/agent_engines/claude_code.ts';
 const grokPath = 'adapters/runtime/agent_engines/grok_code.ts';
+const openCodePath = 'adapters/runtime/agent_engines/opencode.ts';
 const httpSocketRuntimePath = 'adapters/runtime/agent_engines/http_socket_runtime_adapter.ts';
 const openclawPath = 'adapters/runtime/agent_engines/openclaw.ts';
 const hermesAgentPath = 'adapters/runtime/agent_engines/hermes_agent.ts';
@@ -598,6 +600,7 @@ if (!exists(kernelContextMaterializerPath)) violations.push({ kind: 'kernel_cont
 if (!exists(cliRuntimePath)) violations.push({ kind: 'cli_runtime_module_missing', path: cliRuntimePath });
 if (!exists(claudePath)) violations.push({ kind: 'claude_adapter_module_missing', path: claudePath });
 if (!exists(grokPath)) violations.push({ kind: 'grok_adapter_module_missing', path: grokPath });
+if (!exists(openCodePath)) violations.push({ kind: 'opencode_adapter_module_missing', path: openCodePath });
 if (!exists(httpSocketRuntimePath)) violations.push({ kind: 'http_socket_runtime_module_missing', path: httpSocketRuntimePath });
 if (!exists(openclawPath)) violations.push({ kind: 'openclaw_adapter_module_missing', path: openclawPath });
 if (!exists(hermesAgentPath)) violations.push({ kind: 'hermes_agent_adapter_module_missing', path: hermesAgentPath });

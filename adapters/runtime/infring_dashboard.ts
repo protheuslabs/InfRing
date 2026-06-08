@@ -26,6 +26,7 @@ const { createInfringNativeEngineAdapter } = require('./agent_engines/infring_na
 const { createCodexCliEngineAdapter } = require('./agent_engines/codex_cli.ts');
 const { createClaudeCodeEngineAdapter } = require('./agent_engines/claude_code.ts');
 const { createGrokCodeEngineAdapter } = require('./agent_engines/grok_code.ts');
+const { createOpenCodeEngineAdapter } = require('./agent_engines/opencode.ts');
 const { createOpenClawEngineAdapter } = require('./agent_engines/openclaw.ts');
 const { createHermesAgentEngineAdapter } = require('./agent_engines/hermes_agent.ts');
 const {
@@ -181,6 +182,7 @@ const {
     codex_cli: createCodexCliEngineAdapter,
     claude_code: createClaudeCodeEngineAdapter,
     grok_code: createGrokCodeEngineAdapter,
+    opencode: createOpenCodeEngineAdapter,
     openclaw: createOpenClawEngineAdapter,
     hermes_agent: createHermesAgentEngineAdapter,
   },

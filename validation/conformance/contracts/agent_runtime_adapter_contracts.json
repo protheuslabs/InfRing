@@ -305,6 +305,66 @@
       }
     },
     {
+      "engine_id": "opencode",
+      "private_contract_kind": "process_stdout_parser",
+      "adapter_path": "adapters/runtime/agent_engines/opencode.ts",
+      "transport_binding": "local_process_or_socket",
+      "status": "adapter_seam_ready",
+      "public_socket_schema_fork_allowed": false,
+      "raw_payload_default_allowed": false,
+      "kernel_direct_access_allowed": false,
+      "shell_direct_access_allowed": false,
+      "adapter_specific_schema_scope": "private_adapter_only",
+      "canonical_event_mapping_required": true,
+      "health_projection_required": true,
+      "download_or_config_projection_required": true,
+      "notes": "OpenCode can have a private command/process contract, but public events stay in the universal socket shape.",
+      "discovery": {
+        "custom_location_allowed": true,
+        "override_config_key": "agent_runtimes.opencode.command",
+        "env_vars": [
+          "INFRING_OPENCODE_PATH",
+          "INFRING_OPENCODE_BIN"
+        ],
+        "path_commands": [
+          "opencode"
+        ],
+        "default_paths": [
+          "~/.local/bin/opencode",
+          "/opt/homebrew/bin/opencode",
+          "/usr/local/bin/opencode",
+          "%USERPROFILE%\\.local\\bin\\opencode.cmd"
+        ],
+        "authority_order": [
+          "user_override",
+          "config_value",
+          "environment_variable",
+          "path_discovery",
+          "default_location_probe",
+          "missing_installable"
+        ]
+      },
+      "universal_tool_posture": {
+        "receives_gateway_grants": true,
+        "direct_execution_allowed": false,
+        "proposal_shape": "infring_universal_tool_proposal"
+      },
+      "context_transport_mode": "prompt_text_compat",
+      "transport_migration_status": "transitional_bootstrap",
+      "transitional_prompt_text_allowed": true,
+      "structured_transport_target": "structured_json",
+      "prompt_text_compat_retirement_signal": "provider exposes stable structured turn/session API or InfRing ships provider-specific structured bridge",
+      "prompt_text_compat_risk": "Prompt preambles and text-parsed proposals can become load-bearing if not guarded.",
+      "model_provider_policy": {
+        "srs_ref": "V13-AGENT-RUNTIME-ENGINE-SOCKET-020",
+        "framework_native_auth_preferred": true,
+        "framework_native_models": true,
+        "inherit_active_infring_provider_when_unconfigured": false,
+        "shell_secret_exposure": "forbidden",
+        "gateway_context_field": "model_provider_context"
+      }
+    },
+    {
       "engine_id": "openhands",
       "private_contract_kind": "http_service_protocol",
       "adapter_path": "adapters/runtime/agent_engines/openhands/**",

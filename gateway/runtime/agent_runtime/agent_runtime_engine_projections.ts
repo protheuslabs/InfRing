@@ -81,6 +81,7 @@ function classifyAgentRuntimeModelCapability(model, menuSource) {
     providerKey.includes('google') ||
     providerKey.includes('gemini') ||
     providerKey.includes('mistral') ||
+    providerKey.includes('openrouter') ||
     providerKey.includes('perplexity');
   const cloud = row.cloud === true ||
     row.api_backed === true ||

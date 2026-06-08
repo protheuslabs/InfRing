@@ -16,7 +16,7 @@ const OUT_JSON = path.join(ROOT, 'core/local/artifacts/agent_runtime_route_struc
 const SCRATCH_DIR = path.join(ROOT, 'core/local/artifacts/agent-runtime-route-structured-transport-scratch');
 const SESSION_ID = 'agent-runtime-route-structured-transport-session';
 const AGENT_ID = 'agent-runtime-route-structured-transport-agent';
-const ENGINES = ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'openclaw', 'hermes_agent'];
+const ENGINES = ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'opencode', 'openclaw', 'hermes_agent'];
 
 function clean(value, max = 4000) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -102,9 +102,9 @@ async function submitTurn(assembly, engineId, index) {
         input_text: `Check structured transport for ${engineId}.`,
         working_directory: ROOT,
         model_provider_context: {
-          provider: engineId === 'claude_code' ? 'anthropic' : engineId === 'grok_code' ? 'xai' : 'openai',
-          model: engineId === 'claude_code' ? 'claude-sonnet-4-6' : engineId === 'grok_code' ? 'grok-code-fast-1' : 'gpt-5.5',
-          qualified_model_ref: engineId === 'claude_code' ? 'anthropic/claude-sonnet-4-6' : engineId === 'grok_code' ? 'xai/grok-code-fast-1' : 'openai/gpt-5.5',
+          provider: engineId === 'claude_code' ? 'anthropic' : engineId === 'grok_code' ? 'xai' : engineId === 'opencode' ? 'openrouter' : 'openai',
+          model: engineId === 'claude_code' ? 'claude-sonnet-4-6' : engineId === 'grok_code' ? 'grok-code-fast-1' : engineId === 'opencode' ? 'openrouter/auto' : 'gpt-5.5',
+          qualified_model_ref: engineId === 'claude_code' ? 'anthropic/claude-sonnet-4-6' : engineId === 'grok_code' ? 'xai/grok-code-fast-1' : engineId === 'opencode' ? 'openrouter/openrouter/auto' : 'openai/gpt-5.5',
           secrets_included: false,
         },
       },
