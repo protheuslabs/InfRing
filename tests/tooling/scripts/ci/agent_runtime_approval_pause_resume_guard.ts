@@ -8,6 +8,10 @@ const ROOT = process.cwd();
 const ARTIFACT_DIR = path.join(ROOT, 'core', 'local', 'artifacts');
 const OUT_JSON = path.join(ARTIFACT_DIR, 'agent_runtime_approval_pause_resume_guard_current.json');
 const FIXTURE_ROOT = path.join(ARTIFACT_DIR, 'agent_runtime_approval_pause_resume_guard_fixture');
+const SOURCE_DOMAIN = 'validation';
+const OWNER_DOMAIN = 'validation.agent_runtime';
+const POLICY_PATH = 'validation/conformance/contracts/agent_runtime_turn_outcome_contract.json';
+const LAYER = 'gateway';
 
 function readJson(relPath) {
   return JSON.parse(fs.readFileSync(path.join(ROOT, relPath), 'utf8'));
@@ -103,42 +107,44 @@ async function main() {
     createRouter: () => ({
       healthCheck: async () => ({ status: 'available', discovery_source: 'fixture' }),
       startSession: async () => ({ status: 'started' }),
-      submitTurn: async () => ({
-        type: 'turn.complete',
-        status: 'completed',
-        output_text: 'Runtime reached a gated artifact proposal.',
-        permission_request: {
-          type: 'permission.requested',
-          approval_id: 'approval_guard_turn',
-          trace_id: 'trace-approval-turn',
-          request_id: 'request-approval-turn',
-          engine_id: 'codex_cli',
-          session_id: 'session-approval-turn',
-          turn_id: 'turn-approval-turn',
-          tool_call_ref: 'tool-proposal/artifact.create_propose/trace-approval-turn/turn-approval-turn',
-          tool_id: 'artifact.create_propose',
-          capability: 'propose_artifact_create',
-          reason: 'Create approval guard turn artifact.',
-          source: 'fixture_runtime',
-          argument_keys: ['path', 'mime_type', 'content'],
-          proposal_arguments: {
-            path: 'tmp/turn-approved.txt',
-            mime_type: 'text/plain',
-            content: 'approval guard turn artifact\n',
+      streamTurn: async (_message, onActivity) => {
+        const activity = {
+          type: 'agent_activity_event',
+          activity_kind: 'activity',
+          provider_event_type: 'fixture.permission_required',
+          status: 'paused',
+          display_text: 'Fixture runtime reached a gated artifact proposal.',
+        };
+        if (typeof onActivity === 'function') onActivity(activity);
+        return {
+          type: 'turn.complete',
+          status: 'completed',
+          output_text: 'Runtime reached a gated artifact proposal.',
+          permission_request: {
+            type: 'permission.requested',
+            approval_id: 'approval_guard_turn',
+            trace_id: 'trace-approval-turn',
+            request_id: 'request-approval-turn',
+            engine_id: 'codex_cli',
+            session_id: 'session-approval-turn',
+            turn_id: 'turn-approval-turn',
+            tool_call_ref: 'tool-proposal/artifact.create_propose/trace-approval-turn/turn-approval-turn',
+            tool_id: 'artifact.create_propose',
+            capability: 'propose_artifact_create',
+            reason: 'Create approval guard turn artifact.',
+            source: 'fixture_runtime',
+            argument_keys: ['path', 'mime_type', 'content'],
+            proposal_arguments: {
+              path: 'tmp/turn-approved.txt',
+              mime_type: 'text/plain',
+              content: 'approval guard turn artifact\n',
+            },
           },
-        },
-        activity_events: [
-          {
-            type: 'agent_activity_event',
-            activity_kind: 'activity',
-            provider_event_type: 'fixture.permission_required',
-            status: 'paused',
-            display_text: 'Fixture runtime reached a gated artifact proposal.',
-          },
-        ],
-        activity_event_count: 1,
-        structured_activity: true,
-      }),
+          activity_events: [activity],
+          activity_event_count: 1,
+          structured_activity: true,
+        };
+      },
     }),
     sanitizeAgentRuntimeProposalArguments: approvalStore.sanitizeAgentRuntimeProposalArguments,
     recordAgentRuntimePendingApproval: approvalStore.recordAgentRuntimePendingApproval,
@@ -190,6 +196,10 @@ async function main() {
     ok: violations.length === 0,
     type: 'agent_runtime_approval_pause_resume_guard',
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     checked_contract: 'validation/conformance/contracts/agent_runtime_turn_outcome_contract.json',
     fixture_root: FIXTURE_ROOT,
     checks: {

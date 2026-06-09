@@ -10,6 +10,10 @@ const ARTIFACT_PATH = path.join(
   ROOT,
   'core/local/artifacts/agent_runtime_shadow_attachment_guard_current.json',
 );
+const SOURCE_DOMAIN = 'validation';
+const OWNER_DOMAIN = 'validation.agent_runtime';
+const POLICY_PATH = 'validation/conformance/contracts/agent_runtime_context_pack_contract.json';
+const LAYER = 'gateway';
 const { createCliRuntimeEngineAdapter } = require(path.join(
   ROOT,
   'adapters/runtime/agent_engines/cli_runtime_adapter.ts',
@@ -151,6 +155,10 @@ async function main() {
     ok: Boolean(ok),
     type: 'agent_runtime_shadow_attachment_guard',
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     mode: 'deterministic_cli_shadow_attachment_probe',
     policy: {
       shell_cognition_policy: 'No Shell involvement: runtime attachments are normalized by Gateway and translated by adapter seams.',
@@ -180,6 +188,10 @@ main().catch((error) => {
     ok: false,
     type: 'agent_runtime_shadow_attachment_guard',
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     error: {
       message: clean(error && error.message ? error.message : error, 1000),
     },

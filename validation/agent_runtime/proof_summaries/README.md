@@ -7,7 +7,7 @@ Raw live artifacts remain under `core/local/artifacts/**` and are not copied her
 Validation guard:
 
 ```bash
-node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_proof_summary_guard.ts
+npm run -s ops:agent-runtime:proof-summary:guard
 ```
 
 The guard is intentionally strict. It rejects oversized summaries, copied raw traces, prompt/output bodies, failed approval-resume rows, and summaries that blur external-engine substrate proof into native InfRing intelligence proof.

@@ -4150,6 +4150,16 @@
         "core/local/artifacts/agent_runtime_route_approval_lifecycle_guard_current.json"
       ]
     },
+    "ops:agent-runtime:approval-store-resume:guard": {
+      "owner": "validation",
+      "description": "Agent runtime approval store/projection resume guard for bounded pending requests, decision receipts, and approved artifact effects.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "script": "ops:agent-runtime:approval-store-resume:guard",
+      "artifact_paths": [
+        "core/local/artifacts/agent_runtime_approval_pause_resume_guard_current.json"
+      ]
+    },
     "ops:agent-runtime:transcript-persistence:guard": {
       "owner": "validation",
       "description": "Agent runtime transcript persistence parity guard for native and external engines.",
@@ -4221,6 +4231,19 @@
         "core/local/artifacts/agent_runtime_framework_coordination_guard_current.json"
       ]
     },
+    "ops:agent-runtime:proof-summary:guard": {
+      "command": "ops:agent-runtime:proof-summary:guard",
+      "description": "Guard compact source-controlled Agent Runtime proof summaries and enforce substrate/native proof ledger separation.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_seconds": 60,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_proof_summary_guard_current.json",
+        "validation/agent_runtime/proof_summaries/agent_runtime_live_approval_resume_2026-06-08.json",
+        "validation/agent_runtime/proof_summaries/agent_runtime_live_approval_resume_2026-06-08.md"
+      ]
+    },
     "ops:agent-runtime:engine-scorecard": {
       "command": "ops:agent-runtime:engine-scorecard",
       "description": "Generate the agent runtime engine parity and usefulness scorecard from Gateway/Validation evidence.",
@@ -4255,6 +4278,17 @@
         "core/local/artifacts/agent_runtime_framework_capability_guard_current.json"
       ],
       "notes": "Local non-provider guard: checks adapter args, Gateway-approved native tool mapping, and compact provider-failure projection."
+    },
+    "ops:agent-runtime:shadow-attachment:guard": {
+      "command": "ops:agent-runtime:shadow-attachment:guard",
+      "description": "Agent Runtime CLI shadow-workspace attachment guard for large pasted context and runtime attachment refs.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_seconds": 60,
+      "artifacts": [
+        "core/local/artifacts/agent_runtime_shadow_attachment_guard_current.json"
+      ]
     },
     "ops:agent-runtime:working-directory-parity:guard": {
       "command": "ops:agent-runtime:working-directory-parity:guard",

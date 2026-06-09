@@ -9,6 +9,10 @@ const path = require('node:path');
 const ROOT = process.cwd();
 const SUMMARY_DIR = path.join(ROOT, 'validation/agent_runtime/proof_summaries');
 const OUT_JSON = path.join(ROOT, 'core/local/artifacts/agent_runtime_proof_summary_guard_current.json');
+const SOURCE_DOMAIN = 'validation';
+const OWNER_DOMAIN = 'validation.agent_runtime';
+const POLICY_PATH = 'validation/conformance/contracts/proof_ledger_separation_policy.json';
+const LAYER = 'gateway';
 const MAX_SUMMARY_BYTES = 64 * 1024;
 const FORBIDDEN_RAW_KEYS = new Set([
   'activity_trace',
@@ -247,6 +251,10 @@ function main() {
     ok: violations.length === 0,
     type: 'agent_runtime_proof_summary_guard',
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     summary_dir: rel(SUMMARY_DIR),
     summary_count: files.length,
     checked_summaries: files.map(rel),
