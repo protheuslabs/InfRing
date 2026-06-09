@@ -81,8 +81,17 @@ function classify(score: number): string {
   return 'not_ready';
 }
 
+function boundedClassification(score: number, livePromotionEligible: boolean): string {
+  const raw = classify(score);
+  if (raw === 'daily_driver_candidate' && !livePromotionEligible) return 'practical_with_gaps';
+  return raw;
+}
+
 function nextActions(engineId: string, caps: Record<string, ReturnType<typeof capability>>): string[] {
   const out: string[] = [];
+  if (caps.live_adapter_evidence && caps.live_adapter_evidence.status !== 'pass') {
+    out.push('Attach or sample a live selectable adapter before treating this engine as a daily-driver candidate.');
+  }
   if (caps.context_continuity.status !== 'pass') out.push('Run or fix context continuity eval for this engine.');
   if (caps.live_work_completion.status !== 'pass') {
     if (caps.real_work_replay && caps.real_work_replay.status === 'partial') {
@@ -118,6 +127,23 @@ function main() {
   const adapterContracts = readJson(clean(registry.private_adapter_contracts || 'validation/conformance/contracts/agent_runtime_adapter_contracts.json', 300));
   const adapterRows = Array.isArray(adapterContracts.adapters) ? adapterContracts.adapters : [];
   const conformanceOk = conformance.ok === true;
+  const sampledLiveWorkEngineSet = new Set(
+    (Array.isArray(liveWork.sampled_engines) ? liveWork.sampled_engines : [liveWork.engine_id])
+      .map((item: any) => clean(item, 120))
+      .filter(Boolean),
+  );
+  const liveSelectableEngineSet = new Set(
+    (Array.isArray(liveWork.live_selectable_engines) ? liveWork.live_selectable_engines : [])
+      .map((item: any) => clean(item, 120))
+      .filter(Boolean),
+  );
+  const catalogOnlyEngineSet = new Set(
+    (Array.isArray(registry.validation_focus_policy && registry.validation_focus_policy.catalog_only_engines)
+      ? registry.validation_focus_policy.catalog_only_engines
+      : [])
+      .map((item: any) => clean(item, 120))
+      .filter(Boolean),
+  );
 
   const rows = engines.map((engine: JsonObject) => {
     const engineId = clean(engine.engine_id, 120);
@@ -133,6 +159,12 @@ function main() {
     const replayApprovalOk = replayApplies && replayRow?.turn?.pending_permission === true && replayRow?.permission_request?.present === true && replayRow?.decision?.ok === true;
     const replayReceiptsOk = replayApplies && replayRow?.decision?.decision_receipt_hash_present === true;
     const replayActivityOk = replayApplies && replayRow?.turn?.activity_trace === true;
+    const sampledLiveWork = sampledLiveWorkEngineSet.has(engineId) || Boolean(liveRow && !replayRow);
+    const liveSelectable = liveSelectableEngineSet.has(engineId);
+    const catalogOnly = catalogOnlyEngineSet.has(engineId);
+    const statusText = clean(engine.status, 120);
+    const plannedAdapter = statusText.includes('planned_adapter');
+    const liveAdapterEvidenceOk = engineId === 'infring_native' || (sampledLiveWork && liveSelectable && liveRow && liveRow.classification !== 'expected_planned_adapter_unavailable');
     const liveCompletionOk = (liveResults.completion && liveResults.completion.ok === true) || replayCompletionOk;
     const liveApprovalOk = (liveResults.approval_pause && liveResults.approval_pause.ok === true && liveResults.approval_decision && liveResults.approval_decision.ok === true) || replayApprovalOk;
     const liveReceiptsOk = Number(liveResults.completion && liveResults.completion.receipt_refs || 0) >= 3 || replayReceiptsOk;
@@ -147,6 +179,16 @@ function main() {
       discovery_metadata: capability(engine.discovery || !external ? 'pass' : 'fail', engine.discovery ? 'Discovery metadata declared.' : 'Native engine does not require external discovery metadata.'),
       model_catalog_metadata: capability(hasModelMetadata(engine) || engineId === 'infring_native' ? 'pass' : 'partial', hasModelMetadata(engine) ? 'Model discovery/catalog metadata present.' : 'Model metadata not explicit enough.'),
       context_continuity: capability(continuity && continuity.ok === true ? 'pass' : 'not_sampled', continuity ? clean(continuity.output_preview || 'Continuity eval row present.', 500) : 'No context continuity evidence row for this engine.'),
+      live_adapter_evidence: capability(
+        liveAdapterEvidenceOk ? 'pass' : catalogOnly || plannedAdapter ? 'partial' : 'not_sampled',
+        liveAdapterEvidenceOk
+          ? 'Engine is live-selectable and sampled through live adapter evidence.'
+          : catalogOnly
+            ? 'Engine is catalog-only and must not be promoted as a daily-driver candidate without live adapter evidence.'
+            : plannedAdapter
+              ? 'Engine is planned and must attach a live adapter before daily-driver promotion.'
+              : 'Engine lacks live selectable adapter evidence.',
+      ),
       live_work_completion: capability(liveCompletionOk ? 'pass' : liveApplies ? 'fail' : 'not_sampled', liveApplies ? `Latest live work eval targeted ${engineId}.` : 'Latest live work eval did not target this engine.'),
       real_work_replay: capability(
         replayRow && replayRow.ok === true ? 'pass' : replayExpectedUnavailable ? 'partial' : replayRow ? 'fail' : 'not_sampled',
@@ -183,19 +225,24 @@ function main() {
     }
     const values = Object.values(caps);
     const rawScore = values.reduce((sum, row) => sum + row.score, 0) / Math.max(1, values.length);
-    const statusText = clean(engine.status, 120);
     const plannedAdapterCap = statusText.includes('planned_adapter') ? 0.79 : 1;
-    const score = Math.min(rawScore, plannedAdapterCap);
+    const liveEvidenceCap = liveAdapterEvidenceOk || !external ? 1 : 0.84;
+    const catalogOnlyCap = catalogOnly ? 0.84 : 1;
+    const score = Math.min(rawScore, plannedAdapterCap, liveEvidenceCap, catalogOnlyCap);
+    const livePromotionEligible = liveAdapterEvidenceOk && !catalogOnly && !plannedAdapter;
     return {
       engine_id: engineId,
       display_name: clean(engine.display_name || engineId, 120),
       engine_kind: clean(engine.engine_kind, 120),
       status: statusText,
       score: Number(score.toFixed(3)),
-      classification: classify(score),
+      classification: boundedClassification(score, livePromotionEligible),
       score_adjustments: {
         raw_score: Number(rawScore.toFixed(3)),
         planned_adapter_cap: plannedAdapterCap < 1 ? plannedAdapterCap : null,
+        live_evidence_cap: liveEvidenceCap < 1 ? liveEvidenceCap : null,
+        catalog_only_cap: catalogOnlyCap < 1 ? catalogOnlyCap : null,
+        live_promotion_eligible: livePromotionEligible,
       },
       live_work_evidence: liveRow ? {
         working_directory: clean(liveRow.working_directory || liveWork.working_directory, 500),
