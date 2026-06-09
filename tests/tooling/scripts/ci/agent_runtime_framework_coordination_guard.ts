@@ -11,6 +11,10 @@ const ARTIFACT_PATH = path.join(
   ROOT,
   'core/local/artifacts/agent_runtime_framework_coordination_guard_current.json',
 );
+const SOURCE_DOMAIN = 'validation';
+const OWNER_DOMAIN = 'validation.agent_runtime';
+const POLICY_PATH = 'validation/conformance/contracts/agent_runtime_socket_contract.json';
+const LAYER = 'gateway';
 const GATE_TIMEOUT_MS = Number.parseInt(
   process.env.AGENT_RUNTIME_FRAMEWORK_COORDINATION_GATE_TIMEOUT_MS || '60000',
   10,
@@ -295,6 +299,10 @@ function main() {
   const report = {
     ok: allFailures.length === 0,
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     kind: 'agent_runtime_framework_coordination_guard',
     version: 1,
     policy: {

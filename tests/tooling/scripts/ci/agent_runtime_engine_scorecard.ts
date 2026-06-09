@@ -10,6 +10,10 @@ type CapabilityStatus = 'pass' | 'partial' | 'not_sampled' | 'fail' | 'not_appli
 const ROOT = process.cwd();
 const CONTRACT_PATH = 'validation/conformance/contracts/agent_runtime_engine_scorecard_contract.json';
 const OUT_JSON = 'core/local/artifacts/agent_runtime_engine_scorecard_current.json';
+const SOURCE_DOMAIN = 'validation';
+const OWNER_DOMAIN = 'validation.agent_runtime';
+const POLICY_PATH = CONTRACT_PATH;
+const LAYER = 'gateway';
 
 function readJson(rel: string, fallback: JsonObject = {}): JsonObject {
   try {
@@ -286,6 +290,10 @@ function main() {
     ok: rows.length > 0 && rows.every((row) => row.engine_id && row.score >= 0),
     type: 'agent_runtime_engine_scorecard',
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     contract: CONTRACT_PATH,
     evidence_inputs: evidenceInputs,
     summary,

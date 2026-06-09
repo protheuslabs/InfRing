@@ -6,6 +6,10 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const OUT_JSON = path.join(ROOT, 'core/local/artifacts/agent_runtime_framework_capability_guard_current.json');
+const SOURCE_DOMAIN = 'validation';
+const OWNER_DOMAIN = 'validation.agent_runtime';
+const POLICY_PATH = 'validation/conformance/contracts/agent_runtime_engine_registry.json';
+const LAYER = 'gateway';
 const {
   createCliRuntimeEngineAdapter,
   nativeDirectMutationGrantActive,
@@ -762,6 +766,10 @@ async function main() {
     ok: violations.length === 0,
     type: 'agent_runtime_framework_capability_guard',
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     golden_pair_baseline: {
       status: violations.some((row) => String(row.kind || '').startsWith('golden_runtime_')) ? 'failed' : 'covered',
       engines: ['codex_cli', 'claude_code'],
@@ -808,6 +816,10 @@ main().catch((error) => {
     ok: false,
     type: 'agent_runtime_framework_capability_guard',
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     error: String(error && error.message ? error.message : error),
     violations: [
       {
