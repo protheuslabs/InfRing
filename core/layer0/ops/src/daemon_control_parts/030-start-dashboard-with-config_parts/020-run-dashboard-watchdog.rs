@@ -218,8 +218,14 @@ fn ensure_gateway_supervisor(
     force_refresh: bool,
 ) -> Value {
     if !cfg.persistent_supervisor {
-        let _ = gateway_supervisor::disable(root);
-        return gateway_supervisor::status(root).payload;
+        return json!({
+            "ok": true,
+            "active": false,
+            "running": false,
+            "platform": "local_watchdog_or_manual",
+            "skipped": true,
+            "reason": "gateway_persist_disabled"
+        });
     }
     let existing = gateway_supervisor::status(root);
     let existing_healthy = supervisor_payload_healthy(&existing.payload);

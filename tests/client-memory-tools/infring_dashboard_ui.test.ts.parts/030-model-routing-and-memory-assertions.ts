@@ -229,22 +229,33 @@ function runContract(contract) {
 
 function assertPrimaryDashboardAuthorityResetContract() {
   const hostSource = readUtf8(ADAPTER_DASHBOARD_HOST_TS_PATH);
+  const gatewayStaticResponsesSource = readUtf8(GATEWAY_DASHBOARD_STATIC_RESPONSES_TS_PATH);
   const distBuildSource = readUtf8(path.resolve(ROOT, 'tests/tooling/scripts/ci/build_dashboard_dist.ts'));
   const appSource = readUtf8(path.resolve(ROOT, 'client/runtime/systems/ui/infring_static/js/app.ts'));
 
   assertContains(
     hostSource,
-    "process.env.INFRING_DASHBOARD_UI || 'primary'",
-    'dashboard host should default to the authoritative primary dashboard surface'
+    'createGatewayDashboardSurfaceLock',
+    'dashboard host should bind the authoritative primary dashboard surface through the Gateway surface lock'
   );
   assertContains(
     hostSource,
+    'assertDashboardSurfaceLocked',
+    'dashboard host should assert the primary dashboard surface lock before serving the UI'
+  );
+  assertContains(
+    hostSource,
+    'dashboardStaticResponses.handleGatewayDashboardStaticRoute',
+    'dashboard host should delegate primary dashboard route handling to Gateway static responses'
+  );
+  assertContains(
+    gatewayStaticResponsesSource,
     "pathname === '/dashboard' || pathname === '/dashboard/' || (pathname.startsWith('/dashboard/') && !path.extname(pathname))",
-    'dashboard host should serve the authoritative dashboard for /dashboard and /dashboard/<page>'
+    'Gateway static responses should serve the authoritative dashboard for /dashboard and /dashboard/<page>'
   );
   assert.ok(
-    hostSource.includes('dashboard_surface_retired'),
-    'dashboard host should reject retired alias dashboard URLs instead of serving or redirecting them'
+    gatewayStaticResponsesSource.includes('dashboard_surface_retired'),
+    'Gateway static responses should reject retired alias dashboard URLs instead of serving or redirecting them'
   );
   assert.ok(
     !hostSource.includes("location: `/dashboard${search}`"),

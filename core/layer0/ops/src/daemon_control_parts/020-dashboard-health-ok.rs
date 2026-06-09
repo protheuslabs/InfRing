@@ -312,39 +312,73 @@ fn append_watchdog_log(root: &Path, payload: &Value) {
     }
 }
 
-fn kill_dashboard_process(root: &Path, cfg: &DashboardLaunchConfig) -> Value {
-    let pid_path = dashboard_pid_path(root);
-    let raw = fs::read_to_string(&pid_path).unwrap_or_default();
-    let mut candidate_pids = Vec::<u32>::new();
-    if let Some(pid) = raw.trim().parse::<u32>().ok() {
-        candidate_pids.push(pid);
+fn push_dashboard_pid_candidate(pids: &mut Vec<u32>, pid: u32) {
+    if pid == 0 || !pid_running(pid) || pids.contains(&pid) {
+        return;
     }
+    pids.push(pid);
+}
 
+fn dashboard_stop_candidate_pids(root: &Path, cfg: &DashboardLaunchConfig) -> Vec<u32> {
+    let mut candidate_pids = Vec::<u32>::new();
+    if let Some(pid) = read_pid_file(&dashboard_pid_path(root)) {
+        push_dashboard_pid_candidate(&mut candidate_pids, pid);
+    }
     for pid in dashboard_listener_pids(cfg.port) {
-        if !candidate_pids.contains(&pid) {
-            candidate_pids.push(pid);
-        }
+        push_dashboard_pid_candidate(&mut candidate_pids, pid);
     }
     for pid in dashboard_host_process_pids(cfg) {
-        if !candidate_pids.contains(&pid) {
-            candidate_pids.push(pid);
-        }
+        push_dashboard_pid_candidate(&mut candidate_pids, pid);
     }
+    candidate_pids.sort_unstable();
+    candidate_pids.dedup();
+    candidate_pids
+}
+
+fn kill_dashboard_process(root: &Path, cfg: &DashboardLaunchConfig) -> Value {
+    let pid_path = dashboard_pid_path(root);
+    let mut candidate_pids = dashboard_stop_candidate_pids(root, cfg);
+    let initial_candidate_pids = candidate_pids.clone();
 
     let mut killed_pids = Vec::<u32>::new();
-    for pid in &candidate_pids {
-        if kill_pid(*pid) {
-            killed_pids.push(*pid);
+    let mut convergence_passes = Vec::<Value>::new();
+    for pass in 0..3 {
+        let pass_pids = dashboard_stop_candidate_pids(root, cfg);
+        if pass_pids.is_empty() {
+            convergence_passes.push(json!({
+                "phase": "term",
+                "pass": pass + 1,
+                "pids": [],
+                "converged": true
+            }));
+            break;
         }
+        for pid in &pass_pids {
+            if !candidate_pids.contains(pid) {
+                candidate_pids.push(*pid);
+            }
+            if kill_pid(*pid) && !killed_pids.contains(pid) {
+                killed_pids.push(*pid);
+            }
+        }
+        convergence_passes.push(json!({
+            "phase": "term",
+            "pass": pass + 1,
+            "pids": pass_pids,
+            "converged": false
+        }));
+        std::thread::sleep(Duration::from_millis(250));
     }
     for _ in 0..5 {
-        if candidate_pids.iter().all(|pid| !pid_running(*pid)) {
+        let live_candidates = dashboard_stop_candidate_pids(root, cfg);
+        if live_candidates.is_empty() && candidate_pids.iter().all(|pid| !pid_running(*pid)) {
             break;
         }
         std::thread::sleep(Duration::from_millis(250));
     }
+    let survivor_pids = dashboard_stop_candidate_pids(root, cfg);
     let mut force_killed_pids = Vec::<u32>::new();
-    for pid in &candidate_pids {
+    for pid in &survivor_pids {
         if pid_running(*pid) && kill_pid_force(*pid) {
             force_killed_pids.push(*pid);
         }
@@ -356,9 +390,15 @@ fn kill_dashboard_process(root: &Path, cfg: &DashboardLaunchConfig) -> Value {
     let _ = fs::remove_file(pid_path);
     let still_running = wait_for_dashboard(cfg.host.as_str(), cfg.port, 5);
     let stale_host_pids_after = dashboard_host_process_pids(cfg);
+    let any_killed = !killed_pids.is_empty() || !force_killed_pids.is_empty();
     json!({
         "ok": true,
-        "stopped": !killed_pids.is_empty() && !still_running && stale_host_pids_after.is_empty(),
+        "stopped": any_killed && !still_running && stale_host_pids_after.is_empty(),
+        "any_killed": any_killed,
+        "initial_candidate_pids": initial_candidate_pids,
+        "candidate_pids": candidate_pids,
+        "convergence_passes": convergence_passes,
+        "survivor_pids_before_force": survivor_pids,
         "killed_pids": killed_pids,
         "force_killed_pids": force_killed_pids,
         "host": cfg.host.as_str(),
@@ -372,15 +412,15 @@ fn kill_dashboard_process(root: &Path, cfg: &DashboardLaunchConfig) -> Value {
 include!("020-dashboard-health-ok_parts/010-duplicate-runtime-guard.rs");
 
 fn restart_dashboard_for_watchdog(root: &Path, cfg: &DashboardLaunchConfig) -> Value {
-    if let Some(payload) = dashboard_duplicate_restart_payload(root, cfg) {
-        return payload;
-    }
+    let duplicate_before_restart = dashboard_runtime_duplicate_guard(root, cfg);
     let previous_pid = read_pid_file(&dashboard_pid_path(root));
     let previous_running = previous_pid.map(pid_running).unwrap_or(false);
     let listeners_before = dashboard_listener_pids(cfg.port);
     let had_listener = !listeners_before.is_empty();
+    let host_processes_before = dashboard_host_process_pids(cfg);
+    let had_host_process = !host_processes_before.is_empty();
 
-    let stop_attempt = if previous_running || had_listener {
+    let stop_attempt = if previous_running || had_listener || had_host_process || duplicate_before_restart.is_some() {
         kill_dashboard_process(root, cfg)
     } else {
         json!({
@@ -415,6 +455,8 @@ fn restart_dashboard_for_watchdog(root: &Path, cfg: &DashboardLaunchConfig) -> V
         "previous_pid": previous_pid,
         "previous_running": previous_running,
         "listeners_before": listeners_before,
+        "host_processes_before": host_processes_before,
+        "duplicate_before_restart": duplicate_before_restart,
         "stop_attempt": stop_attempt,
     });
     if let Some(err) = spawn_error {

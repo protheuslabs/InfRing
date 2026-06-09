@@ -19,6 +19,11 @@ const GATEWAY_BACKEND_FRESHNESS_TS_PATH = path.resolve(ROOT, 'gateway/runtime/ga
 const GATEWAY_BACKEND_STARTUP_STATE_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_backend_startup_state.ts');
 const GATEWAY_BACKEND_HOST_LAUNCHER_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_backend_host_launcher.ts');
 const GATEWAY_DASHBOARD_HOST_STATUS_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_dashboard_host_status.ts');
+const GATEWAY_DASHBOARD_STATIC_RESPONSES_TS_PATH = path.resolve(ROOT, 'gateway/runtime/gateway_dashboard_static_responses.ts');
+const DAEMON_CONTROL_DASHBOARD_HEALTH_RS_PATH = path.resolve(
+  ROOT,
+  'core/layer0/ops/src/daemon_control_parts/020-dashboard-health-ok.rs'
+);
 const DASHBOARD_STATIC_ASSET_ROUTER_TS_PATH = path.resolve(
   ROOT,
   'client/runtime/systems/ui/dashboard_static_asset_router.ts'
@@ -226,6 +231,7 @@ function assertPrimaryDashboardAuthorityContract() {
   const hostSource = readUtf8(ADAPTER_DASHBOARD_HOST_TS_PATH);
   const distBuildSource = readUtf8(path.resolve(ROOT, 'tests/tooling/scripts/ci/build_dashboard_dist.ts'));
   const assetRouterSource = readUtf8(DASHBOARD_STATIC_ASSET_ROUTER_TS_PATH);
+  const gatewayStaticResponsesSource = readUtf8(GATEWAY_DASHBOARD_STATIC_RESPONSES_TS_PATH);
   const segmentedSources = [
     {
       wrapper: PRIMARY_DASHBOARD_HTML_PATH,
@@ -245,22 +251,32 @@ function assertPrimaryDashboardAuthorityContract() {
   ];
   assertContains(
     hostSource,
-    "process.env.INFRING_DASHBOARD_UI || 'primary'",
-    'dashboard host should default to the authoritative primary dashboard surface'
+    'createGatewayDashboardSurfaceLock',
+    'dashboard host should bind the authoritative primary dashboard surface through the Gateway surface lock'
   );
   assertContains(
     hostSource,
+    'assertDashboardSurfaceLocked',
+    'dashboard host should assert the primary dashboard surface lock before serving the UI'
+  );
+  assertContains(
+    hostSource,
+    'dashboardStaticResponses.handleGatewayDashboardStaticRoute',
+    'dashboard host should delegate primary dashboard route handling to Gateway static responses'
+  );
+  assertContains(
+    gatewayStaticResponsesSource,
     'dashboard_surface_retired',
-    'dashboard host should explicitly reject retired dashboard URLs'
+    'Gateway static responses should explicitly reject retired dashboard URLs'
   );
   assert.ok(
     !hostSource.includes("location: `/dashboard${search}`"),
     'dashboard host should not redirect retired dashboard URLs back into the live authority surface'
   );
   assertContains(
-    hostSource,
+    gatewayStaticResponsesSource,
     "pathname.startsWith('/dashboard/') && !path.extname(pathname)",
-    'dashboard host should treat /dashboard/<page> as authoritative dashboard entrypoints'
+    'Gateway static responses should treat /dashboard/<page> as authoritative dashboard entrypoints'
   );
   assert.ok(
     !distBuildSource.includes('dashboard_sveltekit'),
@@ -492,6 +508,7 @@ function assertTaskbarHeroSystemMenu() {
   const gatewaySystemActionSource = readUtf8(GATEWAY_SYSTEM_ACTIONS_TS_PATH);
   const gatewaySystemRouteAssemblySource = readUtf8(GATEWAY_SYSTEM_ROUTE_ASSEMBLY_TS_PATH);
   const gatewayHostLifecycleSource = readUtf8(GATEWAY_HOST_LIFECYCLE_TS_PATH);
+  const daemonDashboardHealthSource = readUtf8(DAEMON_CONTROL_DASHBOARD_HEALTH_RS_PATH);
   assertHeroMenuIsNotClipped();
   assertContains(htmlSource, 'class="taskbar-hero-menu dashboard-dropdown-surface"', 'taskbar hero dropdown container missing');
   assertContains(htmlSource, "runTaskbarHeroCommand('restart')", 'taskbar hero restart action missing');
@@ -530,6 +547,9 @@ function assertTaskbarHeroSystemMenu() {
   assertContains(gatewaySystemActionSource, "accepted_async: true", 'Gateway lifecycle dispatch should explicitly mark async acceptance');
   assertContains(gatewaySystemActionSource, "kind: 'gateway_system_action_dispatch'", 'Gateway lifecycle dispatch should emit a dispatch receipt projection');
   assertContains(hostSource, 'scheduleGatewayHostExit(cleanup, body && body.exit_delay_ms);', 'dashboard host should inject shutdown exit through Gateway lifecycle controller');
+  assertContains(daemonDashboardHealthSource, 'fn dashboard_stop_candidate_pids(root: &Path, cfg: &DashboardLaunchConfig) -> Vec<u32>', 'daemon restart should collect pid-file, listener, and matching dashboard host processes before spawning');
+  assertContains(daemonDashboardHealthSource, 'convergence_passes', 'daemon restart should expose bounded cleanup convergence passes in the stop receipt');
+  assertContains(daemonDashboardHealthSource, 'survivor_pids_before_force', 'daemon restart should expose surviving dashboard host candidates before force cleanup');
   assertContains(gatewaySystemRouteSource, "const upstream = await fetchBackend(flags, pathname, {", 'Gateway system routes should prefer the Rust backend system endpoint');
   assertContains(gatewaySystemActionSource, "if (normalized === 'update') {", 'Gateway update command mapping missing');
   assertContains(gatewaySystemActionSource, "if (body.apply !== false) args.push('--apply');", 'Gateway update action should default to apply mode');

@@ -160,6 +160,16 @@ fn canonical_dashboard_binary_path(path: &Path) -> PathBuf {
     shell_wrapper_exec_target(path).unwrap_or_else(|| path.to_path_buf())
 }
 
+fn dashboard_paths_equivalent(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left_canonical), Ok(right_canonical)) => left_canonical == right_canonical,
+        _ => false,
+    }
+}
+
 fn expected_dashboard_binary_path(root: &Path) -> Option<PathBuf> {
     let explicit = std::env::var("INFRING_DAEMON_EXPECTED_BINARY")
         .ok()
@@ -232,6 +242,13 @@ fn dashboard_binary_authority_issue(root: &Path) -> Option<Value> {
     let expected_canonical = expected
         .as_ref()
         .map(|path| canonical_dashboard_binary_path(path));
+    if !deprecated_name {
+        if let Some(expected_path) = expected_canonical.as_ref() {
+            if dashboard_paths_equivalent(&resolved, expected_path) {
+                return None;
+            }
+        }
+    }
     let mut expected_digest = Value::Null;
     let mut current_digest = Value::Null;
     if let Some(expected_path) = expected_canonical.as_ref() {

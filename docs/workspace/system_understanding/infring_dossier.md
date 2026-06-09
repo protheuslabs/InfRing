@@ -7,7 +7,7 @@ Metadata:
 - `target_version_or_revision`: `kernel-sentinel-contract-v1`
 - `status`: `Draft`
 - `confidence_overall`: `0.67`
-- `updated_at`: `2026-06-08T18:29:19.442Z`
+- `updated_at`: `2026-06-09T05:46:06.762Z`
 
 ## Soul / Philosophy
 - Confidence: `0.78`
@@ -15,7 +15,7 @@ Metadata:
 
 ## Runtime Behavior
 - Confidence: `0.51`
-- Evidence: local/state/kernel_sentinel/kernel_sentinel_report_current.json, local/state/kernel_sentinel/kernel_sentinel_health_current.json, local/state/kernel_sentinel/kernel_sentinel_diagnostic_run_current.json, /Users/jay/.openclaw/workspace/local/state/kernel_sentinel/rsi_readiness_summary_current.json, /Users/jay/.openclaw/workspace/local/state/kernel_sentinel/sentinel_trend_report_current.json, diagnostic_follow_up_request_count:0, scheduler_status:fresh, observation_state:partial_evidence
+- Evidence: local/state/kernel_sentinel/kernel_sentinel_report_current.json, local/state/kernel_sentinel/kernel_sentinel_health_current.json, local/state/kernel_sentinel/kernel_sentinel_diagnostic_run_current.json, /Users/jay/.openclaw/workspace/local/state/kernel_sentinel/rsi_readiness_summary_current.json, /Users/jay/.openclaw/workspace/local/state/kernel_sentinel/sentinel_trend_report_current.json, diagnostic_follow_up_request_count:0, scheduler_status:degraded, observation_state:partial_evidence
 - Required next probes: fill_missing_required_sentinel_sources, accumulate_three_kernel_sentinel_trend_runs, raise_runtime_dossier_confidence, raise_authority_dossier_confidence, raise_transfer_dossier_confidence
 
 ## Ecology / Operating Environment
