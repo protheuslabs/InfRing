@@ -251,19 +251,43 @@ fn dashboard_binary_authority_issue(root: &Path) -> Option<Value> {
     }
     let mut expected_digest = Value::Null;
     let mut current_digest = Value::Null;
+    let mut expected_file_bytes = Value::Null;
+    let mut current_file_bytes = Value::Null;
+    let digest_enabled = std::env::var("INFRING_DASHBOARD_AUTHORITY_DIGEST")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false);
+    let mut digest_checked = false;
     if let Some(expected_path) = expected_canonical.as_ref() {
-        if let Some(digest) = binary_file_digest(&resolved) {
-            current_digest = Value::String(digest.clone());
-            if let Some(expected_value) = binary_file_digest(expected_path) {
-                expected_digest = Value::String(expected_value.clone());
-                if digest != expected_value {
-                    reasons.push("binary_digest_mismatch_current_vs_expected".to_string());
+        current_file_bytes = std::fs::metadata(&resolved)
+            .map(|metadata| json!(metadata.len()))
+            .unwrap_or(Value::Null);
+        expected_file_bytes = std::fs::metadata(expected_path)
+            .map(|metadata| json!(metadata.len()))
+            .unwrap_or(Value::Null);
+        if !dashboard_paths_equivalent(&resolved, expected_path) {
+            reasons.push("binary_path_mismatch_current_vs_expected".to_string());
+            if digest_enabled {
+                digest_checked = true;
+                if let Some(digest) = binary_file_digest(&resolved) {
+                    current_digest = Value::String(digest.clone());
+                    if let Some(expected_value) = binary_file_digest(expected_path) {
+                        expected_digest = Value::String(expected_value.clone());
+                        if digest != expected_value {
+                            reasons.push("binary_digest_mismatch_current_vs_expected".to_string());
+                        }
+                    } else {
+                        reasons.push("expected_binary_digest_unavailable".to_string());
+                    }
+                } else {
+                    reasons.push("current_binary_digest_unavailable".to_string());
                 }
-            } else {
-                reasons.push("expected_binary_digest_unavailable".to_string());
             }
-        } else {
-            reasons.push("current_binary_digest_unavailable".to_string());
         }
     }
     if reasons.is_empty() {
@@ -278,6 +302,9 @@ fn dashboard_binary_authority_issue(root: &Path) -> Option<Value> {
         "expected_launcher_resolved": expected_launcher_resolved,
         "current_digest": current_digest,
         "expected_digest": expected_digest,
+        "digest_checked": digest_checked,
+        "current_file_bytes": current_file_bytes,
+        "expected_file_bytes": expected_file_bytes,
         "recovery": "repair or reinstall the canonical infring launcher, or set INFRING_DAEMON_EXPECTED_BINARY to the real runtime binary for diagnostics",
         "reasons": reasons,
     }))

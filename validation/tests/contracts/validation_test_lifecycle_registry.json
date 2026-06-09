@@ -802,6 +802,15 @@
       "validation_scope": "ops:gateway-status:manifest release/proof evidence validation."
     },
     {
+      "gate_id": "ops:gateway:watchdog-liveness:guard",
+      "classification": "self_enforcement_validator",
+      "invariant": "Gateway watchdog liveness guard proves a listener that accepts /healthz but never responds is classified as wedged within bounded status time and emits a compact diagnostic artifact.",
+      "strengthen_signal": "If ops:gateway:watchdog-liveness:guard repeatedly fails or requires special-case scaffolding, strengthen gateways/runtime-boundary watchdog status classification so this gate validates runtime self-healing instead of compensating for missing liveness authority.",
+      "runtime_enforced_by": "gateways/runtime-boundary",
+      "proof_artifact": "core/local/artifacts/gateway_watchdog_liveness_guard_current.json",
+      "validation_scope": "ops:gateway:watchdog-liveness:guard behavioral/runtime self-enforcement validation."
+    },
+    {
       "gate_id": "ops:gem:memory:durability",
       "classification": "self_enforcement_validator",
       "invariant": "GEM persistent-memory durability lane verifying durable writes, bounded readback, and receipt-lineage replay contracts.",

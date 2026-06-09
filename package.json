@@ -1234,6 +1234,7 @@
     "ops:ksent:daily-state": "npm run -s ops:ksent:anti-entropy:observer; npm run -s ops:ksent:daily-state:report",
     "ops:ksent:worktree-scope:report": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/kernel_sentinel_worktree_scope_report.ts",
     "ops:ci:surface-sprawl:report": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/ci_surface_sprawl_report.ts",
+    "ops:gateway:watchdog-liveness:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/gateway_watchdog_liveness_guard.ts",
     "ops:agent-runtime-engine:conformance:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_engine_conformance_guard.ts",
     "ops:agent-runtime:context-boundary:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/context_authority_boundary_guard.ts",
     "ops:agent-runtime:context-continuity:eval": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_context_continuity_eval.ts",

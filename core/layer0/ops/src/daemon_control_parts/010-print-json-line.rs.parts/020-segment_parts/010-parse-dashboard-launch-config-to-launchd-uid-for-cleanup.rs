@@ -87,13 +87,69 @@ fn supervisor_executable() -> Result<PathBuf, String> {
 }
 
 fn run_platform_command(program: &str, args: &[String]) -> Value {
-    match Command::new(program)
-        .args(args)
+    let mut cmd = Command::new(program);
+    cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-    {
+        .stderr(Stdio::piped());
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            return json!({
+                "ok": false,
+                "status": -1,
+                "program": program,
+                "args": args,
+                "error": format!("spawn_failed:{err}"),
+            });
+        }
+    };
+    let started = Instant::now();
+    let timeout = Duration::from_millis(DASHBOARD_PLATFORM_COMMAND_TIMEOUT_MS);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => break,
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    return match child.wait_with_output() {
+                        Ok(out) => json!({
+                            "ok": false,
+                            "status": out.status.code().unwrap_or(-1),
+                            "program": program,
+                            "args": args,
+                            "timed_out": true,
+                            "timeout_ms": DASHBOARD_PLATFORM_COMMAND_TIMEOUT_MS,
+                            "error": "platform_command_timeout",
+                            "stdout": String::from_utf8_lossy(&out.stdout).trim().to_string(),
+                            "stderr": String::from_utf8_lossy(&out.stderr).trim().to_string(),
+                        }),
+                        Err(err) => json!({
+                            "ok": false,
+                            "status": -1,
+                            "program": program,
+                            "args": args,
+                            "timed_out": true,
+                            "timeout_ms": DASHBOARD_PLATFORM_COMMAND_TIMEOUT_MS,
+                            "error": format!("platform_command_timeout_wait_failed:{err}"),
+                        }),
+                    };
+                }
+                thread::sleep(Duration::from_millis(25));
+            }
+            Err(err) => {
+                let _ = child.kill();
+                return json!({
+                    "ok": false,
+                    "status": -1,
+                    "program": program,
+                    "args": args,
+                    "error": format!("wait_failed:{err}"),
+                });
+            }
+        }
+    }
+    match child.wait_with_output() {
         Ok(out) => json!({
             "ok": out.status.success(),
             "status": out.status.code().unwrap_or(-1),
@@ -107,7 +163,7 @@ fn run_platform_command(program: &str, args: &[String]) -> Value {
             "status": -1,
             "program": program,
             "args": args,
-            "error": format!("spawn_failed:{err}"),
+            "error": format!("output_failed:{err}"),
         }),
     }
 }

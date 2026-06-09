@@ -1435,6 +1435,16 @@
         "local/workspace/reports/GATEWAY_STATUS_MANIFEST_CURRENT.md"
       ]
     },
+    "ops:gateway:watchdog-liveness:guard": {
+      "owner": "ops",
+      "description": "Gateway watchdog liveness guard that proves a wedged /healthz listener is classified quickly with bounded diagnostics.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 30,
+      "script": "ops:gateway:watchdog-liveness:guard",
+      "artifact_paths": [
+        "core/local/artifacts/gateway_watchdog_liveness_guard_current.json"
+      ]
+    },
     "ops:gateway-boundary:guard": {
       "owner": "ops",
       "description": "Kernel-owned gateway boundary isolation, resource-bound, health, quarantine, and recovery receipt guard.",

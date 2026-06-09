@@ -127,7 +127,8 @@ fn run_dashboard_watchdog(root: &Path, argv: &[String]) -> i32 {
                 break;
             }
         }
-        let healthy = dashboard_health_ok(cfg.host.as_str(), cfg.port);
+        let health_snapshot = dashboard_health_snapshot_fast(cfg.host.as_str(), cfg.port);
+        let healthy = health_snapshot.healthy;
         let dashboard_pid = read_pid_file(&dashboard_pid_path(root));
         let listener_pids = dashboard_listener_pids(cfg.port);
         let process_active =
@@ -140,6 +141,7 @@ fn run_dashboard_watchdog(root: &Path, argv: &[String]) -> i32 {
                     "type": "dashboard_watchdog",
                     "event": "health_transition",
                     "healthy": healthy,
+                    "health": health_snapshot.to_json(),
                     "fail_streak": fail_streak,
                     "dashboard_pid": dashboard_pid,
                     "listeners": listener_pids,
@@ -155,21 +157,24 @@ fn run_dashboard_watchdog(root: &Path, argv: &[String]) -> i32 {
         }
         let restart_threshold = if !healthy && !process_active {
             1usize
+        } else if health_snapshot.is_wedged() {
+            DASHBOARD_WATCHDOG_WEDGE_FAIL_STREAK_THRESHOLD
         } else {
             DASHBOARD_WATCHDOG_FAIL_STREAK_THRESHOLD
         };
         if fail_streak >= restart_threshold {
-            append_watchdog_log(
-                root,
-                &json!({
-                    "ok": true,
-                    "type": "dashboard_watchdog",
-                    "event": "restart_triggered",
-                    "fail_streak": fail_streak,
-                    "restart_threshold": restart_threshold,
-                    "process_active": process_active,
-                }),
-            );
+            let diagnostic = json!({
+                "ok": true,
+                "type": "dashboard_watchdog",
+                "event": "restart_triggered",
+                "fail_streak": fail_streak,
+                "restart_threshold": restart_threshold,
+                "process_active": process_active,
+                "health": health_snapshot.to_json(),
+                "diagnostic_path": dashboard_watchdog_diagnostic_path(root).to_string_lossy().to_string(),
+            });
+            append_watchdog_log(root, &diagnostic);
+            write_dashboard_watchdog_diagnostic(root, &diagnostic);
             let restarted = restart_dashboard_for_watchdog(root, &cfg);
             append_watchdog_log(
                 root,

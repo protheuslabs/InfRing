@@ -108,6 +108,7 @@ pub fn run(root: &Path, argv: &[String]) -> i32 {
                 let cfg = parse_dashboard_launch_config(argv, "start");
                 let auto_heal = parse_bool(parse_flag(argv, "auto-heal").as_deref(), false);
                 let authority_guard = dashboard_runtime_duplicate_guard(root, &cfg);
+                let health = dashboard_health_snapshot_fast(cfg.host.as_str(), cfg.port);
                 let self_heal = if auto_heal {
                     heal_gateway_runtime(root, &cfg)
                 } else {
@@ -120,7 +121,8 @@ pub fn run(root: &Path, argv: &[String]) -> i32 {
                 json!({
                     "enabled": cfg.enabled,
                     "persistent_supervisor": cfg.persistent_supervisor,
-                    "running": dashboard_health_ok(cfg.host.as_str(), cfg.port),
+                    "running": health.healthy,
+                    "health": health.to_json(),
                     "url": cfg.url(),
                     "log_path": dashboard_log_path(root).to_string_lossy().to_string(),
                     "stop_latch_active": dashboard_stop_latch_active(root),

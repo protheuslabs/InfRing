@@ -1,21 +1,55 @@
 fn dashboard_health_probe_once(host: &str, port: u16) -> bool {
+    dashboard_health_probe_snapshot_once(host, port, DASHBOARD_IO_TIMEOUT_MS).healthy
+}
+
+fn dashboard_health_probe_snapshot_once(
+    host: &str,
+    port: u16,
+    io_timeout_ms: u64,
+) -> DashboardHealthSnapshot {
     let addr = format!("{host}:{port}");
     let mut resolved = match addr.to_socket_addrs() {
         Ok(addrs) => addrs,
-        Err(_) => return false,
+        Err(_) => {
+            return DashboardHealthSnapshot::not_ready(
+                "dashboard_healthz_resolve_failed",
+                false,
+                false,
+                false,
+                0,
+                None,
+            );
+        }
     };
     let Some(sock_addr) = resolved.next() else {
-        return false;
+        return DashboardHealthSnapshot::not_ready(
+            "dashboard_healthz_resolve_empty",
+            false,
+            false,
+            false,
+            0,
+            None,
+        );
     };
     let mut stream = match TcpStream::connect_timeout(
         &sock_addr,
         Duration::from_millis(DASHBOARD_CONNECT_TIMEOUT_MS),
     ) {
         Ok(s) => s,
-        Err(_) => return false,
+        Err(_) => {
+            return DashboardHealthSnapshot::not_ready(
+                "dashboard_healthz_listener_unreachable",
+                false,
+                false,
+                false,
+                0,
+                None,
+            );
+        }
     };
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(DASHBOARD_IO_TIMEOUT_MS)));
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(DASHBOARD_IO_TIMEOUT_MS)));
+    let bounded_io_timeout_ms = io_timeout_ms.clamp(250, DASHBOARD_IO_TIMEOUT_MS);
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(bounded_io_timeout_ms)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(bounded_io_timeout_ms)));
     if stream
         .write_all(
             format!("GET /healthz HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n")
@@ -23,11 +57,20 @@ fn dashboard_health_probe_once(host: &str, port: u16) -> bool {
         )
         .is_err()
     {
-        return false;
+        return DashboardHealthSnapshot::not_ready(
+            "dashboard_healthz_write_failed",
+            true,
+            false,
+            false,
+            0,
+            None,
+        );
     }
 
     let mut collected = Vec::<u8>::new();
     let mut buf = [0u8; 1024];
+    let mut timed_out = false;
+    let mut response_capped = false;
     loop {
         match stream.read(&mut buf) {
             Ok(0) => break,
@@ -35,20 +78,92 @@ fn dashboard_health_probe_once(host: &str, port: u16) -> bool {
                 collected.extend_from_slice(&buf[..n]);
                 if collected.len() > DASHBOARD_HEALTH_MAX_BYTES {
                     collected.truncate(DASHBOARD_HEALTH_MAX_BYTES);
+                    response_capped = true;
                 }
                 if dashboard_health_response_ok(&collected) {
-                    return true;
+                    return dashboard_health_snapshot_from_response(
+                        &collected,
+                        false,
+                        response_capped,
+                    );
                 }
             }
             Err(err)
                 if err.kind() == ErrorKind::WouldBlock || err.kind() == ErrorKind::TimedOut =>
             {
+                timed_out = true;
                 break;
             }
-            Err(_) => return false,
+            Err(_) => {
+                return DashboardHealthSnapshot::not_ready(
+                    "dashboard_healthz_read_failed",
+                    true,
+                    false,
+                    false,
+                    collected.len(),
+                    dashboard_health_response_status_code(&collected),
+                );
+            }
         }
     }
-    dashboard_health_response_ok(&collected)
+    dashboard_health_snapshot_from_response(&collected, timed_out, response_capped)
+}
+
+fn dashboard_health_response_status_code(bytes: &[u8]) -> Option<u16> {
+    let raw = String::from_utf8_lossy(bytes);
+    let first_line = raw.lines().next()?;
+    let mut parts = first_line.split_whitespace();
+    let _protocol = parts.next()?;
+    parts.next()?.parse::<u16>().ok()
+}
+
+fn dashboard_health_snapshot_from_response(
+    bytes: &[u8],
+    timed_out: bool,
+    response_capped: bool,
+) -> DashboardHealthSnapshot {
+    let status_code = dashboard_health_response_status_code(bytes);
+    if dashboard_health_response_ok(bytes) {
+        return DashboardHealthSnapshot::ready(status_code, bytes.len());
+    }
+    if let Some(code) = status_code {
+        return DashboardHealthSnapshot::not_ready(
+            "dashboard_healthz_non_2xx",
+            true,
+            timed_out,
+            !response_capped && !timed_out,
+            bytes.len(),
+            Some(code),
+        );
+    }
+    if timed_out {
+        return DashboardHealthSnapshot::not_ready(
+            "dashboard_healthz_timeout",
+            true,
+            true,
+            false,
+            bytes.len(),
+            None,
+        );
+    }
+    if bytes.is_empty() {
+        return DashboardHealthSnapshot::not_ready(
+            "dashboard_healthz_no_response",
+            true,
+            false,
+            false,
+            0,
+            None,
+        );
+    }
+    DashboardHealthSnapshot::not_ready(
+        "dashboard_healthz_incomplete",
+        true,
+        false,
+        !response_capped,
+        bytes.len(),
+        None,
+    )
 }
 
 fn dashboard_health_response_ok(bytes: &[u8]) -> bool {
@@ -174,6 +289,10 @@ fn dashboard_health_ok(host: &str, port: u16) -> bool {
 
 fn dashboard_health_ok_fast(host: &str, port: u16) -> bool {
     dashboard_health_ok_with_retry(host, port, 1, 0)
+}
+
+fn dashboard_health_snapshot_fast(host: &str, port: u16) -> DashboardHealthSnapshot {
+    dashboard_health_probe_snapshot_once(host, port, DASHBOARD_WATCHDOG_HEALTH_IO_TIMEOUT_MS)
 }
 
 fn wait_for_dashboard(host: &str, port: u16, attempts: usize) -> bool {
@@ -310,6 +429,21 @@ fn append_watchdog_log(root: &Path, payload: &Value) {
             serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string())
         );
     }
+}
+
+fn dashboard_watchdog_diagnostic_path(root: &Path) -> PathBuf {
+    dashboard_state_dir(root).join("dashboard_watchdog_last_diagnostic.json")
+}
+
+fn write_dashboard_watchdog_diagnostic(root: &Path, payload: &Value) {
+    let path = dashboard_watchdog_diagnostic_path(root);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(
+        path,
+        serde_json::to_string_pretty(payload).unwrap_or_else(|_| "{}".to_string()),
+    );
 }
 
 fn push_dashboard_pid_candidate(pids: &mut Vec<u32>, pid: u32) {
@@ -529,6 +663,7 @@ fn dashboard_watchdog_status(root: &Path) -> Value {
         "pid": pid,
         "running": running,
         "log_path": dashboard_watchdog_log_path(root).to_string_lossy().to_string(),
+        "diagnostic_path": dashboard_watchdog_diagnostic_path(root).to_string_lossy().to_string(),
         "stop_latch_active": dashboard_stop_latch_active(root),
         "desired_active": dashboard_desired_state_active(root),
     })

@@ -5,7 +5,9 @@ mod tests {
     use super::render_systemd_service;
     #[cfg(target_os = "macos")]
     use super::{launchctl_state, render_launchd_plist};
-    use super::{shell_quote, trim_text, watchdog_args, GatewaySupervisorConfig};
+    use super::{
+        run_command_with_timeout, shell_quote, trim_text, watchdog_args, GatewaySupervisorConfig,
+    };
     use std::path::Path;
 
     #[test]
@@ -20,6 +22,28 @@ mod tests {
         let raw = "x".repeat(20);
         let trimmed = trim_text(raw, 8);
         assert_eq!(trimmed.len(), 8);
+    }
+
+    #[test]
+    fn supervisor_command_timeout_returns_bounded_payload() {
+        let result = run_command_with_timeout(
+            "sh",
+            &[
+                "-c".to_string(),
+                "sleep 2".to_string(),
+            ],
+            None,
+            250,
+        );
+        assert_eq!(result.get("ok").and_then(serde_json::Value::as_bool), Some(false));
+        assert_eq!(
+            result.get("timed_out").and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            result.get("error").and_then(serde_json::Value::as_str),
+            Some("supervisor_command_timeout")
+        );
     }
 
     #[cfg(target_os = "macos")]

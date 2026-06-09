@@ -11,10 +11,12 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::time::{Duration, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 const DASHBOARD_CONNECT_TIMEOUT_MS: u64 = 1_500;
 const DASHBOARD_IO_TIMEOUT_MS: u64 = 30_000;
+const DASHBOARD_WATCHDOG_HEALTH_IO_TIMEOUT_MS: u64 = 2_000;
 const DASHBOARD_HEALTH_MAX_BYTES: usize = 4096;
 const DASHBOARD_HEALTH_RETRY_ATTEMPTS: usize = 5;
 const DASHBOARD_HEALTH_RETRY_BACKOFF_MS: u64 = 1_000;
@@ -23,6 +25,8 @@ const DASHBOARD_WATCHDOG_INTERVAL_MIN_MS: u64 = 500;
 const DASHBOARD_WATCHDOG_INTERVAL_MAX_MS: u64 = 60_000;
 const DASHBOARD_WATCHDOG_STABLE_RETRIES: usize = 2;
 const DASHBOARD_WATCHDOG_FAIL_STREAK_THRESHOLD: usize = 6;
+const DASHBOARD_WATCHDOG_WEDGE_FAIL_STREAK_THRESHOLD: usize = 2;
+const DASHBOARD_PLATFORM_COMMAND_TIMEOUT_MS: u64 = 2_500;
 const VERITY_DRIFT_CONFIG_SCHEMA_ID: &str = "infring_verity_drift_policy";
 const VERITY_DRIFT_CONFIG_SCHEMA_VERSION: u32 = 1;
 const VERITY_DRIFT_CONFIG_POLICY_VERSION: u32 = 1;
@@ -33,6 +37,74 @@ const VERITY_DRIFT_SIMULATION_DEFAULT_MS: i64 = 30_000;
 
 fn print_json_line(value: &Value) {
     crate::contract_lane_utils::print_json_line(value);
+}
+
+#[derive(Debug, Clone)]
+struct DashboardHealthSnapshot {
+    healthy: bool,
+    reason: String,
+    listener_reachable: bool,
+    timed_out: bool,
+    response_complete: bool,
+    response_bytes: usize,
+    status_code: Option<u16>,
+}
+
+impl DashboardHealthSnapshot {
+    fn ready(status_code: Option<u16>, response_bytes: usize) -> Self {
+        Self {
+            healthy: true,
+            reason: "dashboard_healthz_ready".to_string(),
+            listener_reachable: true,
+            timed_out: false,
+            response_complete: true,
+            response_bytes,
+            status_code,
+        }
+    }
+
+    fn not_ready(
+        reason: &str,
+        listener_reachable: bool,
+        timed_out: bool,
+        response_complete: bool,
+        response_bytes: usize,
+        status_code: Option<u16>,
+    ) -> Self {
+        Self {
+            healthy: false,
+            reason: reason.to_string(),
+            listener_reachable,
+            timed_out,
+            response_complete,
+            response_bytes,
+            status_code,
+        }
+    }
+
+    fn is_wedged(&self) -> bool {
+        self.listener_reachable
+            && !self.healthy
+            && (self.timed_out
+                || !self.response_complete
+                || matches!(
+                    self.reason.as_str(),
+                    "dashboard_healthz_no_response" | "dashboard_healthz_incomplete"
+                ))
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "healthy": self.healthy,
+            "reason": self.reason.as_str(),
+            "listener_reachable": self.listener_reachable,
+            "timed_out": self.timed_out,
+            "response_complete": self.response_complete,
+            "response_bytes": self.response_bytes,
+            "status_code": self.status_code,
+            "wedged": self.is_wedged(),
+        })
+    }
 }
 
 fn parse_mode(argv: &[String]) -> Option<String> {
@@ -296,4 +368,3 @@ impl DashboardLaunchConfig {
         format!("http://{}:{}/dashboard", self.host, self.port)
     }
 }
-

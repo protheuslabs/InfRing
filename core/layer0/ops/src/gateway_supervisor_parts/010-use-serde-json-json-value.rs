@@ -6,8 +6,11 @@ use std::env;
 #[allow(unused_imports)] use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 const DEFAULT_LAUNCHD_LABEL: &str = "ai.infring.gateway";
+const SUPERVISOR_COMMAND_TIMEOUT_MS: u64 = 2_500;
 #[cfg(target_os = "linux")]
 const DEFAULT_SYSTEMD_UNIT: &str = "infring-gateway.service";
 
@@ -38,6 +41,15 @@ fn trim_text(text: String, max_len: usize) -> String {
 }
 
 fn run_command(program: &str, args: &[String], cwd: Option<&Path>) -> Value {
+    run_command_with_timeout(program, args, cwd, SUPERVISOR_COMMAND_TIMEOUT_MS)
+}
+
+fn run_command_with_timeout(
+    program: &str,
+    args: &[String],
+    cwd: Option<&Path>,
+    timeout_ms: u64,
+) -> Value {
     let mut cmd = Command::new(program);
     cmd.args(args)
         .stdin(Stdio::null())
@@ -46,7 +58,65 @@ fn run_command(program: &str, args: &[String], cwd: Option<&Path>) -> Value {
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
-    match cmd.output() {
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            return json!({
+                "ok": false,
+                "status": -1,
+                "program": program,
+                "args": args,
+                "error": format!("spawn_failed:{err}"),
+            });
+        }
+    };
+    let started = Instant::now();
+    let timeout = Duration::from_millis(timeout_ms.clamp(250, 30_000));
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => break,
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let output = child.wait_with_output();
+                    return match output {
+                        Ok(out) => json!({
+                            "ok": false,
+                            "status": out.status.code().unwrap_or(-1),
+                            "program": program,
+                            "args": args,
+                            "timed_out": true,
+                            "timeout_ms": timeout.as_millis() as u64,
+                            "error": "supervisor_command_timeout",
+                            "stdout": trim_text(String::from_utf8_lossy(&out.stdout).to_string(), 12000),
+                            "stderr": trim_text(String::from_utf8_lossy(&out.stderr).to_string(), 12000),
+                        }),
+                        Err(err) => json!({
+                            "ok": false,
+                            "status": -1,
+                            "program": program,
+                            "args": args,
+                            "timed_out": true,
+                            "timeout_ms": timeout.as_millis() as u64,
+                            "error": format!("supervisor_command_timeout_wait_failed:{err}"),
+                        }),
+                    };
+                }
+                thread::sleep(Duration::from_millis(25));
+            }
+            Err(err) => {
+                let _ = child.kill();
+                return json!({
+                    "ok": false,
+                    "status": -1,
+                    "program": program,
+                    "args": args,
+                    "error": format!("wait_failed:{err}"),
+                });
+            }
+        }
+    }
+    match child.wait_with_output() {
         Ok(out) => json!({
             "ok": out.status.success(),
             "status": out.status.code().unwrap_or(-1),
@@ -60,7 +130,7 @@ fn run_command(program: &str, args: &[String], cwd: Option<&Path>) -> Value {
             "status": -1,
             "program": program,
             "args": args,
-            "error": format!("spawn_failed:{err}"),
+            "error": format!("output_failed:{err}"),
         }),
     }
 }
