@@ -88,7 +88,7 @@
     "mutation_allowed": false,
     "tools_allowed": false,
     "proof_artifact": "core/local/artifacts/agent_runtime_cli_live_turn_smoke_current.json",
-    "command": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_cli_live_turn_smoke.ts --live=1 --engines=codex_cli,claude_code --timeout-seconds=120",
+    "command": "npm run -s ops:agent-runtime:cli-live-turn:smoke",
     "does_not_prove": [
       "live_real_work_task_success",
       "artifact_creation",
