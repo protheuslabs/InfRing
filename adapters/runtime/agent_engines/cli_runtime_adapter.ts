@@ -466,6 +466,35 @@ function isAgentRuntimeMenuHealthCheck(ctx) {
     || projection === 'agent_runtime_menu_projection';
 }
 
+function stopCliRuntimeChild(child) {
+  try { child.kill('SIGTERM'); } catch {}
+  const forceTimer = setTimeout(() => {
+    try {
+      if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    } catch {}
+  }, 1500);
+  if (forceTimer && typeof forceTimer.unref === 'function') forceTimer.unref();
+  try { child.once('close', () => clearTimeout(forceTimer)); } catch {}
+}
+
+function bindCliRuntimeAbortSignal(child, signal) {
+  if (!signal || typeof signal !== 'object') return () => {};
+  const abort = () => stopCliRuntimeChild(child);
+  try {
+    if (signal.aborted) {
+      abort();
+      return () => {};
+    }
+    if (typeof signal.addEventListener === 'function') {
+      signal.addEventListener('abort', abort, { once: true });
+      return () => {
+        try { signal.removeEventListener('abort', abort); } catch {}
+      };
+    }
+  } catch {}
+  return () => {};
+}
+
 function spawnCapture(command, args, options = {}) {
   const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, 300000));
   const maxOutputBytes = Math.max(1024, Math.min(Number(options.maxOutputBytes) || 24000, 2097152));
@@ -476,13 +505,17 @@ function spawnCapture(command, args, options = {}) {
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    if (typeof options.onChildStart === 'function') {
+      try { options.onChildStart(child); } catch {}
+    }
+    const unbindAbortSignal = bindCliRuntimeAbortSignal(child, options.abortSignal);
     let stdout = Buffer.alloc(0);
     let stderr = Buffer.alloc(0);
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      try { child.kill('SIGTERM'); } catch {}
+      stopCliRuntimeChild(child);
       resolve({ ok: false, timed_out: true, exit_code: null, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8') });
     }, timeoutMs);
     const append = (current, chunk) => {
@@ -498,6 +531,10 @@ function spawnCapture(command, args, options = {}) {
       resolve({ ok: false, timed_out: false, exit_code: null, stdout: '', stderr: cleanString(err && err.message, 2000) });
     });
     child.on('close', (code) => {
+      unbindAbortSignal();
+      if (typeof options.onChildClose === 'function') {
+        try { options.onChildClose(child); } catch {}
+      }
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -523,6 +560,10 @@ function spawnActivityCapture(command, args, options = {}) {
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    if (typeof options.onChildStart === 'function') {
+      try { options.onChildStart(child); } catch {}
+    }
+    const unbindAbortSignal = bindCliRuntimeAbortSignal(child, options.abortSignal);
     let stdout = Buffer.alloc(0);
     let stderr = Buffer.alloc(0);
     let stdoutLineBuffer = '';
@@ -557,7 +598,7 @@ function spawnActivityCapture(command, args, options = {}) {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      try { child.kill('SIGTERM'); } catch {}
+      stopCliRuntimeChild(child);
       drainStdoutLines('', true);
       resolve({ ok: false, timed_out: true, exit_code: null, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8') });
     }, timeoutMs);
@@ -574,6 +615,10 @@ function spawnActivityCapture(command, args, options = {}) {
       resolve({ ok: false, timed_out: false, exit_code: null, stdout: '', stderr: cleanString(err && err.message, 2000) });
     });
     child.on('close', (code) => {
+      unbindAbortSignal();
+      if (typeof options.onChildClose === 'function') {
+        try { options.onChildClose(child); } catch {}
+      }
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -2315,6 +2360,16 @@ function createCliRuntimeEngineAdapter(options = {}) {
   const runArgs = typeof options.runArgs === 'function' ? options.runArgs : (prompt) => [prompt];
   const runStdin = typeof options.runStdin === 'function' ? options.runStdin : () => '';
   let selectedCommand = cleanString(options.command || options.commandFallback || engineId, 500);
+  const activeChildren = new Map();
+
+  function activeTurnKey(ctx) {
+    const message = ctx && ctx.message && typeof ctx.message === 'object' ? ctx.message : {};
+    return [
+      cleanString(message.trace_id || '', 240),
+      cleanString(message.session_id || '', 240),
+      cleanString(message.turn_id || '', 240),
+    ].join('|');
+  }
 
   function discover(ctx) {
     const engine = (ctx && ctx.engine) || { engine_id: engineId };
@@ -2392,6 +2447,21 @@ function createCliRuntimeEngineAdapter(options = {}) {
       const cliRunCtx = shadow && shadow.active
         ? mirrorRuntimeAttachmentsIntoShadow(runArgCtx, shadow, engineId)
         : runArgCtx;
+      if (typeof ctx.onActivity === 'function') {
+        try {
+          ctx.onActivity({
+            ...baseEvent(ctx, 'agent_activity_event', engineId),
+            activity_kind: 'runtime_activity',
+            provider_event_type: 'external_cli.launch',
+            source: 'external_cli_adapter_launch',
+            status: 'running',
+            display_text: `Launching ${engineId} CLI with ${prompt.length} prompt chars and ${Math.round(turnTimeoutMs / 1000)}s timeout.`,
+            prompt_chars: prompt.length,
+            timeout_ms: turnTimeoutMs,
+            cwd: shadow && shadow.active ? shadow.cwd : requestedCwd,
+          });
+        } catch {}
+      }
       run = await runner(command, runArgs(prompt, cliRunCtx), {
         timeoutMs: turnTimeoutMs,
         maxOutputBytes: 64000,
@@ -2407,6 +2477,15 @@ function createCliRuntimeEngineAdapter(options = {}) {
         ctx,
         engineId,
         onActivity: ctx.onActivity,
+        abortSignal: ctx && ctx.message && ctx.message.abort_signal,
+        onChildStart: (child) => {
+          const key = activeTurnKey(ctx);
+          if (key) activeChildren.set(key, child);
+        },
+        onChildClose: (child) => {
+          const key = activeTurnKey(ctx);
+          if (key && activeChildren.get(key) === child) activeChildren.delete(key);
+        },
       });
       if (typeof options.afterRun === 'function') {
         try { options.afterRun(run, cliRunCtx); } catch {}
@@ -2538,9 +2617,15 @@ function createCliRuntimeEngineAdapter(options = {}) {
     },
 
     async cancel_turn(ctx) {
+      const key = activeTurnKey(ctx);
+      const child = key ? activeChildren.get(key) : null;
+      if (child) {
+        activeChildren.delete(key);
+        stopCliRuntimeChild(child);
+      }
       return {
         ...baseEvent(ctx, 'turn.cancelled', engineId),
-        status: 'cancel_requested',
+        status: child ? 'cancelled' : 'cancel_requested',
         receipt_ref: stableRef(`receipt/${engineId}/cancel`, ctx, engineId),
       };
     },
@@ -2573,5 +2658,6 @@ module.exports = {
   stableExternalSessionUuid,
   selectedRuntimeModelArg,
   selectedRuntimeModelContext,
+  nativeDirectMutationGrantActive,
   inheritedProviderEnv,
 };

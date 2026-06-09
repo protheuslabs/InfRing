@@ -13,6 +13,87 @@ function cleanText(value, maxLen = 240) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen);
 }
 
+function requestedTurnRouteTimeoutMs(body) {
+  const budget = body && body.capability_budget && typeof body.capability_budget === 'object'
+    ? body.capability_budget
+    : {};
+  const seconds = Number(budget.max_turn_seconds || body && body.max_turn_seconds || 0);
+  const boundedSeconds = Number.isFinite(seconds) && seconds > 0
+    ? Math.max(1, Math.min(seconds, 300))
+    : 180;
+  return Math.round(boundedSeconds * 1000);
+}
+
+function turnRouteTimeoutPayload(traceId, body, activityEvents = []) {
+  const engineId = cleanText(body && body.engine_id || body && body.engineId || 'agent_runtime', 120);
+  const timeoutMs = requestedTurnRouteTimeoutMs(body);
+  const timeoutSeconds = Math.max(1, Math.round(timeoutMs / 1000));
+  const text = `${engineId} did not finish within ${timeoutSeconds}s. Gateway returned a bounded route timeout before the client disconnected.`;
+  const priorActivity = Array.isArray(activityEvents)
+    ? activityEvents.slice(-24)
+    : [];
+  return {
+    ok: false,
+    status_code: 504,
+    type: 'agent_runtime_turn_route_timeout',
+    trace_id: traceId,
+    engine_id: engineId,
+    status: 'timed_out_with_reason',
+    terminal_outcome: 'timed_out_with_reason',
+    error_code: 'agent_runtime_turn_route_timeout',
+    reason: text,
+    output_text: text,
+    output_preview: text,
+    retryable: true,
+    timed_out: true,
+    timeout_ms: timeoutMs,
+    activity_events: [...priorActivity, {
+      type: 'agent_activity_event',
+      trace_id: traceId,
+      engine_id: engineId,
+      activity_kind: 'error',
+      provider_event_type: 'turn.timeout',
+      source: 'gateway_runtime_turn_route_timeout',
+      sequence_no: 1,
+      item_id: 'gateway-route-timeout',
+      status: 'timed_out',
+      text,
+      display_text: text,
+    }].slice(-32),
+  };
+}
+
+function withTurnRouteTimeout(promise, traceId, body, activityEvents = []) {
+  let timeout = null;
+  const timeoutMs = requestedTurnRouteTimeoutMs(body);
+  const timeoutPromise = new Promise((resolve) => {
+    timeout = setTimeout(() => resolve(turnRouteTimeoutPayload(traceId, body, activityEvents)), timeoutMs);
+    if (timeout && typeof timeout.unref === 'function') timeout.unref();
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeout) clearTimeout(timeout);
+  });
+}
+
+function sendTurnRouteJson(sendJson, res, statusCode, payload) {
+  if (!res || res.writableEnded || res.destroyed) return false;
+  try {
+    sendJson(res, statusCode, payload);
+    return true;
+  } catch {}
+  try {
+    if (!res.headersSent) {
+      res.writeHead(statusCode, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+      });
+    }
+    res.end(`${JSON.stringify(payload, null, 2)}\n`);
+    return true;
+  } catch {}
+  return false;
+}
+
 function isAgentRuntimeTurnRoute(pathname) {
   return pathname === '/api/shell-socket/agent-runtime/turn/stream' ||
     pathname === '/api/agent-runtime/turn/stream' ||
@@ -60,6 +141,7 @@ function createAgentRuntimeTurnRouteHandler(options = {}) {
 
     if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/turn/stream' || pathname === '/api/agent-runtime/turn/stream')) {
       const body = await readJsonBody(req, 65536);
+      const routeActivityEvents = [];
       res.writeHead(200, {
         'content-type': 'application/x-ndjson; charset=utf-8',
         'cache-control': 'no-store',
@@ -70,11 +152,14 @@ function createAgentRuntimeTurnRouteHandler(options = {}) {
         try { res.write(`${JSON.stringify(event)}\n`); } catch {}
       };
       writeEvent({ type: 'start', trace_id: traceId, route: 'agent_runtime.turn.stream' });
-      const payload = await turnProjectionStore.agentRuntimeTurnProjection(traceId, body, {
+      const payload = await withTurnRouteTimeout(turnProjectionStore.agentRuntimeTurnProjection(traceId, body, {
         stream: true,
         nativeOrchestrationClient: createNativeOrchestrationClient(flags),
-        onActivity: (event) => writeEvent({ type: 'activity', trace_id: traceId, event }),
-      }).catch((error) => ({
+        onActivity: (event) => {
+          routeActivityEvents.push(event);
+          writeEvent({ type: 'activity', trace_id: traceId, event });
+        },
+      }), traceId, body, routeActivityEvents).catch((error) => ({
         ok: false,
         status_code: 502,
         type: 'agent_runtime_turn_stream_error',
@@ -88,8 +173,25 @@ function createAgentRuntimeTurnRouteHandler(options = {}) {
 
     if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/turn' || pathname === '/api/agent-runtime/turn')) {
       const body = await readJsonBody(req, 65536);
+      const routeActivityEvents = [];
+      const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      let responded = false;
+      const routeTimeoutMs = requestedTurnRouteTimeoutMs(body);
+      const routeTimer = setTimeout(() => {
+        if (responded || res.writableEnded || res.destroyed) return;
+        responded = true;
+        if (abortController) {
+          try { abortController.abort(); } catch {}
+        }
+        const timeoutPayload = turnRouteTimeoutPayload(traceId, body, routeActivityEvents);
+        sendTurnRouteJson(sendJson, res, timeoutPayload.status_code || 504, timeoutPayload);
+      }, routeTimeoutMs);
       const payload = await turnProjectionStore.agentRuntimeTurnProjection(traceId, body, {
         nativeOrchestrationClient: createNativeOrchestrationClient(flags),
+        abortSignal: abortController && abortController.signal,
+        onActivity: (event) => {
+          routeActivityEvents.push(event);
+        },
       }).catch((error) => ({
         ok: false,
         status_code: 502,
@@ -97,7 +199,11 @@ function createAgentRuntimeTurnRouteHandler(options = {}) {
         trace_id: traceId,
         error: cleanText(error && error.message ? error.message : error, 240),
       }));
-      sendJson(res, payload.status_code || (payload.ok === false ? 502 : 200), payload);
+      clearTimeout(routeTimer);
+      if (!responded && !res.writableEnded && !res.destroyed) {
+        responded = true;
+        sendTurnRouteJson(sendJson, res, payload.status_code || (payload.ok === false ? 502 : 200), payload);
+      }
       return true;
     }
 

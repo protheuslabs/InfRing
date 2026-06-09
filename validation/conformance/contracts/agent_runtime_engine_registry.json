@@ -53,6 +53,63 @@
     ],
     "rule": "Keep the engine registry broad for catalog and future socket support, but only the active_promotion_engines lane may be used for promotion/readiness claims unless a new engine is explicitly promoted with live evidence."
   },
+  "golden_pair_baseline": {
+    "status": "covered",
+    "engines": [
+      "codex_cli",
+      "claude_code"
+    ],
+    "promotion_rule": "Codex CLI and Claude Code are the golden external runtime baseline. Other external runtimes may be selectable/cataloged, but they must match this primitive coverage before being promoted as reliable.",
+    "required_terminal_outcomes": [
+      "completed_response",
+      "permission_required",
+      "approval_resume_completed",
+      "typed_failure"
+    ],
+    "required_shared_primitives": [
+      "native_direct_mutation_grant",
+      "text_proposal_pause",
+      "approval_resume_context",
+      "visible_final_response",
+      "typed_failure_projection"
+    ],
+    "proof_artifact": "core/local/artifacts/agent_runtime_framework_capability_guard_current.json",
+    "proof_scope": "constructor_backed_fake_cli_turns",
+    "enforced_by": "npm run ops:agent-runtime:framework-capability:guard"
+  },
+  "golden_pair_live_smoke": {
+    "status": "passing",
+    "engines": [
+      "codex_cli",
+      "claude_code"
+    ],
+    "scope": "bounded_live_response",
+    "required_outcome": "completed_visible_exact_marker",
+    "mutation_allowed": false,
+    "tools_allowed": false,
+    "proof_artifact": "core/local/artifacts/agent_runtime_cli_live_turn_smoke_current.json",
+    "command": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_cli_live_turn_smoke.ts --live=1 --engines=codex_cli,claude_code --timeout-seconds=120",
+    "does_not_prove": [
+      "live_real_work_task_success",
+      "artifact_creation",
+      "approval_pause_resume_live",
+      "native_infring_intelligence_parity"
+    ]
+  },
+  "external_runtime_promotion_gate": {
+    "status": "active",
+    "reference_baseline": "golden_pair_baseline",
+    "required_before_reliable_promotion": true,
+    "native_engine_exempt": "infring_native",
+    "promotion_blocked_status_values": [
+      "reliable",
+      "promoted",
+      "production_ready",
+      "baseline_covered",
+      "golden_pair_equivalent"
+    ],
+    "rule": "External runtimes outside the golden pair may remain selectable or cataloged, but they must not be marked reliable/promoted until they declare and pass the same primitive terminal-outcome baseline as codex_cli and claude_code."
+  },
   "available_models_projection_contract": {
     "field": "available_models",
     "source_authority": "gateway.agent_runtime_engine_projection",

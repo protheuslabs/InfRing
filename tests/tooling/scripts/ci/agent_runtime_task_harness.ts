@@ -627,11 +627,22 @@ async function postJson(url: string, body: any, timeoutMs: number): Promise<{ ok
     return { ok: false, status: 0, text: "global fetch is unavailable in this Node runtime", duration_ms: 0 };
   }
   const started = Date.now();
-  const maxAttempts = 4;
+  const maxAttempts = 1;
   let lastText = "";
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const elapsed = Date.now() - started;
+    const remainingMs = timeoutMs - elapsed;
+    if (remainingMs <= 0) {
+      return {
+        ok: false,
+        status: 0,
+        text: `agent_runtime_task_harness_post_timeout: exceeded total timeout ${timeoutMs}ms after ${attempt - 1} attempt(s); last_error=${lastText || "none"}`,
+        duration_ms: Date.now() - started
+      };
+    }
+    const attemptTimeoutMs = Math.max(1000, Math.min(remainingMs, Math.ceil(timeoutMs / maxAttempts)));
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), attemptTimeoutMs);
     try {
       const response = await fetchFn(url, {
         method: "POST",
@@ -646,7 +657,10 @@ async function postJson(url: string, body: any, timeoutMs: number): Promise<{ ok
       if (attempt >= maxAttempts) {
         return { ok: false, status: 0, text: lastText, duration_ms: Date.now() - started };
       }
-      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+      const retryDelayMs = Math.min(500 * attempt, Math.max(0, timeoutMs - (Date.now() - started)));
+      if (retryDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
     } finally {
       clearTimeout(timer);
     }
@@ -745,6 +759,9 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
   let approvalResumeForwarded = false;
   let postApprovalResumeFailure = false;
   let postApprovalResumeFailureReason = "";
+  const gatewayTimeoutMarginMs = Math.min(30000, Math.max(10000, Math.ceil(args.timeoutMs * 0.1)));
+  const gatewayTurnTimeoutSeconds = Math.max(1, Math.min(Math.floor(Math.max(1000, args.timeoutMs - gatewayTimeoutMarginMs) / 1000), 300));
+  const gatewayEnvelopeTimeoutMs = args.timeoutMs;
   const expectedArtifacts = Array.isArray(task.expected_artifacts) ? task.expected_artifacts.map((artifact: string) => String(artifact)) : [];
   const expectedArtifactBaselines = new Map<string, { exists: boolean; size: number; hash: string }>();
   for (const artifact of expectedArtifacts) {
@@ -773,11 +790,17 @@ async function executeInfring(plan: RunOutcome, framework: AnyJson, task: AnyJso
       harness_turn_index: turnIndex + 1,
       harness_turn_count: turns.length,
       ...(approvalResume ? { approval_resume: approvalResume } : {})
+      ,
+      capability_budget: {
+        max_turn_seconds: gatewayTurnTimeoutSeconds,
+        shell_projection_only: true,
+        context_pack_required: true
+      }
     };
     if (approvalResume) {
       approvalResumeForwarded = true;
     }
-    const result = await postJson(String(plan.endpoint), payload, args.timeoutMs);
+    const result = await postJson(String(plan.endpoint), payload, gatewayEnvelopeTimeoutMs);
     lastHttpStatus = result.status;
     totalDurationMs += Number(result.duration_ms || 0);
     let projection: AnyJson | null = null;

@@ -1035,6 +1035,12 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       transport_target: structuredTurn.transport_target,
       source_authority: structuredTurn.source_authority,
     };
+    const requestedMaxTurnSeconds = Math.max(1, Math.min(
+      Number(body && body.capability_budget && body.capability_budget.max_turn_seconds) ||
+        Number(body && body.max_turn_seconds) ||
+        180,
+      300,
+    ));
     const turnMessage = {
       type: 'agent_runtime.turn_submit',
       trace_id: traceId,
@@ -1051,10 +1057,11 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       input: { text, attachments: attachmentRefs },
       turn_envelope: turnEnvelope,
       structured_turn: structuredTurn,
+      abort_signal: options.abortSignal,
       context_pack: contextPack,
       capability_budget: {
         max_default_response_bytes: 65536,
-        max_turn_seconds: 180,
+        max_turn_seconds: requestedMaxTurnSeconds,
         shell_projection_only: true,
         context_pack_required: true,
         context_pack_fanout_target: contextFanoutTarget,
@@ -1064,9 +1071,59 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
     };
     emitSyntheticActivity('started', 'turn.launch', `Launching ${engineId} turn with bounded context pack.`);
     const turnStartedAtMs = Date.now();
-    const turn = options && options.stream === true
-      ? await router.streamTurn(turnMessage, onActivity)
-      : await router.submitTurn(turnMessage);
+    const turnTimeoutMs = requestedMaxTurnSeconds * 1000;
+    let routeTimedOut = false;
+    const turnPromise = router.streamTurn(turnMessage, onActivity);
+    let routeTimeoutTimer = null;
+    const timeoutPromise = new Promise((resolve) => {
+      routeTimeoutTimer = setTimeout(() => {
+        routeTimedOut = true;
+        resolve({
+          type: 'turn.complete',
+          trace_id: traceId,
+          engine_id: engineId,
+          agent_id: agentId,
+          session_id: sessionId,
+          turn_id: turnId,
+          status: 'timed_out',
+          error_code: 'agent_runtime_gateway_turn_timeout',
+          reason: `${engineId} did not finish within ${requestedMaxTurnSeconds}s. Gateway returned a bounded timeout projection.`,
+          retryable: true,
+          timed_out: true,
+          timeout_ms: turnTimeoutMs,
+          output_text: `${engineId} did not finish within ${requestedMaxTurnSeconds}s. Gateway returned a bounded timeout projection.`,
+          output_preview: `${engineId} did not finish within ${requestedMaxTurnSeconds}s. Gateway returned a bounded timeout projection.`,
+          activity_events: [{
+            type: 'agent_activity_event',
+            trace_id: traceId,
+            engine_id: engineId,
+            session_id: sessionId,
+            turn_id: turnId,
+            activity_kind: 'error',
+            provider_event_type: 'turn.timeout',
+            source: 'gateway_runtime_turn_projection_timeout',
+            sequence_no: 1,
+            item_id: 'gateway-turn-timeout',
+            status: 'timed_out',
+            text: `${engineId} did not finish within ${requestedMaxTurnSeconds}s.`,
+            display_text: `${engineId} did not finish within ${requestedMaxTurnSeconds}s.`,
+          }],
+        });
+      }, turnTimeoutMs);
+      if (routeTimeoutTimer && typeof routeTimeoutTimer.unref === 'function') routeTimeoutTimer.unref();
+    });
+    const turn = await Promise.race([turnPromise, timeoutPromise]);
+    if (!routeTimedOut && routeTimeoutTimer) clearTimeout(routeTimeoutTimer);
+    if (routeTimedOut && router && typeof router.cancelTurn === 'function') {
+      router.cancelTurn({
+        type: 'agent_runtime.cancel_turn',
+        trace_id: traceId,
+        engine_id: engineId,
+        session_id: sessionId,
+        turn_id: turnId,
+        reason: 'gateway_turn_timeout',
+      }).catch(() => {});
+    }
     const workedMs = Math.max(0, Date.now() - turnStartedAtMs);
     if (!(turn && Array.isArray(turn.activity_events) && turn.activity_events.length)) {
       emitSyntheticActivity('completed', 'turn.completed', `${engineId} returned ${cleanText(turn && turn.status, 80) || 'a result'}.`);

@@ -4,16 +4,11 @@
 
 'use strict';
 
-const { createCliRuntimeEngineAdapter, selectedRuntimeModelArg } = require('./cli_runtime_adapter.ts');
-
-const DIRECT_NATIVE_MUTATION_GRANTS = new Set(['direct_file_write', 'native.direct_file_write', 'filesystem.direct_write']);
-
-function mutationGrantActive(ctx) {
-  const grants = ctx && ctx.message && ctx.message.context_pack && ctx.message.context_pack.universal_tool_grants;
-  const policy = grants && grants.permission_policy && typeof grants.permission_policy === 'object' ? grants.permission_policy : {};
-  const always = Array.isArray(policy.always_allowed_tool_calls) ? policy.always_allowed_tool_calls : [];
-  return always.some((toolId) => DIRECT_NATIVE_MUTATION_GRANTS.has(String(toolId || '').trim()));
-}
+const {
+  createCliRuntimeEngineAdapter,
+  nativeDirectMutationGrantActive,
+  selectedRuntimeModelArg,
+} = require('./cli_runtime_adapter.ts');
 
 function createClaudeCodeEngineAdapter(options = {}) {
   return createCliRuntimeEngineAdapter({
@@ -40,15 +35,12 @@ function createClaudeCodeEngineAdapter(options = {}) {
     // continuity is supplied through the Gateway-owned bounded context pack.
     runArgs: (prompt, ctx) => {
       const modelArg = selectedRuntimeModelArg(ctx, ['claude_code', 'claude', 'anthropic']);
-      const mutationGrant = mutationGrantActive(ctx);
       return [
         '--print',
         '--output-format',
         'stream-json',
         '--verbose',
-        '--permission-mode',
-        mutationGrant ? 'acceptEdits' : 'default',
-        ...(mutationGrant ? ['--allowedTools', 'Read,Write,Edit,Bash'] : []),
+        ...claudePermissionArgs(ctx),
         ...(modelArg ? ['--model', modelArg] : []),
         '--include-partial-messages',
         '--include-hook-events',
@@ -59,6 +51,16 @@ function createClaudeCodeEngineAdapter(options = {}) {
   });
 }
 
+function claudePermissionArgs(ctx) {
+  const mutationGrant = nativeDirectMutationGrantActive(ctx);
+  return [
+    '--permission-mode',
+    mutationGrant ? 'acceptEdits' : 'default',
+    ...(mutationGrant ? ['--allowedTools', 'Read,Write,Edit,Bash'] : []),
+  ];
+}
+
 module.exports = {
   createClaudeCodeEngineAdapter,
+  claudePermissionArgs,
 };
