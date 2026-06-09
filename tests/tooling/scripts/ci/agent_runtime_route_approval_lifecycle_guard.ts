@@ -8,6 +8,10 @@ const path = require('path');
 
 const ROOT = process.cwd();
 const OUT_JSON = path.join(ROOT, 'core', 'local', 'artifacts', 'agent_runtime_route_approval_lifecycle_guard_current.json');
+const SOURCE_DOMAIN = 'validation';
+const OWNER_DOMAIN = 'validation.agent_runtime';
+const POLICY_PATH = 'validation/conformance/contracts/agent_runtime_turn_outcome_contract.json';
+const LAYER = 'gateway';
 const { createGatewayAgentRuntimeRouteAssembly } = require(path.join(ROOT, 'gateway/runtime/agent_runtime/agent_runtime_route_assembly.ts'));
 const { parseCliActivityOutput } = require(path.join(ROOT, 'adapters/runtime/agent_engines/cli_runtime_adapter.ts'));
 
@@ -291,6 +295,10 @@ async function main() {
     ok,
     type: 'agent_runtime_route_approval_lifecycle_guard',
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     trace_id: traceId,
     route_probe: {
       turn_handled: turnHandled,
@@ -370,6 +378,10 @@ main().catch((error) => {
     ok: false,
     type: 'agent_runtime_route_approval_lifecycle_guard',
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     failures: [{ kind: 'route_level_approval_lifecycle_probe_failed', error: String(error && error.stack || error && error.message || error) }],
   };
   ensureDir(OUT_JSON);

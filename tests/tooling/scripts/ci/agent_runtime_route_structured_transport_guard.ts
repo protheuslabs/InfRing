@@ -13,6 +13,10 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const OUT_JSON = path.join(ROOT, 'core/local/artifacts/agent_runtime_route_structured_transport_guard_current.json');
+const SOURCE_DOMAIN = 'validation';
+const OWNER_DOMAIN = 'validation.agent_runtime';
+const POLICY_PATH = 'validation/conformance/contracts/agent_runtime_structured_transport_contract.json';
+const LAYER = 'gateway';
 const SCRATCH_DIR = path.join(ROOT, 'core/local/artifacts/agent-runtime-route-structured-transport-scratch');
 const SESSION_ID = 'agent-runtime-route-structured-transport-session';
 const AGENT_ID = 'agent-runtime-route-structured-transport-agent';
@@ -274,6 +278,10 @@ async function main() {
     ok: violations.length === 0,
     type: 'agent_runtime_route_structured_transport_guard',
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     mode: 'deterministic_public_gateway_route_matrix',
     engines_tested: ENGINES,
     install_engines_tested: INSTALLABLE_ENGINES,
@@ -296,6 +304,11 @@ main().catch((error) => {
   const report = {
     ok: false,
     type: 'agent_runtime_route_structured_transport_guard',
+    generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     error: clean(error && error.stack ? error.stack : error, 6000),
   };
   ensureDir(OUT_JSON);

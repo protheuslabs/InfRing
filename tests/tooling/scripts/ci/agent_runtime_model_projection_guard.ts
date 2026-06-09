@@ -12,6 +12,10 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const OUT_JSON = path.join(ROOT, 'core/local/artifacts/agent_runtime_model_projection_guard_current.json');
+const SOURCE_DOMAIN = 'validation';
+const OWNER_DOMAIN = 'validation.agent_runtime';
+const POLICY_PATH = 'validation/conformance/contracts/agent_runtime_engine_registry.json';
+const LAYER = 'gateway';
 const CHAT_ASSEMBLED_PATH = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts';
 const CHAT_SELECTION_HELPERS_PATH = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/030-init-selection-helpers.ts';
 const CHAT_RUNTIME_HOOKS_PATH = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/090-init-hooks-and-shortcuts.part02.ts';
@@ -482,6 +486,10 @@ async function main() {
     ok: violations.length === 0,
     type: 'agent_runtime_model_projection_guard',
     generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     mode: 'deterministic_gateway_engine_projection',
     engine_count: rows.length,
     engines: rows.map((row) => ({
@@ -524,6 +532,11 @@ main().catch((error) => {
   const report = {
     ok: false,
     type: 'agent_runtime_model_projection_guard',
+    generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     error: clean(error && error.stack ? error.stack : error, 6000),
   };
   ensureDir(OUT_JSON);

@@ -9,6 +9,10 @@ const path = require('path');
 
 const ROOT = process.cwd();
 const OUT_JSON = path.join(ROOT, 'core', 'local', 'artifacts', 'agent_runtime_route_child_process_timeout_guard_current.json');
+const SOURCE_DOMAIN = 'validation';
+const OWNER_DOMAIN = 'validation.agent_runtime';
+const POLICY_PATH = 'validation/conformance/contracts/agent_runtime_turn_outcome_contract.json';
+const LAYER = 'gateway';
 const { createAgentRuntimeTurnRouteHandler } = require(path.join(ROOT, 'gateway/runtime/agent_runtime/agent_runtime_turn_routes.ts'));
 
 function ensureDir(filePath) {
@@ -209,6 +213,12 @@ async function main() {
   const report = {
     ok: violations.length === 0,
     guard: 'agent_runtime_route_child_process_timeout_guard',
+    type: 'agent_runtime_route_child_process_timeout_guard',
+    generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     trace_id: traceId,
     route: '/api/shell-socket/agent-runtime/turn',
     status_code: res.statusCode,
@@ -237,6 +247,12 @@ main().catch((error) => {
   const report = {
     ok: false,
     guard: 'agent_runtime_route_child_process_timeout_guard',
+    type: 'agent_runtime_route_child_process_timeout_guard',
+    generated_at: new Date().toISOString(),
+    source_domain: SOURCE_DOMAIN,
+    owner_domain: OWNER_DOMAIN,
+    layer: LAYER,
+    policy_path: POLICY_PATH,
     error: error && error.stack || String(error),
   };
   fs.writeFileSync(OUT_JSON, `${JSON.stringify(report, null, 2)}\n`);
