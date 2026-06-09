@@ -456,6 +456,16 @@ async function discoverCliRuntimeModelMenu(command, spec, ctx, registryMenu) {
   return modelMenu;
 }
 
+function isAgentRuntimeMenuHealthCheck(ctx) {
+  const message = ctx && ctx.message && typeof ctx.message === 'object' ? ctx.message : {};
+  const sessionId = cleanString(message.session_id || message.sessionId || '', 120);
+  const requestId = cleanString(message.request_id || message.requestId || '', 240);
+  const projection = cleanString(message.projection || message.route || message.source || '', 240);
+  return sessionId === 'dashboard-menu'
+    || requestId.indexOf('agent-runtime-menu:') === 0
+    || projection === 'agent_runtime_menu_projection';
+}
+
 function spawnCapture(command, args, options = {}) {
   const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, 300000));
   const maxOutputBytes = Math.max(1024, Math.min(Number(options.maxOutputBytes) || 24000, 2097152));
@@ -2465,7 +2475,8 @@ function createCliRuntimeEngineAdapter(options = {}) {
       const registryMenu = ctx && ctx.engine && ctx.engine.model_menu && typeof ctx.engine.model_menu === 'object'
         ? ctx.engine.model_menu
         : null;
-      const modelMenu = probe.ok
+      const menuHealthCheck = isAgentRuntimeMenuHealthCheck(ctx);
+      const modelMenu = probe.ok && !menuHealthCheck
         ? await discoverCliRuntimeModelMenu(command, options.modelDiscovery, ctx, registryMenu).catch(() => null)
         : null;
       const providerReadiness = probe.ok && options.providerReadinessProbe

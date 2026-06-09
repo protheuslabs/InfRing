@@ -1501,6 +1501,14 @@ function chatPage() {
             break;
           }
         }
+        if (!runtimeEngineRow) {
+          var pendingRuntimeLabel = this.runtimeEngineDisplayNameForId
+            ? this.runtimeEngineDisplayNameForId(runtimeEngineId, null)
+            : runtimeEngineId;
+          pendingRuntimeLabel = String(pendingRuntimeLabel || runtimeEngineId || 'Agent runtime').trim();
+          var compactPendingRuntimeLabel = this.truncateModelLabel(pendingRuntimeLabel);
+          if (compactPendingRuntimeLabel) return compactPendingRuntimeLabel.length > 24 ? compactPendingRuntimeLabel.substring(0, 22) + '\u2026' : compactPendingRuntimeLabel;
+        }
         var availableModels = runtimeEngineRow && runtimeEngineRow.available_models && typeof runtimeEngineRow.available_models === 'object'
           ? runtimeEngineRow.available_models
           : runtimeEngineRow && runtimeEngineRow.model_menu && typeof runtimeEngineRow.model_menu === 'object'
@@ -1509,7 +1517,7 @@ function chatPage() {
         var availableRows = availableModels && Array.isArray(availableModels.rows)
           ? availableModels.rows
           : (availableModels && Array.isArray(availableModels.model_rows) ? availableModels.model_rows : []);
-        if (availableModels && (availableModels.framework_native_models || availableModels.source === 'framework_native') && availableRows.length) {
+        if (availableModels && (availableModels.framework_native_models || availableModels.source === 'framework_native')) {
           var runtimeCandidates = [runtime, selected, modelOverride, storeRuntime, storeSelected, storeOverride, suggestionRef];
           var matchedRuntimeModel = null;
           for (var rci = 0; rci < runtimeCandidates.length && !matchedRuntimeModel; rci += 1) {
@@ -1536,8 +1544,19 @@ function chatPage() {
           }
           var displayRuntimeModel = matchedRuntimeModel || availableRows[0] || {};
           var runtimeModelLabel = String(displayRuntimeModel.display_name || displayRuntimeModel.model_name || displayRuntimeModel.model || displayRuntimeModel.id || '').trim();
+          if (!runtimeModelLabel && availableModels.default_selection_policy && typeof availableModels.default_selection_policy === 'object') {
+            runtimeModelLabel = String(availableModels.default_selection_policy.current_model || '').trim();
+          }
+          if (!runtimeModelLabel) {
+            runtimeModelLabel = String((runtimeEngineRow && (runtimeEngineRow.display_name || runtimeEngineRow.engine_id)) || runtimeEngineId || 'Agent runtime').trim();
+          }
           var compactRuntimeModel = this.truncateModelLabel(runtimeModelLabel);
           if (compactRuntimeModel) return compactRuntimeModel.length > 24 ? compactRuntimeModel.substring(0, 22) + '\u2026' : compactRuntimeModel;
+        }
+        if (availableModels && !(availableModels.inherit_active_llm_when_unconfigured || availableModels.credential_inheritance_allowed || availableModels.source === 'inherited_infring')) {
+          var runtimeLabel = String((runtimeEngineRow && (runtimeEngineRow.display_name || runtimeEngineRow.engine_id)) || runtimeEngineId || 'Agent runtime').trim();
+          var compactRuntimeLabel = this.truncateModelLabel(runtimeLabel);
+          if (compactRuntimeLabel) return compactRuntimeLabel.length > 24 ? compactRuntimeLabel.substring(0, 22) + '\u2026' : compactRuntimeLabel;
         }
       }
       if (selected.toLowerCase() === 'auto') {
@@ -1593,7 +1612,7 @@ function chatPage() {
       ? this.sanitizeModelCatalogRows.bind(this)
       : function(value) { return Array.isArray(value) ? value : []; };
     var menuRows = Array.isArray(menu.rows) ? menu.rows : (Array.isArray(menu.model_rows) ? menu.model_rows : []);
-    if ((menu.framework_native_models || menu.source === 'framework_native') && menuRows.length) {
+    if (menu.framework_native_models || menu.source === 'framework_native') {
       return sanitize(menuRows.map(function(modelRow) {
         return Object.assign({}, modelRow || {}, {
           runtime_engine_id: engineId,
@@ -1609,7 +1628,7 @@ function chatPage() {
         });
       });
     }
-    return list;
+    return [];
   },
 
   get switcherViewState() {
@@ -4610,7 +4629,16 @@ function chatPage() {
       this.showSlashMenu = false;
       this.showModelPicker = false;
       this.showAttachMenu = false;
-      await this.sendMessage();
+      this._pendingPromptSuggestionSend = {
+        source: 'prompt_suggestion',
+        text_preview: text.slice(0, 240),
+        created_at: Date.now()
+      };
+      try {
+        await this.sendMessage();
+      } finally {
+        this._pendingPromptSuggestionSend = null;
+      }
     },
 
     promptSuggestionNeedsResize(chip) {
@@ -7734,6 +7762,42 @@ function chatPage() {
       return parts.join(' · ');
     },
 
+    isRuntimeEngineSelectionBlocked: function(row) {
+      if (!row || row.selectable !== false) return false;
+      var meta = '';
+      try { meta = this.runtimeEngineMeta(row) || ''; } catch (_e) { meta = ''; }
+      var statusText = [
+        row.status || '',
+        row.connection_status || '',
+        row.availability || '',
+        row.provider_readiness || '',
+        row.reason || '',
+        meta
+      ].join(' ').toLowerCase();
+      if (
+        statusText.indexOf('provider_blocked') >= 0 ||
+        statusText.indexOf('runtime_requirement_missing') >= 0 ||
+        statusText.indexOf('auth_required') >= 0 ||
+        statusText.indexOf('unavailable') >= 0 ||
+        statusText.indexOf('blocked') >= 0 ||
+        statusText.indexOf('not_downloaded') >= 0 ||
+        statusText.indexOf('not connected') >= 0 ||
+        statusText.indexOf('not_connected') >= 0 ||
+        statusText.indexOf('planned') >= 0 ||
+        statusText.indexOf('timeout') >= 0
+      ) return true;
+      if (
+        row.available === true ||
+        row.connected === true ||
+        row.installed === true ||
+        row.discovered === true ||
+        statusText.indexOf('available') >= 0 ||
+        statusText.indexOf('adapter_ready') >= 0 ||
+        statusText.indexOf('connected') >= 0
+      ) return false;
+      return true;
+    },
+
     runtimeEngineActionIcon: function(row) {
       if (this.isRuntimeEngineActive(row)) return '✓';
       var status = String(row && row.status || '').trim();
@@ -7745,7 +7809,7 @@ function chatPage() {
     selectRuntimeEngine: function(row) {
       var engineId = String(row && row.engine_id || '').trim();
       if (!engineId) return;
-      if (row && row.selectable === false) {
+      if (this.isRuntimeEngineSelectionBlocked(row)) {
         if (row.install_action_available || row.command_line_install_available || row.preferred_install_method === 'command_line') {
           this.installRuntimeEngine(row);
           return;
@@ -17075,6 +17139,12 @@ function chatPage() {
     },
 
     async sendMessage() {
+      var sendTrigger = this._pendingPromptSuggestionSend && typeof this._pendingPromptSuggestionSend === 'object'
+        ? this._pendingPromptSuggestionSend
+        : null;
+      var sendTriggerSource = sendTrigger && sendTrigger.source
+        ? String(sendTrigger.source).slice(0, 80)
+        : 'composer';
       if (this.terminalMode) {
         await this.sendTerminalMessage();
         return;
@@ -17197,7 +17267,8 @@ function chatPage() {
           text: finalText,
           files: uploadedFiles,
           images: msgImages,
-          agent_runtime_engine_id: selectedRuntimeEngineId
+          agent_runtime_engine_id: selectedRuntimeEngineId,
+          trigger_source: sendTriggerSource
         });
         this.scheduleConversationPersist();
         return;
@@ -17216,9 +17287,14 @@ function chatPage() {
         this.clearComposerSendMorph(morphSnapshot);
       }
       this.scheduleConversationPersist();
+      if (usesExternalRuntime) {
+        if (typeof this.syncActiveChatMessages === 'function') this.syncActiveChatMessages();
+        if (typeof this.scheduleMessageRenderWindowUpdate === 'function') this.scheduleMessageRenderWindowUpdate();
+      }
       this._sendPayload(finalText, uploadedFiles, msgImages, {
         agent_id: activeAgent.id,
-        agent_runtime_engine_id: selectedRuntimeEngineId
+        agent_runtime_engine_id: selectedRuntimeEngineId,
+        trigger_source: sendTriggerSource
       });
     },
 
@@ -17949,7 +18025,10 @@ function chatPage() {
       if (!engineId) return;
       var startedAt = Date.now();
       this._responseStartedAt = startedAt;
-      var approvalResume = resumeOptions && typeof resumeOptions === 'object' ? resumeOptions : null;
+      var opts = resumeOptions && typeof resumeOptions === 'object' ? resumeOptions : {};
+      var approvalResume = (opts.approval_id || opts.resume_token || opts.approval_decision)
+        ? opts
+        : null;
       var thinkingMessage = this.findAgentRuntimeLiveThinkingRow
         ? this.findAgentRuntimeLiveThinkingRow(engineId, approvalResume && approvalResume.live_message_id)
         : null;
@@ -18042,6 +18121,8 @@ function chatPage() {
           agent_id: targetAgentId,
           session_id: String((this.currentAgent && (this.currentAgent.session_id || this.currentAgent.id)) || targetAgentId || ''),
           message: String(finalText || ''),
+          input_source: String(opts.trigger_source || 'composer').slice(0, 80),
+          turn_trigger_source: String(opts.trigger_source || 'composer').slice(0, 80),
           cwd: typeof this.activeWorkspacePath === 'function' ? this.activeWorkspacePath() : '',
           active_workspace: typeof this.activeWorkspaceTurnContextProjection === 'function' ? this.activeWorkspaceTurnContextProjection() : null,
       model_provider_context: {
@@ -18352,6 +18433,7 @@ function chatPage() {
           uploaded_files: safeFiles,
           msg_images: safeImages,
           agent_runtime_engine_id: runtimeEngineId,
+          trigger_source: String(opts.trigger_source || 'composer').slice(0, 80),
           failover_attempted: !!opts.retry_from_failover,
           created_at: Date.now()
         };
@@ -18360,6 +18442,7 @@ function chatPage() {
         this._inflightPayload.uploaded_files = safeFiles;
         this._inflightPayload.msg_images = safeImages;
         this._inflightPayload.agent_runtime_engine_id = runtimeEngineId;
+        this._inflightPayload.trigger_source = String(opts.trigger_source || this._inflightPayload.trigger_source || 'composer').slice(0, 80);
         this._inflightPayload.retry_started_at = Date.now();
       }
       this._pendingAutoModelSwitchBaseline = '';
@@ -18367,7 +18450,9 @@ function chatPage() {
         ? this.shouldUseAgentRuntimeSocketPath(runtimeEngineId)
         : (typeof this.isExternalAgentRuntimeEngineSelected === 'function' && this.isExternalAgentRuntimeEngineSelected(runtimeEngineId));
       if (useRuntimeSocketPath) {
-        await this._sendAgentRuntimeSocketPayload(targetAgentId, finalText, safeFiles, safeImages, runtimeEngineId);
+        await this._sendAgentRuntimeSocketPayload(targetAgentId, finalText, safeFiles, safeImages, runtimeEngineId, {
+          trigger_source: String(opts.trigger_source || 'composer').slice(0, 80)
+        });
         return;
       }
       var preflightRoute = null;

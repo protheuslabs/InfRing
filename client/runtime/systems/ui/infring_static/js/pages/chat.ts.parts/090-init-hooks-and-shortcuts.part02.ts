@@ -481,6 +481,42 @@
       return parts.join(' · ');
     },
 
+    isRuntimeEngineSelectionBlocked: function(row) {
+      if (!row || row.selectable !== false) return false;
+      var meta = '';
+      try { meta = this.runtimeEngineMeta(row) || ''; } catch (_e) { meta = ''; }
+      var statusText = [
+        row.status || '',
+        row.connection_status || '',
+        row.availability || '',
+        row.provider_readiness || '',
+        row.reason || '',
+        meta
+      ].join(' ').toLowerCase();
+      if (
+        statusText.indexOf('provider_blocked') >= 0 ||
+        statusText.indexOf('runtime_requirement_missing') >= 0 ||
+        statusText.indexOf('auth_required') >= 0 ||
+        statusText.indexOf('unavailable') >= 0 ||
+        statusText.indexOf('blocked') >= 0 ||
+        statusText.indexOf('not_downloaded') >= 0 ||
+        statusText.indexOf('not connected') >= 0 ||
+        statusText.indexOf('not_connected') >= 0 ||
+        statusText.indexOf('planned') >= 0 ||
+        statusText.indexOf('timeout') >= 0
+      ) return true;
+      if (
+        row.available === true ||
+        row.connected === true ||
+        row.installed === true ||
+        row.discovered === true ||
+        statusText.indexOf('available') >= 0 ||
+        statusText.indexOf('adapter_ready') >= 0 ||
+        statusText.indexOf('connected') >= 0
+      ) return false;
+      return true;
+    },
+
     runtimeEngineActionIcon: function(row) {
       if (this.isRuntimeEngineActive(row)) return '✓';
       var status = String(row && row.status || '').trim();
@@ -492,7 +528,7 @@
     selectRuntimeEngine: function(row) {
       var engineId = String(row && row.engine_id || '').trim();
       if (!engineId) return;
-      if (row && row.selectable === false) {
+      if (this.isRuntimeEngineSelectionBlocked(row)) {
         if (row.install_action_available || row.command_line_install_available || row.preferred_install_method === 'command_line') {
           this.installRuntimeEngine(row);
           return;

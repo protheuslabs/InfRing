@@ -24,6 +24,31 @@ function parsePositiveInt(value, fallback, min = 1, max = 65535) {
   return Math.max(min, Math.min(max, Math.floor(num)));
 }
 
+function agentRuntimeMenuHealthTimeoutMs() {
+  return parsePositiveInt(process.env.INFRING_AGENT_RUNTIME_MENU_HEALTH_TIMEOUT_MS, 12000, 250, 12000);
+}
+
+function withAgentRuntimeMenuHealthTimeout(promise, engineId, timeoutMs) {
+  let timer = null;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({
+      status: 'provider_readiness_timeout',
+      selectable: false,
+      reason: `${cleanEngineId(engineId) || 'agent_runtime'} did not finish within ${timeoutMs}ms. The menu projection returned a bounded degraded row instead of hanging.`,
+    }), timeoutMs);
+  });
+  return Promise.race([
+    Promise.resolve(promise).catch((error) => ({
+      status: 'not_downloaded',
+      download_available: true,
+      reason: cleanText(error && error.message ? error.message : error, 200),
+    })),
+    timeout,
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function agentRuntimeInstallPlatformAliases() {
   const platform = process.platform;
   const aliases = new Set(['all', platform]);
@@ -168,9 +193,9 @@ function projectAgentRuntimeModelMenu(engine, health) {
   const source = row.model_menu && typeof row.model_menu === 'object' ? row.model_menu : {};
   const healthMenu = health && health.model_menu && typeof health.model_menu === 'object' ? health.model_menu : {};
   const menuSource = cleanText(healthMenu.source || source.source || 'infring_model_catalog', 120);
-  const modelRowsSource = Array.isArray(healthMenu.model_rows)
-    ? healthMenu.model_rows
-    : (Array.isArray(source.model_rows) ? source.model_rows : []);
+  const healthRows = Array.isArray(healthMenu.model_rows) ? healthMenu.model_rows : null;
+  const sourceRows = Array.isArray(source.model_rows) ? source.model_rows : [];
+  const modelRowsSource = healthRows && healthRows.length ? healthRows : sourceRows;
   const modelRows = modelRowsSource.map((item) => {
     const model = item && typeof item === 'object' ? item : {};
     const capability = classifyAgentRuntimeModelCapability(model, menuSource);
@@ -435,12 +460,12 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
     const engines = Array.isArray(info.engines) ? info.engines : [];
     const engineAdapters = createAdapterMap({ liveDispatch: false });
     const selection = loadSelection();
-    const rows = [];
-    for (const engine of engines) {
+    const timeoutMs = agentRuntimeMenuHealthTimeoutMs();
+    const rows = await Promise.all(engines.map(async (engine) => {
       const engineId = cleanEngineId(engine && engine.engine_id);
       let health = null;
       if (engineAdapters[engineId] && typeof engineAdapters[engineId].health_check === 'function') {
-        health = await engineAdapters[engineId].health_check({
+        health = await withAgentRuntimeMenuHealthTimeout(engineAdapters[engineId].health_check({
           message: {
             trace_id: traceId,
             request_id: `agent-runtime-menu:${Date.now()}`,
@@ -448,14 +473,10 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
             session_id: 'dashboard-menu',
           },
           engine,
-        }).catch((error) => ({
-          status: 'not_downloaded',
-          download_available: true,
-          reason: cleanText(error && error.message ? error.message : error, 200),
-        }));
+        }), engineId, timeoutMs);
       }
-      rows.push(projectAgentRuntimeEngineRow(engine, health));
-    }
+      return projectAgentRuntimeEngineRow(engine, health);
+    }));
     return {
       ok: true,
       type: 'agent_runtime_engines_projection',

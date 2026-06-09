@@ -216,6 +216,14 @@
             break;
           }
         }
+        if (!runtimeEngineRow) {
+          var pendingRuntimeLabel = this.runtimeEngineDisplayNameForId
+            ? this.runtimeEngineDisplayNameForId(runtimeEngineId, null)
+            : runtimeEngineId;
+          pendingRuntimeLabel = String(pendingRuntimeLabel || runtimeEngineId || 'Agent runtime').trim();
+          var compactPendingRuntimeLabel = this.truncateModelLabel(pendingRuntimeLabel);
+          if (compactPendingRuntimeLabel) return compactPendingRuntimeLabel.length > 24 ? compactPendingRuntimeLabel.substring(0, 22) + '\u2026' : compactPendingRuntimeLabel;
+        }
         var availableModels = runtimeEngineRow && runtimeEngineRow.available_models && typeof runtimeEngineRow.available_models === 'object'
           ? runtimeEngineRow.available_models
           : runtimeEngineRow && runtimeEngineRow.model_menu && typeof runtimeEngineRow.model_menu === 'object'
@@ -224,7 +232,7 @@
         var availableRows = availableModels && Array.isArray(availableModels.rows)
           ? availableModels.rows
           : (availableModels && Array.isArray(availableModels.model_rows) ? availableModels.model_rows : []);
-        if (availableModels && (availableModels.framework_native_models || availableModels.source === 'framework_native') && availableRows.length) {
+        if (availableModels && (availableModels.framework_native_models || availableModels.source === 'framework_native')) {
           var runtimeCandidates = [runtime, selected, modelOverride, storeRuntime, storeSelected, storeOverride, suggestionRef];
           var matchedRuntimeModel = null;
           for (var rci = 0; rci < runtimeCandidates.length && !matchedRuntimeModel; rci += 1) {
@@ -251,8 +259,17 @@
           }
           var displayRuntimeModel = matchedRuntimeModel || availableRows[0] || {};
           var runtimeModelLabel = String(displayRuntimeModel.display_name || displayRuntimeModel.model_name || displayRuntimeModel.model || displayRuntimeModel.id || '').trim();
+          if (!runtimeModelLabel && availableModels.default_selection_policy && typeof availableModels.default_selection_policy === 'object') {
+            runtimeModelLabel = String(availableModels.default_selection_policy.current_model || '').trim();
+          }
+          if (!runtimeModelLabel) runtimeModelLabel = String(runtimeEngineRow.display_name || runtimeEngineId || 'Agent runtime').trim();
           var compactRuntimeModel = this.truncateModelLabel(runtimeModelLabel);
           if (compactRuntimeModel) return compactRuntimeModel.length > 24 ? compactRuntimeModel.substring(0, 22) + '\u2026' : compactRuntimeModel;
+        }
+        if (availableModels && !(availableModels.inherit_active_llm_when_unconfigured || availableModels.credential_inheritance_allowed || availableModels.source === 'inherited_infring')) {
+          var runtimeLabel = String(runtimeEngineRow && (runtimeEngineRow.display_name || runtimeEngineRow.engine_id) || runtimeEngineId || 'Agent runtime').trim();
+          var compactRuntimeLabel = this.truncateModelLabel(runtimeLabel);
+          if (compactRuntimeLabel) return compactRuntimeLabel.length > 24 ? compactRuntimeLabel.substring(0, 22) + '\u2026' : compactRuntimeLabel;
         }
       }
       if (selected.toLowerCase() === 'auto') {
@@ -308,7 +325,7 @@
       ? this.sanitizeModelCatalogRows.bind(this)
       : function(value) { return Array.isArray(value) ? value : []; };
     var menuRows = Array.isArray(menu.rows) ? menu.rows : (Array.isArray(menu.model_rows) ? menu.model_rows : []);
-    if ((menu.framework_native_models || menu.source === 'framework_native') && menuRows.length) {
+    if (menu.framework_native_models || menu.source === 'framework_native') {
       return sanitize(menuRows.map(function(modelRow) {
         return Object.assign({}, modelRow || {}, {
           runtime_engine_id: engineId,
@@ -324,7 +341,7 @@
         });
       });
     }
-    return list;
+    return [];
   },
 
   get switcherViewState() {

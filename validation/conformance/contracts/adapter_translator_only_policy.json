@@ -17,6 +17,11 @@
       "risk of retaining the exception",
       "next concrete removal step"
     ],
+    "row_required_fields": [
+      "owner",
+      "risk",
+      "next_removal_step"
+    ],
     "purpose": "Prevent declared non-translator adapter exceptions from becoming permanent compatibility infrastructure."
   },
   "translator_roots": [
@@ -54,103 +59,154 @@
       "path": "adapters/runtime/infring_dashboard.ts",
       "reason": "Legacy dashboard host until Gateway physical re-root completes.",
       "retirement_todo": "GATEWAY-PHYSICAL-REROOT",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "gateway.runtime",
+      "risk": "A dashboard host under adapters can imply adapters own Gateway/Shell hosting authority.",
+      "next_removal_step": "Move remaining host entrypoint and lifecycle callers to gateway/runtime/**, then retire the adapter path."
     },
     {
       "path": "adapters/runtime/dashboard_asset_router.ts",
       "reason": "Legacy dashboard asset host; not a provider/framework translator.",
       "retirement_todo": "SHELL-CLEANUP",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "gateway.shell_boundary",
+      "risk": "Asset serving under adapters can preserve Shell hosting authority outside Gateway.",
+      "next_removal_step": "Route dashboard asset serving through the canonical Gateway runtime/static route and leave adapters translator-only."
     },
     {
       "path": "adapters/runtime/infring_setup_wizard.ts",
       "reason": "Legacy setup/onboarding helper outside the stable adapter translator role.",
       "retirement_todo": "ALPINE-PURGE",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "gateway.onboarding",
+      "risk": "Setup workflow logic under adapters can turn the adapter domain into an onboarding authority owner.",
+      "next_removal_step": "Move setup/onboarding routing to installer or Gateway-owned onboarding code, or delete the helper if unused."
     },
     {
       "path": "adapters/runtime/infring_cli_modules.ts",
       "reason": "Legacy CLI module barrel; should shrink as canonical commands move to domain owners.",
       "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "tools.commands",
+      "risk": "A CLI barrel under adapters can hide non-translator command authority in the adapter domain.",
+      "next_removal_step": "Resolve callers to canonical domain command modules and delete the barrel once no imports remain."
     },
     {
       "path": "adapters/runtime/binary_resolver.ts",
       "reason": "Legacy binary discovery helper; process discovery policy should eventually live under Gateway/Core-owned launch surfaces.",
       "retirement_todo": "SYSTEM-ACTION-AUTHORITY-RECEIPTS",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "gateway.launch",
+      "risk": "Binary discovery under adapters can blur translator code with host launch policy.",
+      "next_removal_step": "Move process/binary discovery policy to Gateway launch or Core ops authority and keep adapters as provider translators."
     },
     {
       "path": "adapters/runtime/run_infring_ops.ts",
       "reason": "Legacy ops process bridge; durable ops authority must become Core/ops receipted.",
       "retirement_todo": "SYSTEM-ACTION-AUTHORITY-RECEIPTS",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "core.ops",
+      "risk": "An ops process bridge under adapters can hide durable system action authority outside Core receipts.",
+      "next_removal_step": "Route ops process execution through Core ops receipt paths and remove the adapter bridge."
     },
     {
       "path": "adapters/runtime/ops_lane_bridge.ts",
       "reason": "Legacy ops lane bridge; retained as explicit debt while resident/core receipts replace fallback behavior.",
       "retirement_todo": "SYSTEM-ACTION-AUTHORITY-RECEIPTS",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "core.ops",
+      "risk": "Ops lane bridging under adapters can preserve fallback mutation authority outside receipted Core lanes.",
+      "next_removal_step": "Replace remaining callers with resident/Core ops receipt calls and remove the adapter lane bridge."
     },
     {
       "path": "adapters/runtime/runtime_system_bridge.ts",
       "reason": "Legacy runtime-system bridge; not a pure external translator.",
       "retirement_todo": "SYSTEM-ACTION-AUTHORITY-RECEIPTS",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "core.runtime_systems",
+      "risk": "Runtime-system bridging under adapters can make adapters look like runtime authority owners.",
+      "next_removal_step": "Move runtime-system dispatch to Core runtime-system authority paths and keep adapters translator-only."
     },
     {
       "path": "adapters/runtime/infring_kernel_bridge.ts",
       "reason": "Legacy Kernel bridge compatibility wrapper.",
       "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "kernel.boundary",
+      "risk": "A Kernel bridge under adapters can imply adapters can reach or mirror Kernel authority.",
+      "next_removal_step": "Move remaining compatibility imports to canonical Kernel/Gateway contracts and delete the adapter wrapper."
     },
     {
       "path": "adapters/runtime/adaptive_memory_bridge.ts",
       "reason": "Legacy memory bridge compatibility wrapper; canonical memory truth must remain outside adapters.",
       "retirement_todo": "AGENT-RUNTIME-MEMORY-BRIDGE",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "memory.context_topology",
+      "risk": "Memory bridge code under adapters can blur external translation with canonical memory truth.",
+      "next_removal_step": "Route memory/context access through canonical context-topology or Gateway projection contracts and delete this wrapper."
     },
     {
       "path": "adapters/runtime/orchestration_surface_modules.ts",
       "reason": "Legacy Orchestration surface module barrel.",
       "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "orchestration.boundary",
+      "risk": "An Orchestration surface barrel under adapters can make adapters appear to own planning/workflow exports.",
+      "next_removal_step": "Point callers at Gateway runtime contracts or canonical orchestration exports, then remove the adapter barrel."
     },
     {
       "path": "adapters/runtime/swarm_bridge_modules.ts",
       "reason": "Legacy swarm bridge module barrel.",
       "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "orchestration.swarm_boundary",
+      "risk": "A swarm bridge barrel under adapters can preserve orchestration/swarm authority in the wrong domain.",
+      "next_removal_step": "Re-home callers to canonical swarm/orchestration boundary exports and retire the adapter barrel."
     },
     {
       "path": "adapters/runtime/shannon_bridge.ts",
       "reason": "Legacy Shannon bridge compatibility wrapper.",
       "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "gateway.compatibility",
+      "risk": "Legacy bridge compatibility under adapters can mask non-translator behavior as an adapter concern.",
+      "next_removal_step": "Identify active imports, move them to canonical Gateway/Core contracts, and remove the compatibility wrapper."
     },
     {
       "path": "adapters/runtime/shannon_desktop_shell.ts",
       "reason": "Legacy desktop shell bridge.",
       "retirement_todo": "SHELL-CLEANUP",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "gateway.shell_boundary",
+      "risk": "Desktop Shell bridging under adapters can reintroduce Shell/Gateway coupling outside sockets.",
+      "next_removal_step": "Route desktop Shell behavior through Gateway sockets/projections and delete the adapter bridge."
     },
     {
       "path": "adapters/runtime/swarm_repl_demo.ts",
       "reason": "Legacy demo entrypoint, not a stable adapter translator.",
       "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "validation.examples",
+      "risk": "Demo entrypoints under adapters can become accidental long-lived runtime surfaces.",
+      "next_removal_step": "Move any still-useful demo to validation/examples or delete it if no longer needed."
     },
     {
       "path": "adapters/runtime/dev_only/**",
       "reason": "Development-only process fallback utilities.",
       "retirement_todo": "SYSTEM-ACTION-AUTHORITY-RECEIPTS",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "validation.dev_harness",
+      "risk": "Dev-only fallback utilities under adapters can leak into production-like runtime expectations.",
+      "next_removal_step": "Keep only explicitly dev-gated harness utilities and move/delete anything used by production launch paths."
     },
     {
       "path": "adapters/runtime/orchestration_cognition_impl/**",
       "reason": "Legacy Orchestration compatibility implementation under adapters; must not expand.",
       "retirement_todo": "ADAPTER-TRANSLATOR-ONLY-GUARD",
-      "allowed_until": "2026-07-01"
+      "allowed_until": "2026-07-01",
+      "owner": "orchestration.boundary",
+      "risk": "Legacy orchestration implementation under adapters can recreate cognition/planning ownership in the adapter domain.",
+      "next_removal_step": "Freeze expansion, move active behavior behind canonical orchestration/Gateway seams, and remove this compatibility tree."
     }
   ],
   "forbidden_translator_signals": [

@@ -37,6 +37,10 @@
     },
 
     async sendMessage() {
+      var sendTrigger = this._pendingPromptSuggestionSend && typeof this._pendingPromptSuggestionSend === 'object'
+        ? this._pendingPromptSuggestionSend
+        : null;
+      var sendTriggerSource = sendTrigger ? 'prompt_suggestion' : 'composer';
       if (this.terminalMode) {
         await this.sendTerminalMessage();
         return;
@@ -159,7 +163,8 @@
           text: finalText,
           files: uploadedFiles,
           images: msgImages,
-          agent_runtime_engine_id: selectedRuntimeEngineId
+          agent_runtime_engine_id: selectedRuntimeEngineId,
+          trigger_source: sendTriggerSource
         });
         this.scheduleConversationPersist();
         return;
@@ -178,9 +183,14 @@
         this.clearComposerSendMorph(morphSnapshot);
       }
       this.scheduleConversationPersist();
+      if (usesExternalRuntime) {
+        if (typeof this.syncActiveChatMessages === 'function') this.syncActiveChatMessages();
+        if (typeof this.scheduleMessageRenderWindowUpdate === 'function') this.scheduleMessageRenderWindowUpdate();
+      }
       this._sendPayload(finalText, uploadedFiles, msgImages, {
         agent_id: activeAgent.id,
-        agent_runtime_engine_id: selectedRuntimeEngineId
+        agent_runtime_engine_id: selectedRuntimeEngineId,
+        trigger_source: sendTriggerSource
       });
     },
 
@@ -911,7 +921,10 @@
       if (!engineId) return;
       var startedAt = Date.now();
       this._responseStartedAt = startedAt;
-      var approvalResume = resumeOptions && typeof resumeOptions === 'object' ? resumeOptions : null;
+      var opts = resumeOptions && typeof resumeOptions === 'object' ? resumeOptions : {};
+      var approvalResume = (opts.approval_id || opts.resume_token || opts.approval_decision)
+        ? opts
+        : null;
       var thinkingMessage = this.findAgentRuntimeLiveThinkingRow
         ? this.findAgentRuntimeLiveThinkingRow(engineId, approvalResume && approvalResume.live_message_id)
         : null;
@@ -1004,6 +1017,8 @@
           agent_id: targetAgentId,
           session_id: String((this.currentAgent && (this.currentAgent.session_id || this.currentAgent.id)) || targetAgentId || ''),
           message: String(finalText || ''),
+          input_source: String(opts.trigger_source || 'composer').slice(0, 80),
+          turn_trigger_source: String(opts.trigger_source || 'composer').slice(0, 80),
           cwd: typeof this.activeWorkspacePath === 'function' ? this.activeWorkspacePath() : '',
           active_workspace: typeof this.activeWorkspaceTurnContextProjection === 'function' ? this.activeWorkspaceTurnContextProjection() : null,
       model_provider_context: {
@@ -1314,6 +1329,7 @@
           uploaded_files: safeFiles,
           msg_images: safeImages,
           agent_runtime_engine_id: runtimeEngineId,
+          trigger_source: String(opts.trigger_source || 'composer').slice(0, 80),
           failover_attempted: !!opts.retry_from_failover,
           created_at: Date.now()
         };
@@ -1322,6 +1338,7 @@
         this._inflightPayload.uploaded_files = safeFiles;
         this._inflightPayload.msg_images = safeImages;
         this._inflightPayload.agent_runtime_engine_id = runtimeEngineId;
+        this._inflightPayload.trigger_source = String(opts.trigger_source || this._inflightPayload.trigger_source || 'composer').slice(0, 80);
         this._inflightPayload.retry_started_at = Date.now();
       }
       this._pendingAutoModelSwitchBaseline = '';
@@ -1329,7 +1346,9 @@
         ? this.shouldUseAgentRuntimeSocketPath(runtimeEngineId)
         : (typeof this.isExternalAgentRuntimeEngineSelected === 'function' && this.isExternalAgentRuntimeEngineSelected(runtimeEngineId));
       if (useRuntimeSocketPath) {
-        await this._sendAgentRuntimeSocketPayload(targetAgentId, finalText, safeFiles, safeImages, runtimeEngineId);
+        await this._sendAgentRuntimeSocketPayload(targetAgentId, finalText, safeFiles, safeImages, runtimeEngineId, {
+          trigger_source: String(opts.trigger_source || 'composer').slice(0, 80)
+        });
         return;
       }
       var preflightRoute = null;

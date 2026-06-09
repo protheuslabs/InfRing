@@ -12,6 +12,14 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const OUT_JSON = path.join(ROOT, 'core/local/artifacts/agent_runtime_model_projection_guard_current.json');
+const CHAT_ASSEMBLED_PATH = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts';
+const CHAT_SELECTION_HELPERS_PATH = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/030-init-selection-helpers.ts';
+const CHAT_RUNTIME_HOOKS_PATH = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/090-init-hooks-and-shortcuts.part02.ts';
+const CHAT_SUGGESTIONS_PATH = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/060-suggestions-and-hints.ts';
+const CHAT_SEND_PIPELINE_PATH = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/200-send-pipeline.part01.ts';
+const CHAT_INPUT_FOOTER_SVELTE_SOURCE_PATH = 'client/runtime/systems/ui/infring_static/js/svelte/chat_input_footer_shell_svelte_source.ts';
+const GATEWAY_ENGINE_PROJECTIONS_PATH = 'gateway/runtime/agent_runtime/agent_runtime_engine_projections.ts';
+const CLI_RUNTIME_ADAPTER_PATH = 'adapters/runtime/agent_engines/cli_runtime_adapter.ts';
 
 function clean(value, max = 4000) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -19,6 +27,137 @@ function clean(value, max = 4000) {
 
 function ensureDir(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function readRequiredSource(relativePath, violations, missingKind) {
+  const absolutePath = path.join(ROOT, relativePath);
+  if (!fs.existsSync(absolutePath)) {
+    violations.push({ kind: missingKind, path: relativePath });
+    return '';
+  }
+  return fs.readFileSync(absolutePath, 'utf8');
+}
+
+function assertExternalRuntimeModelIsolation(source, relativePath, violations) {
+  if (!source) return;
+  if (source.includes("return list;\n  },") && !source.includes("return [];\n  },")) {
+    violations.push({
+      kind: 'chat_external_runtime_model_rows_fall_back_to_default_menu',
+      path: relativePath,
+    });
+  }
+  if (
+    !source.includes("availableModels.default_selection_policy") ||
+    !source.includes("runtimeEngineRow.display_name") ||
+    !source.includes("pendingRuntimeLabel")
+  ) {
+    violations.push({
+      kind: 'chat_external_runtime_empty_model_label_not_guarded',
+      path: relativePath,
+    });
+  }
+}
+
+function assertExternalRuntimePromptPersistence(source, relativePath, violations) {
+  if (!source) return;
+  const requiredMarkers = [
+    '_pendingPromptSuggestionSend',
+    'sendTriggerSource',
+    'trigger_source: sendTriggerSource',
+    'syncActiveChatMessages',
+    'turn_trigger_source',
+  ];
+  for (const marker of requiredMarkers) {
+    if (!source.includes(marker)) {
+      violations.push({
+        kind: 'chat_external_runtime_prompt_persistence_marker_missing',
+        path: relativePath,
+        marker,
+      });
+    }
+  }
+}
+
+function assertRuntimeSwitcherSelectionSurface(source, relativePath, violations) {
+  if (!source) return;
+  const requiredMarkers = [
+    'function selectRuntimeRow(row, event)',
+    'function runtimeSelectionDisabled(row)',
+    'primaryStatusText',
+    'providerReadinessText',
+    "row.status === 'available'",
+    'disabled={runtimeSelectionDisabled(r)}',
+    "target.closest('.runtime-switcher-actions')",
+    'on:click={(e) => selectRuntimeRow(r, e)}',
+    'on:click|stopPropagation={() => selectRuntime(r)}',
+  ];
+  for (const marker of requiredMarkers) {
+    if (!source.includes(marker)) {
+      violations.push({
+        kind: 'chat_runtime_switcher_row_selection_marker_missing',
+        path: relativePath,
+        marker,
+      });
+    }
+  }
+}
+
+function assertRuntimeSelectionBlockedGuard(source, relativePath, violations) {
+  if (!source) return;
+  const requiredMarkers = [
+    'isRuntimeEngineSelectionBlocked: function(row)',
+    "statusText.indexOf('available') >= 0",
+    "statusText.indexOf('provider_blocked') >= 0",
+    'if (this.isRuntimeEngineSelectionBlocked(row))',
+  ];
+  for (const marker of requiredMarkers) {
+    if (!source.includes(marker)) {
+      violations.push({
+        kind: 'chat_runtime_selection_block_guard_marker_missing',
+        path: relativePath,
+        marker,
+      });
+    }
+  }
+}
+
+function assertGatewayEngineProjectionBounded(source, relativePath, violations) {
+  if (!source) return;
+  const requiredMarkers = [
+    'function withAgentRuntimeMenuHealthTimeout',
+    'provider_readiness_timeout',
+    'Promise.all(engines.map(async (engine)',
+    'agentRuntimeMenuHealthTimeoutMs()',
+  ];
+  for (const marker of requiredMarkers) {
+    if (!source.includes(marker)) {
+      violations.push({
+        kind: 'gateway_agent_runtime_engine_projection_unbounded_marker_missing',
+        path: relativePath,
+        marker,
+      });
+    }
+  }
+}
+
+function assertCliRuntimeAdapterMenuHealthDefersModelDiscovery(source, relativePath, violations) {
+  if (!source) return;
+  const requiredMarkers = [
+    'function isAgentRuntimeMenuHealthCheck(ctx)',
+    "sessionId === 'dashboard-menu'",
+    "requestId.indexOf('agent-runtime-menu:') === 0",
+    'const menuHealthCheck = isAgentRuntimeMenuHealthCheck(ctx)',
+    'probe.ok && !menuHealthCheck',
+  ];
+  for (const marker of requiredMarkers) {
+    if (!source.includes(marker)) {
+      violations.push({
+        kind: 'cli_runtime_adapter_menu_health_model_discovery_not_deferred',
+        path: relativePath,
+        marker,
+      });
+    }
+  }
 }
 
 function modelRow(provider, model, displayName) {
@@ -55,6 +194,10 @@ function engineRegistryRows() {
       model_menu: {
         source: 'codex_registry_seed',
         framework_native_models: true,
+        model_rows: [
+          modelRow('openai', 'gpt-5.5', 'GPT-5.5'),
+          modelRow('openai', 'gpt-5.4', 'GPT-5.4'),
+        ],
       },
     },
     {
@@ -123,12 +266,9 @@ function healthForEngine(engineId) {
       model_menu: {
         source: 'codex_debug_models',
         framework_native_models: true,
-        model_rows: [
-          modelRow('openai', 'gpt-5.5', 'GPT-5.5'),
-          modelRow('openai', 'gpt-5.4', 'GPT-5.4'),
-          modelRow('openai', 'gpt-5.5-spark', 'GPT-5.5 Spark'),
-          modelRow('openai', 'default', 'Default'),
-        ],
+        model_rows: [],
+        discovery_ok: false,
+        reason: 'validation simulates empty framework discovery so Gateway must preserve registry model seeds instead of falling back to the default InfRing provider menu.',
         default_selection_policy: {
           type: 'framework_configured_default',
           menu_row: false,
@@ -295,6 +435,9 @@ async function main() {
       for (const model of modelRows) {
         const id = clean(model.id || model.model || model.model_name || model.adapter_model_arg, 240).toLowerCase();
         if (model.cloud !== true || model.api_backed !== true) violations.push({ kind: 'native_framework_model_not_cloud_api', engine_id: engineId, model_id: id });
+        if (id.includes('kimi') || clean(model.provider, 120).toLowerCase() === 'ollama') {
+          violations.push({ kind: 'native_framework_inherited_default_provider_leaked', engine_id: engineId, model_id: id, provider: model.provider });
+        }
       }
     }
     if (['infring_native', 'openclaw', 'hermes_agent'].includes(engineId)) {
@@ -310,6 +453,30 @@ async function main() {
   for (const expectedEngine of ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'opencode', 'openclaw', 'hermes_agent']) {
     if (!rows.some((row) => row.engine_id === expectedEngine)) violations.push({ kind: 'expected_engine_missing', engine_id: expectedEngine });
   }
+  const selectionHelperSource = readRequiredSource(CHAT_SELECTION_HELPERS_PATH, violations, 'chat_selection_helpers_missing');
+  const runtimeHooksSource = readRequiredSource(CHAT_RUNTIME_HOOKS_PATH, violations, 'chat_runtime_hooks_surface_missing');
+  const assembledChatSource = readRequiredSource(CHAT_ASSEMBLED_PATH, violations, 'chat_assembled_surface_missing');
+  const suggestionsSource = readRequiredSource(CHAT_SUGGESTIONS_PATH, violations, 'chat_suggestions_surface_missing');
+  const sendPipelineSource = readRequiredSource(CHAT_SEND_PIPELINE_PATH, violations, 'chat_send_pipeline_surface_missing');
+  const composerSvelteSource = readRequiredSource(CHAT_INPUT_FOOTER_SVELTE_SOURCE_PATH, violations, 'chat_input_footer_svelte_source_missing');
+  const gatewayEngineProjectionSource = readRequiredSource(GATEWAY_ENGINE_PROJECTIONS_PATH, violations, 'gateway_engine_projection_surface_missing');
+  const cliRuntimeAdapterSource = readRequiredSource(CLI_RUNTIME_ADAPTER_PATH, violations, 'cli_runtime_adapter_surface_missing');
+  assertExternalRuntimeModelIsolation(selectionHelperSource, CHAT_SELECTION_HELPERS_PATH, violations);
+  assertExternalRuntimeModelIsolation(assembledChatSource, CHAT_ASSEMBLED_PATH, violations);
+  assertExternalRuntimePromptPersistence(`${suggestionsSource}\n${sendPipelineSource}`, `${CHAT_SUGGESTIONS_PATH}+${CHAT_SEND_PIPELINE_PATH}`, violations);
+  assertExternalRuntimePromptPersistence(assembledChatSource, CHAT_ASSEMBLED_PATH, violations);
+  if (composerSvelteSource && !composerSvelteSource.includes('class="composer-send-voice-opt composer-send-voice-opt-send" on:click={runSend} disabled={state.locked}')) {
+    violations.push({
+      kind: 'chat_composer_send_button_can_stale_disabled',
+      path: CHAT_INPUT_FOOTER_SVELTE_SOURCE_PATH,
+      detail: 'Non-terminal composer send button must not depend on stale inputText disabled state; sendMessage remains the empty-send gate.',
+    });
+  }
+  assertRuntimeSwitcherSelectionSurface(composerSvelteSource, CHAT_INPUT_FOOTER_SVELTE_SOURCE_PATH, violations);
+  assertRuntimeSelectionBlockedGuard(runtimeHooksSource, CHAT_RUNTIME_HOOKS_PATH, violations);
+  assertRuntimeSelectionBlockedGuard(assembledChatSource, CHAT_ASSEMBLED_PATH, violations);
+  assertGatewayEngineProjectionBounded(gatewayEngineProjectionSource, GATEWAY_ENGINE_PROJECTIONS_PATH, violations);
+  assertCliRuntimeAdapterMenuHealthDefersModelDiscovery(cliRuntimeAdapterSource, CLI_RUNTIME_ADAPTER_PATH, violations);
 
   const report = {
     ok: violations.length === 0,

@@ -114,6 +114,14 @@ if (!String(debtManagement.expired_exception_policy || '').includes('fail_closed
 if (!Array.isArray(debtManagement.renewal_requires) || debtManagement.renewal_requires.length < 5) {
   push(violations, 'legacy_renewal_policy_too_weak', policyPath, 'Renewing adapter legacy exceptions must require owner, rationale, risk, TODO, and next removal step.');
 }
+const legacyRowRequiredFields = Array.isArray(debtManagement.row_required_fields)
+  ? debtManagement.row_required_fields.map((value: any) => String(value || '').trim()).filter(Boolean)
+  : [];
+for (const field of ['owner', 'risk', 'next_removal_step']) {
+  if (!legacyRowRequiredFields.includes(field)) {
+    push(violations, 'legacy_row_required_field_missing', policyPath, `legacy_debt_management.row_required_fields must include ${field}.`);
+  }
+}
 
 const translatorRoots = Array.isArray(policy.translator_roots) ? policy.translator_roots : [];
 const legacyRows = Array.isArray(policy.declared_legacy_non_translator_paths)
@@ -144,6 +152,11 @@ for (const row of legacyRows) {
     continue;
   }
   if (!String(row.retirement_todo || '').trim()) push(violations, 'legacy_row_missing_retirement_todo', policyPath, rel);
+  for (const field of legacyRowRequiredFields) {
+    if (!String(row && row[field] || '').trim()) {
+      push(violations, 'legacy_row_missing_debt_metadata', policyPath, `${rel}.${field}`);
+    }
+  }
   const allowedUntilMs = parseDateOnly(row.allowed_until);
   if (allowedUntilMs === null) {
     push(violations, 'legacy_row_missing_allowed_until', policyPath, rel);
@@ -160,7 +173,7 @@ for (const row of legacyRows) {
   debt.push({
     kind: 'declared_legacy_non_translator_adapter',
     path: rel,
-    detail: `retirement_todo=${row.retirement_todo || 'missing'} allowed_until=${row.allowed_until || 'missing'} review_required_by=${debtManagement.review_required_by || 'missing'}`,
+    detail: `owner=${row.owner || 'missing'} retirement_todo=${row.retirement_todo || 'missing'} allowed_until=${row.allowed_until || 'missing'} review_required_by=${debtManagement.review_required_by || 'missing'} next_removal_step=${row.next_removal_step || 'missing'}`,
   });
 }
 

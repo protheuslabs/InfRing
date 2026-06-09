@@ -438,10 +438,19 @@
       var text = String(suggestion == null ? '' : suggestion).trim();
       if (!text) return;
       this.inputText = text;
+      this._pendingPromptSuggestionSend = {
+        source: 'prompt_suggestion',
+        text_preview: text.slice(0, 240),
+        created_at: Date.now()
+      };
       this.showSlashMenu = false;
       this.showModelPicker = false;
       this.showAttachMenu = false;
-      await this.sendMessage();
+      try {
+        await this.sendMessage();
+      } finally {
+        this._pendingPromptSuggestionSend = null;
+      }
     },
 
     promptSuggestionNeedsResize(chip) {

@@ -102,7 +102,16 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     const p = cp();
     if (!p) return;
     const nextText = typeof p.inputText === 'string' ? p.inputText : '';
-    if (!focused || nextText === '' || nextText !== inputText) inputText = nextText;
+    const domText = textarea && typeof textarea.value === 'string' ? textarea.value : '';
+    const textareaActive = !!(textarea && document && document.activeElement === textarea);
+    if ((focused || textareaActive) && domText !== inputText) {
+      inputText = domText;
+      if (p.inputText !== inputText) p.inputText = inputText;
+    } else if (!(focused || textareaActive) && nextText !== inputText) {
+      inputText = nextText;
+    } else if ((focused || textareaActive) && nextText && nextText !== inputText && !domText) {
+      inputText = nextText;
+    }
     const terminalMode = !!p.terminalMode;
     const archived = !!(p.currentAgent && typeof p.isCurrentAgentArchived === 'function' && p.isCurrentAgentArchived());
     let modelRows = list('renderedSwitcherModels');
@@ -177,6 +186,17 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     call('refreshChatInputOverlayMetrics');
     refresh();
   }
+  function composerDraftText() {
+    const domValue = textarea && typeof textarea.value === 'string' ? textarea.value : '';
+    return String(domValue || inputText || '');
+  }
+  function reconcileInputFromTextarea() {
+    const text = composerDraftText();
+    if (text !== inputText) inputText = text;
+    const p = cp();
+    if (p && typeof p.inputText === 'string' && p.inputText !== inputText) p.inputText = inputText;
+    return text;
+  }
   function resizeInput() {
     if (!textarea) return;
     textarea.style.height = 'auto';
@@ -248,7 +268,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     if (converted) afterAction();
   }
   function removeAttachment(index) { call('removeAttachment', index); refresh(); }
-  function runSend() { call('sendMessage'); afterAction(); }
+  function runSend() { reconcileInputFromTextarea(); call('sendMessage'); afterAction(); }
   function runStop() { call('stopAgent'); refresh(); }
   function toggleTerminal() { if (!state.systemThread) call('toggleTerminalMode'); afterAction(); }
   function toggleSuggestions() { call('togglePromptSuggestionsEnabled'); refresh(); }
@@ -315,6 +335,11 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
       call('selectRuntimeEngine', row);
     }
     refresh();
+  }
+  function selectRuntimeRow(row, event) {
+    const target = event && event.target;
+    if (target && target.closest && target.closest('.runtime-switcher-actions')) return;
+    selectRuntime(row);
   }
   function clean(value) { return String(value == null ? '' : value).trim(); }
   function firstNonEmpty() {
@@ -484,9 +509,9 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
       row.status || '',
       row.connection_status || '',
       row.availability || '',
-      row.provider_readiness || '',
       metaText,
     ].join(' ').toLowerCase();
+    const providerReadinessText = String(row.provider_readiness || '').toLowerCase();
     if (
       statusText.includes('not connected') ||
       statusText.includes('not_connected') ||
@@ -501,7 +526,23 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     ) {
       return false;
     }
-    if (row.available === true || row.connected === true || row.installed === true || row.discovered === true) return true;
+    if (
+      statusText.includes('available') ||
+      row.status === 'available' ||
+      row.available === true ||
+      row.connected === true ||
+      row.installed === true ||
+      row.discovered === true
+    ) {
+      return true;
+    }
+    if (
+      providerReadinessText.includes('provider_blocked') ||
+      providerReadinessText.includes('blocked')
+    ) {
+      return false;
+    }
+    if (providerReadinessText.includes('unavailable') && row.selectable === false) return false;
     if (statusText.includes('available') || statusText.includes('connected')) return true;
     return false;
   }
@@ -520,6 +561,9 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
   function runtimeLockedInstalled(row) {
     return !!(row && runtimeAvailable(row) && !runtimeActive(row) && !runtimeIssue(row) && !runtimeUpdateAvailable(row));
   }
+  function runtimeSelectionDisabled(row) {
+    return !!(runtimeIssue(row) && !runtimeDownloadable(row));
+  }
   function runtimeStatusText(row) {
     if (!row) return 'Runtime status unavailable';
     if (runtimeIssue(row)) return 'Runtime issue: ' + runtimeIssueTitle(row);
@@ -532,6 +576,24 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
   }
   function runtimeIssue(row) {
     if (!row) return false;
+    const primaryStatusText = [
+      row.status || '',
+      row.connection_status || '',
+      row.availability || '',
+    ].join(' ').toLowerCase();
+    if (
+      row.selectable !== false &&
+      (
+        row.status === 'available' ||
+        row.available === true ||
+        row.connected === true ||
+        row.installed === true ||
+        row.discovered === true ||
+        primaryStatusText === 'available'
+      )
+    ) {
+      return false;
+    }
     let metaText = '';
     try {
       metaText = runtimeMeta(row) || '';
@@ -540,17 +602,21 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     }
     const issueText = [
       row.selectable === false ? 'unselectable' : '',
+      row.status || '',
+      row.connection_status || '',
+      row.availability || '',
       row.provider_readiness || '',
       row.error_code || '',
       row.reason || '',
       metaText,
     ].join(' ').toLowerCase();
+    if (runtimeAvailable(row) && row.selectable !== false) return false;
     const blockingProviderIssue = (
       issueText.includes('provider_blocked') ||
-      issueText.includes('unavailable') ||
       issueText.includes('blocked')
     );
-    return !!(blockingProviderIssue || (row.selectable === false && !runtimeDownloadable(row)));
+    const blockingUnavailability = issueText.includes('unavailable') && row.selectable === false;
+    return !!(blockingProviderIssue || blockingUnavailability || (row.selectable === false && !runtimeDownloadable(row)));
   }
   function runtimeIssueTitle(row) {
     return firstNonEmpty(row && row.reason, row && row.error_code, runtimeMeta(row), 'Runtime unavailable');
@@ -598,8 +664,9 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     }
   }
   function sendDisabled() {
-    if (state.showFreshArchetypeTiles) return !state.freshInitAwaitingOtherPrompt || !inputText.trim();
-    return !inputText.trim() && !state.attachments.length;
+    const draft = composerDraftText();
+    if (state.showFreshArchetypeTiles) return !state.freshInitAwaitingOtherPrompt || !draft.trim();
+    return !draft.trim() && !state.attachments.length;
   }
   function footerText() {
     if (state.terminalMode) return 'terminal mode (' + state.terminalShortcutHint + ')';
@@ -748,8 +815,8 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
                               <div class="model-switcher-list">
                                 {#if !state.runtimeEngineRows.length}<div class="chat-branch-menu-status">No runtime sockets are registered.</div>{/if}
                                 {#each state.runtimeEngineRows as r (r.engine_id)}
-                                  <div class:active={runtimeActive(r)} class:runtime-issue={runtimeIssue(r)} class="model-switcher-item model-switcher-item-shell runtime-switcher-item" data-testid="composer-runtime-row" data-runtime-id={r.engine_id} data-runtime-capability={runtimeIssue(r) ? 'blocked' : runtimeActive(r) ? 'active' : runtimeUpdateAvailable(r) ? 'updatable' : runtimeNeedsDownload(r) ? 'downloadable' : runtimeLockedInstalled(r) ? 'installed' : 'available'} data-runtime-status-kind={r.status} title={runtimeStatusText(r)} data-runtime-status={runtimeStatusText(r)} aria-label={runtimeName(r) + ': ' + runtimeStatusText(r)}>
-                                    <button type="button" class="model-switcher-row-select" data-testid="composer-runtime-select" data-runtime-id={r.engine_id} disabled={r.selectable === false && !runtimeDownloadable(r)} on:click={() => selectRuntime(r)}><span class="model-switcher-main"><span class="model-switcher-title-row"><span class="model-switcher-item-name">{runtimeName(r)}</span></span><span class="model-switcher-item-meta">{runtimeMeta(r)}</span></span></button>
+                                  <div class:active={runtimeActive(r)} class:runtime-issue={runtimeIssue(r)} class="model-switcher-item model-switcher-item-shell runtime-switcher-item" data-testid="composer-runtime-row" data-runtime-id={r.engine_id} data-runtime-capability={runtimeIssue(r) ? 'blocked' : runtimeActive(r) ? 'active' : runtimeUpdateAvailable(r) ? 'updatable' : runtimeNeedsDownload(r) ? 'downloadable' : runtimeLockedInstalled(r) ? 'installed' : 'available'} data-runtime-status-kind={r.status} title={runtimeStatusText(r)} data-runtime-status={runtimeStatusText(r)} aria-label={runtimeName(r) + ': ' + runtimeStatusText(r)} on:click={(e) => selectRuntimeRow(r, e)}>
+                                    <button type="button" class="model-switcher-row-select" data-testid="composer-runtime-select" data-runtime-id={r.engine_id} disabled={runtimeSelectionDisabled(r)} on:click|stopPropagation={() => selectRuntime(r)}><span class="model-switcher-main"><span class="model-switcher-title-row"><span class="model-switcher-item-name">{runtimeName(r)}</span></span><span class="model-switcher-item-meta">{runtimeMeta(r)}</span></span></button>
                                     <span class="model-switcher-item-tools runtime-switcher-actions">
                                       {#if runtimeIssue(r)}
                                         <span class="runtime-state-circle runtime-state-circle-issue" aria-label="Runtime issue">!</span>
@@ -777,7 +844,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
               </div>
               {/if}
               <div class="composer-input-pill composer-shared-input-pill">{#if state.terminalMode && state.terminalCursorFocused}<span class="terminal-block-cursor" style={state.terminalCursorStyle} aria-hidden="true">█</span>{/if}<textarea bind:this={textarea} id="msg-input" rows="1" value={inputText} disabled={state.locked} placeholder={placeholder()} class:streaming-active={state.sending} class:terminal-textarea={state.terminalMode} class:composer-input-disabled={state.locked} on:focus={(e) => { focused = true; if (state.terminalMode) call('setTerminalCursorFocus', true, e); }} on:blur={(e) => { focused = false; if (state.terminalMode) call('setTerminalCursorFocus', false, e); }} on:click={(e) => { if (state.terminalMode) call('updateTerminalCursor', e); }} on:keyup={(e) => { if (state.terminalMode) call('updateTerminalCursor', e); }} on:select={(e) => { if (state.terminalMode) call('updateTerminalCursor', e); }} on:paste={handlePaste} on:keydown={handleKeydown} on:input={(e) => { syncInput(e.target.value); resizeInput(); }}></textarea></div>
-              <div class="composer-controls-pill composer-shared-input-pill"><div class="composer-actions-right">{#if state.terminalMode}<button class="btn-send btn-send-terminal" on:click={runSend} disabled={state.showFreshArchetypeTiles ? (!state.freshInitAwaitingOtherPrompt || !inputText.trim()) : !inputText.trim()} title="Run command"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg></button>{:else}<div class="toggle-pill toggle-pill--triple input-toggle-wrapper" data-mode={state.attachMode} role="group" aria-label="Voice and send controls"><button type="button" class="composer-send-voice-opt composer-send-voice-opt-attach" on:click={beginAttachPicker} title="Add files" aria-label="Add files"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><button type="button" class:active={state.recording} class:btn-recording={state.recording} class="composer-send-voice-opt composer-send-voice-opt-voice" on:click={toggleVoice} title="Toggle voice recording" aria-label="Toggle voice recording">{#if !state.recording}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>{:else}<span class="recording-dot"></span>{/if}</button>{#if !state.sending}<button type="button" class:active={!state.recording} class="composer-send-voice-opt composer-send-voice-opt-send" on:click={runSend} disabled={sendDisabled()} title="Send" aria-label="Send message">{#if state.recording || state.attachMode === 'attach'}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{:else}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>{/if}</button>{:else}<button type="button" class="composer-send-voice-opt composer-send-voice-opt-stop active" on:click={runStop} title="Stop generating" aria-label="Stop generating"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>{/if}</div>{/if}</div></div>
+              <div class="composer-controls-pill composer-shared-input-pill"><div class="composer-actions-right">{#if state.terminalMode}<button class="btn-send btn-send-terminal" on:click={runSend} disabled={state.showFreshArchetypeTiles ? (!state.freshInitAwaitingOtherPrompt || !inputText.trim()) : !inputText.trim()} title="Run command"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg></button>{:else}<div class="toggle-pill toggle-pill--triple input-toggle-wrapper" data-mode={state.attachMode} role="group" aria-label="Voice and send controls"><button type="button" class="composer-send-voice-opt composer-send-voice-opt-attach" on:click={beginAttachPicker} title="Add files" aria-label="Add files"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><button type="button" class:active={state.recording} class:btn-recording={state.recording} class="composer-send-voice-opt composer-send-voice-opt-voice" on:click={toggleVoice} title="Toggle voice recording" aria-label="Toggle voice recording">{#if !state.recording}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>{:else}<span class="recording-dot"></span>{/if}</button>{#if !state.sending}<button type="button" class:active={!state.recording} class="composer-send-voice-opt composer-send-voice-opt-send" on:click={runSend} disabled={state.locked} title="Send" aria-label="Send message">{#if state.recording || state.attachMode === 'attach'}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{:else}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>{/if}</button>{:else}<button type="button" class="composer-send-voice-opt composer-send-voice-opt-stop active" on:click={runStop} title="Stop generating" aria-label="Stop generating"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>{/if}</div>{/if}</div></div>
             </div>
           </div>
         </div>
