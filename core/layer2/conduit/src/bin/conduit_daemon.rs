@@ -22,6 +22,9 @@ fn run() -> io::Result<()> {
     let token_key_id = env_or_default("CONDUIT_TOKEN_KEY_ID", "conduit-token-k1");
     let token_secret = env_or_default("CONDUIT_TOKEN_SECRET", "conduit-dev-token-secret");
 
+    assert_not_dev_fallback_secret_in_production(&signing_secret, "CONDUIT_SIGNING_SECRET")?;
+    assert_not_dev_fallback_secret_in_production(&token_secret, "CONDUIT_TOKEN_SECRET")?;
+
     let gate = RegistryPolicyGate::new(policy.clone());
     let mut security = ConduitSecurityContext::from_policy(
         &policy,
@@ -53,6 +56,38 @@ fn env_or_default(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
+fn is_production_mode() -> bool {
+    match env::var("INFRING_RELEASE_CHANNEL")
+        .unwrap_or_else(|_| "development".to_string())
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "release" | "prod" | "production" => true,
+        _ => false,
+    }
+}
+
+fn is_dev_fallback_secret(value: &str) -> bool {
+    matches!(value, "conduit-dev-signing-secret" | "conduit-dev-token-secret")
+}
+
+fn assert_not_dev_fallback_secret_in_production(
+    value: &str,
+    variable: &str,
+) -> io::Result<()> {
+    if is_production_mode() && is_dev_fallback_secret(value) {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{} cannot use development fallback secret in production mode",
+                variable
+            ),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{load_policy, run};
@@ -68,6 +103,34 @@ mod tests {
 
     fn clear_policy_path_env() {
         env::remove_var("CONDUIT_POLICY_PATH");
+    }
+
+    fn with_release_channel_release_mode<F>(value: &str, action: F)
+    where
+        F: FnOnce(),
+    {
+        let prior = env::var("INFRING_RELEASE_CHANNEL").ok();
+        env::set_var("INFRING_RELEASE_CHANNEL", value);
+        action();
+        match prior {
+            Some(previous) => env::set_var("INFRING_RELEASE_CHANNEL", previous),
+            None => env::remove_var("INFRING_RELEASE_CHANNEL"),
+        }
+    }
+
+    fn with_env_var_reset<K, V, F>(key: K, value: V, action: F)
+    where
+        K: AsRef<str>,
+        V: AsRef<str>,
+        F: FnOnce(),
+    {
+        let prior = env::var(key.as_ref()).ok();
+        env::set_var(key.as_ref(), value.as_ref());
+        action();
+        match prior {
+            Some(previous) => env::set_var(key.as_ref(), previous),
+            None => env::remove_var(key.as_ref()),
+        }
     }
 
     #[test]
@@ -121,6 +184,30 @@ mod tests {
         let err = load_policy().expect_err("invalid json must fail");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
         clear_policy_path_env();
+    }
+
+    #[test]
+    fn run_fails_fast_when_signing_secret_is_dev_fallback_in_production() {
+        let _guard = env_lock().lock().expect("env lock");
+        clear_policy_path_env();
+        with_release_channel_release_mode("production", || {
+            with_env_var_reset("CONDUIT_SIGNING_SECRET", "conduit-dev-signing-secret", || {
+                let err = run().expect_err("dev fallback signing secret must fail");
+                assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+            });
+        });
+    }
+
+    #[test]
+    fn run_fails_fast_when_token_secret_is_dev_fallback_in_production() {
+        let _guard = env_lock().lock().expect("env lock");
+        clear_policy_path_env();
+        with_release_channel_release_mode("production", || {
+            with_env_var_reset("CONDUIT_TOKEN_SECRET", "conduit-dev-token-secret", || {
+                let err = run().expect_err("dev fallback token secret must fail");
+                assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+            });
+        });
     }
 
     #[test]
