@@ -161,9 +161,9 @@ function runtimeWorkingDirectory(ctx) {
 function createOpenCodeEngineAdapter(options = {}) {
   const adapter = createCliRuntimeEngineAdapter({
     engineId: 'opencode',
-    contextTransportMode: 'prompt_text_compat',
-    structuredTransportTarget: 'structured_json',
-    transportMigrationStatus: 'transitional_bootstrap',
+    contextTransportMode: 'bounded_cli_arg_context_envelope',
+    structuredTransportTarget: 'native_structured_context_api',
+    transportMigrationStatus: 'structured_source_bounded_cli_arg_active',
     command: options.command || process.env.INFRING_OPENCODE_BIN || process.env.INFRING_OPENCODE_PATH,
     commandFallback: 'opencode',
     liveEnvVar: 'INFRING_AGENT_RUNTIME_OPENCODE_LIVE',

@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = process.cwd();
+const REGISTRY_PATH = 'validation/conformance/contracts/agent_runtime_engine_registry.json';
 const outPath = 'core/local/artifacts/agent_runtime_context_continuity_eval_current.json';
 const continuityFact = 'continuity-key: brass-otter-713';
 const expectedAnswer = 'brass-otter-713';
@@ -23,9 +24,71 @@ function load(rel) {
   return require(path.join(ROOT, rel));
 }
 
+function readJson(rel) {
+  return JSON.parse(fs.readFileSync(path.join(ROOT, rel), 'utf8'));
+}
+
 function write(payload) {
   fs.mkdirSync(path.dirname(path.join(ROOT, outPath)), { recursive: true });
   fs.writeFileSync(path.join(ROOT, outPath), `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function argValue(name) {
+  const prefix = `${name}=`;
+  const direct = process.argv.find((arg) => arg.startsWith(prefix));
+  if (direct) return direct.slice(prefix.length);
+  const idx = process.argv.indexOf(name);
+  if (idx >= 0 && process.argv[idx + 1]) return process.argv[idx + 1];
+  return '';
+}
+
+function unique(values) {
+  const out = [];
+  const seen = new Set();
+  for (const value of Array.isArray(values) ? values : []) {
+    const item = cleanString(value, 160);
+    if (!item || seen.has(item)) continue;
+    seen.add(item);
+    out.push(item);
+  }
+  return out;
+}
+
+function resolveEngineScope() {
+  const registry = readJson(REGISTRY_PATH);
+  const registryEngines = unique((Array.isArray(registry.engines) ? registry.engines : []).map((row) => row && row.engine_id));
+  const focus = registry.validation_focus_policy && typeof registry.validation_focus_policy === 'object'
+    ? registry.validation_focus_policy
+    : {};
+  const activePromotionEngines = unique(focus.active_promotion_engines);
+  const requested = cleanString(argValue('--engines') || process.env.INFRING_AGENT_RUNTIME_CONTEXT_CONTINUITY_ENGINES || '', 2000);
+  if (requested) {
+    const normalized = requested.toLowerCase();
+    if (['all', 'registry'].includes(normalized)) {
+      return {
+        engines: registryEngines,
+        source: normalized,
+        broad_registry_sample: true,
+      };
+    }
+    if (['active', 'active_promotion_engines', 'golden', 'golden-pair'].includes(normalized)) {
+      return {
+        engines: activePromotionEngines.length ? activePromotionEngines : ['infring_native', 'codex_cli', 'claude_code'],
+        source: normalized,
+        broad_registry_sample: false,
+      };
+    }
+    return {
+      engines: unique(requested.split(',')),
+      source: 'explicit_list',
+      broad_registry_sample: false,
+    };
+  }
+  return {
+    engines: activePromotionEngines.length ? activePromotionEngines : ['infring_native', 'codex_cli', 'claude_code'],
+    source: 'active_promotion_engines',
+    broad_registry_sample: false,
+  };
 }
 
 function baseEvent(ctx, type) {
@@ -161,18 +224,9 @@ async function main() {
   if (!promptPreview.includes('Universal InfRing core tools') || !promptPreview.includes('memory.read')) violations.push({ kind: 'adapter_prompt_missing_universal_tool_grants' });
 
   const router = createAgentRuntimeRouter({ root: ROOT, disableTraceWriter: true });
-  const engines = [
-    'infring_native',
-    'codex_cli',
-    'claude_code',
-    'grok_code',
-    'opencode',
-    'openclaw',
-    'hermes_agent',
-    'openhands',
-    'openfang',
-    'custom_socket_engine',
-  ];
+  const engineScope = resolveEngineScope();
+  const engines = engineScope.engines;
+  if (!engines.length) violations.push({ kind: 'engine_scope_empty', source: engineScope.source });
   const results = [];
   for (const engineId of engines) {
     router.registerAdapter(engineId, makeContinuityProbeAdapter(engineId, buildPromptWithContext));
@@ -211,6 +265,8 @@ async function main() {
     expected_answer: expectedAnswer,
     context_source_authority: contextPack.source_authority || null,
     context_fragment_count: Array.isArray(contextPack.fragments) ? contextPack.fragments.length : 0,
+    engine_scope_source: engineScope.source,
+    broad_registry_sample: engineScope.broad_registry_sample,
     engines_tested: engines,
     results,
     violations,

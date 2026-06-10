@@ -314,6 +314,57 @@
       return out;
     },
 
+    thinkingBubbleSizeStyle: function(msg) {
+      if (!msg || !msg.thinking) return '';
+      var width = Number(msg._thinking_bubble_width_px || 0);
+      if (!Number.isFinite(width) || width <= 0) return '';
+      width = Math.max(120, Math.min(960, Math.round(width)));
+      return 'inline-size:min(' + width + 'px, calc(100vw - 48px));max-inline-size:min(' + width + 'px, calc(100vw - 48px));';
+    },
+
+    scheduleThinkingBubbleSizeStabilization: function(msg) {
+      if (!msg || !msg.thinking || typeof document === 'undefined') return;
+      var self = this;
+      var run = function() {
+        try {
+          self.stabilizeThinkingBubbleSize(msg);
+        } catch (_) {}
+      };
+      if (typeof this.$nextTick === 'function') this.$nextTick(run);
+      else setTimeout(run, 0);
+    },
+
+    stabilizeThinkingBubbleSize: function(msg) {
+      if (!msg || !msg.thinking || typeof document === 'undefined') return;
+      var id = String(msg.id || '').trim();
+      if (!id) return;
+      var selectorId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id.replace(/"/g, '\\"');
+      var bubble = document.querySelector('[data-thinking-bubble-id="' + selectorId + '"]');
+      if (!bubble) return;
+      var previousInline = bubble.style.inlineSize;
+      var previousMaxInline = bubble.style.maxInlineSize;
+      bubble.style.inlineSize = 'fit-content';
+      bubble.style.maxInlineSize = 'min(var(--message-bubble-readable-width), calc(100vw - 48px))';
+      var rect = bubble.getBoundingClientRect ? bubble.getBoundingClientRect() : null;
+      var naturalWidth = rect && Number.isFinite(Number(rect.width)) ? Number(rect.width) : 0;
+      bubble.style.inlineSize = previousInline;
+      bubble.style.maxInlineSize = previousMaxInline;
+      if (!Number.isFinite(naturalWidth) || naturalWidth <= 0) return;
+      var previous = Number(msg._thinking_bubble_width_px || 0);
+      var tolerance = Number(msg._thinking_bubble_width_tolerance_px || 18);
+      if (!Number.isFinite(tolerance) || tolerance < 4) tolerance = 18;
+      if (!Number.isFinite(previous) || previous <= 0) {
+        msg._thinking_bubble_width_px = Math.round(naturalWidth);
+        return;
+      }
+      var delta = naturalWidth - previous;
+      if (Math.abs(delta) <= tolerance) {
+        msg._thinking_bubble_width_px = Math.round(naturalWidth);
+        return;
+      }
+      msg._thinking_bubble_width_px = Math.round(previous + (delta > 0 ? tolerance : -tolerance));
+    },
+
     thinkingWorkflowStatusLine: function(msg) {
       if (!msg || !msg.thinking) return '';
       var toolDialog = typeof this.currentToolDialogLabel === 'function'

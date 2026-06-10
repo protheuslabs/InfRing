@@ -25,11 +25,19 @@
 
 ## Known gap
 
-Codex still depends on bounded prompt/stdin context compatibility because true native structured context input is blocked on upstream CLI support.
+Codex and Claude Code both pass the practical usability loop in deterministic replay: approval pause, bounded approval projection, decision receipt, transcript persistence, context reload, artifact effect, and activity trace.
+
+Codex now has live typed app-server transport acceptance for `thread/start` + `turn/start`. Claude Code remains `practical_with_gaps`, not daily-driver clean, because `upstream_native_transport_probe` is still pending for Claude stream-json.
+
+Codex and Claude Code now both have dry-run candidate mappings ready, with Codex promoted one step further:
+
+- Codex: app-server schema generation plus accepted live `thread/start` + `turn/start` typed transport.
+- Claude Code: `stream-json` input/output plus an `AgentRuntimeStructuredTurn`-derived candidate stream without prompt compatibility enabled.
+
+Claude live acceptance remains unproven and disabled by default.
 
 ## Accounting rule
 
 This proof shows InfRing can mediate external engines through Gateway approval/resume and artifact verification. It does not prove native InfRing coding intelligence or native workflow capability.
 
 Raw local artifacts are referenced in the JSON summary but are not copied into source control.
-

@@ -11,7 +11,14 @@
   "universal_tools_contract": "validation/conformance/contracts/agent_runtime_universal_tools_contract.json",
   "allowed_transport_modes": [
     "prompt_text_compat",
+    "bounded_stdin_context_envelope",
+    "bounded_cli_arg_context_envelope",
     "structured_json",
+    "native_session_bridge"
+  ],
+  "allowed_transport_targets": [
+    "structured_json",
+    "native_structured_context_api",
     "native_session_bridge"
   ],
   "mode_definitions": {
@@ -26,6 +33,32 @@
         "must not add engine-specific context semantics outside Gateway adapter code",
         "must emit normalized activity, proposal, approval, output, and receipt projections",
         "must not expose raw private framework transcripts by default"
+      ]
+    },
+    "bounded_stdin_context_envelope": {
+      "authority": "structured_source_cli_compatibility",
+      "allowed_for_new_adapters": false,
+      "allowed_only_when_structured_turn_is_source": true,
+      "migration_target": "native_structured_context_api",
+      "description": "Gateway builds AgentRuntimeStructuredTurn as authority, then renders a bounded stdin envelope for CLI runtimes that do not yet expose a stable typed turn API.",
+      "constraints": [
+        "must derive from AgentRuntimeStructuredTurn",
+        "must preserve context refs, tool grants, approval policy, and model provider context as Gateway-owned projections",
+        "must not accept engine-private memory as canonical context",
+        "must keep native structured API migration pressure visible"
+      ]
+    },
+    "bounded_cli_arg_context_envelope": {
+      "authority": "structured_source_cli_compatibility",
+      "allowed_for_new_adapters": false,
+      "allowed_only_when_structured_turn_is_source": true,
+      "migration_target": "native_structured_context_api",
+      "description": "Gateway builds AgentRuntimeStructuredTurn as authority, then renders a bounded CLI argument envelope for runtimes whose current one-shot interface accepts prompt text as argv instead of stdin.",
+      "constraints": [
+        "must derive from AgentRuntimeStructuredTurn",
+        "must preserve context refs, tool grants, approval policy, and model provider context as Gateway-owned projections",
+        "must not accept engine-private memory as canonical context",
+        "must keep native structured API migration pressure visible"
       ]
     },
     "structured_json": {
@@ -100,6 +133,17 @@
   "migration_policy": {
     "prompt_text_compat_must_have_explicit_adapter_field": true,
     "prompt_text_compat_must_have_retirement_target": "structured_json",
+    "bounded_context_envelopes_are_transitional": true,
+    "bounded_context_envelopes_must_target": "native_structured_context_api",
+    "bounded_context_envelopes_must_have_review_date": true,
+    "bounded_context_envelopes_must_have_exit_criteria": true,
+    "bounded_context_envelope_min_exit_criteria": [
+      "upstream_native_transport_probe",
+      "structured_context_mapping",
+      "activity_trace_mapping",
+      "approval_resume_mapping",
+      "golden_pair_parity_replay"
+    ],
     "prompt_text_compat_source_markers_required": [
       "PROMPT_TEXT_COMPATIBILITY_LAYER",
       "STRUCTURED_JSON_TRANSPORT_TARGET"

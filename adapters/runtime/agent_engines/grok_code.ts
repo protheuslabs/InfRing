@@ -18,9 +18,9 @@ function mutationGrantActive(ctx) {
 function createGrokCodeEngineAdapter(options = {}) {
   return createCliRuntimeEngineAdapter({
     engineId: 'grok_code',
-    contextTransportMode: 'prompt_text_compat',
-    structuredTransportTarget: 'structured_json',
-    transportMigrationStatus: 'transitional_bootstrap',
+    contextTransportMode: 'bounded_cli_arg_context_envelope',
+    structuredTransportTarget: 'native_structured_context_api',
+    transportMigrationStatus: 'structured_source_bounded_cli_arg_active',
     commandFallback: 'grok',
     liveEnvVar: 'INFRING_AGENT_RUNTIME_GROK_CODE_LIVE',
     downloadActionRef: 'agent_runtime_download/grok_code',

@@ -9,7 +9,13 @@
         if (!row || (!row.thinking && !row.streaming)) { kept.push(row); continue; }
         var rowAgentId = String(row.agent_id || '').trim();
         var keep = (preserveRunningTools && this.hasRunningActionableTools(row)) || (!!pendingAgentId && (!rowAgentId || rowAgentId === pendingAgentId));
-        if (!keep) continue;
+        if (!keep) {
+          var materialized = typeof this.materializeTransientThinkingRow === 'function'
+            ? this.materializeTransientThinkingRow(row, opts)
+            : null;
+          if (materialized) kept.push(materialized);
+          continue;
+        }
         if (pendingAgentId && (!rowAgentId || rowAgentId === pendingAgentId)) keptPending = true;
         row.thinking = true; row.streaming = true; row._stream_updated_at = now;
         if (!Number.isFinite(Number(row._stream_started_at))) row._stream_started_at = now;
@@ -29,6 +35,89 @@
         }
       }
       return Math.max(0, rows.length - this.messages.length);
+    },
+
+    isMaterializableThinkingText: function(text) {
+      var value = String(text == null ? '' : text).replace(/\r\n/g, '\n').trim();
+      if (!value) return false;
+      var lower = value.replace(/\s+/g, ' ').toLowerCase();
+      if (!lower) return false;
+      if (lower === 'thinking' || lower === 'thinking...' || lower === 'thinking…') return false;
+      var blocked = [
+        'analyzing next step',
+        'preparing response',
+        'waiting for response',
+        'preparing codex cli with infring conversation context',
+        'preparing claude code with infring conversation context',
+        'preparing grok code with infring conversation context',
+        'loaded prior context rows',
+        'checking codex cli availability',
+        'checking claude code availability',
+        'checking grok code availability',
+        'starting codex cli session',
+        'starting claude code session',
+        'starting grok code session',
+        'launching codex cli turn',
+        'launching claude code turn',
+        'launching grok code turn',
+        'assistant draft streamed',
+        'final answer is shown in the message',
+        'returned completed'
+      ];
+      for (var i = 0; i < blocked.length; i += 1) {
+        if (lower.indexOf(blocked[i]) >= 0) return false;
+      }
+      return true;
+    },
+
+    materializeTransientThinkingRow: function(row, options) {
+      var msg = row && typeof row === 'object' ? row : null;
+      if (!msg) return null;
+      var lines = [];
+      var seen = {};
+      var self = this;
+      function addLine(value) {
+        var raw = String(value == null ? '' : value).replace(/\r\n/g, '\n').trim();
+        if (!raw) return;
+        raw.split('\n').forEach(function(part) {
+          var text = String(part || '').replace(/\s+/g, ' ').trim();
+          if (!text || (typeof self.isMaterializableThinkingText === 'function' && !self.isMaterializableThinkingText(text))) return;
+          var key = text.toLowerCase();
+          if (seen[key]) return;
+          seen[key] = true;
+          lines.push(text);
+        });
+      }
+      var traceRows = Array.isArray(msg.agent_runtime_live_trace_rows) ? msg.agent_runtime_live_trace_rows : [];
+      for (var i = 0; i < traceRows.length; i += 1) {
+        var trace = traceRows[i] && typeof traceRows[i] === 'object' ? traceRows[i] : {};
+        addLine(trace.text || trace.display_text || trace.summary || '');
+      }
+      addLine(msg._thoughtText || msg.thought_text || msg.thoughtText || '');
+      addLine(msg._cleanText || '');
+      addLine(msg.text || '');
+      addLine(msg.thinking_status || '');
+      var tools = Array.isArray(msg.tools) ? msg.tools.slice(0, 24) : [];
+      if (!lines.length && !tools.length) return null;
+      var materialized = Object.assign({}, msg, {
+        thinking: false,
+        streaming: false,
+        thoughtStreaming: false,
+        text: lines.join('\n').slice(0, 12000),
+        tools: tools.map(function(tool) {
+          return tool && typeof tool === 'object' ? Object.assign({}, tool, { running: false }) : tool;
+        }),
+        meta: String(msg.meta || '').trim(),
+        ts: Number.isFinite(Number(msg.ts)) ? Number(msg.ts) : Date.now()
+      });
+      delete materialized._typingVisual;
+      delete materialized._streamRawText;
+      delete materialized._stream_started_at;
+      delete materialized._stream_updated_at;
+      if (typeof this.markAgentMessageComplete === 'function') {
+        try { this.markAgentMessageComplete(materialized); } catch (_) {}
+      }
+      return materialized;
     },
 
     thoughtToolDurationSeconds: function(tool) {
@@ -153,6 +242,7 @@
         return sections;
       }
       if (row.agent_decision_dialog || row.agent_runtime_decision_dialog || row.agent_runtime_activity_trace) {
+        var traceRows = Array.isArray(row.agent_runtime_trace_rows) ? row.agent_runtime_trace_rows : [];
         var dialog = String(
           row.agent_decision_dialog_text ||
           row.input ||
@@ -167,7 +257,15 @@
           sections.push({
             id: 'agent-decision-dialog',
             label: 'Agent decision dialog',
-            text: this.formatToolOutputForClipboard(dialog) || dialog
+            text: this.formatToolOutputForClipboard(dialog) || dialog,
+            trace_rows: traceRows
+          });
+        } else if (traceRows.length) {
+          sections.push({
+            id: 'agent-decision-dialog',
+            label: 'Agent decision dialog',
+            text: '',
+            trace_rows: traceRows
           });
         }
         return sections;

@@ -1549,9 +1549,18 @@ async function main(): Promise<void> {
 
   const jsonPath = path.resolve(outDir, "agent_runtime_task_harness_report.json");
   const markdownPath = path.resolve(outDir, "AGENT_RUNTIME_TASK_HARNESS_REPORT.md");
+  const currentJsonPath = path.resolve(REPO_ROOT, "core/local/artifacts/agent_runtime_task_harness_current.json");
+  const currentMarkdownPath = path.resolve(REPO_ROOT, "local/workspace/reports/AGENT_RUNTIME_TASK_HARNESS_REPORT_CURRENT.md");
   writeJson(jsonPath, report);
   writeText(markdownPath, buildMarkdown(report));
-  report.artifact_paths = [path.relative(REPO_ROOT, jsonPath), path.relative(REPO_ROOT, markdownPath)];
+  writeJson(currentJsonPath, report);
+  writeText(currentMarkdownPath, buildMarkdown(report));
+  report.artifact_paths = [
+    path.relative(REPO_ROOT, currentJsonPath),
+    path.relative(REPO_ROOT, currentMarkdownPath),
+    path.relative(REPO_ROOT, jsonPath),
+    path.relative(REPO_ROOT, markdownPath)
+  ];
   writeJson(jsonPath, report);
 
   console.log(JSON.stringify({

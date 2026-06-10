@@ -180,6 +180,17 @@
         "local/workspace/reports/PRIMITIVE_FIRST_DOCTRINE_GUARD_CURRENT.md"
       ]
     },
+    "ops:agentic-loop:doctrine:guard": {
+      "owner": "governance",
+      "description": "Agentic implementation loop doctrine guard requiring durable agent instructions, TODO intake shape, Sentinel policy, checkpoint crosslink, and compact proof artifacts.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "script": "ops:agentic-loop:doctrine:guard",
+      "artifact_paths": [
+        "core/local/artifacts/agentic_loop_doctrine_guard_current.json",
+        "local/workspace/reports/AGENTIC_LOOP_DOCTRINE_GUARD_CURRENT.md"
+      ]
+    },
     "ops:coding-primitive-hardcoding:guard": {
       "owner": "governance",
       "description": "Focused primitive-first coding guard that rejects production fixture/test/probe-derived implementation synthesis.",
@@ -214,6 +225,8 @@
         "--out-dir=core/local/artifacts/agent-runtime-task-harness/current"
       ],
       "artifact_paths": [
+        "core/local/artifacts/agent_runtime_task_harness_current.json",
+        "local/workspace/reports/AGENT_RUNTIME_TASK_HARNESS_REPORT_CURRENT.md",
         "core/local/artifacts/agent-runtime-task-harness/current/agent_runtime_task_harness_report.json",
         "core/local/artifacts/agent-runtime-task-harness/current/AGENT_RUNTIME_TASK_HARNESS_REPORT.md"
       ]
@@ -4220,6 +4233,18 @@
         "core/local/artifacts/agent_runtime_real_work_replay_guard_current.json"
       ]
     },
+    "ops:agent-runtime:cli-adapter-timeout:guard": {
+      "script": "ops:agent-runtime:cli-adapter-timeout:guard",
+      "description": "Validate timeout semantics and timeout reason projection for CLI adapter runtime turns including adapter abort behavior and failure probes.",
+      "owner": "validation",
+      "layer": "gateway",
+      "category": "agent_runtime",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "artifact_paths": [
+        "core/local/artifacts/agent_runtime_cli_adapter_timeout_guard_current.json"
+      ]
+    },
     "ops:agent-runtime:framework-coordination:guard": {
       "command": "ops:agent-runtime:framework-coordination:guard",
       "description": "Roll up agent runtime framework coordination guards for approvals, continuity, transcript persistence, activity projection, model projection, socket transport, disposable live Gateway proof, structured transport, and real-work replay.",
@@ -4368,6 +4393,20 @@
         "core/local/artifacts/agent_runtime_socket_disposable_gateway_guard_current.json"
       ],
       "notes": "Release-safe live/process guard: starts a disposable Gateway host on a temporary port and restores dashboard status after probing."
+    },
+    "ops:binary-size-profile:guard": {
+      "owner": "validation",
+      "description": "Binary size profile policy guard proving rich-host static size gates are not tiny/pure edge viability proof.",
+      "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
+      "timeout_sec": 60,
+      "script": "ops:binary-size-profile:guard",
+      "canonical_definition_paths": [
+        "validation/conformance/contracts/binary_size_profile_policy.json",
+        "tests/tooling/scripts/ci/binary_size_profile_policy_guard.ts"
+      ],
+      "artifact_paths": [
+        "core/local/artifacts/binary_size_profile_policy_guard_current.json"
+      ]
     }
   },
   "ops:eval:issue-authority:guard": {

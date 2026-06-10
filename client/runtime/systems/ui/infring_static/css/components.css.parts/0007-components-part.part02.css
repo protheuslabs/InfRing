@@ -99,9 +99,9 @@ infring-chat-bubble-render.message-text-skeletonized .message-bubble-content * {
 
 .thinking-inline-subtext {
   margin-top: 2px;
-  color: var(--text-dim);
-  font-size: 11px;
-  line-height: 1.25;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .chat-workspace-panel {

@@ -21,6 +21,7 @@ const SCRATCH_DIR = path.join(ROOT, 'core/local/artifacts/agent-runtime-real-wor
 const ENGINE_REGISTRY_PATH = path.join(ROOT, 'validation/conformance/contracts/agent_runtime_engine_registry.json');
 const AGENT_ID = 'agent-runtime-real-work-replay-agent';
 const SESSION_ID = 'agent-runtime-real-work-replay-session';
+const GOLDEN_EXTERNAL_ENGINES = ['codex_cli', 'claude_code'];
 
 function loadRegistryRows() {
   try {
@@ -228,11 +229,56 @@ async function runEngineReplay(assembly, engineId, index) {
 
   const relPath = artifactRelPath(engineId);
   const quality = artifactQuality(relPath, engineId);
+  const transcriptProjection = assembly.agentRuntimeTranscriptStore.mergeAgentRuntimeTranscriptPayload({
+    type: 'session_projection',
+    session_id: sessionId,
+    message_window: { rows: [], total_count: 0 },
+  }, {
+    agentId: AGENT_ID,
+    sessionId,
+    limit: 80,
+  });
+  const transcriptRows = transcriptProjection &&
+    transcriptProjection.message_window &&
+    Array.isArray(transcriptProjection.message_window.rows)
+      ? transcriptProjection.message_window.rows
+      : [];
+  const contextPreviewRes = makeResponse();
+  const contextPreviewHandled = await assembly.handleAgentRuntimeTurnRoute({
+    req: {
+      method: 'POST',
+      __body: {
+        agent_id: AGENT_ID,
+        session_id: sessionId,
+        engine_id: engineId,
+      },
+    },
+    res: contextPreviewRes,
+    pathname: '/api/agent-runtime/context-pack/preview',
+    traceId: `${traceId}:context-preview`,
+    flags: {},
+  });
+  const contextPreviewPayload = contextPreviewRes.payload || {};
+  const usabilityChecks = {
+    user_visible_terminal_state: turnPayload.status === 'permission_required',
+    pending_pause_visible: turnPayload.pending_permission === true && !!turnPayload.approval_pause,
+    bounded_approval_projection: !!(request && request.proposal_arguments_ref && !request.proposal_arguments),
+    approval_route_present: !!approvalRoute,
+    decision_receipt_present: !!(decisionRes.payload && decisionRes.payload.decision_receipt && decisionRes.payload.decision_receipt.receipt_hash),
+    durable_effect_verified: quality.ok && !!(decisionRes.payload && decisionRes.payload.durable_effect_executed === true),
+    activity_trace_projection_present: !!(turnPayload.activity_trace && turnPayload.activity_trace.type === 'agent_runtime_activity_trace_projection'),
+    transcript_overlay_present: !!(transcriptProjection && transcriptProjection.agent_runtime_transcript_overlay),
+    transcript_rows_persisted: transcriptRows.length >= 2,
+    context_preview_available: contextPreviewHandled === true && contextPreviewRes.statusCode === 200 && contextPreviewPayload.ok === true,
+    context_preview_rows_present: Number(contextPreviewPayload.row_count) >= 2,
+  };
+  const usabilityOk = Object.values(usabilityChecks).every(Boolean);
   const replayOk = !!(
     turnHandled === true &&
     turnRes.statusCode === 200 &&
     turnPayload.status === 'permission_required' &&
     turnPayload.pending_permission === true &&
+    turnPayload.approval_pause &&
     request &&
     request.status === 'paused_pending_approval' &&
     request.turn_status === 'permission_required' &&
@@ -245,7 +291,8 @@ async function runEngineReplay(assembly, engineId, index) {
     decisionRes.payload.ok === true &&
     decisionRes.payload.durable_effect_executed === true &&
     decisionRes.payload.pending_request_found === true &&
-    quality.ok
+    quality.ok &&
+    usabilityOk
   );
   const expectedUnavailable = isExpectedPlannedUnavailable(engineId, turnPayload);
   return {
@@ -280,6 +327,20 @@ async function runEngineReplay(assembly, engineId, index) {
       decision_receipt_hash_present: !!(decisionRes.payload && decisionRes.payload.decision_receipt && decisionRes.payload.decision_receipt.receipt_hash),
     },
     artifact_quality: quality,
+    usability_checks: usabilityChecks,
+    transcript_probe: {
+      overlay: transcriptProjection && transcriptProjection.agent_runtime_transcript_overlay
+        ? transcriptProjection.agent_runtime_transcript_overlay
+        : null,
+      row_count: transcriptRows.length,
+    },
+    context_preview_probe: {
+      handled: contextPreviewHandled,
+      status_code: contextPreviewRes.statusCode,
+      ok: contextPreviewPayload.ok === true,
+      row_count: Number(contextPreviewPayload.row_count) || 0,
+      fragment_count: Array.isArray(contextPreviewPayload.fragments) ? contextPreviewPayload.fragments.length : 0,
+    },
     expected_unavailable: expectedUnavailable,
     replay_status: replayOk ? 'passed' : expectedUnavailable ? 'expected_planned_adapter_unavailable' : 'failed',
     ok: replayOk,
@@ -313,33 +374,12 @@ async function main() {
     results.push(await runEngineReplay(assembly, ENGINES[index], index + 1));
   }
 
-  const previewEngine = ENGINES.includes('codex_cli') ? 'codex_cli' : ENGINES[0];
-  const merged = assembly.agentRuntimeTranscriptStore.mergeAgentRuntimeTranscriptPayload({
-    type: 'session_projection',
-    session_id: `${SESSION_ID}-${safeEngineId(previewEngine)}`,
-    message_window: { rows: [], total_count: 0 },
-  }, {
-    agentId: AGENT_ID,
-    sessionId: `${SESSION_ID}-${safeEngineId(previewEngine)}`,
-    limit: 80,
-  });
-  const previewRes = makeResponse();
-  const previewHandled = await assembly.handleAgentRuntimeTurnRoute({
-    req: {
-      method: 'POST',
-      __body: {
-        agent_id: AGENT_ID,
-        session_id: `${SESSION_ID}-${safeEngineId(previewEngine)}`,
-        engine_id: previewEngine,
-      },
-    },
-    res: previewRes,
-    pathname: '/api/agent-runtime/context-pack/preview',
-    traceId: `validation:agent-runtime-real-work-preview:${Date.now()}`,
-    flags: {},
-  });
-
   const violations = [];
+  for (const engineId of GOLDEN_EXTERNAL_ENGINES) {
+    if (!ENGINES.includes(engineId)) {
+      violations.push({ kind: 'golden_engine_missing_from_registry', engine_id: engineId });
+    }
+  }
   for (const result of results) {
     if (!result.ok && !result.expected_unavailable) {
       violations.push({
@@ -349,26 +389,22 @@ async function main() {
         permission_request: result.permission_request,
         decision: result.decision,
         artifact_quality: result.artifact_quality,
+        usability_checks: result.usability_checks,
+        transcript_probe: result.transcript_probe,
+        context_preview_probe: result.context_preview_probe,
       });
     }
   }
-  const transcriptRows = merged && merged.message_window && Array.isArray(merged.message_window.rows)
-    ? merged.message_window.rows
-    : [];
-  if (!merged || !merged.agent_runtime_transcript_overlay || transcriptRows.length !== 2) {
-    violations.push({ kind: 'real_work_transcript_overlay_missing', row_count: transcriptRows.length });
-  }
-  if (Number(merged && merged.agent_runtime_transcript_overlay && merged.agent_runtime_transcript_overlay.row_count) !== 2) {
-    violations.push({
-      kind: 'real_work_transcript_overlay_cross_session_bleed',
-      overlay_row_count: Number(merged && merged.agent_runtime_transcript_overlay && merged.agent_runtime_transcript_overlay.row_count) || 0,
-    });
-  }
-  if (!previewHandled || previewRes.statusCode !== 200 || !(previewRes.payload && previewRes.payload.ok)) {
-    violations.push({ kind: 'real_work_context_preview_failed', handled: previewHandled, status_code: previewRes.statusCode });
-  }
-  if (Number(previewRes.payload && previewRes.payload.row_count) < 2) {
-    violations.push({ kind: 'real_work_context_preview_rows_missing', row_count: Number(previewRes.payload && previewRes.payload.row_count) || 0 });
+  for (const engineId of GOLDEN_EXTERNAL_ENGINES) {
+    const result = results.find((row) => row.engine_id === engineId);
+    if (!result || !result.ok) {
+      violations.push({
+        kind: 'golden_engine_real_work_replay_not_promotable',
+        engine_id: engineId,
+        replay_status: result ? result.replay_status : 'missing',
+        usability_checks: result ? result.usability_checks : null,
+      });
+    }
   }
 
   const report = {
@@ -384,18 +420,12 @@ async function main() {
     engines_tested: ENGINES,
     successful_engine_count: results.filter((row) => row.ok).length,
     expected_unavailable_count: results.filter((row) => row.expected_unavailable).length,
+    golden_external_engines: GOLDEN_EXTERNAL_ENGINES,
+    golden_external_engine_pass_count: GOLDEN_EXTERNAL_ENGINES.filter((engineId) => {
+      const result = results.find((row) => row.engine_id === engineId);
+      return result && result.ok;
+    }).length,
     results,
-    transcript_probe: {
-      overlay: merged && merged.agent_runtime_transcript_overlay ? merged.agent_runtime_transcript_overlay : null,
-      row_count: transcriptRows.length,
-    },
-    context_preview_probe: {
-      handled: previewHandled,
-      status_code: previewRes.statusCode,
-      ok: !!(previewRes.payload && previewRes.payload.ok),
-      row_count: Number(previewRes.payload && previewRes.payload.row_count) || 0,
-      fragment_count: Array.isArray(previewRes.payload && previewRes.payload.fragments) ? previewRes.payload.fragments.length : 0,
-    },
     violations,
   };
   ensureDir(OUT_JSON);

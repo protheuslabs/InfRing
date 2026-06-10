@@ -169,6 +169,7 @@
         "ops:node-critical-path:inventory",
         "ops:agent-surface:status:guard",
         "ops:agent-runtime:framework-coordination:guard",
+        "ops:agent-runtime:cli-adapter-timeout:guard",
         "ops:orchestration:contract:guard",
         "ops:orchestration:hidden-state:guard",
         "ops:orchestration:gateway-fallback:guard",

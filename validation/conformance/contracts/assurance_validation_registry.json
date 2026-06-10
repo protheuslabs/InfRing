@@ -401,6 +401,99 @@
       "self_enforcing": true,
       "harness_only": false,
       "notes": "Ensures Gateway turns pause on gated agent-runtime proposals, expose bounded pending requests, and resolve decisions with resume tokens plus decision receipts."
+    },
+    {
+      "id": "validation.agent_runtime_native_transport_probe",
+      "domain": "validation",
+      "validation_kind": "evidence_probe",
+      "lifecycle_state": "advisory",
+      "signal_class": "transport_migration_evidence",
+      "authority_class": "controlled_validation",
+      "owner_of_truth": "validation/conformance/contracts/agent_runtime_structured_transport_contract.json",
+      "source_refs": [
+        "validation/conformance/contracts/agent_runtime_engine_registry.json",
+        "tests/tooling/scripts/ci/agent_runtime_native_transport_probe.ts",
+        "tests/tooling/scripts/ci/agent_runtime_transport_migration_pressure_guard.ts",
+        "ops:agent-runtime:native-transport:probe",
+        "ops:agent-runtime:transport-migration-pressure:guard"
+      ],
+      "evidence_output": [
+        "core/local/artifacts/agent_runtime_native_transport_probe_current.json",
+        "core/local/artifacts/agent_runtime_transport_migration_pressure_guard_current.json"
+      ],
+      "self_enforcing": true,
+      "harness_only": false,
+      "notes": "Records whether bounded CLI/stdin context envelopes have an upstream native typed turn/session/context transport available, keeping practical usability promotion honest until native transport proof exists."
+    },
+    {
+      "id": "validation.agent_runtime_claude_stream_json_mapping_probe",
+      "domain": "validation",
+      "validation_kind": "evidence_probe",
+      "lifecycle_state": "advisory",
+      "signal_class": "transport_migration_evidence",
+      "authority_class": "controlled_validation",
+      "owner_of_truth": "validation/conformance/contracts/agent_runtime_structured_transport_contract.json",
+      "source_refs": [
+        "gateway/runtime/agent_runtime/agent_runtime_structured_transport.ts",
+        "validation/conformance/contracts/agent_runtime_engine_registry.json",
+        "tests/tooling/scripts/ci/agent_runtime_claude_stream_json_mapping_probe.ts",
+        "tests/tooling/scripts/ci/agent_runtime_native_transport_probe.ts",
+        "ops:agent-runtime:claude-stream-json:mapping-probe",
+        "ops:agent-runtime:native-transport:probe"
+      ],
+      "evidence_output": [
+        "core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json",
+        "core/local/artifacts/agent_runtime_native_transport_probe_current.json"
+      ],
+      "self_enforcing": true,
+      "harness_only": false,
+      "notes": "Proves InfRing can materialize an AgentRuntimeStructuredTurn-derived Claude Code stream-json candidate without prompt compatibility enabled, while avoiding live runtime/token usage."
+    },
+    {
+      "id": "validation.agent_runtime_codex_app_server_mapping_probe",
+      "domain": "validation",
+      "validation_kind": "evidence_probe",
+      "lifecycle_state": "advisory",
+      "signal_class": "transport_migration_evidence",
+      "authority_class": "controlled_validation",
+      "owner_of_truth": "validation/conformance/contracts/agent_runtime_structured_transport_contract.json",
+      "source_refs": [
+        "gateway/runtime/agent_runtime/agent_runtime_structured_transport.ts",
+        "validation/conformance/contracts/agent_runtime_engine_registry.json",
+        "tests/tooling/scripts/ci/agent_runtime_codex_app_server_mapping_probe.ts",
+        "tests/tooling/scripts/ci/agent_runtime_native_transport_probe.ts",
+        "ops:agent-runtime:codex-app-server:mapping-probe",
+        "ops:agent-runtime:native-transport:probe"
+      ],
+      "evidence_output": [
+        "core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json",
+        "core/local/artifacts/agent_runtime_native_transport_probe_current.json"
+      ],
+      "self_enforcing": true,
+      "harness_only": false,
+      "notes": "Proves Codex app-server can generate a local protocol schema bundle and InfRing can materialize an AgentRuntimeStructuredTurn-derived candidate envelope without prompt/stdin compatibility enabled, while avoiding live runtime/token usage."
+    },
+    {
+      "id": "validation.agent_runtime_claude_stream_json_live_acceptance_probe",
+      "domain": "validation",
+      "validation_kind": "live_evidence_probe",
+      "lifecycle_state": "advisory",
+      "signal_class": "transport_migration_evidence",
+      "authority_class": "controlled_validation",
+      "owner_of_truth": "validation/conformance/contracts/agent_runtime_structured_transport_contract.json",
+      "source_refs": [
+        "tests/tooling/scripts/ci/agent_runtime_claude_stream_json_live_acceptance_probe.ts",
+        "tests/tooling/scripts/ci/agent_runtime_native_transport_probe.ts",
+        "ops:agent-runtime:claude-stream-json:live-acceptance-probe",
+        "ops:agent-runtime:native-transport:probe"
+      ],
+      "evidence_output": [
+        "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json",
+        "core/local/artifacts/agent_runtime_native_transport_probe_current.json"
+      ],
+      "self_enforcing": true,
+      "harness_only": false,
+      "notes": "Provides a disabled-by-default live acceptance path for Claude Code stream-json transport. It must not claim typed transport availability unless explicitly enabled and accepted by the runtime."
     }
   ]
 }

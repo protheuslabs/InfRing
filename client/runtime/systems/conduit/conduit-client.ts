@@ -185,14 +185,27 @@ function runConduitSecurityKernel(command: string, payload: Record<string, unkno
     : parsed;
 }
 
+function isProductionReleaseChannel(channel: string): boolean {
+  const normalized = String(channel || '').trim().toLowerCase();
+  return (
+    normalized === 'production' ||
+    normalized === 'prod' ||
+    normalized === 'release' ||
+    normalized === 'stable' ||
+    normalized === 'ga'
+  );
+}
+
 function conduitProductionModeActive(): boolean {
   const values = [
     process.env.NODE_ENV,
     process.env.INFRING_ENV,
     process.env.INFRING_RUNTIME_ENV,
     process.env.INFRING_PROFILE,
+    process.env.INFRING_RELEASE_CHANNEL,
   ].map((value) => String(value || '').trim().toLowerCase());
-  return values.some((value) => value === 'production' || value === 'prod' || value === 'release');
+  const hasProductionAlias = values.some((value) => value === 'production' || value === 'prod' || value === 'release');
+  return hasProductionAlias || values.some(isProductionReleaseChannel);
 }
 
 function assertConduitFailSoftAllowed(reason: string): void {

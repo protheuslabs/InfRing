@@ -5,6 +5,10 @@
 // real external agent turns only when explicitly requested because these engines
 // may spend provider quota. It uses Gateway adapter discovery instead of any
 // machine-specific hardcoded user path.
+//
+// Flag: --allow-provider-unavailable=1
+// Set this to 1 (or INFRING_AGENT_RUNTIME_ALLOW_PROVIDER_UNAVAILABLE=1) to
+// treat provider auth/entitlement failures as non-blocking for local-only smoke runs.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -13,8 +17,9 @@ const outPath = 'core/local/artifacts/agent_runtime_cli_live_turn_smoke_current.
 
 function argValue(name) {
   const prefix = `${name}=`;
-  const match = process.argv.slice(2).find((arg) => arg === name || arg.startsWith(prefix));
-  if (!match) return '';
+  const matches = process.argv.slice(2).filter((arg) => arg === name || arg.startsWith(prefix));
+  if (matches.length === 0) return '';
+  const match = matches[matches.length - 1];
   if (match === name) return '1';
   return match.slice(prefix.length);
 }
@@ -34,6 +39,9 @@ const requestedEngines = cleanString(argValue('--engines') || process.env.INFRIN
   .filter(Boolean);
 const expected = cleanString(argValue('--expected') || 'INFRING_RUNTIME_TURN_OK', 200);
 const timeoutSeconds = Math.max(10, Math.min(Number(argValue('--timeout-seconds') || process.env.INFRING_AGENT_RUNTIME_LIVE_TURN_TIMEOUT_SECONDS || 180) || 180, 300));
+const allowProviderUnavailable = argValue('--allow-provider-unavailable') === '1'
+  || process.env.INFRING_AGENT_RUNTIME_ALLOW_PROVIDER_UNAVAILABLE === '1'
+  || process.env.INFRING_AGENT_RUNTIME_LIVE_TURN_ALLOW_PROVIDER_UNAVAILABLE === '1';
 const prompt = [
   'This is an InfRing Gateway runtime adapter live-turn smoke test.',
   'Do not inspect files. Do not run tools. Do not modify anything. Do not use web search.',
@@ -48,6 +56,16 @@ function classifyTurnOutcome(turn, output) {
   if (status === 'timed_out') return 'timed_out_with_reason';
   if (status === 'failed' && (turn.error_code || turn.reason || output)) return 'failed_with_reason';
   return 'silent_or_invalid';
+}
+
+function isProviderUnavailableError(errorCode, reason) {
+  const normalized = cleanString(`${errorCode || ''} ${reason || ''}`).toLowerCase();
+  return (
+    normalized.includes('provider_quota_or_subscription_unavailable') ||
+    normalized.includes('provider unavailable') ||
+    (normalized.includes('auth') && normalized.includes('required')) ||
+    normalized.includes('could not authenticate')
+  );
 }
 
 async function main() {
@@ -114,9 +132,14 @@ async function main() {
     const output = cleanString(turn && (turn.output_preview || turn.output_text || turn.delta || turn.reason), 4000);
     const turnOutcome = classifyTurnOutcome(turn, output);
     const silentOutcome = turnOutcome === 'silent_or_invalid';
+    const turnErrorCode = (turn && turn.error_code) || (health && health.error_code) || null;
+    const providerUnavailable = isProviderUnavailableError(turnErrorCode, turn && turn.reason);
     results.push({
       engine_id: engineId,
-      ok: health.status === 'available' && turn && turn.type === 'turn.complete' && turnOutcome === 'completed' && output.includes(expected),
+      ok: health.status === 'available'
+        && turn && turn.type === 'turn.complete'
+        && turnOutcome === 'completed'
+        && output.includes(expected),
       turn_outcome: turnOutcome,
       silent_outcome: silentOutcome,
       health_status: health.status,
@@ -126,7 +149,8 @@ async function main() {
       version_preview: cleanString(health.version_preview, 500),
       turn_type: turn && turn.type,
       turn_status: turn && turn.status,
-      error_code: (turn && turn.error_code) || (health && health.error_code) || null,
+      error_code: turnErrorCode,
+      provider_unavailable: allowProviderUnavailable && providerUnavailable,
       reason: cleanString(turn && turn.reason, 1000),
       timed_out: turn && turn.timed_out === true,
       timeout_ms: Number(turn && turn.timeout_ms) || timeoutSeconds * 1000,
@@ -135,7 +159,7 @@ async function main() {
   }
 
   const payload = {
-    ok: results.every((row) => row.ok),
+    ok: results.every((row) => row.ok || (allowProviderUnavailable && row.provider_unavailable)),
     type: 'agent_runtime_cli_live_turn_smoke',
     mode: 'live',
     expected,

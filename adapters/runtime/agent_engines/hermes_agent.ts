@@ -159,9 +159,9 @@ function createHermesAgentEngineAdapter(options = {}) {
     downloadActionRef: 'agent_runtime_download/hermes_agent',
     artifactKind: 'hermes_agent_result_projection',
     receiptKind: 'hermes_agent_adapter_receipt',
-    contextTransportMode: 'prompt_text_compat',
-    structuredTransportTarget: 'structured_json',
-    transportMigrationStatus: 'transitional_safe_oneshot_bridge',
+    contextTransportMode: 'bounded_cli_arg_context_envelope',
+    structuredTransportTarget: 'native_structured_context_api',
+    transportMigrationStatus: 'structured_source_safe_cli_arg_active',
     versionArgs: ['--version'],
     runArgs: (prompt, ctx) => [
       '--toolsets',

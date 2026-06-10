@@ -13,9 +13,9 @@ const {
 function createClaudeCodeEngineAdapter(options = {}) {
   return createCliRuntimeEngineAdapter({
     engineId: 'claude_code',
-    contextTransportMode: 'prompt_text_compat',
-    structuredTransportTarget: 'structured_json',
-    transportMigrationStatus: 'transitional_bootstrap',
+    contextTransportMode: 'bounded_cli_arg_context_envelope',
+    structuredTransportTarget: 'native_structured_context_api',
+    transportMigrationStatus: 'structured_source_bounded_cli_arg_active',
     commandFallback: 'claude',
     liveEnvVar: 'INFRING_AGENT_RUNTIME_CLAUDE_CODE_LIVE',
     downloadActionRef: 'agent_runtime_download/claude_code',

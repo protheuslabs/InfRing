@@ -233,7 +233,8 @@
     "supports_engine_matrix": true,
     "engine_matrix_field": "engine_results",
     "default_engine_matrix": [
-      "codex_cli"
+      "codex_cli",
+      "claude_code"
     ],
     "must_submit_real_turn": true,
     "must_verify_completed_turn": true,

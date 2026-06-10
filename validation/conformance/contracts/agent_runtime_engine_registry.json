@@ -29,10 +29,12 @@
       "claude_code"
     ],
     "native_engine": "infring_native",
-    "primary_external_engine": "codex_cli",
-    "secondary_comparison_engines": [
+    "primary_external_engines": [
+      "codex_cli",
       "claude_code"
     ],
+    "primary_external_engine": "codex_cli",
+    "secondary_comparison_engines": [],
     "catalog_only_engines": [
       "grok_code",
       "opencode",
@@ -287,9 +289,9 @@
           "missing_installable"
         ]
       },
-      "context_transport_mode": "prompt_text_compat",
-      "structured_transport_target": "structured_json",
-      "transport_migration_status": "transitional_bootstrap",
+      "context_transport_mode": "bounded_stdin_context_envelope",
+      "structured_transport_target": "native_structured_context_api",
+      "transport_migration_status": "structured_source_bounded_stdin_active",
       "model_menu": {
         "show_in_llm_menu": true,
         "source": "framework_native_catalog_static_seed",
@@ -381,11 +383,47 @@
         "gateway_context_field": "model_provider_context"
       },
       "prompt_text_compatibility": {
-        "status": "transitional",
-        "retire_by": "2026-07-05",
+        "status": "not_primary_transport",
+        "retire_by": "",
         "source_authority": "validation.conformance.agent_runtime_engine_registry",
-        "rule": "Prompt text may only be rendered from AgentRuntimeStructuredTurn and must not become provider authority.",
-        "next_step": "Replace prompt preamble with Codex structured stdin/session payload when stable CLI/API transport is available; keep prompt text as rendered fallback only."
+        "rule": "Codex currently receives a bounded stdin envelope rendered from AgentRuntimeStructuredTurn; raw prompt-text compatibility is no longer the primary context transport.",
+        "next_step": "Replace bounded stdin rendering with Codex native structured context/session API when stable upstream transport is available."
+      },
+      "structured_source_envelope": {
+        "status": "active_transitional_envelope",
+        "target": "native_structured_context_api",
+        "review_by": "2026-07-15",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Gateway AgentRuntimeStructuredTurn remains authority; the bounded CLI/stdin envelope is compatibility transport only, not canonical context or engine-private memory.",
+        "next_step": "Replace bounded stdin rendering with Codex native structured context/session API when stable upstream transport is available.",
+        "exit_criteria": [
+          "upstream_native_transport_probe",
+          "structured_context_mapping",
+          "activity_trace_mapping",
+          "approval_resume_mapping",
+          "golden_pair_parity_replay"
+        ],
+        "review_checklist": {
+          "upstream_native_transport_probe": "Probe whether the framework exposes a stable typed turn/session/context API that can accept AgentRuntimeStructuredTurn without prompt rendering.",
+          "structured_context_mapping": "Map context atoms, spans, refs, tool grants, model_provider_context, and attachment refs into the native API without raw transcript dumps.",
+          "activity_trace_mapping": "Map native progress/tool/decision events into RuntimeActivityProjection without raw private payload leakage.",
+          "approval_resume_mapping": "Prove proposed mutations pause through Gateway approval and resume or deny without ending as inert text.",
+          "golden_pair_parity_replay": "Pass real-work replay, context continuity, transcript persistence, model projection, and hard-failure injection before clearing the review warning."
+        },
+        "clear_warning_when": "All exit_criteria are either satisfied by compact proof artifacts or explicitly renewed with a later review_by date and rationale.",
+        "native_transport_probe": {
+          "source_authority": "local_cli_help_probe_2026-06-10",
+          "status": "candidate_unvalidated",
+          "typed_turn_api_available": false,
+          "observed_local_cli": [
+            "codex exec --json prints events to stdout as JSONL, but instructions are still prompt/stdin text.",
+            "codex app-server supports stdio/unix/ws transports and can generate JSON Schema for the app-server protocol.",
+            "codex mcp-server starts Codex as an MCP server over stdio, but this is not yet proven as an AgentRuntimeStructuredTurn turn API."
+          ],
+          "candidate_api": "codex app-server protocol or exec JSONL event stream",
+          "evidence": "Local Codex CLI exposes JSONL event output and experimental app-server protocol tooling, but no validated direct AgentRuntimeStructuredTurn input contract has been proven yet.",
+          "next_action": "Generate/inspect Codex app-server protocol schema and test whether a bounded AgentRuntimeStructuredTurn can be submitted without rendering context as prompt/stdin text."
+        }
       }
     },
     {
@@ -463,9 +501,9 @@
           "missing_installable"
         ]
       },
-      "context_transport_mode": "prompt_text_compat",
-      "structured_transport_target": "structured_json",
-      "transport_migration_status": "transitional_bootstrap",
+      "context_transport_mode": "bounded_cli_arg_context_envelope",
+      "structured_transport_target": "native_structured_context_api",
+      "transport_migration_status": "structured_source_bounded_cli_arg_active",
       "model_menu": {
         "show_in_llm_menu": true,
         "source": "framework_native_catalog_static_seed",
@@ -539,11 +577,47 @@
         "gateway_context_field": "model_provider_context"
       },
       "prompt_text_compatibility": {
-        "status": "transitional",
-        "retire_by": "2026-07-05",
+        "status": "not_primary_transport",
+        "retire_by": "",
         "source_authority": "validation.conformance.agent_runtime_engine_registry",
-        "rule": "Prompt text may only be rendered from AgentRuntimeStructuredTurn and must not become provider authority.",
-        "next_step": "Map AgentRuntimeStructuredTurn into Claude Code native session/tool context once a stable structured transport is exposed; keep prompt text as rendered fallback only."
+        "rule": "Claude Code currently receives a bounded CLI argument envelope rendered from AgentRuntimeStructuredTurn; raw prompt-text compatibility is no longer the primary context transport.",
+        "next_step": "Replace bounded CLI argument rendering with Claude Code native structured context/session API when stable upstream transport is available."
+      },
+      "structured_source_envelope": {
+        "status": "active_transitional_envelope",
+        "target": "native_structured_context_api",
+        "review_by": "2026-07-15",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Gateway AgentRuntimeStructuredTurn remains authority; the bounded CLI/stdin envelope is compatibility transport only, not canonical context or engine-private memory.",
+        "next_step": "Replace bounded CLI argument rendering with Claude Code native structured context/session API when stable upstream transport is available.",
+        "exit_criteria": [
+          "upstream_native_transport_probe",
+          "structured_context_mapping",
+          "activity_trace_mapping",
+          "approval_resume_mapping",
+          "golden_pair_parity_replay"
+        ],
+        "review_checklist": {
+          "upstream_native_transport_probe": "Probe whether the framework exposes a stable typed turn/session/context API that can accept AgentRuntimeStructuredTurn without prompt rendering.",
+          "structured_context_mapping": "Map context atoms, spans, refs, tool grants, model_provider_context, and attachment refs into the native API without raw transcript dumps.",
+          "activity_trace_mapping": "Map native progress/tool/decision events into RuntimeActivityProjection without raw private payload leakage.",
+          "approval_resume_mapping": "Prove proposed mutations pause through Gateway approval and resume or deny without ending as inert text.",
+          "golden_pair_parity_replay": "Pass real-work replay, context continuity, transcript persistence, model projection, and hard-failure injection before clearing the review warning."
+        },
+        "clear_warning_when": "All exit_criteria are either satisfied by compact proof artifacts or explicitly renewed with a later review_by date and rationale.",
+        "native_transport_probe": {
+          "source_authority": "local_cli_help_probe_2026-06-10",
+          "status": "candidate_unvalidated",
+          "typed_turn_api_available": false,
+          "observed_local_cli": [
+            "claude --print supports --input-format stream-json for realtime streaming input.",
+            "claude --print supports --output-format stream-json for realtime streaming output.",
+            "claude supports --session-id/--resume/--continue for conversation continuity, but InfRing has not proven direct AgentRuntimeStructuredTurn transport yet."
+          ],
+          "candidate_api": "claude --print --input-format stream-json --output-format stream-json",
+          "evidence": "Local Claude Code CLI exposes stream-json input/output, but InfRing has not validated a direct structured turn mapping from AgentRuntimeStructuredTurn without bounded prompt rendering.",
+          "next_action": "Create a disposable Claude Code stream-json mapping probe that submits a minimal AgentRuntimeStructuredTurn-derived event stream and verifies structured activity/output without prompt preamble parsing."
+        }
       }
     },
     {
@@ -615,9 +689,9 @@
           "missing_installable"
         ]
       },
-      "context_transport_mode": "prompt_text_compat",
-      "structured_transport_target": "structured_json",
-      "transport_migration_status": "transitional_bootstrap",
+      "context_transport_mode": "bounded_cli_arg_context_envelope",
+      "structured_transport_target": "native_structured_context_api",
+      "transport_migration_status": "structured_source_bounded_cli_arg_active",
       "model_menu": {
         "show_in_llm_menu": true,
         "source": "framework_native_catalog",
@@ -660,11 +734,34 @@
         "gateway_context_field": "model_provider_context"
       },
       "prompt_text_compatibility": {
-        "status": "transitional",
-        "retire_by": "2026-07-05",
+        "status": "not_primary_transport",
+        "retire_by": "",
         "source_authority": "validation.conformance.agent_runtime_engine_registry",
-        "rule": "Prompt text may only be rendered from AgentRuntimeStructuredTurn and must not become provider authority.",
-        "next_step": "Map AgentRuntimeStructuredTurn into Grok Code structured/session transport after provider availability and API shape stabilize; keep prompt text as rendered fallback only."
+        "rule": "Grok Code currently receives a bounded CLI argument envelope rendered from AgentRuntimeStructuredTurn; raw prompt-text compatibility is no longer the primary context transport.",
+        "next_step": "Replace bounded CLI argument rendering with Grok Code native structured context/session API when stable upstream transport is available."
+      },
+      "structured_source_envelope": {
+        "status": "active_transitional_envelope",
+        "target": "native_structured_context_api",
+        "review_by": "2026-07-15",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Gateway AgentRuntimeStructuredTurn remains authority; the bounded CLI/stdin envelope is compatibility transport only, not canonical context or engine-private memory.",
+        "next_step": "Replace bounded CLI argument rendering with Grok Code native structured context/session API when stable upstream transport is available.",
+        "exit_criteria": [
+          "upstream_native_transport_probe",
+          "structured_context_mapping",
+          "activity_trace_mapping",
+          "approval_resume_mapping",
+          "golden_pair_parity_replay"
+        ],
+        "review_checklist": {
+          "upstream_native_transport_probe": "Probe whether the framework exposes a stable typed turn/session/context API that can accept AgentRuntimeStructuredTurn without prompt rendering.",
+          "structured_context_mapping": "Map context atoms, spans, refs, tool grants, model_provider_context, and attachment refs into the native API without raw transcript dumps.",
+          "activity_trace_mapping": "Map native progress/tool/decision events into RuntimeActivityProjection without raw private payload leakage.",
+          "approval_resume_mapping": "Prove proposed mutations pause through Gateway approval and resume or deny without ending as inert text.",
+          "golden_pair_parity_replay": "Pass real-work replay, context continuity, transcript persistence, model projection, and hard-failure injection before clearing the review warning."
+        },
+        "clear_warning_when": "All exit_criteria are either satisfied by compact proof artifacts or explicitly renewed with a later review_by date and rationale."
       }
     },
     {
@@ -751,9 +848,9 @@
           "missing_installable"
         ]
       },
-      "context_transport_mode": "prompt_text_compat",
-      "structured_transport_target": "structured_json",
-      "transport_migration_status": "transitional_bootstrap",
+      "context_transport_mode": "bounded_cli_arg_context_envelope",
+      "structured_transport_target": "native_structured_context_api",
+      "transport_migration_status": "structured_source_bounded_cli_arg_active",
       "model_menu": {
         "show_in_llm_menu": true,
         "source": "framework_native_catalog_static_seed",
@@ -809,11 +906,34 @@
         "gateway_context_field": "model_provider_context"
       },
       "prompt_text_compatibility": {
-        "status": "transitional",
-        "retire_by": "2026-07-05",
+        "status": "not_primary_transport",
+        "retire_by": "",
         "source_authority": "validation.conformance.agent_runtime_engine_registry",
-        "rule": "Prompt text may only be rendered from AgentRuntimeStructuredTurn and must not become provider authority.",
-        "next_step": "Replace prompt preamble with OpenCode structured/native session transport when a stable typed bridge is available."
+        "rule": "OpenCode currently receives a bounded CLI argument envelope rendered from AgentRuntimeStructuredTurn; raw prompt-text compatibility is no longer the primary context transport.",
+        "next_step": "Replace bounded CLI argument rendering with OpenCode native structured context/session API when stable upstream transport is available."
+      },
+      "structured_source_envelope": {
+        "status": "active_transitional_envelope",
+        "target": "native_structured_context_api",
+        "review_by": "2026-07-15",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Gateway AgentRuntimeStructuredTurn remains authority; the bounded CLI/stdin envelope is compatibility transport only, not canonical context or engine-private memory.",
+        "next_step": "Replace bounded CLI argument rendering with OpenCode native structured context/session API when stable upstream transport is available.",
+        "exit_criteria": [
+          "upstream_native_transport_probe",
+          "structured_context_mapping",
+          "activity_trace_mapping",
+          "approval_resume_mapping",
+          "golden_pair_parity_replay"
+        ],
+        "review_checklist": {
+          "upstream_native_transport_probe": "Probe whether the framework exposes a stable typed turn/session/context API that can accept AgentRuntimeStructuredTurn without prompt rendering.",
+          "structured_context_mapping": "Map context atoms, spans, refs, tool grants, model_provider_context, and attachment refs into the native API without raw transcript dumps.",
+          "activity_trace_mapping": "Map native progress/tool/decision events into RuntimeActivityProjection without raw private payload leakage.",
+          "approval_resume_mapping": "Prove proposed mutations pause through Gateway approval and resume or deny without ending as inert text.",
+          "golden_pair_parity_replay": "Pass real-work replay, context continuity, transcript persistence, model projection, and hard-failure injection before clearing the review warning."
+        },
+        "clear_warning_when": "All exit_criteria are either satisfied by compact proof artifacts or explicitly renewed with a later review_by date and rationale."
       }
     },
     {
@@ -1100,9 +1220,9 @@
         ],
         "override_note": "Default paths are upstream/user install locations only. InfRing-managed or cloned/runtime-local paths must be selected through user override, config, or environment variable."
       },
-      "context_transport_mode": "prompt_text_compat",
-      "structured_transport_target": "structured_json",
-      "transport_migration_status": "transitional_safe_oneshot_bridge",
+      "context_transport_mode": "bounded_cli_arg_context_envelope",
+      "structured_transport_target": "native_structured_context_api",
+      "transport_migration_status": "structured_source_safe_cli_arg_active",
       "reference_repo_head": "6f6eb871d83415fe2980f3483cc41a435ba22196",
       "private_schema_contract": "validation/conformance/contracts/agent_runtime_private_schemas/hermes_agent.json",
       "safe_bridge_policy": {
@@ -1157,11 +1277,34 @@
         "gateway_context_field": "model_provider_context"
       },
       "prompt_text_compatibility": {
-        "status": "transitional",
-        "retire_by": "2026-07-05",
+        "status": "not_primary_transport",
+        "retire_by": "",
         "source_authority": "validation.conformance.agent_runtime_engine_registry",
-        "rule": "Prompt text may only be rendered from AgentRuntimeStructuredTurn and must not become provider authority.",
-        "next_step": "Graduate the safe one-shot bridge to the Hermes HTTP/socket schema using AgentRuntimeStructuredTurn as the canonical payload."
+        "rule": "Hermes Agent safe CLI bridge currently receives a bounded CLI argument envelope rendered from AgentRuntimeStructuredTurn; raw prompt-text compatibility is no longer the primary context transport.",
+        "next_step": "Prefer the Hermes structured HTTP/socket adapter when available, and replace safe CLI argument rendering with native structured context/session API for fallback mode."
+      },
+      "structured_source_envelope": {
+        "status": "active_transitional_envelope",
+        "target": "native_structured_context_api",
+        "review_by": "2026-07-15",
+        "source_authority": "validation.conformance.agent_runtime_engine_registry",
+        "rule": "Gateway AgentRuntimeStructuredTurn remains authority; the bounded CLI/stdin envelope is compatibility transport only, not canonical context or engine-private memory.",
+        "next_step": "Prefer the Hermes structured HTTP/socket adapter when available, and replace safe CLI argument rendering with native structured context/session API for fallback mode.",
+        "exit_criteria": [
+          "upstream_native_transport_probe",
+          "structured_context_mapping",
+          "activity_trace_mapping",
+          "approval_resume_mapping",
+          "golden_pair_parity_replay"
+        ],
+        "review_checklist": {
+          "upstream_native_transport_probe": "Probe whether the framework exposes a stable typed turn/session/context API that can accept AgentRuntimeStructuredTurn without prompt rendering.",
+          "structured_context_mapping": "Map context atoms, spans, refs, tool grants, model_provider_context, and attachment refs into the native API without raw transcript dumps.",
+          "activity_trace_mapping": "Map native progress/tool/decision events into RuntimeActivityProjection without raw private payload leakage.",
+          "approval_resume_mapping": "Prove proposed mutations pause through Gateway approval and resume or deny without ending as inert text.",
+          "golden_pair_parity_replay": "Pass real-work replay, context continuity, transcript persistence, model projection, and hard-failure injection before clearing the review warning."
+        },
+        "clear_warning_when": "All exit_criteria are either satisfied by compact proof artifacts or explicitly renewed with a later review_by date and rationale."
       }
     },
     {
@@ -1433,10 +1576,13 @@
     "public_socket_schema": "single_gateway_socket_schema",
     "adapter_transport_modes": [
       "prompt_text_compat",
+      "bounded_stdin_context_envelope",
+      "bounded_cli_arg_context_envelope",
       "structured_json",
       "native_session_bridge"
     ],
     "preferred_external_mode": "structured_json",
+    "preferred_external_target": "native_structured_context_api",
     "prompt_text_compat_is_transitional": true,
     "kernel_selection_role": "none; Kernel executes authorized effects and records receipts without selecting runtime engines"
   },

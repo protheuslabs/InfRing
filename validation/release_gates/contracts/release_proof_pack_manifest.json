@@ -2,6 +2,7 @@
   "version": 1,
   "artifact_groups": {
     "runtime_proof": [
+      "core/local/artifacts/binary_size_profile_policy_guard_current.json",
       "core/local/artifacts/memory_runtime_security_closure_guard_current.json",
       "core/local/artifacts/queue_backpressure_policy_gate_current.json",
       "core/local/artifacts/release_proof_checksums_current.json",
@@ -32,7 +33,8 @@
       "core/local/artifacts/runtime_proof_release_metrics_tiny-max_current.json",
       "core/local/artifacts/runtime_proof_synthetic_canary_current.json",
       "core/local/artifacts/runtime_proof_verify_current.json",
-      "core/local/artifacts/runtime_soak_scenarios_current.json"
+      "core/local/artifacts/runtime_soak_scenarios_current.json",
+      "core/local/artifacts/agent_runtime_task_harness_current.json"
     ],
     "adapter_and_orchestration": [
       "core/local/artifacts/gateway_runtime_chaos_gate_current.json",
@@ -53,6 +55,7 @@
       "core/local/artifacts/tool_route_decision_current.json"
     ],
     "release_governance": [
+      "core/local/artifacts/agentic_loop_doctrine_guard_current.json",
       "core/local/artifacts/agent_surface_status_guard_current.json",
       "core/local/artifacts/architecture_nexus_required_artifact_guard_current.json",
       "core/local/artifacts/capability_proof_burden_guard_current.json",
@@ -200,7 +203,9 @@
     "artifacts/workspace_tooling_soak_report_latest.json",
     "client/runtime/local/state/release/scorecard/release_scorecard.json",
     "core/local/artifacts/agent_surface_status_guard_current.json",
+    "core/local/artifacts/agentic_loop_doctrine_guard_current.json",
     "core/local/artifacts/architecture_nexus_required_artifact_guard_current.json",
+    "core/local/artifacts/binary_size_profile_policy_guard_current.json",
     "core/local/artifacts/capability_proof_burden_guard_current.json",
     "core/local/artifacts/chat_rendering_experience_guard_current.json",
     "core/local/artifacts/client_deauthority_closure_guard_current.json",
@@ -365,6 +370,7 @@
     "local/workspace/reports/WORKFLOW_FAILURE_RECOVERY_CURRENT.md",
     "local/workspace/reports/WORKSPACE_TOOLING_CONTEXT_SOAK_CURRENT.md",
     "local/workspace/reports/WORKSPACE_TOOLING_RELEASE_PROOF_CURRENT.md",
+    "local/workspace/reports/AGENT_RUNTIME_TASK_HARNESS_REPORT_CURRENT.md",
     "core/local/state/ops/runtime_proof_empirical_history.jsonl",
     "local/workspace/reports/RELEASE_SCORECARD_CURRENT.md",
     "local/workspace/reports/PRODUCTION_RELEASE_GATE_CLOSURE_AUDIT_CURRENT.md",

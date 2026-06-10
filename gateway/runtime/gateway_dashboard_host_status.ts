@@ -69,6 +69,7 @@ function createGatewayDashboardHostStatusController(options = {}) {
       ws_bridge_error: cleanText(wsBridge.ws_error || '', 120),
       dashboard_static_dir: path.basename(staticDir),
       status_path: path.relative(root, statusPath),
+      process_id: process.pid,
     };
     return refreshDashboardHostStatus(status, args);
   }

@@ -101,7 +101,7 @@ if (engineScorecardContract.turn_outcome_contract !== turnOutcomeContractPath) v
 if (!engineScorecardContract.script || !exists(engineScorecardContract.script)) violations.push({ kind: 'engine_scorecard_script_missing', path: engineScorecardContract.script || null });
 if (engineScorecardContract.artifact !== 'core/local/artifacts/agent_runtime_engine_scorecard_current.json') violations.push({ kind: 'engine_scorecard_artifact_path_wrong', actual: engineScorecardContract.artifact, path: engineScorecardContractPath });
 if (engineScorecardContract.shell_boundary_rule?.shell_may_not_score_or_interpret_engines !== true) violations.push({ kind: 'engine_scorecard_shell_boundary_missing', path: engineScorecardContractPath });
-for (const capability of ['registered', 'adapter_contract', 'discovery_metadata', 'model_catalog_metadata', 'context_continuity', 'live_work_completion', 'approval_pause', 'durable_receipts', 'activity_trace', 'structured_transport', 'error_projection']) {
+for (const capability of ['registered', 'adapter_contract', 'discovery_metadata', 'model_catalog_metadata', 'context_continuity', 'live_work_completion', 'approval_pause', 'durable_receipts', 'activity_trace', 'practical_usability_loop', 'structured_transport', 'transport_migration', 'error_projection', 'real_work_replay']) {
   if (!Array.isArray(engineScorecardContract.scored_capabilities) || !engineScorecardContract.scored_capabilities.includes(capability)) {
     violations.push({ kind: 'engine_scorecard_capability_missing', capability, path: engineScorecardContractPath });
   }
@@ -167,8 +167,8 @@ if (liveWorkEvalRequirements.supports_engine_matrix !== true) {
 if (liveWorkEvalRequirements.engine_matrix_field !== 'engine_results') {
   violations.push({ kind: 'agent_runtime_live_work_eval_matrix_field_wrong', actual: liveWorkEvalRequirements.engine_matrix_field, path: turnOutcomeContractPath });
 }
-if (!Array.isArray(liveWorkEvalRequirements.default_engine_matrix) || !liveWorkEvalRequirements.default_engine_matrix.includes('codex_cli')) {
-  violations.push({ kind: 'agent_runtime_live_work_eval_default_matrix_missing_codex', path: turnOutcomeContractPath });
+if (!Array.isArray(liveWorkEvalRequirements.default_engine_matrix) || !liveWorkEvalRequirements.default_engine_matrix.includes('codex_cli') || !liveWorkEvalRequirements.default_engine_matrix.includes('claude_code')) {
+  violations.push({ kind: 'agent_runtime_live_work_eval_default_matrix_missing_required_engine', path: turnOutcomeContractPath, matrix: liveWorkEvalRequirements.default_engine_matrix });
 }
 const approvalPauseResumeRule = turnOutcomeContract.approval_pause_resume_rule || {};
 for (const [field, expected] of Object.entries({
@@ -265,6 +265,9 @@ for (const failureClass of ['provider_auth_required', 'provider_quota_or_subscri
 }
 if (!engineScorecardContract.evidence_inputs || engineScorecardContract.evidence_inputs.hard_failure_injection !== 'core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json') {
   violations.push({ kind: 'engine_scorecard_hard_failure_evidence_missing', path: engineScorecardContractPath });
+}
+if (!engineScorecardContract.evidence_inputs || engineScorecardContract.evidence_inputs.native_transport_probe !== 'core/local/artifacts/agent_runtime_native_transport_probe_current.json') {
+  violations.push({ kind: 'engine_scorecard_native_transport_probe_evidence_missing', path: engineScorecardContractPath });
 }
 for (const mode of ['prompt_text_compat', 'structured_json', 'native_session_bridge']) {
   if (!Array.isArray(structuredTransportContract.allowed_transport_modes) || !structuredTransportContract.allowed_transport_modes.includes(mode)) {
@@ -365,6 +368,11 @@ const allowedTransportModes = new Set<string>(
     ? structuredTransportContract.allowed_transport_modes.map((mode) => String(mode))
     : [],
 );
+const allowedTransportTargets = new Set<string>(
+  Array.isArray(structuredTransportContract.allowed_transport_targets)
+    ? structuredTransportContract.allowed_transport_targets.map((target) => String(target))
+    : Array.from(allowedTransportModes),
+);
 for (const engine of engines) {
   const id = String(engine.engine_id || '');
   if (!id) violations.push({ kind: 'engine_id_missing', engine });
@@ -377,7 +385,7 @@ for (const engine of engines) {
   const engineMode = String(engine.context_transport_mode || '');
   const engineTarget = String(engine.structured_transport_target || '');
   if (!allowedTransportModes.has(engineMode)) violations.push({ kind: 'engine_context_transport_mode_invalid', engine_id: id, mode: engineMode });
-  if (engineTarget && !allowedTransportModes.has(engineTarget)) violations.push({ kind: 'engine_structured_transport_target_invalid', engine_id: id, target: engineTarget });
+  if (engineTarget && !allowedTransportTargets.has(engineTarget)) violations.push({ kind: 'engine_structured_transport_target_invalid', engine_id: id, target: engineTarget });
   if (!Array.isArray(engine.authority_constraints) || engine.authority_constraints.length === 0) violations.push({ kind: 'engine_authority_constraints_missing', engine_id: id });
   if (!engine.discovery || typeof engine.discovery !== 'object') violations.push({ kind: 'engine_discovery_missing', engine_id: id });
   if (id !== 'infring_native' && engine.discovery?.custom_location_allowed !== true) violations.push({ kind: 'engine_custom_location_not_allowed', engine_id: id });
@@ -489,7 +497,7 @@ for (const row of adapterRows) {
     transitional_prompt_text_allowed: row.transitional_prompt_text_allowed === true,
   });
   if (!allowedTransportModes.has(mode)) violations.push({ kind: 'adapter_context_transport_mode_invalid', engine_id: id, mode });
-  if (target && !allowedTransportModes.has(target)) violations.push({ kind: 'adapter_structured_transport_target_invalid', engine_id: id, target });
+  if (target && !allowedTransportTargets.has(target)) violations.push({ kind: 'adapter_structured_transport_target_invalid', engine_id: id, target });
   if (mode === 'prompt_text_compat') {
     if (row.transitional_prompt_text_allowed !== true) violations.push({ kind: 'adapter_prompt_text_not_marked_transitional', engine_id: id });
     if (target !== 'structured_json') violations.push({ kind: 'adapter_prompt_text_target_not_structured_json', engine_id: id, target });
@@ -501,7 +509,11 @@ for (const row of adapterRows) {
   if (!row.discovery || typeof row.discovery !== 'object') violations.push({ kind: 'adapter_discovery_missing', engine_id: id });
   if (id !== 'infring_native' && row.discovery?.custom_location_allowed !== true) violations.push({ kind: 'adapter_custom_location_not_allowed', engine_id: id });
   if (id === 'hermes_agent') {
-    if (row.context_transport_mode !== 'prompt_text_compat' || row.transport_migration_status !== 'transitional_safe_oneshot_bridge') {
+    if (
+      row.context_transport_mode !== 'bounded_cli_arg_context_envelope' ||
+      row.structured_transport_target !== 'native_structured_context_api' ||
+      row.transport_migration_status !== 'structured_source_safe_cli_arg_active'
+    ) {
       violations.push({ kind: 'hermes_adapter_safe_bridge_transport_contract_wrong', engine_id: id, path: adapterContractsPath });
     }
     if (row.safe_bridge_policy?.bridge_mode !== 'cli_safe_oneshot' || row.safe_bridge_policy?.mutating_tool_bridge_ready !== false) {
@@ -904,7 +916,10 @@ if (exists(approvalStorePath)) {
 if (!exists(routeApprovalLifecycleGuardPath)) violations.push({ kind: 'route_approval_lifecycle_guard_missing', path: routeApprovalLifecycleGuardPath });
 if (exists(contextContinuityEvalPath)) {
   const evalSource = fs.readFileSync(path.join(ROOT, contextContinuityEvalPath), 'utf8');
-  for (const marker of ['materializeKernelAgentRuntimeContextPack', 'buildPromptWithContext', 'infring_native', 'codex_cli', 'claude_code', 'grok_code', 'brass-otter-713']) {
+  const activePromotionEngines = Array.isArray(registry.promotion_focus?.active_promotion_engines)
+    ? registry.promotion_focus.active_promotion_engines
+    : ['infring_native', 'codex_cli', 'claude_code'];
+  for (const marker of ['materializeKernelAgentRuntimeContextPack', 'buildPromptWithContext', ...activePromotionEngines, 'brass-otter-713']) {
     if (!evalSource.includes(marker)) violations.push({ kind: 'context_continuity_eval_marker_missing', marker, path: contextContinuityEvalPath });
   }
 }
@@ -1240,6 +1255,10 @@ const payload = {
   transport_migration_report: {
     preferred_external_mode: 'structured_json',
     prompt_text_dependent_count: transportMigrationRows.filter((row) => row.prompt_text_dependent).length,
+    structured_source_envelope_count: transportMigrationRows.filter((row) => (
+      row.context_transport_mode === 'bounded_stdin_context_envelope' ||
+      row.context_transport_mode === 'bounded_cli_arg_context_envelope'
+    )).length,
     structured_target_count: transportMigrationRows.filter((row) => row.context_transport_mode === 'structured_json').length,
     native_bridge_count: transportMigrationRows.filter((row) => row.context_transport_mode === 'native_session_bridge').length,
     rows: transportMigrationRows,

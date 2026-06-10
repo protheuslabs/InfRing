@@ -25,7 +25,9 @@
     "approval_pause",
     "durable_receipts",
     "activity_trace",
+    "practical_usability_loop",
     "structured_transport",
+    "transport_migration",
     "error_projection",
     "real_work_replay"
   ],
@@ -35,6 +37,8 @@
     "context_continuity": "core/local/artifacts/agent_runtime_context_continuity_eval_current.json",
     "live_work": "core/local/artifacts/agent_runtime_live_work_eval_current.json",
     "structured_transport": "core/local/artifacts/agent_runtime_structured_transport_eval_current.json",
+    "native_transport_probe": "core/local/artifacts/agent_runtime_native_transport_probe_current.json",
+    "transport_migration": "core/local/artifacts/agent_runtime_transport_migration_pressure_guard_current.json",
     "hard_failure_injection": "core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json",
     "real_work_replay": "core/local/artifacts/agent_runtime_real_work_replay_guard_current.json"
   },

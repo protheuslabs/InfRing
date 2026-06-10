@@ -1350,6 +1350,57 @@ process.stdin.on('data', (chunk) => {
     expect((response.event as any).detail.token_len).toBeGreaterThan(16);
   }, 60_000);
 
+  test('conduit fallback is rejected in production channels', async () => {
+    const previousFallback = process.env.INFRING_CONDUIT_TS_FALLBACK;
+    const previousReleaseChannel = process.env.INFRING_RELEASE_CHANNEL;
+    const previousNodeEnv = process.env.NODE_ENV;
+    let client: any = null;
+    try {
+      process.env.INFRING_CONDUIT_TS_FALLBACK = '1';
+      process.env.INFRING_RELEASE_CHANNEL = 'stable';
+      process.env.NODE_ENV = 'test';
+      const conduit = await import(
+        pathToFileURL(path.join(ROOT, 'client/runtime/systems/conduit/conduit-client.ts')).href
+      );
+      client = conduit.ConduitClient.overStdio(
+        process.execPath,
+        ['-e', 'process.exit(0);'],
+        ROOT,
+        {
+          client_id: 'test-client',
+          signing_key_id: 'test-signing-key',
+          signing_secret: 'test-signing-secret',
+          token_key_id: 'test-token-key',
+          token_secret: 'test-token-secret',
+          token_ttl_ms: 60_000,
+        },
+      );
+
+      await expect(
+        client.send({ type: 'get_system_status' }, 'req-production-fallback-closed'),
+      ).rejects.toThrow(/failed_closed_production/);
+    } finally {
+      if (client) {
+        await client.close();
+      }
+      if (typeof previousFallback === 'string') {
+        process.env.INFRING_CONDUIT_TS_FALLBACK = previousFallback;
+      } else {
+        delete process.env.INFRING_CONDUIT_TS_FALLBACK;
+      }
+      if (typeof previousReleaseChannel === 'string') {
+        process.env.INFRING_RELEASE_CHANNEL = previousReleaseChannel;
+      } else {
+        delete process.env.INFRING_RELEASE_CHANNEL;
+      }
+      if (typeof previousNodeEnv === 'string') {
+        process.env.NODE_ENV = previousNodeEnv;
+      } else {
+        delete process.env.NODE_ENV;
+      }
+    }
+  }, 60_000);
+
   test('overStdio surfaces stderr as conduit error', async () => {
     const conduit = await import(pathToFileURL(path.join(ROOT, 'client/runtime/systems/conduit/conduit-client.ts')).href);
     const client = conduit.ConduitClient.overStdio(

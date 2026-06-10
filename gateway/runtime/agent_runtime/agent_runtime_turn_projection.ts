@@ -155,6 +155,45 @@ function compactRawProviderActivityText(raw, event = {}) {
   return '';
 }
 
+function shouldDisplayActivityInThinkingBubble(event, displayText, providerEventType) {
+  const row = event && typeof event === 'object' ? event : {};
+  if (row.display_in_thinking_bubble === false || row.thinking_bubble_visible === false) return false;
+  const provider = cleanText(providerEventType || row.provider_event_type || row.event_type || row.type, 160).toLowerCase();
+  const kind = cleanText(row.activity_kind || row.kind || row.type, 80).toLowerCase();
+  const text = cleanDisplayText(displayText || row.display_text || row.text || row.summary || '', 1000).toLowerCase();
+  const joined = `${provider} ${kind} ${text}`;
+  if (/decision|reasoning|thought|plan|permission|approval|error|failed/.test(joined)) return true;
+  if (/command|exec|shell|bash|tool|mcp|function|file|edit|patch|diff|write|search|grep|find/.test(joined)) return true;
+  if (
+    provider === 'external_cli.launch' ||
+    provider.includes('context.') ||
+    provider.includes('availability') ||
+    provider.includes('health') ||
+    provider.includes('session.') ||
+    provider.includes('prepare') ||
+    provider.includes('launch') ||
+    provider.includes('thread.started') ||
+    provider.includes('turn.started') ||
+    provider.includes('turn.completed')
+  ) {
+    return false;
+  }
+  if (
+    /^preparing\b/.test(text) ||
+    /^loaded \d+ prior context row/.test(text) ||
+    /^checking .* availability/.test(text) ||
+    /^starting .* session/.test(text) ||
+    /^launching .* turn with bounded context pack/.test(text) ||
+    /^launching .* cli\b/.test(text) ||
+    /^runtime thread started/.test(text) ||
+    /^runtime turn started/.test(text) ||
+    /^runtime completed the turn/.test(text)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
   const event = row && typeof row === 'object' ? row : {};
   const rawActivity = parseRawProviderActivityText(event.display_text || event.text || event.summary || '');
@@ -177,6 +216,7 @@ function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
     status: cleanText(event.status || '', 80),
     text: displayText,
     display_text: displayText,
+    display_in_thinking_bubble: shouldDisplayActivityInThinkingBubble(event, displayText, providerEventType),
     receipt_ref: cleanText(event.receipt_ref || '', 240),
     result_ref: cleanText(event.result_ref || '', 240),
     engine_id: cleanEngineId(event.engine_id || defaults.engineId),
@@ -255,7 +295,25 @@ function classifyAgentRuntimePreTurnFailureCode(engineId, source, fallback = 'ag
     text.includes('billing') ||
     text.includes('subscription') ||
     text.includes('payment required') ||
-    text.includes('insufficient balance')
+    text.includes('insufficient balance') ||
+    text.includes('insufficient_quota') ||
+    text.includes('resource_exhausted') ||
+    text.includes('usage limit') ||
+    text.includes('usage_limit') ||
+    text.includes('usage cap') ||
+    text.includes('usage_cap') ||
+    text.includes('spend limit') ||
+    text.includes('spending limit') ||
+    text.includes('monthly limit') ||
+    text.includes('daily limit') ||
+    text.includes('weekly limit') ||
+    text.includes('try again at') ||
+    text.includes('out of tokens') ||
+    text.includes('tokens exhausted') ||
+    text.includes('token balance') ||
+    text.includes('no tokens remaining') ||
+    text.includes('not enough tokens') ||
+    text.includes('token quota')
   ) {
     return `${cleanEngine}_provider_quota_or_subscription_unavailable`;
   }
@@ -1136,46 +1194,146 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
     const pendingPermissionRequest = turn && turn.permission_request && typeof turn.permission_request === 'object'
       ? turn.permission_request
       : null;
-    const pendingPermissionProjection = pendingPermissionRequest ? {
+    const approvalPauseFromTurn = turn && turn.approval_pause && typeof turn.approval_pause === 'object' && cleanText(turn.status, 80) === 'permission_required'
+      ? turn.approval_pause
+      : null;
+    const permissionRequestFromPause = approvalPauseFromTurn ? {
       type: 'permission.requested',
-      approval_id: cleanApprovalId(pendingPermissionRequest.approval_id),
-      trace_id: cleanText(pendingPermissionRequest.trace_id || traceId, 200),
-      request_id: cleanText(pendingPermissionRequest.request_id, 200),
-      engine_id: cleanEngineId(pendingPermissionRequest.engine_id || engineId),
-      session_id: cleanText(pendingPermissionRequest.session_id || sessionId, 200),
-      turn_id: cleanText(pendingPermissionRequest.turn_id || turnId, 200),
+      approval_id: cleanApprovalId(
+        approvalPauseFromTurn.approval_id
+        || (approvalPauseFromTurn.approvalId)
+        || approvalPauseFromTurn.resume_token
+        || approvalPauseFromTurn.result_ref
+        || approvalPauseFromTurn.receipt_ref
+      ) || `pending_${Math.floor(Date.now() / 1000)}_${Math.floor(Math.random() * 100000)}`,
+      trace_id: cleanText(approvalPauseFromTurn.trace_id || traceId, 200),
+      request_id: cleanText(approvalPauseFromTurn.request_id || turnMessage.request_id || '', 200),
+      engine_id: cleanEngineId(approvalPauseFromTurn.engine_id || engineId),
+      session_id: cleanText(approvalPauseFromTurn.session_id || sessionId, 200),
+      turn_id: cleanText(approvalPauseFromTurn.turn_id || turnId, 200),
       working_directory: cleanText(
-        pendingPermissionRequest.working_directory ||
-          pendingPermissionRequest.current_working_directory ||
-          pendingPermissionRequest.present_working_directory ||
-          pendingPermissionRequest.cwd ||
+        approvalPauseFromTurn.working_directory ||
+        approvalPauseFromTurn.current_working_directory ||
+        approvalPauseFromTurn.present_working_directory ||
+        approvalPauseFromTurn.cwd ||
+        turnMessage.working_directory ||
+        turnMessage.cwd ||
+        turnMessage.workspace_dir ||
+        '',
+        1000,
+      ),
+      tool_call_ref: cleanText(approvalPauseFromTurn.tool_call_ref, 240),
+      tool_id: cleanText(approvalPauseFromTurn.tool_id, 120),
+      capability: cleanText(approvalPauseFromTurn.capability, 160),
+      reason: cleanText(approvalPauseFromTurn.reason || approvalPauseFromTurn.pause_reason, 1000),
+      argument_keys: Array.isArray(approvalPauseFromTurn.argument_keys)
+        ? approvalPauseFromTurn.argument_keys.map((key) => cleanText(key, 80)).filter(Boolean).slice(0, 24)
+        : [],
+      proposal_arguments: deps.sanitizeAgentRuntimeProposalArguments
+        ? deps.sanitizeAgentRuntimeProposalArguments(approvalPauseFromTurn.proposal_arguments)
+        : {},
+      gatekeeper_kind: cleanText(approvalPauseFromTurn.gatekeeper_kind || 'user', 80) || 'user',
+      status: 'paused_pending_approval',
+      turn_status: 'permission_required',
+      pause_reason: cleanText(
+        approvalPauseFromTurn.pause_reason || approvalPauseFromTurn.reason || 'agent_runtime_tool_call_requires_approval',
+        1000,
+      ),
+      resume_strategy: cleanText(approvalPauseFromTurn.resume_strategy || 'gateway_apply_approved_effect', 120),
+      source: cleanText(approvalPauseFromTurn.source || 'gateway_runtime_turn_projection_pause', 160),
+      resume_token: cleanApprovalId(approvalPauseFromTurn.resume_token),
+      future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor', 'admin_agent'],
+      decisions: ['allow_once', 'deny', 'always_allow_tool_call'],
+      decision_scope: 'tool_call',
+      approval_route: cleanText(
+        approvalPauseFromTurn.approval_route
+          || approvalPauseFromTurn.decision_route
+          || (approvalPauseFromTurn.approval_id
+            ? `/api/shell-socket/approvals/${encodeURIComponent(cleanApprovalId(approvalPauseFromTurn.approval_id))}/decision`
+            : ''),
+        260,
+      ),
+    } : null;
+    const pendingPermissionProjection = (pendingPermissionRequest || permissionRequestFromPause) ? {
+      type: 'permission.requested',
+      approval_id: cleanApprovalId((pendingPermissionRequest || {}).approval_id || (permissionRequestFromPause || {}).approval_id),
+      trace_id: cleanText(
+        (pendingPermissionRequest || {}).trace_id || (permissionRequestFromPause || {}).trace_id || traceId,
+        200,
+      ),
+      request_id: cleanText((pendingPermissionRequest || {}).request_id || (permissionRequestFromPause || {}).request_id, 200),
+      engine_id: cleanEngineId(
+        (pendingPermissionRequest || {}).engine_id
+        || (permissionRequestFromPause || {}).engine_id
+        || engineId,
+      ),
+      session_id: cleanText(
+        (pendingPermissionRequest || {}).session_id || (permissionRequestFromPause || {}).session_id || sessionId,
+        200,
+      ),
+      turn_id: cleanText(
+        (pendingPermissionRequest || {}).turn_id || (permissionRequestFromPause || {}).turn_id || turnId,
+        200,
+      ),
+      working_directory: cleanText(
+        (pendingPermissionRequest || {}).working_directory ||
+          (pendingPermissionRequest || {}).current_working_directory ||
+          (pendingPermissionRequest || {}).present_working_directory ||
+          (pendingPermissionRequest || {}).cwd ||
+          (permissionRequestFromPause || {}).working_directory ||
+          (permissionRequestFromPause || {}).current_working_directory ||
+          (permissionRequestFromPause || {}).present_working_directory ||
+          (permissionRequestFromPause || {}).cwd ||
           turnMessage.working_directory ||
           turnMessage.cwd ||
           turnMessage.workspace_dir ||
           '',
         1000,
       ),
-      tool_call_ref: cleanText(pendingPermissionRequest.tool_call_ref, 240),
-      tool_id: cleanText(pendingPermissionRequest.tool_id, 120),
-      capability: cleanText(pendingPermissionRequest.capability, 160),
-      reason: cleanText(pendingPermissionRequest.reason, 1000),
+      tool_call_ref: cleanText((pendingPermissionRequest || {}).tool_call_ref || (permissionRequestFromPause || {}).tool_call_ref, 240),
+      tool_id: cleanText((pendingPermissionRequest || {}).tool_id || (permissionRequestFromPause || {}).tool_id, 120),
+      capability: cleanText((pendingPermissionRequest || {}).capability || (permissionRequestFromPause || {}).capability, 160),
+      reason: cleanText((pendingPermissionRequest || {}).reason || (permissionRequestFromPause || {}).reason, 1000),
       argument_keys: Array.isArray(pendingPermissionRequest.argument_keys)
         ? pendingPermissionRequest.argument_keys.map((key) => cleanText(key, 80)).filter(Boolean).slice(0, 24)
         : [],
       proposal_arguments: deps.sanitizeAgentRuntimeProposalArguments
-        ? deps.sanitizeAgentRuntimeProposalArguments(pendingPermissionRequest.proposal_arguments)
+        ? deps.sanitizeAgentRuntimeProposalArguments(
+          (pendingPermissionRequest || {}).proposal_arguments || (permissionRequestFromPause || {}).proposal_arguments
+        )
         : {},
-      gatekeeper_kind: cleanText(pendingPermissionRequest.gatekeeper_kind || 'user', 80) || 'user',
+      gatekeeper_kind: cleanText(
+        (pendingPermissionRequest || {}).gatekeeper_kind || (permissionRequestFromPause || {}).gatekeeper_kind || 'user',
+        80,
+      ) || 'user',
       status: 'paused_pending_approval',
       turn_status: 'permission_required',
-      pause_reason: cleanText(pendingPermissionRequest.pause_reason || pendingPermissionRequest.reason || 'agent_runtime_tool_call_requires_approval', 1000),
-      resume_strategy: cleanText(pendingPermissionRequest.resume_strategy || 'grant_then_retry_next_turn', 120),
-      source: cleanText(pendingPermissionRequest.source || '', 160),
-      resume_token: cleanApprovalId(pendingPermissionRequest.resume_token),
+      pause_reason: cleanText(
+        (pendingPermissionRequest || {}).pause_reason
+          || (pendingPermissionRequest || {}).reason
+          || (permissionRequestFromPause || {}).pause_reason
+          || (permissionRequestFromPause || {}).reason
+          || 'agent_runtime_tool_call_requires_approval',
+        1000,
+      ),
+      resume_strategy: cleanText((pendingPermissionRequest || {}).resume_strategy || (permissionRequestFromPause || {}).resume_strategy || 'grant_then_retry_next_turn', 120),
+      source: cleanText((pendingPermissionRequest || {}).source || (permissionRequestFromPause || {}).source || 'gateway_runtime_turn_projection', 160),
+      resume_token: cleanApprovalId((pendingPermissionRequest || {}).resume_token || (permissionRequestFromPause || {}).resume_token),
       future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor', 'admin_agent'],
       decisions: ['allow_once', 'deny', 'always_allow_tool_call'],
       decision_scope: 'tool_call',
-      approval_route: `/api/shell-socket/approvals/${encodeURIComponent(cleanApprovalId(pendingPermissionRequest.approval_id))}/decision`,
+      approval_route: cleanText(
+        (pendingPermissionRequest || {}).approval_route
+          || (permissionRequestFromPause || {}).approval_route
+          || (permissionRequestFromPause || {}).decision_route
+          || (pendingPermissionRequest || {}).approval_id
+          || (permissionRequestFromPause || {}).approval_id
+          ? `/api/shell-socket/approvals/${encodeURIComponent(
+            cleanApprovalId((pendingPermissionRequest || {}).approval_id || (permissionRequestFromPause || {}).approval_id),
+          )}/decision`
+          : '',
+        260,
+      ),
     } : null;
     const recordedPendingPermission = pendingPermissionProjection && deps.recordAgentRuntimePendingApproval
       ? deps.recordAgentRuntimePendingApproval(pendingPermissionProjection)
@@ -1249,6 +1407,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
           provider_event_type: cleanText(event.provider_event_type || '', 160),
           status: cleanText(event.status || '', 80),
           title,
+          display_in_thinking_bubble: event.display_in_thinking_bubble !== false,
           detail_ref: `agent-runtime-activity/${traceId}/${turnId}/${index + 1}`,
         };
       })

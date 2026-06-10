@@ -10,6 +10,7 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
 
@@ -29,6 +30,29 @@ function ensureDir(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
 
+function probeDashboardRoute(target, routePath = '/dashboard') {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      resolve({ ok: false, status_code: null, error: 'dashboard_route_timeout' });
+    }, Math.min(Math.max(600, TIMEOUT_MS), 3000));
+    const req = http.get({
+      host: target.host,
+      port: target.port,
+      path: routePath,
+      timeout: Math.min(Math.max(500, TIMEOUT_MS), 2000),
+    }, (res) => {
+      res.resume();
+      const status = Number(res.statusCode || 0);
+      clearTimeout(timeout);
+      resolve({ ok: status >= 200 && status < 400, status_code: status });
+    });
+    req.on('error', (error) => {
+      clearTimeout(timeout);
+      resolve({ ok: false, status_code: null, error: clean(error && error.message ? error.message : error, 1200) });
+    });
+  });
+}
+
 function readStatusTarget() {
   if (process.env.INFRING_GATEWAY_HOST || process.env.INFRING_GATEWAY_PORT || process.env.INFRING_DASHBOARD_PORT) {
     return { host: DEFAULT_HOST, port: DEFAULT_PORT, source: 'explicit_env' };
@@ -36,9 +60,20 @@ function readStatusTarget() {
   try {
     const status = JSON.parse(fs.readFileSync(STATUS_PATH, 'utf8'));
     const url = status && status.url ? new URL(status.url) : null;
-    const host = clean((status && status.host) || (url && url.hostname) || DEFAULT_HOST, 120) || DEFAULT_HOST;
+    const backendUrl = status && typeof status.backend_url === 'string' ? status.backend_url : null;
+    const backendUrlObj = backendUrl ? new URL(backendUrl) : null;
+    const host = clean((status && status.host) || (url && url.hostname) || (backendUrlObj && backendUrlObj.hostname) || DEFAULT_HOST, 120) || DEFAULT_HOST;
+    const backendPort = backendUrlObj ? Number(backendUrlObj.port) : NaN;
     const port = Number((status && status.port) || (url && url.port) || DEFAULT_PORT);
-    return { host, port, source: 'dashboard_status_file', status_path: path.relative(ROOT, STATUS_PATH) };
+    return {
+      host,
+      port,
+      source: 'dashboard_status_file',
+      status_path: path.relative(ROOT, STATUS_PATH),
+      backend_url: backendUrl || undefined,
+      status_pid: Number(status && status.process_id),
+      backend_port: Number.isFinite(backendPort) ? backendPort : undefined,
+    };
   } catch {
     return { host: DEFAULT_HOST, port: DEFAULT_PORT, source: 'default_or_env' };
   }
@@ -175,16 +210,105 @@ function createLiveReader(socket) {
 
 async function main() {
   const { encodeAgentRuntimeSocketFrame } = require(path.join(ROOT, 'gateway/runtime/agent_runtime/agent_runtime_socket_transport.ts'));
-  const target = readStatusTarget();
-  if (!Number.isFinite(target.port) || target.port <= 0) {
-    fail('invalid_gateway_port', { target });
+  const initialTarget = readStatusTarget();
+  const explicitEnv = !!(process.env.INFRING_GATEWAY_HOST || process.env.INFRING_GATEWAY_PORT || process.env.INFRING_DASHBOARD_PORT);
+  const fallbackTargets = [];
+  if (
+    !explicitEnv
+    && initialTarget.source === 'dashboard_status_file'
+    && Number.isFinite(initialTarget.port)
+    && initialTarget.port !== DEFAULT_PORT
+  ) {
+    fallbackTargets.push({
+      host: DEFAULT_HOST,
+      port: DEFAULT_PORT,
+      source: 'default_port_fallback',
+      status_path: initialTarget.status_path,
+    });
   }
-  const socket = net.connect({ host: target.host, port: target.port });
+  if (
+    !explicitEnv
+    && initialTarget.source === 'dashboard_status_file'
+    && Number.isFinite(initialTarget.backend_port)
+    && initialTarget.backend_port > 0
+    && initialTarget.backend_port !== initialTarget.port
+  ) {
+    fallbackTargets.push({
+      host: initialTarget.host,
+      port: initialTarget.backend_port,
+      source: 'backend_port_fallback',
+      status_path: initialTarget.status_path,
+      status_pid: initialTarget.status_pid,
+      backend_port: initialTarget.backend_port,
+      backend_url: initialTarget.backend_url,
+      skip_route_probe: true,
+      backend_probe_only: true,
+    });
+  }
+
+  const candidates = [initialTarget, ...fallbackTargets];
+  let target = null;
   let reader = null;
+  let socket = null;
+  let connectFailure = null;
+
+  for (const candidate of candidates) {
+    if (!Number.isFinite(candidate.port) || candidate.port <= 0) {
+      connectFailure = { kind: 'invalid_gateway_port', candidate };
+      continue;
+    }
+    if (Number.isFinite(candidate.status_pid) && candidate.status_pid > 0) {
+      try {
+        process.kill(candidate.status_pid, 0);
+      } catch (error) {
+        candidate.stale_status_pid = {
+          checked: true,
+          pid: candidate.status_pid,
+          error: clean(error && error.message ? error.message : error, 1800),
+        };
+      }
+    }
+    const routeProbe = candidate.skip_route_probe
+      ? { ok: true, status_code: 0, note: 'skipped_for_candidate' }
+      : await probeDashboardRoute(candidate, candidate.backend_probe_only ? '/' : '/dashboard');
+    if (!routeProbe.ok) {
+      connectFailure = {
+        kind: 'route_probe_failed',
+        candidate,
+        route_probe: routeProbe,
+      };
+      continue;
+    }
+    const nextSocket = net.connect({ host: candidate.host, port: candidate.port });
+    try {
+      await waitForConnect(nextSocket);
+      target = candidate;
+      socket = nextSocket;
+      break;
+    } catch (error) {
+      connectFailure = {
+        kind: 'connect_failed',
+        candidate,
+        error: clean(error && error.stack ? error.stack : error, 1800),
+      };
+      try {
+        nextSocket.destroy();
+      } catch {}
+    }
+  }
+
+  if (!target || !socket) {
+    fail(connectFailure && connectFailure.kind ? connectFailure.kind : 'no_connectable_gateway_target', {
+      candidates,
+      connectFailure,
+      target: initialTarget,
+      recovery: 'Start/restart the Gateway and verify it is serving /dashboard before rerunning npm run -s ops:agent-runtime:socket-live-gateway:guard',
+    });
+  }
+
   const traceId = `validation:agent-runtime-live-gateway:${Date.now()}`;
   const requestId = `live-gateway-${Date.now()}`;
   try {
-    await waitForConnect(socket);
     reader = createLiveReader(socket);
     socket.write([
       'GET /ws/agent-runtime HTTP/1.1',
@@ -241,7 +365,7 @@ async function main() {
     });
   } finally {
     try { if (reader) reader.close(); } catch {}
-    try { socket.destroy(); } catch {}
+    try { if (socket) socket.destroy(); } catch {}
   }
 }
 

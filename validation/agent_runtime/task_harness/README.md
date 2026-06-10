@@ -80,3 +80,8 @@ core/local/artifacts/agent-runtime-task-harness/
 ```
 
 The JSON report is the source of truth. The Markdown report is a compact operator summary.
+
+For release visibility, each run also updates:
+
+- `core/local/artifacts/agent_runtime_task_harness_current.json`
+- `local/workspace/reports/AGENT_RUNTIME_TASK_HARNESS_REPORT_CURRENT.md`

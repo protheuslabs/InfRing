@@ -153,6 +153,82 @@ function validateSummary(filePath, summary, violations) {
   if (Number(gapSummary.red || 0) !== 0) {
     push(violations, 'proof_summary_records_red_gap', relative, `red=${gapSummary.red}`);
   }
+  const engineScorecardSummary = compactSummary.engine_scorecard_summary && typeof compactSummary.engine_scorecard_summary === 'object'
+    ? compactSummary.engine_scorecard_summary
+    : {};
+  const nativeTransportProbeSummary = compactSummary.native_transport_probe_summary && typeof compactSummary.native_transport_probe_summary === 'object'
+    ? compactSummary.native_transport_probe_summary
+    : {};
+  const claudeStreamJsonTransportSummary = compactSummary.claude_stream_json_transport_summary && typeof compactSummary.claude_stream_json_transport_summary === 'object'
+    ? compactSummary.claude_stream_json_transport_summary
+    : {};
+  const codexAppServerTransportSummary = compactSummary.codex_app_server_transport_summary && typeof compactSummary.codex_app_server_transport_summary === 'object'
+    ? compactSummary.codex_app_server_transport_summary
+    : {};
+  if (!Array.isArray(engineScorecardSummary.golden_pair) || engineScorecardSummary.golden_pair.length < 2) {
+    push(violations, 'proof_summary_engine_scorecard_golden_pair_missing', relative, 'summary.engine_scorecard_summary.golden_pair must include Codex and Claude Code rows');
+  } else {
+    const goldenIds = new Set(engineScorecardSummary.golden_pair.map((row) => clean(row && row.engine_id, 120)));
+    for (const engineId of ['codex_cli', 'claude_code']) {
+      if (!goldenIds.has(engineId)) {
+        push(violations, 'proof_summary_engine_scorecard_golden_pair_engine_missing', relative, engineId);
+      }
+    }
+    for (const row of engineScorecardSummary.golden_pair) {
+      const engineId = clean(row && row.engine_id, 120);
+      if (row && row.practical_usability_loop !== 'pass') {
+        push(violations, 'proof_summary_practical_usability_loop_not_pass', relative, `${engineId}:${row && row.practical_usability_loop}`);
+      }
+    }
+  }
+  if (Number(nativeTransportProbeSummary.pending_probe_count) < 1) {
+    push(violations, 'proof_summary_native_transport_probe_pending_missing', relative, 'Expected at least one pending native transport probe until bounded envelope review clears.');
+  }
+  if (!Array.isArray(nativeTransportProbeSummary.pending_engines) || nativeTransportProbeSummary.pending_engines.length < 1) {
+    push(violations, 'proof_summary_native_transport_pending_engines_missing', relative, 'summary.native_transport_probe_summary.pending_engines must name pending engines.');
+  }
+  if (!Array.isArray(nativeTransportProbeSummary.pending_exit_criteria) || !nativeTransportProbeSummary.pending_exit_criteria.includes('upstream_native_transport_probe')) {
+    push(violations, 'proof_summary_native_transport_pending_criterion_missing', relative, 'upstream_native_transport_probe');
+  }
+  if (claudeStreamJsonTransportSummary.mapping_probe_status !== 'candidate_mapping_ready') {
+    push(violations, 'proof_summary_claude_stream_mapping_status_missing', relative, claudeStreamJsonTransportSummary.mapping_probe_status);
+  }
+  if (
+    claudeStreamJsonTransportSummary.live_acceptance_probe_status !== 'disabled_by_default_pending_live_acceptance' &&
+    claudeStreamJsonTransportSummary.live_acceptance_probe_status !== 'live_probe_disabled_with_prior_acceptance' &&
+    claudeStreamJsonTransportSummary.live_acceptance_probe_status !== 'accepted'
+  ) {
+    push(violations, 'proof_summary_claude_stream_live_status_missing', relative, claudeStreamJsonTransportSummary.live_acceptance_probe_status);
+  }
+  const claudeLiveStatus = clean(claudeStreamJsonTransportSummary.live_acceptance_probe_status, 240);
+  const claudeLiveTypedExpected = claudeLiveStatus === 'accepted' || claudeLiveStatus === 'live_probe_disabled_with_prior_acceptance';
+  if (Boolean(claudeStreamJsonTransportSummary.typed_turn_api_available) !== claudeLiveTypedExpected) {
+    push(
+      violations,
+      'proof_summary_claude_stream_typed_transport_overclaimed',
+      relative,
+      `live_acceptance_probe_status=${claudeLiveStatus}; typed_turn_api_available=${claudeStreamJsonTransportSummary.typed_turn_api_available}`,
+    );
+  }
+  if (!Array.isArray(claudeStreamJsonTransportSummary.source_artifact_refs) ||
+    !claudeStreamJsonTransportSummary.source_artifact_refs.includes('core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json') ||
+    !claudeStreamJsonTransportSummary.source_artifact_refs.includes('core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json')) {
+    push(violations, 'proof_summary_claude_stream_source_refs_missing', relative, 'Claude stream-json mapping/live acceptance artifact refs required.');
+  }
+  if (codexAppServerTransportSummary.mapping_probe_status !== 'candidate_mapping_ready') {
+    push(violations, 'proof_summary_codex_app_server_mapping_status_missing', relative, codexAppServerTransportSummary.mapping_probe_status);
+  }
+  if (codexAppServerTransportSummary.live_acceptance_probe_status !== 'accepted_by_runtime') {
+    push(violations, 'proof_summary_codex_app_server_live_status_missing', relative, codexAppServerTransportSummary.live_acceptance_probe_status);
+  }
+  if (codexAppServerTransportSummary.typed_turn_api_available !== true) {
+    push(violations, 'proof_summary_codex_app_server_typed_transport_underclaimed', relative, `typed_turn_api_available=${codexAppServerTransportSummary.typed_turn_api_available}`);
+  }
+  if (!Array.isArray(codexAppServerTransportSummary.source_artifact_refs) ||
+    !codexAppServerTransportSummary.source_artifact_refs.includes('core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json') ||
+    !codexAppServerTransportSummary.source_artifact_refs.includes('core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json')) {
+    push(violations, 'proof_summary_codex_app_server_source_refs_missing', relative, 'Codex app-server mapping and live acceptance artifact refs required.');
+  }
 
   const results = Array.isArray(summary.results) ? summary.results : [];
   if (!results.length) {

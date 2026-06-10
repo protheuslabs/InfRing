@@ -69,6 +69,7 @@ function daysUntil(targetMs: number | null): number | null {
 }
 
 const violations: any[] = [];
+const warnings: any[] = [];
 const debt: any[] = [];
 const policy = json(policyPath);
 const gatewayPolicy = exists(gatewayPolicyPath) ? json(gatewayPolicyPath) : {};
@@ -90,6 +91,12 @@ const debtCliffMs = parseDateOnly(debtManagement.debt_cliff);
 const reviewRequiredByMs = parseDateOnly(debtManagement.review_required_by);
 const reviewDaysRemaining = daysUntil(reviewRequiredByMs);
 const cliffDaysRemaining = daysUntil(debtCliffMs);
+const reviewWarningDays = Number.isFinite(Number(debtManagement.review_warning_days))
+  ? Math.max(0, Math.floor(Number(debtManagement.review_warning_days)))
+  : 21;
+const debtCliffWarningDays = Number.isFinite(Number(debtManagement.debt_cliff_warning_days))
+  ? Math.max(0, Math.floor(Number(debtManagement.debt_cliff_warning_days)))
+  : 30;
 
 if (debtCliffMs === null) {
   push(violations, 'legacy_debt_cliff_missing', policyPath, 'legacy_debt_management.debt_cliff must be a YYYY-MM-DD date.');
@@ -106,6 +113,23 @@ if (reviewDaysRemaining !== null && reviewDaysRemaining < 0) {
     'legacy_adapter_review_overdue',
     policyPath,
     `Declared adapter legacy exceptions require review by ${debtManagement.review_required_by}.`,
+  );
+} else if (reviewDaysRemaining !== null && reviewDaysRemaining <= reviewWarningDays) {
+  push(
+    warnings,
+    'legacy_adapter_review_window_active',
+    policyPath,
+    `Declared adapter legacy exceptions require review by ${debtManagement.review_required_by}; ${reviewDaysRemaining} day(s) remain.`,
+    { days_remaining: reviewDaysRemaining, warning_window_days: reviewWarningDays },
+  );
+}
+if (cliffDaysRemaining !== null && cliffDaysRemaining >= 0 && cliffDaysRemaining <= debtCliffWarningDays) {
+  push(
+    warnings,
+    'legacy_adapter_debt_cliff_window_active',
+    policyPath,
+    `Adapter translator-only debt cliff is ${debtManagement.debt_cliff}; ${cliffDaysRemaining} day(s) remain.`,
+    { days_remaining: cliffDaysRemaining, warning_window_days: debtCliffWarningDays },
   );
 }
 if (!String(debtManagement.expired_exception_policy || '').includes('fail_closed')) {
@@ -277,7 +301,9 @@ const payload = {
     legacy_days_until_debt_cliff: cliffDaysRemaining,
     legacy_review_required_by: debtManagement.review_required_by || null,
     legacy_days_until_review: reviewDaysRemaining,
+    warnings: warnings.length,
   },
+  warnings,
   violations,
   debt,
 };
@@ -302,6 +328,10 @@ const markdown = [
   `- legacy_days_until_debt_cliff: ${payload.summary.legacy_days_until_debt_cliff ?? 'unknown'}`,
   `- legacy_review_required_by: ${payload.summary.legacy_review_required_by || 'missing'}`,
   `- legacy_days_until_review: ${payload.summary.legacy_days_until_review ?? 'unknown'}`,
+  `- warnings: ${payload.summary.warnings}`,
+  '',
+  '## Warnings',
+  warnings.length ? warnings.map((row) => `- ${row.kind}: ${row.path} - ${row.detail}`).join('\n') : '- none',
   '',
   '## Violations',
   violations.length ? violations.map((row) => `- ${row.kind}: ${row.path} - ${row.detail}`).join('\n') : '- none',

@@ -18159,8 +18159,11 @@ function chatPage() {
         }).catch(function() {
           return InfringAPI.post('/api/shell-socket/agent-runtime/turn', turnRequest);
         });
-        if (res && res.pending_permission_request) {
-          var pendingPermissionRequest = res.pending_permission_request;
+        var projectedPendingPermissionRequest = res && res.pending_permission_request
+          ? res.pending_permission_request
+          : (res && res.permission_request ? res.permission_request : null);
+        if (projectedPendingPermissionRequest) {
+          var pendingPermissionRequest = projectedPendingPermissionRequest;
           pendingPermissionRequest.projection_kind = 'permission_request';
           pendingPermissionRequest.projection_schema_version = 1;
           var pendingRuntimeDurationMs = Math.max(0, Date.now() - startedAt);
@@ -18263,7 +18266,8 @@ function chatPage() {
           });
         }
         if (!String(runtimeText || '').trim()) {
-          if (!(res && res.pending_permission_request)) InfringToast.info('Agent runtime returned no display text.');
+          var hadPermissionPause = !!(res && (res.pending_permission_request || res.permission_request));
+          if (!hadPermissionPause) InfringToast.info('Agent runtime returned no display text.');
           var emptyText = 'Agent runtime returned no display text.';
           if (typeof this.appendAgentRuntimeActivityToThinkingRow === 'function') {
             this.appendAgentRuntimeActivityToThinkingRow({

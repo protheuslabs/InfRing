@@ -1,6 +1,6 @@
 # TODO Archive
 
-Updated: 2026-06-07T00:02:27.302Z
+Updated: 2026-06-09T17:47:37.857Z
 
 ## How To Use This File
 - This is the historical ledger for completed work, not the live queue.
@@ -17,6 +17,46 @@ Updated: 2026-06-07T00:02:27.302Z
 - existing_coverage_validated: 2302
 
 ## Scripted Completion Archive
+- `AR-DECISION-TRACE` — Preserve useful decision and activity traces without raw noise
+  completed_at: `2026-06-09T17:47:37.855Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-20`
+  source_family: `Unified Agent Runtime Checkpoint`
+  summary: Objective: users should be able to steer and audit external-agent work from concise activity and decision traces. Smallest slice: capture Codex and Claude status/dialog streams into a canonical runtime activity projection with raw details behind refs. Allowed lanes: gateway, adapters as translators, observability, validation. Forbidden lanes: Shell cognition or unbounded raw trace rendering. Evidence: activity/decision trace harness with compact post-turn summary. Promotion rule: promote when latest activity is visible live, final Worked-for summary is collapsible, and raw trace noise stays behind bounded refs.
+  completion_note: Promoted: activity projection guard now requires Codex/Claude decision-dialog preservation, rejects status suffix sandwich rows, and passes with compact user-facing trace rows.
+- `AR-TRANSCRIPT-PERSISTENCE` — Persist external runtime turns as canonical conversation records
+  completed_at: `2026-06-09T17:47:37.386Z`
+  previous_section: `yellow`
+  owner: `codex`
+  deadline: `2026-06-20`
+  source_family: `Unified Agent Runtime Checkpoint`
+  summary: Objective: external engine messages must survive reloads exactly like native messages. Smallest slice: prove user prompt, assistant response, runtime metadata, permission state, and trace refs persist for Codex and Claude turns. Allowed lanes: gateway, storage/projection contracts, validation, observability. Forbidden lanes: visual-only Shell message injection or adapter-owned transcript truth. Evidence: transcript persistence replay across refresh/restart. Promotion rule: promote when external runtime sessions reload with complete visible history and bounded refs.
+  completion_note: Promoted: transcript persistence parity and route transcript persistence guards now focus active_promotion_engines and pass with Gateway-owned canonical rows and context preview reload.
+- `AR-APPROVAL-PAUSE` — Make permission approval truly pause and resume turns
+  completed_at: `2026-06-09T17:47:36.901Z`
+  previous_section: `red`
+  owner: `codex`
+  deadline: `2026-06-16`
+  source_family: `Unified Agent Runtime Checkpoint`
+  summary: Objective: approval-required actions must pause the active turn instead of ending as inert text. Smallest slice: prove proposal -> Gateway pending request -> user decision -> resume/deny receipt for Codex and Claude. Allowed lanes: gateway, adapters, validation, observability. Forbidden lanes: Shell reconstructing proposal arguments or adapter policy decisions. Evidence: approval pause/resume guard plus live replay with accepted and denied decisions. Promotion rule: promote when approval popup appears before terminal state and post-approval activity appends to the same turn trace.
+  completion_note: Promoted: approval store/resume and public approval lifecycle guards passed; Codex and Claude both prove Gateway pending request, resume token, bounded proposal args, decision receipt, and approved effect execution.
+- `AR-CONTEXT-CONTINUITY` — Prove cross-engine context continuity
+  completed_at: `2026-06-09T17:47:36.435Z`
+  previous_section: `red`
+  owner: `codex`
+  deadline: `2026-06-16`
+  source_family: `Unified Agent Runtime Checkpoint`
+  summary: Objective: ensure engines never start cold when InfRing has conversation context. Smallest slice: prove last-turn and bounded prior context are delivered to Codex and Claude through the Gateway-owned context pack. Allowed lanes: gateway, validation, observability, memory projection contracts. Forbidden lanes: Shell-owned context assembly or adapter-owned memory authority. Evidence: continuity harness artifact showing follow-up turns across Codex and Claude. Promotion rule: promote when both engines correctly answer follow-up tasks after switching without raw full-history payloads.
+  completion_note: Promoted: context continuity eval now defaults to active_promotion_engines and passed for infring_native, codex_cli, and claude_code with Gateway/Kernal context-pack evidence.
+- `AR-GOLDEN-PAIR` — Prove Codex and Claude Code as golden Agent Runtime engines
+  completed_at: `2026-06-09T17:47:35.951Z`
+  previous_section: `red`
+  owner: `codex`
+  deadline: `2026-06-16`
+  source_family: `Unified Agent Runtime Checkpoint`
+  summary: Objective: make Codex and Claude Code reliable daily-driver engines through InfRing. Smallest slice: run and score the core harness against both engines before widening the live set. Allowed lanes: gateway, adapters, validation, observability, docs. Forbidden lanes: legacy Shell refactors and Orchestration rewrites unless explicitly authorized. Evidence: agent runtime task harness result, engine scorecard, live-work replay summary. Promotion rule: promote only when both engines pass context, approval, persistence, failure, and activity-trace checks with compact proof refs.
+  completion_note: Promoted: engine focus guard and engine scorecard now enforce native + Codex + Claude as the active promotion lane, with catalog-only engines prevented from being treated as promoted.
 - `AGENT-RUNTIME-APPROVAL-PAUSE-RESUME` — Make approval gates pause and resume runtime turns
   completed_at: `2026-06-07T00:02:27.301Z`
   previous_section: `yellow`

@@ -25,7 +25,13 @@
   },
   "source_artifacts": {
     "task_harness_report_json": "core/local/artifacts/agent-runtime-task-harness/20260608214233-64571641/agent_runtime_task_harness_report.json",
-    "task_harness_report_markdown": "core/local/artifacts/agent-runtime-task-harness/20260608214233-64571641/AGENT_RUNTIME_TASK_HARNESS_REPORT.md"
+    "task_harness_report_markdown": "core/local/artifacts/agent-runtime-task-harness/20260608214233-64571641/AGENT_RUNTIME_TASK_HARNESS_REPORT.md",
+    "engine_scorecard": "core/local/artifacts/agent_runtime_engine_scorecard_current.json",
+    "native_transport_probe": "core/local/artifacts/agent_runtime_native_transport_probe_current.json",
+    "claude_stream_json_mapping_probe": "core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json",
+    "claude_stream_json_live_acceptance_probe": "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json",
+    "codex_app_server_mapping_probe": "core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json",
+    "codex_app_server_live_acceptance_probe": "core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json"
   },
   "summary": {
     "planned": 0,
@@ -39,6 +45,64 @@
       "red": 0,
       "yellow": 1,
       "white": 0
+    },
+    "engine_scorecard_summary": {
+      "golden_pair": [
+        {
+          "engine_id": "codex_cli",
+          "display_name": "Codex",
+          "classification": "practical_with_gaps",
+          "score": 0.84,
+          "practical_usability_loop": "pass",
+          "pending_exit_criteria": []
+        },
+        {
+          "engine_id": "claude_code",
+          "display_name": "Claude Code",
+          "classification": "practical_with_gaps",
+          "score": 0.84,
+          "practical_usability_loop": "pass",
+          "pending_exit_criteria": [
+            "upstream_native_transport_probe"
+          ]
+        }
+      ],
+      "source_artifact_ref": "core/local/artifacts/agent_runtime_engine_scorecard_current.json"
+    },
+    "native_transport_probe_summary": {
+      "bounded_envelope_engine_count": 5,
+      "native_transport_available_count": 1,
+      "pending_probe_count": 4,
+      "pending_engines": [
+        "claude_code",
+        "grok_code",
+        "opencode",
+        "hermes_agent"
+      ],
+      "pending_exit_criteria": [
+        "upstream_native_transport_probe"
+      ],
+      "source_artifact_ref": "core/local/artifacts/agent_runtime_native_transport_probe_current.json"
+    },
+    "claude_stream_json_transport_summary": {
+      "mapping_probe_status": "candidate_mapping_ready",
+      "live_acceptance_probe_status": "disabled_by_default_pending_live_acceptance",
+      "typed_turn_api_available": false,
+      "source_artifact_refs": [
+        "core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json",
+        "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json"
+      ],
+      "next_action": "Run the gated live Claude stream-json acceptance probe only when explicit token/API usage is acceptable."
+    },
+    "codex_app_server_transport_summary": {
+      "mapping_probe_status": "candidate_mapping_ready",
+      "live_acceptance_probe_status": "accepted_by_runtime",
+      "typed_turn_api_available": true,
+      "source_artifact_refs": [
+        "core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json",
+        "core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json"
+      ],
+      "next_action": "Use Codex app-server thread/start + turn/start as the typed transport lane for future Codex integration work."
     }
   },
   "results": [
@@ -97,10 +161,17 @@
   "known_gaps": [
     {
       "severity": "yellow",
-      "framework_id": "codex_cli",
+      "framework_id": "claude_code",
       "kind": "known_framework_gap",
-      "summary": "True native structured context input remains blocked on upstream Codex CLI support; InfRing uses a bounded stdin context envelope with JSONL output until a native structured input API exists.",
-      "next_action": "Promote this known gap into a targeted live harness task or close it with evidence."
+      "summary": "Claude stream-json live typed transport acceptance remains pending; InfRing uses a bounded CLI context envelope until live acceptance is proven.",
+      "next_action": "Run the gated live Claude stream-json acceptance probe only when explicit token/API usage is acceptable."
+    },
+    {
+      "severity": "yellow",
+      "framework_id": "golden_pair",
+      "kind": "upstream_native_transport_probe_pending",
+      "summary": "Codex and Claude Code pass the practical usability loop. Codex app-server now has live typed transport acceptance proof; Claude stream-json remains disabled-by-default pending live acceptance.",
+      "next_action": "Use Codex app-server typed transport as the primary structured lane and run Claude stream-json live acceptance only when explicit runtime/token/API usage is acceptable."
     }
   ],
   "limits": [
@@ -109,4 +180,3 @@
     "Raw local artifacts are not committed and may be pruned by artifact retention."
   ]
 }
-

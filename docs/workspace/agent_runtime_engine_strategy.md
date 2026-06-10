@@ -4,6 +4,43 @@ InfRing should treat agent runtimes as swappable engines connected through Gatew
 
 The near-term goal is to let InfRing use strong external frameworks while preserving InfRing's own substrate: Kernel authority, Gateway boundaries, Memory context, Observability traces, Validation checks, and Governance policy.
 
+## Current checkpoint focus
+
+The active checkpoint is not "make every framework first-class."
+
+The active checkpoint is:
+
+```text
+Prove Codex and Claude Code as the golden external runtime pair.
+```
+
+The current promotion lanes are:
+
+- `infring_native` as the separate native InfRing intelligence/runtime lane
+- `codex_cli` and `claude_code` as the two primary external engines
+
+Other engines may remain cataloged or UI-selectable when useful, but cataloged/selectable does not mean promoted. Engines outside the golden pair must not be described as reliable, promoted, production-ready, baseline-covered, or golden-pair-equivalent until they pass the same primitive runtime baseline.
+
+Required golden-pair baseline:
+
+- completed visible response
+- permission-required terminal state
+- approval resume completion
+- typed failure projection
+- context continuity
+- transcript persistence
+- activity/decision trace projection
+- compact evidence artifact
+
+The accounting rule remains:
+
+```text
+external engine mediated work = substrate/platform proof
+InfRing-native useful work = native intelligence/runtime proof
+```
+
+Do not mix these ledgers.
+
 ## Engine role
 
 External frameworks such as Codex CLI, Claude Code, Grok Code, OpenHands, OpenClaw, OpenFang, and future socket engines are work runtimes. They may perform reasoning, coding, and task execution inside bounded scopes, but they do not own durable truth.
@@ -79,14 +116,16 @@ Premature LLM manipulation risks building advanced infrastructure before the pro
 ## Practical milestone order
 
 1. Reliable framework selection in the dashboard.
-2. Context continuity across Codex, Claude Code, Grok Code, native, and socket engines.
-3. Universal core-tool proposals across engines.
-4. Real coding/task workflows through external frameworks inside InfRing.
-5. Structured JSON context transport for socket-capable engines.
-6. Ref-based memory/artifact access through Gateway.
-7. InfRing-native orchestration improvements.
-8. LLM manipulation and specialist model training.
-9. Token/embedding/KV/context transcoding primitives.
+2. Codex and Claude Code pass the same golden-pair runtime baseline through Gateway.
+3. Context continuity across Codex, Claude Code, and native InfRing.
+4. Universal core-tool proposals across the golden pair.
+5. Real coding/task workflows through the golden pair inside InfRing.
+6. Structured JSON context transport for socket-capable engines.
+7. Ref-based memory/artifact access through Gateway.
+8. One additional comparison engine may be promoted only after matching the golden-pair baseline.
+9. InfRing-native orchestration improvements.
+10. LLM manipulation and specialist model training.
+11. Token/embedding/KV/context transcoding primitives.
 
 ## Operating rule
 

@@ -17,7 +17,7 @@ const SCRATCH_DIR = path.join(ROOT, 'core/local/artifacts/agent-runtime-route-tr
 const AGENT_ID = 'agent-runtime-route-transcript-persistence-agent';
 const SESSION_ID = 'agent-runtime-route-transcript-persistence-session';
 const CONTINUITY_KEY = 'route-transcript-key: violet-raven-318';
-const ENGINES = ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'openclaw', 'hermes_agent'];
+const ENGINES = ['infring_native', 'codex_cli', 'claude_code'];
 
 function clean(value, max = 4000) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -282,6 +282,7 @@ async function main() {
     type: 'agent_runtime_route_transcript_persistence_guard',
     generated_at: new Date().toISOString(),
     mode: 'deterministic_public_gateway_route',
+    engine_scope_source: 'active_promotion_engines',
     engines_tested: ENGINES,
     turn_results: turnResults.map((row) => ({
       engine_id: row.engine_id,

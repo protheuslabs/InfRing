@@ -1,0 +1,353 @@
+{
+  "type": "web_tooling_reliability",
+  "schema_version": 1,
+  "generated_at": "2026-05-01T18:06:39.156Z",
+  "strict_mode": true,
+  "ok": false,
+  "fixture_path": "validation/regression/fixtures/web_tooling_extraction_contract_matrix.json",
+  "soak_path": "artifacts/web_tooling_context_soak_report_latest.json",
+  "soak_context": {
+    "present": true,
+    "ok": false,
+    "taxonomy_parse_error": "taxonomy_marker_missing"
+  },
+  "provider_cache_contract": {
+    "provider_failure_count": 0,
+    "provider_failure_modes": [],
+    "provider_failure_contract_violation_count": 0,
+    "cache_skipped": false,
+    "cache_skip_reason": "",
+    "cache_skip_reason_missing_count": 0,
+    "cache_write_allowed": false,
+    "cache_write_attempted": false,
+    "cache_stale_age_seconds": null,
+    "cache_stale_age_required": false,
+    "cache_stale_age_missing_count": 0,
+    "cache_write_gate_violation_count": 0
+  },
+  "soak_taxonomy_contract": {
+    "workflow_loop_leak_count": 0,
+    "file_tool_route_misdirection_count": 0,
+    "workflow_loop_leak_contract_violation_count": 0,
+    "file_tool_route_misdirection_contract_violation_count": 0,
+    "failures": []
+  },
+  "counters": {
+    "total_cases": 11,
+    "passed_cases": 11,
+    "failed_cases": 0,
+    "extraction_fidelity_fail_count": 0,
+    "parse_drift_count": 1,
+    "ambiguous_fetch_search_parse_count": 0,
+    "chrome_leak_count": 0,
+    "source_attribution_failure_count": 0,
+    "provider_failure_contract_violation_count": 0,
+    "cache_skip_reason_missing_count": 0,
+    "cache_write_gate_violation_count": 0,
+    "cache_stale_age_missing_count": 0,
+    "benchmark_instruction_leak_count": 0,
+    "benchmark_intent_overlap_hygiene_violation_count": 0,
+    "metadata_card_leak_count": 0,
+    "metadata_card_line_shape_leak_count": 0,
+    "raw_function_scaffold_leak_count": 0,
+    "tool_trace_blocked_scaffold_leak_count": 0,
+    "runtime_capability_template_leak_count": 0,
+    "workflow_retry_template_leak_count": 0,
+    "workflow_unexpected_state_template_leak_count": 0,
+    "source_receipt_scaffold_leak_count": 0,
+    "tool_routing_diagnosis_template_leak_count": 0,
+    "ingress_policy_preamble_template_leak_count": 0,
+    "tool_block_input_result_scaffold_leak_count": 0,
+    "workflow_loop_leak_contract_violation_count": 0,
+    "file_tool_route_misdirection_contract_violation_count": 0
+  },
+  "thresholds": {
+    "extraction_fidelity_fail_max": 0,
+    "parse_drift_max": 0,
+    "ambiguous_fetch_search_parse_max": 0,
+    "chrome_leak_max": 0,
+    "source_attribution_failure_max": 0,
+    "provider_failure_contract_violation_max": 0,
+    "cache_skip_reason_missing_max": 0,
+    "cache_write_gate_violation_max": 0,
+    "cache_stale_age_missing_max": 0,
+    "benchmark_instruction_leak_max": 0,
+    "benchmark_intent_overlap_hygiene_violation_max": 0,
+    "metadata_card_leak_max": 0,
+    "metadata_card_line_shape_leak_max": 0,
+    "raw_function_scaffold_leak_max": 0,
+    "tool_trace_blocked_scaffold_leak_max": 0,
+    "runtime_capability_template_leak_max": 0,
+    "workflow_retry_template_leak_max": 0,
+    "workflow_unexpected_state_template_leak_max": 0,
+    "source_receipt_scaffold_leak_max": 0,
+    "tool_routing_diagnosis_template_leak_max": 0,
+    "ingress_policy_preamble_template_leak_max": 0,
+    "tool_block_input_result_scaffold_leak_max": 0,
+    "workflow_loop_leak_contract_violation_max": 0,
+    "file_tool_route_misdirection_contract_violation_max": 0
+  },
+  "gate_checks": [
+    {
+      "id": "web_extraction_fidelity",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_parse_drift",
+      "ok": false,
+      "detail": "value=1 max=0"
+    },
+    {
+      "id": "web_ambiguous_fetch_search_parse",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_chrome_leakage",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_source_attribution_integrity",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_provider_failure_contract",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_cache_skip_reason_contract",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_cache_write_fail_closed",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_cache_stale_age_contract",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_benchmark_instruction_snippet_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_benchmark_intent_overlap_hygiene",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_metadata_card_scaffold_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_metadata_card_line_shape_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_raw_function_scaffold_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_tool_trace_blocked_scaffold_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_runtime_capability_template_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_workflow_retry_template_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_workflow_unexpected_state_template_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_source_receipt_scaffold_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_tool_routing_diagnosis_template_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_ingress_policy_preamble_template_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_tool_block_input_result_scaffold_suppression",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_workflow_loop_leak_contract",
+      "ok": true,
+      "detail": "value=0 max=0"
+    },
+    {
+      "id": "web_file_tool_route_misdirection_contract",
+      "ok": true,
+      "detail": "value=0 max=0"
+    }
+  ],
+  "failed_case_ids": [],
+  "case_results": [
+    {
+      "id": "web_fetch_article_html_chrome_removed",
+      "mode": "web_fetch",
+      "inferred_mode": "web_fetch",
+      "mode_match": true,
+      "expected_missing": [],
+      "forbidden_present": [],
+      "source_attribution_ok": true,
+      "source_attribution_issues": [],
+      "extraction_ok": true,
+      "ok": true
+    },
+    {
+      "id": "web_fetch_script_noise_removed",
+      "mode": "web_fetch",
+      "inferred_mode": "web_fetch",
+      "mode_match": true,
+      "expected_missing": [],
+      "forbidden_present": [],
+      "source_attribution_ok": true,
+      "source_attribution_issues": [],
+      "extraction_ok": true,
+      "ok": true
+    },
+    {
+      "id": "web_search_result_summaries_clean",
+      "mode": "web_search",
+      "inferred_mode": "web_search",
+      "mode_match": true,
+      "expected_missing": [],
+      "forbidden_present": [],
+      "source_attribution_ok": true,
+      "source_attribution_issues": [],
+      "extraction_ok": true,
+      "ok": true
+    },
+    {
+      "id": "web_search_parser_no_html_chrome_leak",
+      "mode": "web_search",
+      "inferred_mode": "web_search",
+      "mode_match": true,
+      "expected_missing": [],
+      "forbidden_present": [],
+      "source_attribution_ok": true,
+      "source_attribution_issues": [],
+      "extraction_ok": true,
+      "ok": true
+    },
+    {
+      "id": "web_search_instruction_snippet_suppressed",
+      "mode": "web_search",
+      "inferred_mode": "web_search",
+      "mode_match": true,
+      "expected_missing": [],
+      "forbidden_present": [],
+      "source_attribution_ok": true,
+      "source_attribution_issues": [],
+      "extraction_ok": true,
+      "ok": true
+    },
+    {
+      "id": "web_fetch_benchmark_command_scaffold_removed",
+      "mode": "web_fetch",
+      "inferred_mode": "web_fetch",
+      "mode_match": true,
+      "expected_missing": [],
+      "forbidden_present": [],
+      "source_attribution_ok": true,
+      "source_attribution_issues": [],
+      "extraction_ok": true,
+      "ok": true
+    },
+    {
+      "id": "web_search_metadata_card_keyset_suppressed",
+      "mode": "web_search",
+      "inferred_mode": "web_search",
+      "mode_match": true,
+      "expected_missing": [],
+      "forbidden_present": [],
+      "source_attribution_ok": true,
+      "source_attribution_issues": [],
+      "extraction_ok": true,
+      "ok": true
+    },
+    {
+      "id": "web_search_raw_function_scaffold_suppressed",
+      "mode": "web_search",
+      "inferred_mode": "web_search",
+      "mode_match": true,
+      "expected_missing": [],
+      "forbidden_present": [],
+      "source_attribution_ok": true,
+      "source_attribution_issues": [],
+      "extraction_ok": true,
+      "ok": true
+    },
+    {
+      "id": "web_search_tool_trace_blocked_scaffold_suppressed",
+      "mode": "web_search",
+      "inferred_mode": "web_search",
+      "mode_match": true,
+      "expected_missing": [],
+      "forbidden_present": [],
+      "source_attribution_ok": true,
+      "source_attribution_issues": [],
+      "extraction_ok": true,
+      "ok": true
+    },
+    {
+      "id": "web_search_policy_gate_outage_template_suppressed",
+      "mode": "web_search",
+      "inferred_mode": "web_search",
+      "mode_match": true,
+      "expected_missing": [],
+      "forbidden_present": [],
+      "source_attribution_ok": true,
+      "source_attribution_issues": [],
+      "extraction_ok": true,
+      "ok": true
+    },
+    {
+      "id": "web_search_route_classification_template_suppressed",
+      "mode": "web_search",
+      "inferred_mode": "web_search",
+      "mode_match": true,
+      "expected_missing": [],
+      "forbidden_present": [],
+      "source_attribution_ok": true,
+      "source_attribution_issues": [],
+      "extraction_ok": true,
+      "ok": true
+    }
+  ],
+  "failures": [
+    {
+      "id": "web_tooling_context_soak_taxonomy_parse_error",
+      "detail": "taxonomy_marker_missing"
+    }
+  ]
+}

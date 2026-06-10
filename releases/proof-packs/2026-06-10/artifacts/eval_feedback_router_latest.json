@@ -1,0 +1,108 @@
+{
+  "checks": [
+    {
+      "detail": "routes=0;malformed=0",
+      "id": "eval_feedback_route_coverage_contract",
+      "ok": true
+    },
+    {
+      "detail": "destinations=control_plane_retry,gateway_quarantine,kernel_block",
+      "id": "eval_feedback_destination_set_contract",
+      "ok": true
+    },
+    {
+      "detail": "regression_failed=false;kernel_block_routes=0",
+      "id": "eval_regression_release_block_contract",
+      "ok": true
+    },
+    {
+      "detail": "raw_routes=0;deduped_routes=0",
+      "id": "eval_feedback_route_dedupe_contract",
+      "ok": true
+    },
+    {
+      "detail": "raw_routes=0;clustered_occurrences=0",
+      "id": "eval_feedback_occurrence_accounting_contract",
+      "ok": true
+    },
+    {
+      "detail": "issue_candidates=0;malformed_actionability=0",
+      "id": "eval_issue_candidate_actionability_contract",
+      "ok": true
+    }
+  ],
+  "generated_at": "unix_ms:1780280569727",
+  "issue_candidate_policy": {
+    "auto_apply_allowed": false,
+    "dedupe_before_issue_synthesis": true,
+    "ready_when": [
+      "destination=kernel_block",
+      "destination=gateway_quarantine",
+      "severity=critical|release_blocking|high",
+      "occurrence_count>=2"
+    ]
+  },
+  "issue_candidates": [],
+  "ok": true,
+  "routes": [],
+  "schema_version": 1,
+  "sources": {
+    "eval_issue_drafts": "core/local/artifacts/eval_issue_drafts_current.json",
+    "eval_regression_guard": "core/local/artifacts/eval_regression_guard_current.json"
+  },
+  "summary": {
+    "clustered_occurrence_count": 0,
+    "control_plane_retry": 0,
+    "dedupe_compression_ratio": 1.0,
+    "deduped_route_count": 0,
+    "destinations": {
+      "control_plane_retry": 0,
+      "gateway_quarantine": 0,
+      "kernel_block": 0
+    },
+    "eval_release_gate": "not_blocked",
+    "gateway_quarantine": 0,
+    "issue_candidate_actionability_failure_count": 0,
+    "issue_candidate_actionability_ok": true,
+    "issue_candidate_priority_bands": {
+      "p0": 0,
+      "p1": 0,
+      "p2": 0,
+      "p3": 0
+    },
+    "issue_candidate_ready": false,
+    "issue_candidate_ready_count": 0,
+    "kernel_block": 0,
+    "p0_issue_candidate_count": 0,
+    "raw_route_count": 0,
+    "release_blocking_issue_candidate_count": 0,
+    "release_blocking_occurrence_count": 0,
+    "route_count": 0,
+    "severity_counts": {
+      "critical": 0,
+      "high": 0,
+      "low": 0,
+      "medium": 0,
+      "release_blocking": 0
+    },
+    "severity_occurrences": {
+      "critical": 0,
+      "high": 0,
+      "low": 0,
+      "medium": 0,
+      "release_blocking": 0
+    },
+    "top_issue_candidate": {},
+    "top_issue_candidate_action": "",
+    "top_issue_candidate_closing_evidence": "",
+    "top_issue_candidate_closure_verification_command": "",
+    "top_issue_candidate_escalation_tier": "",
+    "top_issue_candidate_fingerprint": "",
+    "top_issue_candidate_lifecycle_state": "",
+    "top_issue_candidate_owner": "",
+    "top_issue_candidate_release_gate_effect": "",
+    "top_issue_candidate_source_artifact_count": 0,
+    "top_issue_candidate_triage_queue": ""
+  },
+  "type": "eval_feedback_router"
+}

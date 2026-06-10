@@ -63,7 +63,13 @@ const CURRENT_EVIDENCE_ALLOWED_SUFFIXES = [
   'release_scorecard.json',
   'benchmark_matrix_run_latest.json',
   'support_bundle_latest.json',
+  '.md',
+  '.jsonl',
 ];
+const CURRENT_EVIDENCE_ALLOWED_PATHS = new Set([
+  'core/local/artifacts/gateway_manifest.json',
+  'core/local/artifacts/layer2_parity_matrix.json',
+]);
 
 function parseArgs(argv: string[]) {
   const common = parseStrictOutArgs(argv, {
@@ -272,6 +278,7 @@ function isCurrentEvidencePath(relPath: string): boolean {
   if (normalized.includes('/releases/proof-packs/')) return false;
   if (normalized.startsWith('validation/release_gates/proof_packs/')) return false;
   if (normalized.includes('/validation/release_gates/proof_packs/')) return false;
+  if (CURRENT_EVIDENCE_ALLOWED_PATHS.has(normalized)) return true;
   return CURRENT_EVIDENCE_ALLOWED_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
 }
 

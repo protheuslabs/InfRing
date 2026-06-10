@@ -514,6 +514,7 @@
       var out = [];
       for (var i = 0; i < rows.length && out.length < 40; i += 1) {
         var event = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        if (typeof this.agentRuntimeActivityVisibleInThinkingBubble === 'function' && !this.agentRuntimeActivityVisibleInThinkingBubble(event)) continue;
         var kind = String(event.activity_kind || event.kind || '').trim();
         var text = String(event.display_text || event.text || event.summary || '').replace(/\r\n/g, '\n').trim();
         var providerType = String(event.provider_event_type || event.event_type || '').trim();
@@ -563,7 +564,8 @@
       var row = event && typeof event === 'object' ? event : {};
       var kind = String(row.activity_kind || row.kind || row.type || '').toLowerCase();
       var providerType = String(row.provider_event_type || row.event_type || '').toLowerCase();
-      var joined = kind + ' ' + providerType;
+      var text = String(row.display_text || row.text || row.summary || '').toLowerCase();
+      var joined = kind + ' ' + providerType + ' ' + text;
       if (
         joined.indexOf('decision') >= 0 ||
         joined.indexOf('reasoning') >= 0 ||
@@ -574,14 +576,31 @@
         return 'dialog';
       }
       if (
-        joined.indexOf('command') >= 0 ||
-        joined.indexOf('exec') >= 0 ||
-        joined.indexOf('shell') >= 0 ||
         joined.indexOf('file') >= 0 ||
         joined.indexOf('patch') >= 0 ||
         joined.indexOf('write') >= 0 ||
-        joined.indexOf('tool') >= 0 ||
+        joined.indexOf('edit') >= 0 ||
+        joined.indexOf('diff') >= 0 ||
+        /\b(apply_patch|tee|touch|mkdir|rm|mv|cp)\b/.test(joined) ||
+        />\s*[^&|;]+/.test(joined)
+      ) {
+        return 'write';
+      }
+      if (
         joined.indexOf('search') >= 0 ||
+        joined.indexOf('grep') >= 0 ||
+        joined.indexOf('find') >= 0 ||
+        joined.indexOf('read') >= 0 ||
+        joined.indexOf('open') >= 0 ||
+        /\b(rg|grep|sed|cat|ls|find|pwd|head|tail|wc)\b/.test(joined)
+      ) {
+        return 'read';
+      }
+      if (
+        joined.indexOf('command') >= 0 ||
+        joined.indexOf('exec') >= 0 ||
+        joined.indexOf('shell') >= 0 ||
+        joined.indexOf('tool') >= 0 ||
         joined.indexOf('permission') >= 0 ||
         joined.indexOf('approval') >= 0 ||
         joined.indexOf('error') >= 0
@@ -589,6 +608,52 @@
         return 'tool';
       }
       return 'status';
+    },
+
+    agentRuntimeActivityTraceTarget: function(row, text) {
+      var event = row && typeof row === 'object' ? row : {};
+      var rawText = String(text || event.display_text || event.text || event.summary || '').replace(/\r\n/g, '\n').trim();
+      var itemIdTarget = String(event.target || event.path || event.file_path || event.filename || event.tool_name || event.name || '').trim();
+      if (itemIdTarget) return itemIdTarget.slice(0, 900);
+      var patterns = [
+        /^(?:Working on|Completed|Failed) command:\s*([\s\S]+)$/i,
+        /^(?:Working on|Completed|Failed) file change:\s*([\s\S]+)$/i,
+        /^(?:Working on|Completed|Failed) search:\s*([\s\S]+)$/i,
+        /^(?:Working on|Completed|Failed) tool:\s*([\s\S]+)$/i,
+        /^Reading file:\s*([\s\S]+)$/i,
+        /^Runtime event:\s*([\s\S]+)$/i
+      ];
+      for (var i = 0; i < patterns.length; i += 1) {
+        var match = rawText.match(patterns[i]);
+        if (match && match[1]) return String(match[1]).replace(/\s+/g, ' ').trim().slice(0, 900);
+      }
+      return rawText.split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 900);
+    },
+
+    agentRuntimeActivityTraceKey: function(row, lineKind, target) {
+      var event = row && typeof row === 'object' ? row : {};
+      var itemId = String(event.item_id || event.itemId || event.tool_call_ref || '').trim();
+      if (itemId) return 'item|' + itemId.slice(0, 180);
+      var normalizedTarget = String(target || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (normalizedTarget) return [lineKind || 'activity', normalizedTarget].join('|').slice(0, 240);
+      return '';
+    },
+
+    agentRuntimeActivityTraceText: function(row, lineKind, state, target) {
+      var event = row && typeof row === 'object' ? row : {};
+      var cleanTarget = String(target || '').replace(/\s+/g, ' ').trim();
+      var done = state === 'done';
+      var error = state === 'error';
+      if (lineKind === 'write') {
+        return (error ? 'failed writing ' : done ? 'wrote ' : 'writing ') + (cleanTarget || 'file');
+      }
+      if (lineKind === 'read') {
+        return (error ? 'failed reading ' : done ? 'read ' : 'reading ') + (cleanTarget || 'workspace');
+      }
+      if (lineKind === 'tool') {
+        return (error ? 'failed running ' : done ? 'ran ' : 'running ') + (cleanTarget || 'tool call');
+      }
+      return String(event.display_text || event.text || event.summary || cleanTarget || '').replace(/\r\n/g, '\n').trim();
     },
 
     agentRuntimeActivityEventToTraceLine: function(event, engineId) {
@@ -599,20 +664,39 @@
       if (!text) return null;
       var status = String(row.status || '').trim();
       var kind = this.agentRuntimeActivityLineKind(row);
+      var state = status === 'failed' || status === 'error'
+        ? 'error'
+        : status === 'paused_pending_approval'
+          ? 'blocked'
+          : status === 'running' || status === 'started' || status === 'activity'
+            ? 'running'
+            : 'done';
+      var target = this.agentRuntimeActivityTraceTarget(row, text);
+      var displayText = this.agentRuntimeActivityTraceText(row, kind, state, target);
+      var normalizedDisplayText = String(displayText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (
+        kind === 'status' &&
+        (
+          normalizedDisplayText.indexOf('final answer is shown in the message') >= 0 ||
+          normalizedDisplayText.indexOf('assistant draft streamed') >= 0 ||
+          normalizedDisplayText.indexOf('returned completed') >= 0 ||
+          normalizedDisplayText.indexOf('completed the turn') >= 0 ||
+          normalizedDisplayText.indexOf('finished its turn') >= 0
+        )
+      ) {
+        return null;
+      }
+      var activityKey = this.agentRuntimeActivityTraceKey(row, kind, target);
       return {
-        id: String(row.item_id || row.sequence_no || (kind + '-' + Date.now() + '-' + Math.random())).slice(0, 180),
-        text: text.split('\n').map(function(part) {
+        id: String(activityKey || row.item_id || row.sequence_no || (kind + '-' + Date.now() + '-' + Math.random())).slice(0, 180),
+        text: String(displayText || text).split('\n').map(function(part) {
           return String(part || '').replace(/\s+/g, ' ').trim();
         }).filter(Boolean).join('\n').slice(0, 1400),
         line_kind: kind,
-        state: status === 'failed' || status === 'error'
-          ? 'error'
-          : status === 'paused_pending_approval'
-            ? 'blocked'
-            : status === 'running' || status === 'started' || status === 'activity'
-              ? 'running'
-              : 'done',
+        state: state,
         status: status,
+        activity_key: activityKey,
+        activity_target: target,
         engine_id: String(row.engine_id || engineId || '').trim(),
         ts: Date.now()
       };
@@ -624,6 +708,24 @@
       var lastTrace = traceRows.length ? traceRows[traceRows.length - 1] : null;
       var nextText = String(traceLine.text || '').trim();
       var nextKind = String(traceLine.line_kind || 'status');
+      var nextKey = String(traceLine.activity_key || '').trim();
+      var nextTarget = String(traceLine.activity_target || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if ((nextKey || nextTarget) && nextKind !== 'dialog') {
+        for (var i = traceRows.length - 1; i >= 0; i -= 1) {
+          var rowKey = String(traceRows[i].activity_key || '').trim();
+          var rowKind = String(traceRows[i].line_kind || 'status');
+          var rowTarget = String(traceRows[i].activity_target || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if (
+            rowKey === nextKey ||
+            (nextTarget && rowTarget === nextTarget && rowKind === nextKind)
+          ) {
+            traceRows[i] = Object.assign({}, traceRows[i], traceLine, { id: traceRows[i].id || traceLine.id });
+            target.agent_runtime_live_trace_rows = traceRows.slice(-48);
+            if (typeof this.scheduleThinkingBubbleSizeStabilization === 'function') this.scheduleThinkingBubbleSizeStabilization(target);
+            return true;
+          }
+        }
+      }
       if (
         lastTrace &&
         String(lastTrace.line_kind || '') === nextKind &&
@@ -649,6 +751,7 @@
         traceRows.push(traceLine);
       }
       target.agent_runtime_live_trace_rows = traceRows.slice(-48);
+      if (typeof this.scheduleThinkingBubbleSizeStabilization === 'function') this.scheduleThinkingBubbleSizeStabilization(target);
       return true;
     },
 
@@ -691,6 +794,7 @@
       var seen = Object.create(null);
       for (var i = 0; i < rows.length && lines.length < 160; i += 1) {
         var event = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        if (typeof this.agentRuntimeActivityVisibleInThinkingBubble === 'function' && !this.agentRuntimeActivityVisibleInThinkingBubble(event)) continue;
         var text = String(event.display_text || event.text || event.summary || '').replace(/\r\n/g, '\n').trim();
         var providerType = String(event.provider_event_type || event.event_type || '').trim();
         if (!text && providerType) text = this.agentRuntimeProviderEventLabel(providerType);
@@ -704,7 +808,9 @@
         if (
           lowerLine.indexOf('final answer is shown in the message') >= 0 ||
           lowerLine.indexOf('assistant draft streamed') >= 0 ||
-          lowerLine.indexOf('returned completed') >= 0
+          lowerLine.indexOf('returned completed') >= 0 ||
+          lowerLine.indexOf('completed the turn') >= 0 ||
+          lowerLine.indexOf('finished its turn') >= 0
         ) {
           continue;
         }
@@ -717,6 +823,18 @@
         lines.push(line);
       }
       return lines.join('\n');
+    },
+
+    agentRuntimeActivityEventsToTraceRows: function(events, engineId) {
+      var rows = Array.isArray(events) ? events : [];
+      var target = { agent_runtime_live_trace_rows: [] };
+      for (var i = 0; i < rows.length; i += 1) {
+        var event = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        if (typeof this.agentRuntimeActivityVisibleInThinkingBubble === 'function' && !this.agentRuntimeActivityVisibleInThinkingBubble(event)) continue;
+        var traceLine = this.agentRuntimeActivityEventToTraceLine(event, engineId);
+        if (traceLine && traceLine.text) this.appendActivityTraceLineToMessage(target, traceLine);
+      }
+      return Array.isArray(target.agent_runtime_live_trace_rows) ? target.agent_runtime_live_trace_rows.slice(-48) : [];
     },
 
     agentRuntimePermissionRequestToDecisionDialog: function(request) {
@@ -742,11 +860,51 @@
       return lines.join('\n');
     },
 
+    agentRuntimeActivityVisibleInThinkingBubble: function(event) {
+      var row = event && typeof event === 'object' ? event : {};
+      if (row.display_in_thinking_bubble === false || row.thinking_bubble_visible === false) return false;
+      var providerType = String(row.provider_event_type || row.event_type || row.type || '').toLowerCase();
+      var kind = String(row.activity_kind || row.kind || row.type || '').toLowerCase();
+      var text = String(row.display_text || row.text || row.summary || '').toLowerCase();
+      var joined = providerType + ' ' + kind + ' ' + text;
+      if (/decision|reasoning|thought|plan|permission|approval|error|failed/.test(joined)) return true;
+      if (/command|exec|shell|bash|tool|mcp|function|file|edit|patch|diff|write|search|grep|find/.test(joined)) return true;
+      if (
+        providerType === 'external_cli.launch' ||
+        providerType.indexOf('context.') >= 0 ||
+        providerType.indexOf('availability') >= 0 ||
+        providerType.indexOf('health') >= 0 ||
+        providerType.indexOf('session.') >= 0 ||
+        providerType.indexOf('prepare') >= 0 ||
+        providerType.indexOf('launch') >= 0 ||
+        providerType.indexOf('thread.started') >= 0 ||
+        providerType.indexOf('turn.started') >= 0 ||
+        providerType.indexOf('turn.completed') >= 0
+      ) {
+        return false;
+      }
+      if (
+        /^preparing\b/.test(text) ||
+        /^loaded \d+ prior context row/.test(text) ||
+        /^checking .* availability/.test(text) ||
+        /^starting .* session/.test(text) ||
+        /^launching .* turn with bounded context pack/.test(text) ||
+        /^launching .* cli\b/.test(text) ||
+        /^runtime thread started/.test(text) ||
+        /^runtime turn started/.test(text) ||
+        /^runtime completed the turn/.test(text)
+      ) {
+        return false;
+      }
+      return true;
+    },
+
     agentRuntimeActivityEventsToDecisionTool: function(events, engineId, durationMs, extraDialog) {
       var dialog = this.agentRuntimeActivityEventsToDecisionDialog(events);
+      var traceRows = this.agentRuntimeActivityEventsToTraceRows(events, engineId);
       var extra = String(extraDialog || '').trim();
       if (extra && dialog.indexOf(extra) < 0) dialog = dialog ? (dialog + '\n\n' + extra) : extra;
-      if (!dialog) return null;
+      if (!dialog && !traceRows.length) return null;
       var tool = typeof this.makeThoughtToolCard === 'function'
         ? this.makeThoughtToolCard(dialog, durationMs)
         : {
@@ -765,6 +923,7 @@
       tool.projection_kind = 'decision_dialog';
       tool.projection_schema_version = 1;
       tool.agent_decision_dialog_text = dialog;
+      tool.agent_runtime_trace_rows = traceRows;
       tool.agent_runtime_engine_id = String(engineId || '').trim();
       tool.status = 'completed';
       tool.input = dialog;
@@ -777,6 +936,7 @@
     },
 
     appendAgentRuntimeActivityToThinkingRow: function(event, engineId) {
+      if (typeof this.agentRuntimeActivityVisibleInThinkingBubble === 'function' && !this.agentRuntimeActivityVisibleInThinkingBubble(event)) return;
       var rows = Array.isArray(this.messages) ? this.messages : [];
       var target = null;
       for (var i = rows.length - 1; i >= 0; i -= 1) {
@@ -1055,8 +1215,11 @@
         }).catch(function() {
           return InfringAPI.post('/api/shell-socket/agent-runtime/turn', turnRequest);
         });
-        if (res && res.pending_permission_request) {
-          var pendingPermissionRequest = res.pending_permission_request;
+        var projectedPendingPermissionRequest = res && res.pending_permission_request
+          ? res.pending_permission_request
+          : (res && res.permission_request ? res.permission_request : null);
+        if (projectedPendingPermissionRequest) {
+          var pendingPermissionRequest = projectedPendingPermissionRequest;
           pendingPermissionRequest.projection_kind = 'permission_request';
           pendingPermissionRequest.projection_schema_version = 1;
           var pendingRuntimeDurationMs = Math.max(0, Date.now() - startedAt);
@@ -1159,7 +1322,8 @@
           });
         }
         if (!String(runtimeText || '').trim()) {
-          if (!(res && res.pending_permission_request)) InfringToast.info('Agent runtime returned no display text.');
+          var hadPermissionPause = !!(res && (res.pending_permission_request || res.permission_request));
+          if (!hadPermissionPause) InfringToast.info('Agent runtime returned no display text.');
           var emptyText = 'Agent runtime returned no display text.';
           if (typeof this.appendAgentRuntimeActivityToThinkingRow === 'function') {
             this.appendAgentRuntimeActivityToThinkingRow({

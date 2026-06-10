@@ -13,6 +13,7 @@ const OWNER_DOMAIN = 'validation.agent_runtime';
 const POLICY_PATH = 'validation/conformance/contracts/agent_runtime_turn_outcome_contract.json';
 const LAYER = 'gateway';
 const { createAgentRuntimeTurnRouteHandler } = require(path.join(ROOT, 'gateway/runtime/agent_runtime/agent_runtime_turn_routes.ts'));
+const { agentRuntimePreTurnFailureProjection } = require(path.join(ROOT, 'gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts'));
 const { createCliRuntimeEngineAdapter } = require(path.join(ROOT, 'adapters/runtime/agent_engines/cli_runtime_adapter.ts'));
 
 function ensureDir(filePath) {
@@ -57,6 +58,354 @@ function parsePayload(res) {
   } catch {
     return null;
   }
+}
+
+function ensureString(value, fallback = '') {
+  return value == null ? fallback : String(value);
+}
+
+function cleanText(value, max = 4000) {
+  return ensureString(value, '')
+    .replace(/\\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+async function runFailureProbe() {
+  const traceId = `validation:agent-runtime-cli-adapter-failure:${Date.now()}`;
+  const failureBody = {
+    type: 'turn.submit',
+    agent_id: 'agent-runtime-cli-adapter-failure-guard',
+    session_id: 'cli-adapter-failure-session',
+    conversation_id: 'cli-adapter-failure-session',
+    engine_id: 'codex_cli',
+    message: 'cli adapter failure reason guard probe',
+    input_text: 'cli adapter failure reason guard probe',
+    capability_budget: {
+      max_turn_seconds: 30,
+    },
+    test_probe: true,
+  };
+  const childScript = [
+    `console.error(${JSON.stringify("You've hit your usage limit for GPT-5.3-Codex-Spark. Switch to another model now, or try again at 1:49 PM.")});`,
+    'process.exit(7);',
+  ].join('\n');
+
+  let adapterRun = null;
+  const adapter = createCliRuntimeEngineAdapter({
+    engineId: 'codex_cli',
+    command: process.execPath,
+    commandFallback: process.execPath,
+    liveDispatch: true,
+    timeoutMs: 10000,
+    versionArgs: ['--version'],
+    runArgs: () => ['-e', childScript],
+    runStdin: (prompt) => prompt,
+    cwd: ROOT,
+    afterRun: (run) => {
+      adapterRun = run;
+    },
+  });
+
+  const message = {
+    ...failureBody,
+    trace_id: traceId,
+    request_id: `${traceId}:request`,
+    turn_id: `${traceId}:turn`,
+    engine_id: 'codex_cli',
+    input: {
+      text: failureBody.input_text,
+    },
+    input_text: failureBody.input_text,
+    working_directory: ROOT,
+    capability_budget: {
+      max_turn_seconds: 30,
+    },
+  };
+
+  const projection = await adapter.stream_turn({
+    message,
+    engine: { engine_id: 'codex_cli' },
+    onActivity: () => {},
+  });
+
+  const reasonText = cleanText(projection && projection.reason);
+  const outputText = cleanText(projection && (projection.output_text || projection.output_preview || projection.reason));
+  const outputPreview = cleanText(projection && projection.output_preview);
+
+  const violations = [];
+  if (!projection) violations.push('cli_adapter_failure_projection_missing');
+  if (!projection || projection.status !== 'failed') violations.push('cli_adapter_failure_status_not_failed');
+  if (!projection || projection.error_code !== 'codex_cli_provider_quota_or_subscription_unavailable') violations.push(`cli_adapter_failure_code_unexpected:${projection && projection.error_code || 'missing'}`);
+  if (!reasonText) violations.push('cli_adapter_failure_reason_missing');
+  if (reasonText && reasonText.startsWith('{')) violations.push('cli_adapter_failure_reason_looks_unparsed_json');
+  if (!reasonText.toLowerCase().includes('usage limit') || !reasonText.includes('GPT-5.3-Codex-Spark') || !reasonText.includes('1:49 PM')) {
+    violations.push(`cli_adapter_failure_reason_not_explanatory:${reasonText}`);
+  }
+  if (!outputText.toLowerCase().includes('usage limit') || !outputText.includes('GPT-5.3-Codex-Spark') || !outputText.includes('1:49 PM')) {
+    violations.push(`cli_adapter_failure_output_missing_usage_limit_text:${outputText}`);
+  }
+  if (!adapterRun || adapterRun.timed_out === true || Number.isFinite(Number(adapterRun.exit_code)) === false) {
+    violations.push('cli_adapter_failure_exit_state_unexpected');
+  }
+
+  return {
+    trace_id: traceId,
+    projection: projection || null,
+    adapter_run_exit_code: adapterRun ? adapterRun.exit_code : null,
+    adapter_run_timed_out: adapterRun ? adapterRun.timed_out === true : null,
+    reason_text: reasonText,
+    output_text: outputText,
+    output_preview: outputPreview,
+    violations,
+  };
+}
+
+async function runClaudeMalformedJsonFailureProbe() {
+  const traceId = `validation:agent-runtime-cli-adapter-claude-malformed-json:${Date.now()}`;
+  const claudeMessage = 'Claude Code subscription is unavailable because account usage is exhausted.';
+  const childScript = [
+    `process.stderr.write(${JSON.stringify(JSON.stringify({ type: 'error', error: { message: claudeMessage } }, null, 2))} + '\\n');`,
+    'process.exit(9);',
+  ].join('\n');
+
+  const adapter = createCliRuntimeEngineAdapter({
+    engineId: 'claude_code',
+    command: process.execPath,
+    commandFallback: process.execPath,
+    liveDispatch: true,
+    timeoutMs: 10000,
+    versionArgs: ['--version'],
+    runArgs: () => ['-e', childScript],
+    runStdin: (prompt) => prompt,
+    cwd: ROOT,
+  });
+
+  const projection = await adapter.stream_turn({
+    message: {
+      trace_id: traceId,
+      request_id: `${traceId}:request`,
+      turn_id: `${traceId}:turn`,
+      engine_id: 'claude_code',
+      agent_id: 'agent-runtime-cli-adapter-claude-malformed-json-guard',
+      session_id: 'cli-adapter-claude-malformed-json-session',
+      input: { text: 'claude malformed json failure probe' },
+      input_text: 'claude malformed json failure probe',
+      working_directory: ROOT,
+      capability_budget: { max_turn_seconds: 30 },
+    },
+    engine: { engine_id: 'claude_code' },
+    onActivity: () => {},
+  });
+
+  const reasonText = cleanText(projection && projection.reason);
+  const outputText = cleanText(projection && (projection.output_text || projection.output_preview || projection.reason));
+  const violations = [];
+  if (!projection) violations.push('claude_malformed_json_projection_missing');
+  if (!projection || projection.status !== 'failed') violations.push(`claude_malformed_json_status_unexpected:${projection && projection.status || 'missing'}`);
+  if (!projection || projection.error_code !== 'claude_code_provider_quota_or_subscription_unavailable') {
+    violations.push(`claude_malformed_json_code_unexpected:${projection && projection.error_code || 'missing'}`);
+  }
+  if (!reasonText.includes(claudeMessage)) violations.push(`claude_malformed_json_reason_missing_message:${reasonText}`);
+  if (/unavailable:\s*\{\s*\.?$/i.test(reasonText) || reasonText.includes('unavailable: {.')) {
+    violations.push(`claude_malformed_json_brace_reason_leaked:${reasonText}`);
+  }
+  if (!outputText.includes(claudeMessage)) violations.push(`claude_malformed_json_output_missing_message:${outputText}`);
+
+  return {
+    trace_id: traceId,
+    status: projection && projection.status || null,
+    error_code: projection && projection.error_code || null,
+    reason_text: reasonText,
+    output_text: outputText,
+    violations,
+  };
+}
+
+async function runClaudePluginTokenFailureProbe() {
+  const traceId = `validation:agent-runtime-cli-adapter-claude-plugin-token:${Date.now()}`;
+  const claudeMessage = 'Claude Code subscription is unavailable because account usage is exhausted.';
+  const pluginToken = 'rust-analyzer-lsp@claude-plugins-official';
+  const childScript = [
+    `process.stderr.write(${JSON.stringify(JSON.stringify({ type: 'error', error: pluginToken, message: claudeMessage }, null, 2))} + '\\n');`,
+    'process.exit(9);',
+  ].join('\n');
+
+  const adapter = createCliRuntimeEngineAdapter({
+    engineId: 'claude_code',
+    command: process.execPath,
+    commandFallback: process.execPath,
+    liveDispatch: true,
+    timeoutMs: 10000,
+    versionArgs: ['--version'],
+    runArgs: () => ['-e', childScript],
+    runStdin: (prompt) => prompt,
+    cwd: ROOT,
+  });
+
+  const projection = await adapter.stream_turn({
+    message: {
+      trace_id: traceId,
+      request_id: `${traceId}:request`,
+      turn_id: `${traceId}:turn`,
+      engine_id: 'claude_code',
+      agent_id: 'agent-runtime-cli-adapter-claude-plugin-token-guard',
+      session_id: 'cli-adapter-claude-plugin-token-session',
+      input: { text: 'claude plugin token failure probe' },
+      input_text: 'claude plugin token failure probe',
+      working_directory: ROOT,
+      capability_budget: { max_turn_seconds: 30 },
+    },
+    engine: { engine_id: 'claude_code' },
+    onActivity: () => {},
+  });
+
+  const reasonText = cleanText(projection && projection.reason);
+  const outputText = cleanText(projection && (projection.output_text || projection.output_preview || projection.reason));
+  const violations = [];
+  if (!projection) violations.push('claude_plugin_token_projection_missing');
+  if (!projection || projection.status !== 'failed') violations.push(`claude_plugin_token_status_unexpected:${projection && projection.status || 'missing'}`);
+  if (!projection || projection.error_code !== 'claude_code_provider_quota_or_subscription_unavailable') {
+    violations.push(`claude_plugin_token_code_unexpected:${projection && projection.error_code || 'missing'}`);
+  }
+  if (!reasonText.includes(claudeMessage)) violations.push(`claude_plugin_token_reason_missing_message:${reasonText}`);
+  if (reasonText.includes(pluginToken)) violations.push(`claude_plugin_token_reason_leaked_plugin:${reasonText}`);
+  if (!outputText.includes(claudeMessage)) violations.push(`claude_plugin_token_output_missing_message:${outputText}`);
+  if (outputText.includes(pluginToken)) violations.push(`claude_plugin_token_output_leaked_plugin:${outputText}`);
+
+  return {
+    trace_id: traceId,
+    status: projection && projection.status || null,
+    error_code: projection && projection.error_code || null,
+    reason_text: reasonText,
+    output_text: outputText,
+    plugin_token: pluginToken,
+    violations,
+  };
+}
+
+function runPreTurnUsageLimitProjectionProbe() {
+  const traceId = `validation:agent-runtime-pre-turn-usage-limit:${Date.now()}`;
+  const usageLimitText = "You've hit your usage limit for GPT-5.3-Codex-Spark. Switch to another model now, or try again at 1:49 PM.";
+  const projection = agentRuntimePreTurnFailureProjection(
+    traceId,
+    'codex_cli',
+    'agent-runtime-pre-turn-usage-limit-guard',
+    'pre-turn-usage-limit-session',
+    `${traceId}:turn`,
+    usageLimitText,
+    {
+      error: usageLimitText,
+      provider_status: 'usage_limit',
+      provider_event_type: 'provider.usage_limit',
+    },
+  );
+  const displayText = cleanText(projection && (projection.display_text || projection.output_text || projection.text), 4000);
+  const outputPreview = cleanText(projection && projection.output_preview, 4000);
+  const violations = [];
+  if (!projection) violations.push('pre_turn_usage_limit_projection_missing');
+  if (!projection || projection.status !== 'failed_with_reason') violations.push(`pre_turn_usage_limit_status_unexpected:${projection && projection.status || 'missing'}`);
+  if (!projection || projection.error_code !== 'codex_cli_provider_quota_or_subscription_unavailable') violations.push(`pre_turn_usage_limit_error_code_unexpected:${projection && projection.error_code || 'missing'}`);
+  if (!displayText.includes('usage limit') || !displayText.includes('GPT-5.3-Codex-Spark') || !displayText.includes('1:49 PM')) {
+    violations.push(`pre_turn_usage_limit_display_text_missing:${displayText}`);
+  }
+  if (!outputPreview.includes('usage limit') || !outputPreview.includes('GPT-5.3-Codex-Spark') || !outputPreview.includes('1:49 PM')) {
+    violations.push(`pre_turn_usage_limit_output_preview_missing:${outputPreview}`);
+  }
+  return {
+    trace_id: traceId,
+    status: projection && projection.status || null,
+    error_code: projection && projection.error_code || null,
+    display_text: displayText,
+    output_preview: outputPreview,
+    violations,
+  };
+}
+
+async function runDecisionDialogProbe() {
+  const traceId = `validation:agent-runtime-cli-adapter-dialog:${Date.now()}`;
+  const narrationText = 'I will inspect package.json before running the command.';
+  const finalText = 'One script category is ops commands.';
+  const childScript = [
+    'const rows = [',
+    `  ${JSON.stringify({ type: 'thread.started', thread_id: 'thread-dialog-probe' })},`,
+    `  ${JSON.stringify({ type: 'turn.started' })},`,
+    `  ${JSON.stringify({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: narrationText } })},`,
+    `  ${JSON.stringify({ type: 'item.started', item: { id: 'item_1', type: 'command_execution', status: 'in_progress', command: 'node --version' } })},`,
+    `  ${JSON.stringify({ type: 'item.completed', item: { id: 'item_1', type: 'command_execution', status: 'completed', command: 'node --version' } })},`,
+    `  ${JSON.stringify({ type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: finalText } })},`,
+    `  ${JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } })},`,
+    '];',
+    'for (const row of rows) process.stdout.write(`${JSON.stringify(row)}\\n`);',
+  ].join('\n');
+
+  const streamedActivity = [];
+  const adapter = createCliRuntimeEngineAdapter({
+    engineId: 'codex_cli',
+    command: process.execPath,
+    commandFallback: process.execPath,
+    liveDispatch: true,
+    timeoutMs: 10000,
+    versionArgs: ['--version'],
+    runArgs: () => ['-e', childScript],
+    runStdin: (prompt) => prompt,
+    cwd: ROOT,
+  });
+
+  const projection = await adapter.stream_turn({
+    message: {
+      trace_id: traceId,
+      request_id: `${traceId}:request`,
+      turn_id: `${traceId}:turn`,
+      engine_id: 'codex_cli',
+      agent_id: 'agent-runtime-cli-adapter-dialog-guard',
+      session_id: 'cli-adapter-dialog-session',
+      input: { text: 'dialog probe' },
+      input_text: 'dialog probe',
+      working_directory: ROOT,
+      capability_budget: { max_turn_seconds: 30 },
+    },
+    engine: { engine_id: 'codex_cli' },
+    onActivity: (event) => {
+      streamedActivity.push(event);
+    },
+  });
+
+  const projectedActivity = projection && Array.isArray(projection.activity_events) ? projection.activity_events : [];
+  const streamedDialog = streamedActivity.find((event) =>
+    event && event.activity_kind === 'decision_dialog' && cleanText(event.display_text, 4000).includes(narrationText)
+  );
+  const projectedDialog = projectedActivity.find((event) =>
+    event && event.activity_kind === 'decision_dialog' && cleanText(event.display_text, 4000).includes(narrationText)
+  );
+  const finalLeakedIntoDialog = projectedActivity.some((event) =>
+    event && event.activity_kind === 'decision_dialog' && cleanText(event.display_text, 4000).includes(finalText)
+  );
+  const commandProjected = projectedActivity.some((event) =>
+    event && /command/.test(String(event.activity_kind || event.provider_event_type || '')) && cleanText(event.display_text, 4000).includes('node --version')
+  );
+  const outputText = cleanText(projection && (projection.output_text || projection.output_preview || projection.reason), 4000);
+  const violations = [];
+  if (!projection) violations.push('dialog_probe_projection_missing');
+  if (!projection || projection.status !== 'completed') violations.push(`dialog_probe_status_unexpected:${projection && projection.status || 'missing'}`);
+  if (!streamedDialog) violations.push('dialog_probe_streamed_decision_dialog_missing');
+  if (!projectedDialog) violations.push('dialog_probe_projected_decision_dialog_missing');
+  if (finalLeakedIntoDialog) violations.push('dialog_probe_final_answer_leaked_into_decision_dialog');
+  if (!commandProjected) violations.push('dialog_probe_command_activity_missing');
+  if (!outputText.includes(finalText)) violations.push(`dialog_probe_final_output_missing:${outputText}`);
+
+  return {
+    trace_id: traceId,
+    status: projection && projection.status || null,
+    output_text: outputText,
+    streamed_activity_count: streamedActivity.length,
+    projected_activity_count: projectedActivity.length,
+    streamed_dialog_text: streamedDialog ? cleanText(streamedDialog.display_text, 4000) : '',
+    projected_dialog_text: projectedDialog ? cleanText(projectedDialog.display_text, 4000) : '',
+    command_projected: commandProjected,
+    final_leaked_into_dialog: finalLeakedIntoDialog,
+    violations,
+  };
 }
 
 async function main() {
@@ -191,6 +540,11 @@ async function main() {
     adapterRun &&
     adapterRun.timed_out !== true
   );
+  const failureProbe = await runFailureProbe();
+  const claudeMalformedJsonFailureProbe = await runClaudeMalformedJsonFailureProbe();
+  const claudePluginTokenFailureProbe = await runClaudePluginTokenFailureProbe();
+  const preTurnUsageLimitProbe = runPreTurnUsageLimitProjectionProbe();
+  const decisionDialogProbe = await runDecisionDialogProbe();
 
   const violations = [];
   if (!projectionStarted) violations.push('projection_not_started');
@@ -207,6 +561,11 @@ async function main() {
   if (!adapterSawCommandActivity) violations.push('cli_adapter_activity_not_observed');
   if (!adapterStoppedBeforeOwnTimeout) violations.push('cli_adapter_not_aborted_before_internal_timeout');
   if (sent.length !== 1) violations.push(`unexpected_send_count:${sent.length}`);
+  if (failureProbe.violations.length) violations.push(...failureProbe.violations.map((violation) => `failure_probe_${violation}`));
+  if (claudeMalformedJsonFailureProbe.violations.length) violations.push(...claudeMalformedJsonFailureProbe.violations.map((violation) => `claude_malformed_json_probe_${violation}`));
+  if (claudePluginTokenFailureProbe.violations.length) violations.push(...claudePluginTokenFailureProbe.violations.map((violation) => `claude_plugin_token_probe_${violation}`));
+  if (preTurnUsageLimitProbe.violations.length) violations.push(...preTurnUsageLimitProbe.violations.map((violation) => `pre_turn_probe_${violation}`));
+  if (decisionDialogProbe.violations.length) violations.push(...decisionDialogProbe.violations.map((violation) => `decision_dialog_probe_${violation}`));
 
   const report = {
     ok: violations.length === 0,
@@ -231,6 +590,21 @@ async function main() {
     cli_adapter_launch_activity_projected: launchActivityProjected,
     timeout_activity_projected: timeoutActivityProjected,
     send_count: sent.length,
+    failure_probe: {
+      status_code: failureProbe.projection && failureProbe.projection.status || null,
+      error_code: failureProbe.projection && failureProbe.projection.error_code || null,
+      reason_text: failureProbe.reason_text,
+      output_text: failureProbe.output_text,
+      output_preview: failureProbe.output_preview,
+      adapter_run_exit_code: failureProbe.adapter_run_exit_code,
+      adapter_run_timed_out: failureProbe.adapter_run_timed_out,
+      trace_id: failureProbe.trace_id,
+      violations: failureProbe.violations,
+    },
+    claude_malformed_json_failure_probe: claudeMalformedJsonFailureProbe,
+    claude_plugin_token_failure_probe: claudePluginTokenFailureProbe,
+    pre_turn_usage_limit_probe: preTurnUsageLimitProbe,
+    decision_dialog_probe: decisionDialogProbe,
     violations,
   };
 

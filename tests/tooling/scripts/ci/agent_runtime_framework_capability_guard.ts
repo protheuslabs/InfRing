@@ -44,6 +44,8 @@ async function main() {
   const sharedPath = 'adapters/runtime/agent_engines/cli_runtime_adapter.ts';
   const registryPath = 'validation/conformance/contracts/agent_runtime_engine_registry.json';
   const posturePath = 'adapters/runtime/agent_engines/RELIABILITY_POSTURE.md';
+  const universalContractPath = 'validation/conformance/contracts/agent_runtime_universal_tools_contract.json';
+  const universalGatewayPath = 'gateway/runtime/agent_runtime/universal_core_tools.ts';
   const codex = read(codexPath);
   const claude = read(claudePath);
   const grok = read(grokPath);
@@ -51,7 +53,68 @@ async function main() {
   const shared = read(sharedPath);
   const posture = read(posturePath);
   const registry = JSON.parse(read(registryPath));
+  const universalContract = JSON.parse(read(universalContractPath));
+  const universalGateway = read(universalGatewayPath);
   const violations = [];
+  const canonicalUniversalToolIds = [
+    'conversation.read',
+    'memory.read',
+    'memory.write_propose',
+    'artifact.read',
+    'artifact.create_propose',
+    'permission.request',
+  ];
+
+  const contractToolIds = new Set(
+    (Array.isArray(universalContract.tools) ? universalContract.tools : [])
+      .map((row) => String(row && row.tool_id || ''))
+      .filter(Boolean),
+  );
+  for (const toolId of canonicalUniversalToolIds) {
+    if (!contractToolIds.has(toolId)) {
+      push(violations, 'universal_tool_contract_missing_canonical_tool', universalContractPath, `Universal tool contract must include ${toolId}.`);
+    }
+  }
+  for (const toolId of contractToolIds) {
+    if (!canonicalUniversalToolIds.includes(toolId)) {
+      push(violations, 'universal_tool_contract_unapproved_tool', universalContractPath, `Universal tool contract must not grow undeclared tool ${toolId}.`);
+    }
+  }
+  const toolScope = universalContract.tool_surface_scope || {};
+  if (
+    toolScope.max_tool_count !== 6 ||
+    toolScope.terminal_execution_allowed !== false ||
+    toolScope.direct_file_write_allowed !== false ||
+    toolScope.workflow_tools_allowed !== false ||
+    toolScope.mutating_tools_must_be_proposal_only !== true
+  ) {
+    push(violations, 'universal_tool_scope_allows_native_authority', universalContractPath, 'Universal tool scope must stay tiny, proposal-only, and must forbid terminal execution/direct file write.');
+  }
+  const forbiddenUniversalization = new Set(Array.isArray(universalContract.forbidden_universalization) ? universalContract.forbidden_universalization : []);
+  for (const forbidden of ['terminal_command_execution', 'direct_file_write', 'direct_kernel_mutation', 'direct_shell_socket_access']) {
+    if (!forbiddenUniversalization.has(forbidden)) {
+      push(violations, 'universal_tool_forbidden_universalization_missing', universalContractPath, `Universal tool contract must forbid ${forbidden}.`);
+    }
+  }
+  const universalIdBlock = /const\s+UNIVERSAL_CORE_TOOL_IDS\s*=\s*Object\.freeze\(\[([\s\S]*?)\]\);/.exec(universalGateway);
+  const universalIdBlockText = universalIdBlock ? universalIdBlock[1] : '';
+  if (!universalIdBlockText) {
+    push(violations, 'gateway_universal_tool_ids_block_missing', universalGatewayPath, 'Gateway universal tool implementation must declare UNIVERSAL_CORE_TOOL_IDS explicitly.');
+  } else {
+    for (const toolId of canonicalUniversalToolIds) {
+      if (!universalIdBlockText.includes(`'${toolId}'`)) {
+        push(violations, 'gateway_universal_tool_ids_missing_canonical_tool', universalGatewayPath, `Gateway universal tool ids must include ${toolId}.`);
+      }
+    }
+    for (const forbidden of ['direct_file_write', 'native.direct_file_write', 'filesystem.direct_write', 'terminal_command_execution']) {
+      if (universalIdBlockText.includes(forbidden)) {
+        push(violations, 'native_mutation_grant_leaked_into_universal_tools', universalGatewayPath, `Native grant ${forbidden} must not appear in UNIVERSAL_CORE_TOOL_IDS.`);
+      }
+    }
+  }
+  if (!universalGateway.includes('direct_file_write_allowed: false') || !universalGateway.includes('terminal_execution_allowed: false')) {
+    push(violations, 'gateway_universal_tool_scope_not_fail_closed', universalGatewayPath, 'Gateway universal tool scope must explicitly forbid direct file write and terminal execution.');
+  }
 
   if (!codex.includes("'--skip-git-repo-check'") && !codex.includes('"--skip-git-repo-check"')) {
     push(violations, 'codex_skip_git_repo_check_missing', codexPath, 'Codex must support arbitrary Gateway-selected workspaces, including non-git scratch directories.');
@@ -802,6 +865,9 @@ async function main() {
       golden_pair_approval_resume_context: !violations.some((row) => row.kind === 'golden_runtime_approval_resume_context_missing'),
       golden_pair_completed_response_projection: !violations.some((row) => row.kind === 'golden_runtime_completed_response_drop' || row.kind === 'golden_runtime_completed_response_terminal_state_conflict'),
       golden_pair_typed_failure_projection: !violations.some((row) => row.kind === 'golden_runtime_typed_failure_projection_missing'),
+      universal_tool_surface_tiny: !violations.some((row) => String(row.kind || '').startsWith('universal_tool_') || row.kind === 'gateway_universal_tool_ids_block_missing' || row.kind === 'gateway_universal_tool_ids_missing_canonical_tool'),
+      native_mutation_not_universalized: !violations.some((row) => row.kind === 'native_mutation_grant_leaked_into_universal_tools' || row.kind === 'universal_tool_scope_allows_native_authority'),
+      terminal_execution_not_universalized: !violations.some((row) => row.kind === 'universal_tool_scope_allows_native_authority' || row.kind === 'gateway_universal_tool_scope_not_fail_closed'),
     },
     violations,
   };

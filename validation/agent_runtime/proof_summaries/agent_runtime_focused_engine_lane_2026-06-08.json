@@ -29,7 +29,14 @@
     "engine_focus_guard": "core/local/artifacts/agent_runtime_engine_focus_guard_current.json",
     "framework_coordination_guard": "core/local/artifacts/agent_runtime_framework_coordination_guard_current.json",
     "real_work_replay_guard": "core/local/artifacts/agent_runtime_real_work_replay_guard_current.json",
-    "proof_ledger_separation_guard": "core/local/artifacts/proof_ledger_separation_guard_current.json"
+    "proof_ledger_separation_guard": "core/local/artifacts/proof_ledger_separation_guard_current.json",
+    "engine_scorecard": "core/local/artifacts/agent_runtime_engine_scorecard_current.json",
+    "native_transport_probe": "core/local/artifacts/agent_runtime_native_transport_probe_current.json",
+    "claude_stream_json_mapping_probe": "core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json",
+    "claude_stream_json_live_acceptance_probe": "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json",
+    "codex_app_server_mapping_probe": "core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json"
+    ,
+    "codex_app_server_live_acceptance_probe": "core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json"
   },
   "summary": {
     "planned": 0,
@@ -44,6 +51,64 @@
       "red": 0,
       "yellow": 2,
       "white": 0
+    },
+    "engine_scorecard_summary": {
+      "golden_pair": [
+        {
+          "engine_id": "codex_cli",
+          "display_name": "Codex",
+          "classification": "practical_with_gaps",
+          "score": 0.84,
+          "practical_usability_loop": "pass",
+          "pending_exit_criteria": []
+        },
+        {
+          "engine_id": "claude_code",
+          "display_name": "Claude Code",
+          "classification": "practical_with_gaps",
+          "score": 0.84,
+          "practical_usability_loop": "pass",
+          "pending_exit_criteria": [
+            "upstream_native_transport_probe"
+          ]
+        }
+      ],
+      "source_artifact_ref": "core/local/artifacts/agent_runtime_engine_scorecard_current.json"
+    },
+    "native_transport_probe_summary": {
+      "bounded_envelope_engine_count": 5,
+      "native_transport_available_count": 1,
+      "pending_probe_count": 4,
+      "pending_engines": [
+        "claude_code",
+        "grok_code",
+        "opencode",
+        "hermes_agent"
+      ],
+      "pending_exit_criteria": [
+        "upstream_native_transport_probe"
+      ],
+      "source_artifact_ref": "core/local/artifacts/agent_runtime_native_transport_probe_current.json"
+    },
+    "claude_stream_json_transport_summary": {
+      "mapping_probe_status": "candidate_mapping_ready",
+      "live_acceptance_probe_status": "disabled_by_default_pending_live_acceptance",
+      "typed_turn_api_available": false,
+      "source_artifact_refs": [
+        "core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json",
+        "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json"
+      ],
+      "next_action": "Run the gated live Claude stream-json acceptance probe only when explicit token/API usage is acceptable."
+    },
+    "codex_app_server_transport_summary": {
+      "mapping_probe_status": "candidate_mapping_ready",
+      "live_acceptance_probe_status": "accepted_by_runtime",
+      "typed_turn_api_available": true,
+      "source_artifact_refs": [
+        "core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json",
+        "core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json"
+      ],
+      "next_action": "Use Codex app-server thread/start + turn/start as the typed transport lane for future Codex integration work."
     }
   },
   "results": [
@@ -113,6 +178,13 @@
       "kind": "secondary_comparison_scope",
       "summary": "Claude Code is the secondary comparison engine, not a broad multi-engine promotion claim.",
       "next_action": "Use Claude Code to compare parity and approval behavior while avoiding promotion sprawl."
+    },
+    {
+      "severity": "yellow",
+      "framework_id": "golden_pair",
+      "kind": "upstream_native_transport_probe_pending",
+      "summary": "Codex and Claude Code pass the practical usability loop. Codex app-server now has live typed transport acceptance proof; Claude stream-json remains disabled-by-default pending live acceptance.",
+      "next_action": "Use Codex app-server typed transport as the primary structured lane and run Claude stream-json live acceptance only when explicit runtime/token/API usage is acceptable."
     }
   ],
   "limits": [

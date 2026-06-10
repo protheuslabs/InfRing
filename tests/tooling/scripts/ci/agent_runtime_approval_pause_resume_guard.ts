@@ -12,6 +12,7 @@ const SOURCE_DOMAIN = 'validation';
 const OWNER_DOMAIN = 'validation.agent_runtime';
 const POLICY_PATH = 'validation/conformance/contracts/agent_runtime_turn_outcome_contract.json';
 const LAYER = 'gateway';
+const GOLDEN_EXTERNAL_ENGINES = ['codex_cli', 'claude_code'];
 
 function readJson(relPath) {
   return JSON.parse(fs.readFileSync(path.join(ROOT, relPath), 'utf8'));
@@ -52,6 +53,56 @@ async function main() {
     receiptPath: path.join(FIXTURE_ROOT, 'receipts.jsonl'),
     maxReceipts: 50,
   });
+  const goldenEngineChecks = [];
+
+  for (const engineId of GOLDEN_EXTERNAL_ENGINES) {
+    const safeEngineId = engineId.replace(/[^a-z0-9_-]/gi, '_');
+    const approvalId = `approval_guard_golden_${safeEngineId}`;
+    const traceId = `trace-approval-golden-${safeEngineId}`;
+    const artifactRel = `tmp/golden-${safeEngineId}.txt`;
+    const artifactText = `approval guard golden artifact for ${engineId}\n`;
+    const pending = approvalStore.recordAgentRuntimePendingApproval({
+      approval_id: approvalId,
+      trace_id: traceId,
+      request_id: `request-approval-golden-${safeEngineId}`,
+      engine_id: engineId,
+      session_id: `session-approval-golden-${safeEngineId}`,
+      turn_id: `turn-approval-golden-${safeEngineId}`,
+      tool_call_ref: `tool-proposal/artifact.create_propose/${traceId}/turn-approval-golden-${safeEngineId}`,
+      tool_id: 'artifact.create_propose',
+      capability: 'propose_artifact_create',
+      reason: `Create approval guard golden artifact for ${engineId}.`,
+      proposal_arguments: {
+        path: artifactRel,
+        mime_type: 'text/plain',
+        content: artifactText,
+      },
+    });
+    const decision = approvalStore.agentRuntimeApprovalDecisionProjection(traceId, approvalId, {
+      decision: 'allow_once',
+    });
+    const artifactPath = path.join(FIXTURE_ROOT, artifactRel);
+    const check = {
+      engine_id: engineId,
+      pending_paused: !!(pending && pending.status === 'paused_pending_approval'),
+      pending_permission_required: !!(pending && pending.turn_status === 'permission_required'),
+      pending_resume_token_present: !!(pending && pending.resume_token),
+      pending_arguments_bounded: !!(pending && pending.proposal_arguments === undefined && pending.proposal_arguments_ref),
+      decision_ok: !!(decision && decision.ok === true && decision.pending_request_found === true),
+      decision_resumed: !!(decision && decision.resumed === true),
+      decision_receipt_present: !!(decision && decision.decision_receipt_ref && decision.decision_receipt),
+      durable_effect_executed: fs.existsSync(artifactPath) && fs.readFileSync(artifactPath, 'utf8').includes(artifactText.trim()),
+    };
+    goldenEngineChecks.push(check);
+    if (!check.pending_paused) pushViolation(violations, 'golden_engine_pending_not_paused', { engine_id: engineId, pending });
+    if (!check.pending_permission_required) pushViolation(violations, 'golden_engine_pending_not_permission_required', { engine_id: engineId, pending });
+    if (!check.pending_resume_token_present) pushViolation(violations, 'golden_engine_resume_token_missing', { engine_id: engineId, pending });
+    if (!check.pending_arguments_bounded) pushViolation(violations, 'golden_engine_pending_arguments_unbounded', { engine_id: engineId, pending });
+    if (!check.decision_ok) pushViolation(violations, 'golden_engine_decision_not_ok', { engine_id: engineId, decision });
+    if (!check.decision_resumed) pushViolation(violations, 'golden_engine_decision_not_resumed', { engine_id: engineId, decision });
+    if (!check.decision_receipt_present) pushViolation(violations, 'golden_engine_decision_receipt_missing', { engine_id: engineId, decision });
+    if (!check.durable_effect_executed) pushViolation(violations, 'golden_engine_durable_effect_missing', { engine_id: engineId, artifact_path: artifactPath });
+  }
 
   const storePending = approvalStore.recordAgentRuntimePendingApproval({
     approval_id: 'approval_guard_store',
@@ -202,7 +253,19 @@ async function main() {
     policy_path: POLICY_PATH,
     checked_contract: 'validation/conformance/contracts/agent_runtime_turn_outcome_contract.json',
     fixture_root: FIXTURE_ROOT,
+    golden_external_engines: GOLDEN_EXTERNAL_ENGINES,
+    golden_engine_checks: goldenEngineChecks,
     checks: {
+      golden_pair_pause_resume_covered: goldenEngineChecks.every((check) =>
+        check.pending_paused &&
+        check.pending_permission_required &&
+        check.pending_resume_token_present &&
+        check.pending_arguments_bounded &&
+        check.decision_ok &&
+        check.decision_resumed &&
+        check.decision_receipt_present &&
+        check.durable_effect_executed
+      ),
       pending_request_bounded: !!(pending && pending.proposal_arguments === undefined && pending.proposal_arguments_ref),
       turn_projection_permission_required: projectedTurn && projectedTurn.status === 'permission_required',
       decision_receipt_present: !!(turnDecision && turnDecision.decision_receipt_ref && turnDecision.decision_receipt),

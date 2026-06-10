@@ -42,6 +42,204 @@ function cleanTextChunk(value, max = 24000) {
     .slice(0, max);
 }
 
+function extractTextFromStructuredValue(value, depth = 0) {
+  if (depth > 4) return '';
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return '';
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = extractTextFromStructuredValue(item, depth + 1);
+      if (found && isInformativeFailureText(found)) return found;
+    }
+    return '';
+  }
+  if (typeof value !== 'object') return '';
+  const preferredKeys = [
+    'error',
+    'message',
+    'reason',
+    'detail',
+    'details',
+    'summary',
+    'description',
+    'diagnostic',
+    'text',
+    'output',
+    'result',
+    'info',
+    'status',
+    'error_message',
+    'errorMessage',
+    'message_text',
+  ];
+  for (const key of preferredKeys) {
+    const found = extractTextFromStructuredValue(value[key], depth + 1);
+    if (found && isInformativeFailureText(found)) return found;
+  }
+  const metadataKeys = new Set([
+    'type',
+    'id',
+    'thread_id',
+    'request_id',
+    'session_id',
+    'turn_id',
+    'item_id',
+    'provider_event_type',
+    'activity_kind',
+    'role',
+  ]);
+  for (const key of Object.keys(value)) {
+    if (metadataKeys.has(String(key || '').trim())) continue;
+    const found = extractTextFromStructuredValue(value[key], depth + 1);
+    if (found && isInformativeFailureText(found)) return found;
+  }
+  return '';
+}
+
+function isInformativeFailureText(value) {
+  const raw = cleanString(value || '', 2400);
+  const cleaned = raw.toLowerCase();
+  if (cleaned.length < 12) return false;
+  if (/^[\{\}\[\]\(\),.:;"'`]+$/.test(cleaned)) return false;
+  if (/^[\{\[]/.test(cleaned)) return false;
+  if (['system', 'user', 'assistant', 'message', 'error', 'result', 'tool'].includes(cleaned)) return false;
+  if (cleaned === 'ok') return false;
+  if (cleaned.startsWith('/private/') || cleaned.startsWith('/tmp/') || cleaned.includes('infring-')) return false;
+  if (/^[a-z0-9_.-]+@[a-z0-9_.-]+$/i.test(raw)) return false;
+  if (!/\s/.test(raw) && /@[a-z0-9_.-]+$/i.test(raw)) return false;
+  if (!/\s/.test(raw) && /(?:plugin|plugins|lsp|language-server)/i.test(raw) && /^[a-z0-9_.@:-]+$/i.test(raw)) return false;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(cleaned)) return false;
+  if (!cleaned.includes(' ') && !/[.,:]/.test(cleaned) && cleaned.length < 20) return false;
+  if (!/\s/.test(cleaned) && /^[a-z0-9_.:-]+$/i.test(cleaned)) return false;
+  if (/^[a-z]+[a-z0-9]*[A-Z][a-z0-9]+$/.test(raw)) return false;
+  if (/[a-z]:\\/.test(cleaned)) return false;
+  if (/^\//.test(cleaned) && cleaned.indexOf(' ') < 0) return false;
+  if (cleaned.startsWith('{') && cleaned.endsWith('}')) return false;
+  return true;
+}
+
+function isProviderMetadataToken(value) {
+  const raw = cleanString(value || '', 1000);
+  if (!raw) return false;
+  if (/\s/.test(raw)) return false;
+  if (/^[a-z0-9_.-]+@[a-z0-9_.-]+$/i.test(raw)) return true;
+  if (/@[a-z0-9_.-]+$/i.test(raw)) return true;
+  if (/(?:plugin|plugins|lsp|language-server)/i.test(raw) && /^[a-z0-9_.@:-]+$/i.test(raw)) return true;
+  return false;
+}
+
+function providerUnavailableFallbackReason(engineId) {
+  const cleanEngine = cleanString(engineId || 'external_cli', 120);
+  if (cleanEngine === 'claude_code') {
+    return 'Claude Code provider is unavailable. Check Claude Code authentication, subscription, or plugin startup errors and retry.';
+  }
+  return `${cleanEngine} provider is unavailable. Check authentication, subscription, or runtime startup errors and retry.`;
+}
+
+function sanitizeProviderUnavailableReason(engineId, value) {
+  const reason = cleanString(value || '', 1200);
+  if (!reason || isProviderMetadataToken(reason) || !isInformativeFailureText(reason)) {
+    return providerUnavailableFallbackReason(engineId);
+  }
+  return reason;
+}
+
+function extractStructuredFailureReason(value) {
+  const text = String(value == null ? '' : value);
+  const parsedText = parseJsonObjectFromText(text);
+  if (parsedText) {
+    const extracted = extractTextFromStructuredValue(parsedText);
+    if (extracted) return extracted;
+  }
+  const candidates = text.split(/\r?\n/).filter(Boolean);
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const extracted = extractTextFromStructuredValue(parsed);
+        if (extracted) return extracted;
+      } catch {}
+    }
+    const embeddedMatch = trimmed.match(/(\{(?:.|\n|\r)*\})/);
+    if (embeddedMatch && embeddedMatch[1]) {
+      try {
+        const parsed = JSON.parse(embeddedMatch[1]);
+        const extracted = extractTextFromStructuredValue(parsed);
+        if (extracted) return extracted;
+      } catch {}
+    }
+    const jsonLineMatch = trimmed.match(
+      /"(?:error|reason|message|detail|details|summary|diagnostic|text|output)"\s*:\s*("(?:\\.|[^"\\])*"|[^,}\]]+)/i,
+    );
+    if (jsonLineMatch && jsonLineMatch[1]) {
+      const raw = cleanString(jsonLineMatch[1], 24000);
+      const extracted = raw.replace(/^"|"$/g, '');
+      if (isInformativeFailureText(extracted)) return extracted;
+    }
+  }
+  return '';
+}
+
+function isProviderUsageOrQuotaText(value) {
+  const text = cleanDisplayString(value || '', 12000).toLowerCase();
+  return (
+    text.includes('quota') ||
+    text.includes('credit') ||
+    text.includes('billing') ||
+    text.includes('subscription') ||
+    text.includes('payment required') ||
+    text.includes('insufficient balance') ||
+    text.includes('insufficient_quota') ||
+    text.includes('resource_exhausted') ||
+    text.includes('usage limit') ||
+    text.includes('usage_limit') ||
+    text.includes('usage cap') ||
+    text.includes('usage_cap') ||
+    text.includes('spend limit') ||
+    text.includes('spending limit') ||
+    text.includes('monthly limit') ||
+    text.includes('daily limit') ||
+    text.includes('weekly limit') ||
+    text.includes('try again at') ||
+    text.includes('out of tokens') ||
+    text.includes('tokens exhausted') ||
+    text.includes('token balance') ||
+    text.includes('no tokens remaining') ||
+    text.includes('not enough tokens') ||
+    text.includes('token quota')
+  );
+}
+
+function extractProviderUsageFailureReason(value) {
+  const structuredReason = extractStructuredFailureReason(value);
+  if (structuredReason) return structuredReason;
+  const rawText = String(value == null ? '' : value);
+  const rawLines = rawText.split(/\r?\n/).map((line) => cleanDisplayString(line, 2000)).filter(Boolean);
+  const patterns = [
+    /([^\n]*(?:usage limit|usage_limit|usage cap|usage_cap)[^\n]*)/i,
+    /([^\n]*(?:try again at)[^\n]*)/i,
+    /([^\n]*(?:quota|billing|credit|subscription|insufficient balance|insufficient_quota|resource_exhausted)[^\n]*)/i,
+    /([^\n]*(?:out of tokens|tokens exhausted|token balance|no tokens remaining|not enough tokens|token quota)[^\n]*)/i,
+  ];
+  for (const line of rawLines) {
+    for (const pattern of patterns) {
+      const match = line.match(pattern);
+      const reason = cleanDisplayString(match && match[1], 1200);
+      if (reason && isInformativeFailureText(reason)) return reason;
+    }
+  }
+  const text = cleanDisplayString(value || '', 12000);
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const reason = cleanDisplayString(match && match[1], 1200);
+    if (reason && isInformativeFailureText(reason)) return reason;
+  }
+  return '';
+}
+
 function decodeEmbeddedTextJsonFragments(value) {
   const text = String(value == null ? '' : value);
   if (!text.includes('{"type":"text"')) return text;
@@ -568,10 +766,31 @@ function spawnActivityCapture(command, args, options = {}) {
     let stderr = Buffer.alloc(0);
     let stdoutLineBuffer = '';
     let activityIndex = 0;
+    let pendingAgentMessage = null;
     let settled = false;
     const append = (current, chunk) => {
       const next = Buffer.concat([current, Buffer.from(chunk || '')]);
       return next.length > maxOutputBytes ? next.subarray(next.length - maxOutputBytes) : next;
+    };
+    const emitActivityEvent = (event) => {
+      if (!onActivity || !event) return;
+      try { onActivity(event); } catch {}
+    };
+    const emitParsedActivity = (parsed, index) => {
+      const semantic = semanticCliActivityEvents([parsed], ctx, engineId)[0] || null;
+      const normalized = semantic || normalizeCliActivityEvent(parsed, index, ctx, engineId);
+      if (semantic) {
+        emitActivityEvent({ ...semantic, sequence_no: index + 1 });
+      } else if (shouldStreamCliRawFallbackEvent(normalized)) {
+        emitActivityEvent(normalized);
+      }
+    };
+    const flushPendingAgentMessageFor = (nextRow) => {
+      if (!pendingAgentMessage) return;
+      if (isOperationalCliActivityRow(nextRow)) {
+        emitActivityEvent(semanticAgentMessageDecisionEvent(pendingAgentMessage.row, pendingAgentMessage.index, ctx, engineId));
+      }
+      pendingAgentMessage = null;
     };
     const emitJsonLine = (line) => {
       const text = String(line || '').trim();
@@ -579,13 +798,33 @@ function spawnActivityCapture(command, args, options = {}) {
       let parsed = null;
       try { parsed = JSON.parse(text); } catch { return; }
       if (!parsed || typeof parsed !== 'object') return;
-      const semantic = semanticCliActivityEvents([parsed], ctx, engineId)[0] || null;
-      const normalized = semantic || normalizeCliActivityEvent(parsed, activityIndex, ctx, engineId);
-      if (onActivity && semantic) {
-        try { onActivity({ ...semantic, sequence_no: activityIndex + 1 }); } catch {}
-      } else if (onActivity && shouldStreamCliRawFallbackEvent(normalized)) {
-        try { onActivity(normalized); } catch {}
+      if (isCliAgentMessageRow(parsed)) {
+        if (pendingAgentMessage) {
+          const priorText = extractCliAgentMessageText(pendingAgentMessage.row);
+          const nextText = extractCliAgentMessageText(parsed);
+          if (priorText && nextText && !priorText.includes(nextText) && !nextText.includes(priorText)) {
+            const item = parsed.item && typeof parsed.item === 'object' ? parsed.item : {};
+            pendingAgentMessage = {
+              row: {
+                ...parsed,
+                item: {
+                  ...item,
+                  text: `${priorText}\n${nextText}`,
+                },
+              },
+              index: pendingAgentMessage.index,
+            };
+          } else {
+            pendingAgentMessage = { row: parsed, index: activityIndex };
+          }
+        } else {
+          pendingAgentMessage = { row: parsed, index: activityIndex };
+        }
+        activityIndex += 1;
+        return;
       }
+      flushPendingAgentMessageFor(parsed);
+      emitParsedActivity(parsed, activityIndex);
       activityIndex += 1;
     };
     const drainStdoutLines = (chunkText, flush) => {
@@ -908,19 +1147,12 @@ function cliRuntimeFailureText(engineId, run, timeoutMs) {
     run && run.stderr,
     run && run.stdout,
   ].filter(Boolean).join('\n'), 12000);
-  const lower = combined.toLowerCase();
-  if (
-    lower.includes('quota') ||
-    lower.includes('credit') ||
-    lower.includes('billing') ||
-    lower.includes('subscription') ||
-    lower.includes('payment required') ||
-    lower.includes('insufficient balance')
-  ) {
-    const reason = (combined.match(/(?:error_message=|message['"]?\s*:\s*['"]?)([^\n"}]+)/i) || [])[1] ||
-      (combined.match(/(supergrok[^\n]+required|subscription[^\n]+required|quota[^\n]+|billing[^\n]+|credit[^\n]+)/i) || [])[1] ||
+  if (isProviderUsageOrQuotaText(combined)) {
+    const reason = extractProviderUsageFailureReason(combined) ||
       'quota, billing, subscription, or credit state prevented the external runtime from running';
-    return `${cleanEngine} external runtime provider is unavailable: ${cleanString(reason, 400)}.`;
+    const reasonText = cleanString(sanitizeProviderUnavailableReason(cleanEngine, reason), 400);
+    const suffix = /[.!?]$/.test(reasonText) ? '' : '.';
+    return `${cleanEngine} external runtime provider is unavailable: ${reasonText}${suffix}`;
   }
   const stderr = dedupeFailureLines(run && run.stderr, 4000);
   if (stderr) return stderr;
@@ -937,15 +1169,13 @@ function cliRuntimeNoAssistantOutputText(engineId, run) {
     run && run.stdout,
   ].filter(Boolean).join('\n'), 12000);
   const lower = combined.toLowerCase();
-  if (
-    lower.includes('quota') ||
-    lower.includes('credit') ||
-    lower.includes('billing') ||
-    lower.includes('subscription') ||
-    lower.includes('payment required') ||
-    lower.includes('insufficient balance')
-  ) {
-    return `${cleanEngine} produced no assistant response because the provider appears unavailable due to quota, billing, subscription, or credit state.`;
+  if (isProviderUsageOrQuotaText(combined)) {
+    const extractedReason = extractProviderUsageFailureReason(combined);
+    const reasonText = extractedReason ? cleanString(sanitizeProviderUnavailableReason(cleanEngine, extractedReason), 240) : '';
+    const reason = extractedReason
+      ? ` ${reasonText}${/[.!?]$/.test(reasonText) ? '' : '.'}`
+      : '.';
+    return `${cleanEngine} produced no assistant response because the provider appears unavailable due to quota, billing, subscription, or credit state${reason}`;
   }
   if (
     lower.includes('unauthorized') ||
@@ -979,6 +1209,7 @@ function dedupeFailureLines(value, max = 4000) {
   for (const line of lines) {
     const text = cleanDisplayString(line, 800);
     if (!text) continue;
+    if (!isInformativeFailureText(text)) continue;
     const key = text.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -996,14 +1227,7 @@ function classifyCliRuntimeFailureCode(engineId, run, failureText) {
     run && run.stderr,
     run && run.stdout,
   ].filter(Boolean).join('\n'), 12000).toLowerCase();
-  if (
-    text.includes('quota') ||
-    text.includes('credit') ||
-    text.includes('billing') ||
-    text.includes('subscription') ||
-    text.includes('payment required') ||
-    text.includes('insufficient balance')
-  ) {
+  if (isProviderUsageOrQuotaText(text)) {
     return `${cleanEngine}_provider_quota_or_subscription_unavailable`;
   }
   if (
@@ -1269,6 +1493,78 @@ function extractActivityText(row, kind) {
   const tool = cleanDisplayString(row.tool || item.tool || row.tool_name || item.tool_name || row.name || item.name || '', 1000);
   if (tool) return tool;
   return cleanDisplayString(JSON.stringify(row), 1200);
+}
+
+function cliActivityItem(row) {
+  return row && row.item && typeof row.item === 'object' ? row.item : {};
+}
+
+function cliActivityItemType(row) {
+  const item = cliActivityItem(row);
+  return cleanString(item.type || item.kind || item.name || '', 160).toLowerCase();
+}
+
+function semanticProviderEventType(row) {
+  const eventType = compactEventType(row);
+  const itemType = cliActivityItemType(row);
+  if (eventType && itemType && eventType.toLowerCase() !== itemType && eventType.toLowerCase().startsWith('item.')) {
+    return `${eventType}.${itemType}`;
+  }
+  return eventType || itemType || 'activity';
+}
+
+function isCliAgentMessageRow(row) {
+  const eventType = compactEventType(row).toLowerCase();
+  const itemType = cliActivityItemType(row);
+  return itemType === 'agent_message' || itemType === 'assistant_message' || eventType === 'agent_message';
+}
+
+function extractCliAgentMessageText(row) {
+  const item = cliActivityItem(row);
+  return extractTextFromContent(
+    item.text ||
+      item.message ||
+      item.summary ||
+      item.content ||
+      row.text ||
+      row.message ||
+      row.summary ||
+      row.content ||
+      '',
+    4000,
+    false,
+  );
+}
+
+function isOperationalCliActivityRow(row) {
+  if (!row || typeof row !== 'object') return false;
+  if (isCliAgentMessageRow(row)) return false;
+  const joined = `${compactEventType(row)} ${cliActivityItemType(row)}`.toLowerCase();
+  return /command|exec|shell|bash|tool|mcp|function|file|edit|patch|diff|write|search|grep|find|permission|approval/.test(joined);
+}
+
+function hasOperationalCliActivityAfter(rows, index) {
+  for (let i = index + 1; i < rows.length; i += 1) {
+    if (isOperationalCliActivityRow(rows[i])) return true;
+  }
+  return false;
+}
+
+function semanticAgentMessageDecisionEvent(row, index, ctx, defaultEngineId) {
+  const text = cleanDisplayString(extractCliAgentMessageText(row), 2000);
+  if (!text) return null;
+  return {
+    ...baseEvent(ctx, 'decision_dialog', defaultEngineId),
+    type: 'agent_activity_event',
+    activity_kind: 'decision_dialog',
+    provider_event_type: semanticProviderEventType(row),
+    source: 'external_cli_stream',
+    sequence_no: index + 1,
+    item_id: cleanString(row && (row.item_id || row.itemId || row.id || cliActivityItem(row).id || cliActivityItem(row).item_id || cliActivityItem(row).itemId), 200),
+    status: cleanString(row && (row.status || row.state || cliActivityItem(row).status || cliActivityItem(row).state || 'completed'), 80) || 'completed',
+    text,
+    display_text: text,
+  };
 }
 
 function normalizeCliActivityEvent(row, index, ctx, defaultEngineId) {
@@ -2225,18 +2521,19 @@ function semanticProviderQuery(row) {
 }
 
 function semanticActivityKindFromRow(row) {
-  const type = compactEventType(row).toLowerCase();
+  const type = semanticProviderEventType(row).toLowerCase();
   if (type.includes('reasoning') || type.includes('thought') || type.includes('plan')) return 'decision_dialog';
   if (type.includes('command') || type.includes('bash') || type.includes('shell') || type.includes('exec')) return 'command';
   if (type.includes('file') || type.includes('edit') || type.includes('patch') || type.includes('write')) return 'file_change';
   if (type.includes('search') || type.includes('grep') || type.includes('find')) return 'search';
   if (type.includes('tool')) return 'tool_call';
+  if (type.includes('agent_message') || type.includes('assistant_message')) return 'assistant_delta';
   if (type.includes('complete') || type.includes('result')) return 'completed';
   return 'activity';
 }
 
 function semanticActivityTextFromRow(row, defaultEngineId) {
-  const type = compactEventType(row).toLowerCase();
+  const type = semanticProviderEventType(row).toLowerCase();
   if (!type || type === 'thread.started' || type === 'turn.started') return '';
   if (type === 'assistant_delta' || type === 'assistant_delta.compacted' || type.includes('partial')) return '';
   if (type.includes('reasoning') || type.includes('thought') || type.includes('plan')) {
@@ -2283,10 +2580,22 @@ function semanticActivityTextFromRow(row, defaultEngineId) {
 function semanticCliActivityEvents(rows, ctx, defaultEngineId) {
   const out = [];
   const seen = new Set();
-  for (const row of Array.isArray(rows) ? rows : []) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  for (let index = 0; index < sourceRows.length; index += 1) {
+    const row = sourceRows[index];
+    if (isCliAgentMessageRow(row)) {
+      if (!hasOperationalCliActivityAfter(sourceRows, index)) continue;
+      const event = semanticAgentMessageDecisionEvent(row, index, ctx, defaultEngineId);
+      if (!event) continue;
+      const key = `${event.provider_event_type}|${event.display_text}`.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(event);
+      continue;
+    }
     const text = semanticActivityTextFromRow(row, defaultEngineId);
     if (!text) continue;
-    const providerType = compactEventType(row);
+    const providerType = semanticProviderEventType(row);
     const key = `${providerType}|${text}`.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);

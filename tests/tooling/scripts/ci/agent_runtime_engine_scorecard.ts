@@ -14,6 +14,7 @@ const SOURCE_DOMAIN = 'validation';
 const OWNER_DOMAIN = 'validation.agent_runtime';
 const POLICY_PATH = CONTRACT_PATH;
 const LAYER = 'gateway';
+const GOLDEN_EXTERNAL_ENGINES = new Set(['codex_cli', 'claude_code']);
 
 function readJson(rel: string, fallback: JsonObject = {}): JsonObject {
   try {
@@ -78,6 +79,50 @@ function realWorkReplayResult(realWorkReplay: JsonObject, engineId: string): Jso
   return rows.find((item: JsonObject) => item && item.engine_id === engineId) || null;
 }
 
+function transportMigrationRow(transportMigration: JsonObject, engineId: string): JsonObject | null {
+  const rows = Array.isArray(transportMigration.rows) ? transportMigration.rows : [];
+  return rows.find((row: JsonObject) => row && clean(row.engine_id, 120) === engineId) || null;
+}
+
+function transportMigrationWarning(transportMigration: JsonObject, engineId: string): JsonObject | null {
+  const warnings = Array.isArray(transportMigration.warnings) ? transportMigration.warnings : [];
+  return warnings.find((row: JsonObject) => row && clean(row.engine_id, 120) === engineId) || null;
+}
+
+function transportMigrationViolation(transportMigration: JsonObject, engineId: string): JsonObject | null {
+  const violations = Array.isArray(transportMigration.violations) ? transportMigration.violations : [];
+  return violations.find((row: JsonObject) => row && clean(row.engine_id, 120) === engineId) || null;
+}
+
+function transportMigrationWarningDetail(warning: JsonObject, engineId: string): string {
+  const kind = clean(warning && warning.kind, 160);
+  if (kind === 'bounded_envelope_review_window_active') {
+    return `Bounded structured-source envelope review window active for ${engineId}.`;
+  }
+  if (kind === 'prompt_text_retire_window_active') {
+    return `Prompt-text compatibility retirement window active for ${engineId}.`;
+  }
+  return `Transport migration warning active for ${engineId}: ${kind || 'unspecified'}.`;
+}
+
+function transportMigrationNextAction(warning: JsonObject): string {
+  const kind = clean(warning && warning.kind, 160);
+  const explicit = clean(warning && warning.next_action, 500);
+  if (explicit) return explicit;
+  if (kind === 'bounded_envelope_review_window_active') {
+    const criteria = Array.isArray(warning && warning.exit_criteria)
+      ? warning.exit_criteria.map((item: any) => clean(item, 120)).filter(Boolean)
+      : [];
+    return criteria.length > 0
+      ? `Complete or renew bounded-envelope exit criteria: ${criteria.join(', ')}.`
+      : 'Complete or renew bounded-envelope exit criteria before treating this transport as stable.';
+  }
+  if (kind === 'prompt_text_retire_window_active') {
+    return 'Retire prompt-text compatibility by moving this engine to the declared structured transport target.';
+  }
+  return 'Resolve active transport migration warning.';
+}
+
 function classify(score: number): string {
   if (score >= 0.85) return 'daily_driver_candidate';
   if (score >= 0.7) return 'practical_with_gaps';
@@ -106,10 +151,15 @@ function nextActions(engineId: string, caps: Record<string, ReturnType<typeof ca
   }
   if (caps.real_work_replay && caps.real_work_replay.status === 'not_sampled') out.push('Add this engine to the cross-framework real-work replay proof.');
   if (caps.real_work_replay && caps.real_work_replay.status === 'fail') out.push('Fix the cross-framework real-work replay failure for this engine.');
+  if (caps.practical_usability_loop && caps.practical_usability_loop.status !== 'pass') out.push('Fix the full practical runtime loop: approval pause, bounded projection, decision receipt, transcript persistence, context reload, and activity trace.');
   if (caps.approval_pause.status !== 'pass') out.push('Verify gated tool proposal pauses and resumes through Gateway approval route.');
   if (caps.durable_receipts.status !== 'pass') out.push('Ensure terminal projections include Gateway receipt refs.');
   if (caps.activity_trace.status !== 'pass') out.push('Normalize activity into bounded user-facing trace rows.');
   if (caps.structured_transport.status !== 'pass') out.push('Attach and validate Gateway-owned structured turn payloads before adapter dispatch.');
+  if (caps.transport_migration && caps.transport_migration.status !== 'pass') {
+    const warning = (caps.transport_migration as any).warning || null;
+    out.push(transportMigrationNextAction(warning));
+  }
   if (caps.error_projection.status !== 'pass' && caps.error_projection.status !== 'not_applicable') out.push('Add or refresh hard-failure projection evidence.');
   if (!out.length && engineId !== 'infring_native') out.push('Promote this engine to broader live useful-work scenarios.');
   if (!out.length) out.push('Keep monitoring parity against external engines.');
@@ -126,6 +176,7 @@ function main() {
   const liveWork = readJson(clean(evidenceInputs.live_work || 'core/local/artifacts/agent_runtime_live_work_eval_current.json', 300));
   const realWorkReplay = readJson(clean(evidenceInputs.real_work_replay || 'core/local/artifacts/agent_runtime_real_work_replay_guard_current.json', 300));
   const structuredTransport = readJson(clean(evidenceInputs.structured_transport || 'core/local/artifacts/agent_runtime_structured_transport_eval_current.json', 300));
+  const transportMigration = readJson(clean(evidenceInputs.transport_migration || 'core/local/artifacts/agent_runtime_transport_migration_pressure_guard_current.json', 300));
   const hardFailure = readJson(clean(evidenceInputs.hard_failure_injection || 'core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json', 300));
   const engines = Array.isArray(registry.engines) ? registry.engines : [];
   const adapterContracts = readJson(clean(registry.private_adapter_contracts || 'validation/conformance/contracts/agent_runtime_adapter_contracts.json', 300));
@@ -163,6 +214,16 @@ function main() {
     const replayApprovalOk = replayApplies && replayRow?.turn?.pending_permission === true && replayRow?.permission_request?.present === true && replayRow?.decision?.ok === true;
     const replayReceiptsOk = replayApplies && replayRow?.decision?.decision_receipt_hash_present === true;
     const replayActivityOk = replayApplies && replayRow?.turn?.activity_trace === true;
+    const replayUsabilityChecks = replayRow && replayRow.usability_checks && typeof replayRow.usability_checks === 'object'
+      ? replayRow.usability_checks as JsonObject
+      : {};
+    const replayUsabilityMissing = Object.entries(replayUsabilityChecks)
+      .filter(([, value]) => value !== true)
+      .map(([key]) => clean(key, 120));
+    const replayUsabilityOk = replayApplies &&
+      replayRow?.ok === true &&
+      Object.keys(replayUsabilityChecks).length > 0 &&
+      replayUsabilityMissing.length === 0;
     const sampledLiveWork = sampledLiveWorkEngineSet.has(engineId) || Boolean(liveRow && !replayRow);
     const liveSelectable = liveSelectableEngineSet.has(engineId);
     const catalogOnly = catalogOnlyEngineSet.has(engineId);
@@ -174,6 +235,10 @@ function main() {
     const liveReceiptsOk = Number(liveResults.completion && liveResults.completion.receipt_refs || 0) >= 3 || replayReceiptsOk;
     const liveActivityOk = (liveResults.completion && liveResults.completion.activity_trace === true) || replayActivityOk;
     const structuredTransportOk = structuredTransport.ok === true && structuredTransport.type === 'agent_runtime_structured_transport_eval';
+    const transportRow = transportMigrationRow(transportMigration, engineId);
+    const transportWarning = transportMigrationWarning(transportMigration, engineId);
+    const transportViolation = transportMigrationViolation(transportMigration, engineId);
+    const transportMigrationOk = transportMigration.ok === true && !transportWarning && !transportViolation;
     const hardFailureOk = hardFailure.ok === true && hardFailure.type === 'agent_runtime_hard_failure_injection_eval';
     const external = engineId !== 'infring_native';
     const install = engine.install && typeof engine.install === 'object' ? engine.install : {};
@@ -204,6 +269,16 @@ function main() {
               ? 'Cross-framework real-work replay sampled this engine but failed.'
               : 'Cross-framework real-work replay has not sampled this engine.',
       ),
+      practical_usability_loop: capability(
+        replayUsabilityOk ? 'pass' : replayExpectedUnavailable ? 'partial' : replayRow ? 'fail' : 'not_sampled',
+        replayUsabilityOk
+          ? 'Real-work replay proved the practical user loop: approval pause, bounded projection, receipt, transcript persistence, context reload, artifact effect, and activity trace.'
+          : replayExpectedUnavailable
+            ? 'Engine is planned/unavailable, so practical usability loop cannot be promoted yet.'
+            : replayRow
+              ? `Real-work replay sampled this engine but practical usability checks are incomplete: ${replayUsabilityMissing.join(', ') || 'unknown'}.`
+              : 'Real-work replay has not sampled the practical user loop for this engine.',
+      ),
       approval_pause: capability(liveApprovalOk ? 'pass' : liveApplies ? 'fail' : 'not_sampled', liveApplies ? 'Latest live work eval included approval pause and decision.' : 'Approval pause not sampled for this engine.'),
       durable_receipts: capability(liveReceiptsOk ? 'pass' : liveApplies ? 'fail' : 'partial', liveReceiptsOk ? 'Latest live work eval returned receipt refs.' : 'Receipt evidence comes from contract/conformance, not live engine sample.'),
       activity_trace: capability(liveActivityOk ? 'pass' : liveApplies ? 'fail' : 'partial', liveActivityOk ? 'Latest live work eval returned bounded activity trace.' : 'Activity trace evidence comes from contract/conformance, not live engine sample.'),
@@ -214,6 +289,16 @@ function main() {
           : conformanceOk
             ? 'Conformance declares structured transport target; structured transport eval evidence is missing or stale.'
             : 'Conformance guard failed or missing.',
+      ),
+      transport_migration: capability(
+        transportViolation ? 'fail' : transportWarning ? 'partial' : transportRow ? 'pass' : 'not_sampled',
+        transportViolation
+          ? `Transport migration violation: ${clean(transportViolation.kind || transportViolation.detail || 'unknown', 300)}.`
+          : transportWarning
+            ? `${transportMigrationWarningDetail(transportWarning, engineId)} ${Number(transportWarning.days_remaining)} day(s) remain before ${clean(transportWarning.retire_by || transportWarning.review_by, 40)}.`
+            : transportRow
+              ? `Transport migration posture: ${clean(transportRow.context_transport_mode, 120)} -> ${clean(transportRow.structured_transport_target, 120)}.`
+              : 'No transport migration row found for this engine.',
       ),
       error_projection: capability(
         hardFailureOk ? 'pass' : conformanceOk ? 'partial' : 'fail',
@@ -227,12 +312,15 @@ function main() {
     if (external && !install.download_action_ref && caps.discovery_metadata.status === 'pass') {
       caps.discovery_metadata = capability('partial', 'Discovery exists but install/download action metadata is incomplete.');
     }
+    if (transportWarning) (caps.transport_migration as any).warning = transportWarning;
     const values = Object.values(caps);
     const rawScore = values.reduce((sum, row) => sum + row.score, 0) / Math.max(1, values.length);
     const plannedAdapterCap = statusText.includes('planned_adapter') ? 0.79 : 1;
     const liveEvidenceCap = liveAdapterEvidenceOk || !external ? 1 : 0.84;
     const catalogOnlyCap = catalogOnly ? 0.84 : 1;
-    const score = Math.min(rawScore, plannedAdapterCap, liveEvidenceCap, catalogOnlyCap);
+    const transportMigrationCap = transportWarning ? 0.84 : 1;
+    const goldenUsabilityCap = GOLDEN_EXTERNAL_ENGINES.has(engineId) && !replayUsabilityOk ? 0.69 : 1;
+    const score = Math.min(rawScore, plannedAdapterCap, liveEvidenceCap, catalogOnlyCap, transportMigrationCap, goldenUsabilityCap);
     const livePromotionEligible = liveAdapterEvidenceOk && !catalogOnly && !plannedAdapter;
     return {
       engine_id: engineId,
@@ -246,8 +334,20 @@ function main() {
         planned_adapter_cap: plannedAdapterCap < 1 ? plannedAdapterCap : null,
         live_evidence_cap: liveEvidenceCap < 1 ? liveEvidenceCap : null,
         catalog_only_cap: catalogOnlyCap < 1 ? catalogOnlyCap : null,
+        transport_migration_cap: transportMigrationCap < 1 ? transportMigrationCap : null,
+        golden_usability_cap: goldenUsabilityCap < 1 ? goldenUsabilityCap : null,
         live_promotion_eligible: livePromotionEligible,
       },
+      promotion_warnings: [
+        ...(transportWarning
+          ? [{
+              kind: clean(transportWarning.kind || 'transport_migration_warning', 120),
+              detail: transportMigrationWarningDetail(transportWarning, engineId),
+              days_remaining: Number.isFinite(Number(transportWarning.days_remaining)) ? Number(transportWarning.days_remaining) : null,
+              warning_window_days: Number.isFinite(Number(transportWarning.warning_window_days)) ? Number(transportWarning.warning_window_days) : null,
+            }]
+          : []),
+      ],
       live_work_evidence: liveRow ? {
         working_directory: clean(liveRow.working_directory || liveWork.working_directory, 500),
         observed_working_directory: clean(liveRow.observed_working_directory, 500),
@@ -285,6 +385,11 @@ function main() {
     )),
     hard_failure_injection_ok: hardFailure.ok === true,
     structured_transport_eval_ok: structuredTransport.ok === true,
+    transport_migration_ok: transportMigration.ok === true,
+    transport_migration_warning_count: Number(transportMigration.summary && transportMigration.summary.warning_count) || 0,
+    transport_migration_warning_engines: Array.from(new Set((Array.isArray(transportMigration.warnings) ? transportMigration.warnings : [])
+      .map((row: JsonObject) => clean(row && row.engine_id, 120))
+      .filter(Boolean))),
   };
   const report = {
     ok: rows.length > 0 && rows.every((row) => row.engine_id && row.score >= 0),

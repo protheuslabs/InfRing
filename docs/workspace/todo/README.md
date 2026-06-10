@@ -34,6 +34,8 @@ Do not use this directory as:
   Rendered historical ledger and completed-work archive.
 - [TODO_ARCHIVE_LEGACY.md](/Users/jay/.openclaw/workspace/docs/workspace/todo/TODO_ARCHIVE_LEGACY.md)
   Preserved pre-JSON historical appendix.
+- [AGENTIC_LOOP_ITEM_TEMPLATE.md](/Users/jay/.openclaw/workspace/docs/workspace/todo/AGENTIC_LOOP_ITEM_TEMPLATE.md)
+  Template for non-trivial TODO/SRS items that should be executed through the agentic implementation loop.
 
 ## Current Field Conventions
 
@@ -47,6 +49,19 @@ Active backlog families in the live board should declare:
   Optional filter value: `real_work`, `reliability`, or `simplification`. `real_work` maps to the repo-wide `usability` law.
 - `real_work_score`
   Optional priority score from `1` to `5`.
+
+## Agentic Implementation Loop Intake
+
+Non-trivial work items should use [AGENTIC_LOOP_ITEM_TEMPLATE.md](/Users/jay/.openclaw/workspace/docs/workspace/todo/AGENTIC_LOOP_ITEM_TEMPLATE.md) or carry the same minimum fields in registry metadata:
+
+- `Objective`
+- `Smallest slice`
+- `Allowed lanes`
+- `Forbidden lanes`
+- `Evidence`
+- `Promotion rule`
+
+This connects TODO/SRS execution to [AGENTIC_IMPLEMENTATION_LOOP.md](/Users/jay/.openclaw/workspace/docs/workspace/AGENTIC_IMPLEMENTATION_LOOP.md). The goal is to make agentic work loop-based and evidence-producing instead of one-prompt implementation drift.
 
 Allowed owner values can evolve, but the starting set is:
 

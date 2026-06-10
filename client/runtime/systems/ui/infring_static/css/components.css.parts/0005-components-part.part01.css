@@ -117,6 +117,153 @@
 .message.agent .message-bubble {
   overflow: visible;
 }
+
+.message.agent .message-bubble[data-message-bubble-content-shell="true"] {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 90%;
+  max-width: 90%;
+  box-sizing: border-box;
+}
+
+.message.agent .message-bubble[data-message-bubble-content-shell="true"] > .message-agent-name {
+  order: -20;
+}
+
+.message.agent .message-bubble[data-message-bubble-content-shell="true"] > infring-tool-card-stack-shell {
+  margin: 10px 0 0;
+}
+
+.message-inline-thoughts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  color: var(--text);
+  font: inherit;
+}
+
+.message-inline-thought {
+  display: block;
+  color: inherit;
+}
+
+.message-inline-thought-toggle {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.message-inline-thought-toggle:hover .message-inline-thought-label {
+  text-decoration: none;
+}
+
+.message-inline-thought-label,
+.message-inline-thought-chevron {
+  color: color-mix(in srgb, var(--text-dim) 90%, transparent);
+}
+
+.message-inline-thought-chevron {
+  font-size: 0.95em;
+  line-height: 1;
+}
+
+.message-inline-thought-body {
+  margin: 6px 0 0;
+  color: var(--text);
+  font: inherit;
+  line-height: inherit;
+}
+
+.message-inline-thought-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.message-inline-thought-line {
+  margin: 0;
+  color: color-mix(in srgb, var(--text-dim) 88%, transparent);
+  font: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message-inline-thought-body .thinking-trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  max-width: min(460px, 88vw);
+}
+
+.message-inline-thought-body .thinking-trace-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--text);
+}
+
+.message-inline-thought-body .thinking-trace-row:not(.line-dialog) {
+  color: color-mix(in srgb, var(--text-dim) 88%, transparent);
+}
+
+.message-inline-thought-body .thinking-trace-dot {
+  display: none;
+  flex: 0 0 auto;
+}
+
+.message-inline-thought-body .thinking-trace-row.line-write .thinking-trace-dot,
+.message-inline-thought-body .thinking-trace-row.line-read .thinking-trace-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45em;
+  min-width: 1.45em;
+  height: 1.45em;
+  color: currentColor;
+  background: none;
+  border-radius: 0;
+  font-size: 0.94em;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.message-inline-thought-body .thinking-trace-row.line-write .thinking-trace-dot::before {
+  content: "✎";
+}
+
+.message-inline-thought-body .thinking-trace-row.line-read .thinking-trace-dot::before {
+  content: "</>";
+  font-size: 0.82em;
+  letter-spacing: -0.08em;
+}
+
+.message-inline-thought-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
 .message.system .message-bubble {
   --message-tail-fill-color: color-mix(in srgb, var(--surface2) 90%, transparent);
   --message-tail-border-color: color-mix(in srgb, var(--border) 92%, transparent);
@@ -343,7 +490,30 @@ body[data-theme='dark'] .message-bubble.message-bubble-thinking .thinking-inline
   letter-spacing: 0.01em;
 }
 
+.message-bubble.message-bubble-thinking {
+  --thinking-bubble-fluctuation-limit: 18px;
+  box-sizing: border-box;
+  max-inline-size: min(var(--message-bubble-readable-width), calc(100vw - 48px));
+}
+
+.message-bubble.message-bubble-thinking .thinking-inline-text,
+.message-bubble.message-bubble-thinking .thinking-status-line,
 .message-bubble.message-bubble-thinking .thinking-trace-list {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+}
+
+.message-bubble.message-bubble-thinking .thinking-inline-text > em,
+.message-bubble.message-bubble-thinking .thinking-inline-subtext {
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-bubble.message-bubble-thinking .thinking-trace-list,
+.tool-card-body .thinking-trace-list-summary {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -351,33 +521,73 @@ body[data-theme='dark'] .message-bubble.message-bubble-thinking .thinking-inline
   max-width: min(460px, 88vw);
 }
 
-.message-bubble.message-bubble-thinking .thinking-trace-row {
+.message-bubble.message-bubble-thinking .thinking-trace-row,
+.tool-card-body .thinking-trace-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
-  line-height: 1.25;
+  font-size: inherit;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.message-bubble.message-bubble-thinking .thinking-trace-row:not(.line-dialog),
+.tool-card-body .thinking-trace-row:not(.line-dialog) {
   color: color-mix(in srgb, var(--text-dim) 88%, transparent);
 }
 
-.message-bubble.message-bubble-thinking .thinking-trace-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 76%, transparent);
+.message-bubble.message-bubble-thinking .thinking-trace-dot,
+.tool-card-body .thinking-trace-dot {
+  display: none;
   flex: 0 0 auto;
 }
 
-.message-bubble.message-bubble-thinking .thinking-trace-row.state-error .thinking-trace-dot {
-  background: color-mix(in srgb, var(--error) 84%, transparent);
+.message-bubble.message-bubble-thinking .thinking-trace-row.line-write .thinking-trace-dot,
+.message-bubble.message-bubble-thinking .thinking-trace-row.line-read .thinking-trace-dot,
+.tool-card-body .thinking-trace-row.line-write .thinking-trace-dot,
+.tool-card-body .thinking-trace-row.line-read .thinking-trace-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45em;
+  min-width: 1.45em;
+  height: 1.45em;
+  color: currentColor;
+  background: none;
+  border-radius: 0;
+  font-size: 0.94em;
+  font-weight: 700;
+  line-height: 1;
 }
 
-.message-bubble.message-bubble-thinking .thinking-trace-row.state-blocked .thinking-trace-dot {
-  background: color-mix(in srgb, var(--warning) 80%, transparent);
+.message-bubble.message-bubble-thinking .thinking-trace-row.line-write .thinking-trace-dot::before,
+.tool-card-body .thinking-trace-row.line-write .thinking-trace-dot::before {
+  content: "✎";
 }
 
-.message-bubble.message-bubble-thinking .thinking-trace-row.state-done .thinking-trace-dot {
-  background: color-mix(in srgb, var(--success) 84%, transparent);
+.message-bubble.message-bubble-thinking .thinking-trace-row.line-read .thinking-trace-dot::before,
+.tool-card-body .thinking-trace-row.line-read .thinking-trace-dot::before {
+  content: "</>";
+  font-size: 0.82em;
+  letter-spacing: -0.08em;
+}
+
+.message-bubble.message-bubble-thinking .thinking-trace-row.state-error .thinking-trace-dot,
+.tool-card-body .thinking-trace-row.state-error .thinking-trace-dot {
+  color: color-mix(in srgb, var(--error) 84%, currentColor);
+  background: none;
+}
+
+.message-bubble.message-bubble-thinking .thinking-trace-row.state-blocked .thinking-trace-dot,
+.tool-card-body .thinking-trace-row.state-blocked .thinking-trace-dot {
+  color: color-mix(in srgb, var(--warning) 80%, currentColor);
+  background: none;
+}
+
+.message-bubble.message-bubble-thinking .thinking-trace-row.state-done .thinking-trace-dot,
+.tool-card-body .thinking-trace-row.state-done .thinking-trace-dot {
+  color: color-mix(in srgb, var(--success) 84%, currentColor);
+  background: none;
 }
 
 .message-bubble.message-bubble-thinking .thinking-trace-label {

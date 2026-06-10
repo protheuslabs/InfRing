@@ -1,0 +1,192 @@
+{
+  "type": "workflow_failure_recovery",
+  "schema_version": 1,
+  "generated_at": "2026-05-01T18:05:36.206Z",
+  "strict_mode": true,
+  "ok": true,
+  "fixture_path": "validation/regression/fixtures/workflow_failure_recovery_matrix.json",
+  "summary": {
+    "total_cases": 9,
+    "passed_cases": 9,
+    "failed_cases": 0,
+    "loop_detection_count": 7,
+    "blocked_loop_count": 7,
+    "finalization_failure_count": 9,
+    "bounded_retry_violations": 0,
+    "missing_forced_degraded_synthesis_count": 0,
+    "terminal_state_reasons": [
+      "degraded_synthesis_after_bounded_retry",
+      "final_llm_unavailable_degraded_path",
+      "clarification_required_due_to_unresolved_state"
+    ]
+  },
+  "gate_checks": [
+    {
+      "id": "repetitive_fallback_loop_blocked",
+      "ok": true,
+      "detail": "loop_detected=7;blocked=7"
+    },
+    {
+      "id": "finalization_failure_retry_bounded",
+      "ok": true,
+      "detail": "value=0;max=0"
+    },
+    {
+      "id": "finalization_failure_forced_degraded_synthesis",
+      "ok": true,
+      "detail": "value=0;max=0"
+    },
+    {
+      "id": "finalization_failure_terminal_reason_canonical",
+      "ok": true,
+      "detail": "invalid=0"
+    }
+  ],
+  "case_results": [
+    {
+      "id": "loop_detected_and_blocked_with_reason",
+      "ok": true,
+      "loop_detected": true,
+      "loop_detection_source": "pattern_or_heuristic",
+      "repeated_phrase": "i completed the workflow gate, but the final workflow state was unexpected. please retry so i can rerun the chain cleanly.",
+      "max_consecutive_repeats": 3,
+      "loop_blocked": true,
+      "retry_count": 2,
+      "retry_bounded": true,
+      "finalization_failure": true,
+      "degraded_synthesis_forced": true,
+      "terminal_state_reason": "degraded_synthesis_after_bounded_retry",
+      "terminal_reason_allowed": true,
+      "failures": []
+    },
+    {
+      "id": "single_fallback_no_loop",
+      "ok": true,
+      "loop_detected": false,
+      "loop_detection_source": "pattern_or_heuristic",
+      "repeated_phrase": "i completed the run, but the final reply did not render.",
+      "max_consecutive_repeats": 1,
+      "loop_blocked": false,
+      "retry_count": 1,
+      "retry_bounded": true,
+      "finalization_failure": true,
+      "degraded_synthesis_forced": true,
+      "terminal_state_reason": "final_llm_unavailable_degraded_path",
+      "terminal_reason_allowed": true,
+      "failures": []
+    },
+    {
+      "id": "capability_surface_boilerplate_loop_blocked",
+      "ok": true,
+      "loop_detected": true,
+      "loop_detection_source": "pattern_or_heuristic",
+      "repeated_phrase": "i can access runtime telemetry, persistent memory, workspace files, channels, and approved command surfaces in this session.",
+      "max_consecutive_repeats": 2,
+      "loop_blocked": true,
+      "retry_count": 1,
+      "retry_bounded": true,
+      "finalization_failure": true,
+      "degraded_synthesis_forced": true,
+      "terminal_state_reason": "degraded_synthesis_after_bounded_retry",
+      "terminal_reason_allowed": true,
+      "failures": []
+    },
+    {
+      "id": "clarification_terminal_reason_allowed",
+      "ok": true,
+      "loop_detected": false,
+      "loop_detection_source": "exact_repeat",
+      "repeated_phrase": "your request intersects both workspace and web paths; clarification required before execution.",
+      "max_consecutive_repeats": 1,
+      "loop_blocked": false,
+      "retry_count": 0,
+      "retry_bounded": true,
+      "finalization_failure": true,
+      "degraded_synthesis_forced": true,
+      "terminal_state_reason": "clarification_required_due_to_unresolved_state",
+      "terminal_reason_allowed": true,
+      "failures": []
+    },
+    {
+      "id": "policy_gate_outage_template_loop_blocked",
+      "ok": true,
+      "loop_detected": true,
+      "loop_detection_source": "pattern_or_heuristic",
+      "repeated_phrase": "the file list step was blocked before i could finish the answer: this is a policy gate, not a web-provider outage.",
+      "max_consecutive_repeats": 2,
+      "loop_blocked": true,
+      "retry_count": 1,
+      "retry_bounded": true,
+      "finalization_failure": true,
+      "degraded_synthesis_forced": true,
+      "terminal_state_reason": "degraded_synthesis_after_bounded_retry",
+      "terminal_reason_allowed": true,
+      "failures": []
+    },
+    {
+      "id": "ingress_domain_boundary_template_loop_blocked",
+      "ok": true,
+      "loop_detected": true,
+      "loop_detection_source": "pattern_or_heuristic",
+      "repeated_phrase": "heuristic:policy_gate_outage_template",
+      "max_consecutive_repeats": 2,
+      "loop_blocked": true,
+      "retry_count": 1,
+      "retry_bounded": true,
+      "finalization_failure": true,
+      "degraded_synthesis_forced": true,
+      "terminal_state_reason": "degraded_synthesis_after_bounded_retry",
+      "terminal_reason_allowed": true,
+      "failures": []
+    },
+    {
+      "id": "paraphrased_retry_macro_loop_blocked",
+      "ok": true,
+      "loop_detected": true,
+      "loop_detection_source": "pattern_or_heuristic",
+      "repeated_phrase": "heuristic:workflow_retry_macro_template",
+      "max_consecutive_repeats": 2,
+      "loop_blocked": true,
+      "retry_count": 1,
+      "retry_bounded": true,
+      "finalization_failure": true,
+      "degraded_synthesis_forced": true,
+      "terminal_state_reason": "degraded_synthesis_after_bounded_retry",
+      "terminal_reason_allowed": true,
+      "failures": []
+    },
+    {
+      "id": "exact_duplicate_response_loop_blocked",
+      "ok": true,
+      "loop_detected": true,
+      "loop_detection_source": "exact_repeat",
+      "repeated_phrase": "i cannot complete this operation yet because workflow finalization did not produce a stable result bundle and requires retry coordination.",
+      "max_consecutive_repeats": 2,
+      "loop_blocked": true,
+      "retry_count": 1,
+      "retry_bounded": true,
+      "finalization_failure": true,
+      "degraded_synthesis_forced": true,
+      "terminal_state_reason": "degraded_synthesis_after_bounded_retry",
+      "terminal_reason_allowed": true,
+      "failures": []
+    },
+    {
+      "id": "alternating_retry_templates_loop_blocked",
+      "ok": true,
+      "loop_detected": true,
+      "loop_detection_source": "alternating_repeat",
+      "repeated_phrase": "i completed the workflow gate, but the final workflow state was unexpected. please retry so i can rerun the chain cleanly. || i completed the run, but the final reply did not render. ask me to continue and i will synthesize from recorded workflow state.",
+      "max_consecutive_repeats": 4,
+      "loop_blocked": true,
+      "retry_count": 2,
+      "retry_bounded": true,
+      "finalization_failure": true,
+      "degraded_synthesis_forced": true,
+      "terminal_state_reason": "degraded_synthesis_after_bounded_retry",
+      "terminal_reason_allowed": true,
+      "failures": []
+    }
+  ],
+  "failures": []
+}

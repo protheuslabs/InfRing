@@ -25,12 +25,14 @@ const PROVIDER_FIXTURES = {
   codex_cli: {
     expected: [
       'Runtime thread started.',
+      'Checking workspace state before editing.',
       'Working on command: /bin/zsh -lc "pwd"',
       'Completed file change: /tmp/activity-projection-codex.txt',
       'Runtime completed the turn.',
     ],
     events: [
       { type: 'thread.started', thread_id: 'thread-activity-projection' },
+      { type: 'decision_dialog', kind: 'decision_dialog', display_text: 'Checking workspace state before editing.' },
       { type: 'item.started', status: 'running', item: { type: 'command', command: '/bin/zsh -lc "pwd"' } },
       { type: 'item.completed', status: 'completed', item: { type: 'file_change', path: '/tmp/activity-projection-codex.txt' } },
       { type: 'turn.completed', usage: { input_tokens: 7, output_tokens: 3 } },
@@ -38,11 +40,13 @@ const PROVIDER_FIXTURES = {
   },
   claude_code: {
     expected: [
+      'I will inspect the requested change, then write the smallest safe patch.',
       'Working on command: npm test -- --watch=false',
       'Completed file change: /tmp/activity-projection-claude.ts',
       'Working on tool: TodoWrite',
     ],
     events: [
+      { type: 'reasoning', kind: 'decision_dialog', display_text: 'I will inspect the requested change, then write the smallest safe patch.' },
       { type: 'tool_use', name: 'Bash', status: 'running', input: { command: 'npm test -- --watch=false' } },
       { type: 'tool_result', name: 'Write', status: 'completed', input: { file_path: '/tmp/activity-projection-claude.ts' } },
       { type: 'tool_use', name: 'TodoWrite', status: 'running', input: { todos: [{ content: 'finish projection guard' }] } },
@@ -86,6 +90,10 @@ function clean(value, max = 4000) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+function isRuntimeLifecycleTitle(title) {
+  return /^(Preparing|Loaded \d+ prior context|Checking .* availability|Starting .* session|Launching .* turn with bounded context pack|Runtime thread started|Runtime turn started|Runtime completed the turn)/.test(clean(title, 1000));
+}
+
 function ensureDir(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
@@ -99,6 +107,15 @@ function makeResponse() {
 }
 
 function rawActivityEvent(engineId, row, index) {
+  if (clean(row && row.kind, 80) === 'decision_dialog' || clean(row && row.type, 80) === 'decision_dialog') {
+    return {
+      type: 'agent_activity_event',
+      activity_kind: 'decision_dialog',
+      provider_event_type: clean(row.type || `fixture.${engineId}.decision_dialog.${index}`, 160),
+      status: clean(row.status || 'completed', 80),
+      display_text: clean(row.display_text || row.text || row.summary || '', 4000),
+    };
+  }
   return {
     type: 'agent_activity_event',
     activity_kind: clean(row.kind || row.type || row.event_type || 'activity', 80),
@@ -169,6 +186,15 @@ async function runEngineProbe(assembly, engineId) {
   const trace = payload.activity_trace && typeof payload.activity_trace === 'object' ? payload.activity_trace : {};
   const rows = Array.isArray(trace.rows) ? trace.rows : [];
   const titles = rows.map((row) => clean(row && row.title, 1000)).filter(Boolean);
+  const kinds = rows.map((row) => clean(row && row.activity_kind, 160)).filter(Boolean);
+  const thinkingHiddenTitles = rows
+    .filter((row) => row && row.display_in_thinking_bubble === false)
+    .map((row) => clean(row && row.title, 1000))
+    .filter(Boolean);
+  const thinkingVisibleTitles = rows
+    .filter((row) => row && row.display_in_thinking_bubble !== false)
+    .map((row) => clean(row && row.title, 1000))
+    .filter(Boolean);
   return {
     engine_id: engineId,
     handled,
@@ -179,6 +205,9 @@ async function runEngineProbe(assembly, engineId) {
       collapse_label: clean(trace.collapse_label, 120),
       row_count: rows.length,
       titles,
+      kinds,
+      thinking_hidden_titles: thinkingHiddenTitles,
+      thinking_visible_titles: thinkingVisibleTitles,
     },
   };
 }
@@ -213,6 +242,8 @@ async function main() {
     const result = await runEngineProbe(assembly, engineId);
     results.push(result);
     const titles = result.trace.titles;
+    const visibleTitles = result.trace.thinking_visible_titles || [];
+    const hiddenTitles = result.trace.thinking_hidden_titles || [];
     if (!result.handled || result.status_code !== 200 || result.turn_status !== 'completed') {
       violations.push({ kind: 'activity_projection_turn_route_failed', engine_id: engineId, handled: result.handled, status_code: result.status_code, status: result.turn_status });
     }
@@ -223,8 +254,18 @@ async function main() {
     if (titles.some((title) => /\"type\"|thread_id|input_tokens|output_tokens|\"input\"|\"args\"/.test(title))) {
       violations.push({ kind: 'raw_provider_payload_detail_leaked', engine_id: engineId, titles });
     }
+    if (titles.some((title) => /^Finished\b.*\bdone$/i.test(title) || /\bdone\s*▸?\s*$/.test(title))) {
+      violations.push({ kind: 'status_suffix_sandwich_leaked', engine_id: engineId, titles });
+    }
+    if (['codex_cli', 'claude_code'].includes(engineId) && !result.trace.kinds.includes('decision_dialog')) {
+      violations.push({ kind: 'golden_pair_decision_dialog_missing', engine_id: engineId, kinds: result.trace.kinds, titles });
+    }
+    if (titles.some((title) => isRuntimeLifecycleTitle(title) && !hiddenTitles.includes(title))) {
+      violations.push({ kind: 'runtime_boot_activity_not_hidden_from_thinking_bubble', engine_id: engineId, hidden_titles: hiddenTitles, titles });
+    }
     for (const expected of PROVIDER_FIXTURES[engineId].expected) {
       if (!titles.includes(expected)) violations.push({ kind: 'semantic_activity_title_missing', engine_id: engineId, expected, titles });
+      if (!isRuntimeLifecycleTitle(expected) && !visibleTitles.includes(expected)) violations.push({ kind: 'semantic_activity_not_visible_in_thinking_bubble', engine_id: engineId, expected, visible_titles: visibleTitles });
     }
   }
 
@@ -237,6 +278,7 @@ async function main() {
     layer: LAYER,
     policy_path: POLICY_PATH,
     mode: 'deterministic_public_gateway_route_provider_fixtures',
+    golden_external_engines: ['codex_cli', 'claude_code'],
     engines_tested: Object.keys(PROVIDER_FIXTURES),
     results,
     violations,

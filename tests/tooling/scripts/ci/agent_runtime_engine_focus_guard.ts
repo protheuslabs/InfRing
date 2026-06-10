@@ -7,6 +7,7 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const REGISTRY_PATH = 'validation/conformance/contracts/agent_runtime_engine_registry.json';
+const STRATEGY_DOC_PATH = 'docs/workspace/agent_runtime_engine_strategy.md';
 const LIVE_WORK_EVAL_PATH = 'tests/tooling/scripts/ci/agent_runtime_live_work_eval.ts';
 const COORDINATION_GUARD_PATH = 'tests/tooling/scripts/ci/agent_runtime_framework_coordination_guard.ts';
 const OUT_JSON = 'core/local/artifacts/agent_runtime_engine_focus_guard_current.json';
@@ -56,8 +57,28 @@ const focus = registry.validation_focus_policy && typeof registry.validation_foc
   ? registry.validation_focus_policy
   : {};
 const active = unique(focus.active_promotion_engines);
+const primaryExternal = unique(
+  (
+    Array.isArray(focus.primary_external_engines)
+      ? focus.primary_external_engines
+      : []
+  ).concat(
+    focus.primary_external_engine ? [focus.primary_external_engine] : []
+  )
+);
 const catalogOnly = unique(focus.catalog_only_engines);
 const secondary = unique(focus.secondary_comparison_engines);
+const goldenPair = registry.golden_pair_baseline && typeof registry.golden_pair_baseline === 'object'
+  ? registry.golden_pair_baseline
+  : {};
+const goldenPairEngines = unique(goldenPair.engines);
+const liveSmoke = registry.golden_pair_live_smoke && typeof registry.golden_pair_live_smoke === 'object'
+  ? registry.golden_pair_live_smoke
+  : {};
+const liveSmokeEngines = unique(liveSmoke.engines);
+const promotionGate = registry.external_runtime_promotion_gate && typeof registry.external_runtime_promotion_gate === 'object'
+  ? registry.external_runtime_promotion_gate
+  : {};
 
 if (registry.type !== 'agent_runtime_engine_registry') {
   push(violations, 'registry_type_invalid', REGISTRY_PATH, registry.type);
@@ -74,11 +95,14 @@ if (active.length < 2 || active.length > 3) {
 if (focus.native_engine !== 'infring_native' || !active.includes('infring_native')) {
   push(violations, 'native_focus_engine_missing', REGISTRY_PATH, 'Active focus must include native_engine=infring_native.');
 }
-if (focus.primary_external_engine !== 'codex_cli' || !active.includes('codex_cli')) {
-  push(violations, 'primary_external_engine_missing', REGISTRY_PATH, 'Active focus must include primary_external_engine=codex_cli.');
+if (focus.primary_external_engine && focus.primary_external_engine !== 'codex_cli') {
+  push(violations, 'primary_external_engine_default_mismatch', REGISTRY_PATH, 'primary_external_engine should remain codex_cli for the current default checkpoint path.');
 }
-if (secondary.length > 1) {
-  push(violations, 'too_many_secondary_comparison_engines', REGISTRY_PATH, 'Only one secondary comparison engine is allowed while the platform proof lane is being stabilized.');
+if (!active.includes('codex_cli') || !active.includes('claude_code') || !primaryExternal.includes('codex_cli') || !primaryExternal.includes('claude_code') || primaryExternal.length < 2) {
+  push(violations, 'primary_external_engines_missing', REGISTRY_PATH, 'Active focus must include both codex_cli and claude_code as primary external engines.');
+}
+if (secondary.length !== 0) {
+  push(violations, 'secondary_comparison_lane_retired', REGISTRY_PATH, 'Secondary comparison engines are retired while both external primaries are codex_cli and claude_code. Move remaining entries into active catalog strategy instead.');
 }
 for (const engineId of secondary) {
   if (!active.includes(engineId)) {
@@ -118,6 +142,59 @@ for (const alias of ['adapter-ready', 'registry', 'all']) {
 if (!/Keep the engine registry broad/.test(clean(focus.rule, 2000))) {
   push(violations, 'focus_rule_too_weak', REGISTRY_PATH, focus.rule);
 }
+if (goldenPair.status !== 'covered') {
+  push(violations, 'golden_pair_baseline_not_covered', REGISTRY_PATH, goldenPair.status || 'missing');
+}
+for (const engineId of ['codex_cli', 'claude_code']) {
+  if (!goldenPairEngines.includes(engineId)) {
+    push(violations, 'golden_pair_engine_missing', REGISTRY_PATH, engineId);
+  }
+}
+for (const outcome of ['completed_response', 'permission_required', 'approval_resume_completed', 'typed_failure']) {
+  if (!unique(goldenPair.required_terminal_outcomes).includes(outcome)) {
+    push(violations, 'golden_pair_terminal_outcome_missing', REGISTRY_PATH, outcome);
+  }
+}
+for (const primitive of ['native_direct_mutation_grant', 'text_proposal_pause', 'approval_resume_context', 'visible_final_response', 'typed_failure_projection']) {
+  if (!unique(goldenPair.required_shared_primitives).includes(primitive)) {
+    push(violations, 'golden_pair_shared_primitive_missing', REGISTRY_PATH, primitive);
+  }
+}
+if (goldenPair.proof_artifact !== 'core/local/artifacts/agent_runtime_framework_capability_guard_current.json') {
+  push(violations, 'golden_pair_proof_artifact_invalid', REGISTRY_PATH, goldenPair.proof_artifact || 'missing');
+}
+if (liveSmoke.status !== 'passing') {
+  push(violations, 'golden_pair_live_smoke_not_passing', REGISTRY_PATH, liveSmoke.status || 'missing');
+}
+for (const engineId of ['codex_cli', 'claude_code']) {
+  if (!liveSmokeEngines.includes(engineId)) {
+    push(violations, 'golden_pair_live_smoke_engine_missing', REGISTRY_PATH, engineId);
+  }
+}
+if (promotionGate.status !== 'active' || promotionGate.required_before_reliable_promotion !== true) {
+  push(violations, 'external_runtime_promotion_gate_inactive', REGISTRY_PATH, 'external_runtime_promotion_gate must be active and required before reliable promotion.');
+}
+for (const blocked of ['reliable', 'promoted', 'production_ready', 'baseline_covered', 'golden_pair_equivalent']) {
+  if (!unique(promotionGate.promotion_blocked_status_values).includes(blocked)) {
+    push(violations, 'promotion_blocked_status_missing', REGISTRY_PATH, blocked);
+  }
+}
+
+if (!exists(STRATEGY_DOC_PATH)) {
+  push(violations, 'engine_strategy_doc_missing', STRATEGY_DOC_PATH, 'Agent Runtime engine strategy doc is missing.');
+} else {
+  const strategy = read(STRATEGY_DOC_PATH);
+  for (const marker of [
+    'Prove Codex and Claude Code as the golden external runtime pair',
+    'cataloged/selectable does not mean promoted',
+    'external engine mediated work = substrate/platform proof',
+    'InfRing-native useful work = native intelligence/runtime proof',
+  ]) {
+    if (!strategy.includes(marker)) {
+      push(violations, 'engine_strategy_marker_missing', STRATEGY_DOC_PATH, marker);
+    }
+  }
+}
 
 if (!exists(LIVE_WORK_EVAL_PATH)) {
   push(violations, 'live_work_eval_missing', LIVE_WORK_EVAL_PATH, 'Agent Runtime live-work eval script is missing.');
@@ -155,6 +232,7 @@ const payload = {
     registry_engine_count: engineIds.length,
     active_promotion_engines: active,
     catalog_only_engines: catalogOnly,
+    golden_pair_engines: goldenPairEngines,
     default_live_work_scope: focus.default_live_work_scope || '',
     violations: violations.length,
   },

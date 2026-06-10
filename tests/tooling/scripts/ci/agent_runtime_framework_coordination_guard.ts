@@ -33,7 +33,7 @@ const GATES = [
   {
     id: 'context_continuity',
     script: 'tests/tooling/scripts/ci/agent_runtime_context_continuity_eval.ts',
-    coverage_scope: 'full_engine_registry',
+    coverage_scope: 'active_promotion_subset',
   },
   {
     id: 'transcript_persistence_parity',
@@ -86,6 +86,11 @@ const GATES = [
     coverage_scope: 'adapter_ready_subset',
   },
   {
+    id: 'cli_adapter_timeout',
+    script: 'tests/tooling/scripts/ci/agent_runtime_cli_adapter_timeout_guard.ts',
+    coverage_scope: 'provider_error_projection',
+  },
+  {
     id: 'shadow_attachment_bridge',
     script: 'tests/tooling/scripts/ci/agent_runtime_shadow_attachment_guard.ts',
     coverage_scope: 'adapter_capability_policy',
@@ -101,9 +106,44 @@ const GATES = [
     coverage_scope: 'adapter_ready_subset',
   },
   {
+    id: 'native_transport_probe',
+    script: 'tests/tooling/scripts/ci/agent_runtime_native_transport_probe.ts',
+    coverage_scope: 'bounded_envelope_transport_probe',
+  },
+  {
+    id: 'claude_stream_json_mapping_probe',
+    script: 'tests/tooling/scripts/ci/agent_runtime_claude_stream_json_mapping_probe.ts',
+    coverage_scope: 'claude_code_native_transport_candidate_mapping',
+  },
+  {
+    id: 'codex_app_server_mapping_probe',
+    script: 'tests/tooling/scripts/ci/agent_runtime_codex_app_server_mapping_probe.ts',
+    coverage_scope: 'codex_cli_native_transport_candidate_mapping',
+  },
+  {
+    id: 'codex_app_server_live_acceptance_probe',
+    script: 'tests/tooling/scripts/ci/agent_runtime_codex_app_server_live_acceptance_probe.ts',
+    coverage_scope: 'codex_cli_native_transport_live_acceptance_disabled_by_default',
+  },
+  {
+    id: 'claude_stream_json_live_acceptance_probe',
+    script: 'tests/tooling/scripts/ci/agent_runtime_claude_stream_json_live_acceptance_probe.ts',
+    coverage_scope: 'claude_code_native_transport_live_acceptance_disabled_by_default',
+  },
+  {
     id: 'transport_migration_pressure',
     script: 'tests/tooling/scripts/ci/agent_runtime_transport_migration_pressure_guard.ts',
     coverage_scope: 'engine_registry_transport_policy',
+  },
+  {
+    id: 'engine_conformance',
+    script: 'tests/tooling/scripts/ci/agent_runtime_engine_conformance_guard.ts',
+    coverage_scope: 'engine_registry_conformance',
+  },
+  {
+    id: 'engine_scorecard',
+    script: 'tests/tooling/scripts/ci/agent_runtime_engine_scorecard.ts',
+    coverage_scope: 'engine_registry_scorecard',
   },
   {
     id: 'proof_summary_accounting',
@@ -194,12 +234,117 @@ function engineIdsFromParsed(parsed) {
 
 function parsedMeta(parsed) {
   const engines = engineIdsFromParsed(parsed);
+  const warningCount =
+    Number(parsed && parsed.summary && parsed.summary.warning_count) ||
+    Number(parsed && parsed.summary && parsed.summary.warnings) ||
+    Number(parsed && parsed.summary && parsed.summary.transport_migration_warning_count) ||
+    (Array.isArray(parsed && parsed.warnings) ? parsed.warnings.length : 0);
   return {
     type: cleanEngineId(parsed && (parsed.type || parsed.kind)),
     engine_ids: engines,
     engine_count: engines.length,
     expected_unavailable_count: Number(parsed && parsed.expected_unavailable_count) || 0,
     successful_engine_count: Number(parsed && parsed.successful_engine_count) || 0,
+    warning_count: Number.isFinite(warningCount) ? warningCount : 0,
+  };
+}
+
+function parsedWarnings(parsed) {
+  if (!parsed || typeof parsed !== 'object') return [];
+  const explicitWarnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+  const rowPromotionWarnings = Array.isArray(parsed.rows)
+    ? parsed.rows.flatMap((row) => {
+        if (!row || typeof row !== 'object' || !Array.isArray(row.promotion_warnings)) return [];
+        const engineId = cleanEngineId(row.engine_id || row.id || '', 120);
+        return row.promotion_warnings.map((warning) => ({
+          ...(warning && typeof warning === 'object' ? warning : { detail: warning }),
+          engine_id:
+            warning && typeof warning === 'object' && warning.engine_id
+              ? warning.engine_id
+              : engineId,
+        }));
+      })
+    : [];
+  const transportWarningEngines =
+    parsed &&
+    parsed.summary &&
+    Array.isArray(parsed.summary.transport_migration_warning_engines)
+      ? parsed.summary.transport_migration_warning_engines.map((engineId) => ({
+          kind: 'bounded_envelope_review_window_active',
+          engine_id: engineId,
+          detail: `Bounded structured-source envelope review window active for ${engineId}.`,
+        }))
+      : [];
+  const warningRows =
+    explicitWarnings.length > 0
+      ? explicitWarnings
+      : rowPromotionWarnings.length > 0
+        ? rowPromotionWarnings
+        : transportWarningEngines;
+  return warningRows.slice(0, 25).map((row) => {
+    if (!row || typeof row !== 'object') return { detail: cleanEngineId(row, 240) };
+    return {
+      kind: cleanEngineId(row.kind || row.id || row.type || 'warning', 120),
+      engine_id: cleanEngineId(row.engine_id || '', 120),
+      path: cleanEngineId(row.path || '', 240),
+      detail: cleanEngineId(row.detail || row.reason || '', 500),
+      days_remaining: Number.isFinite(Number(row.days_remaining)) ? Number(row.days_remaining) : null,
+      warning_window_days: Number.isFinite(Number(row.warning_window_days))
+        ? Number(row.warning_window_days)
+        : null,
+    };
+  });
+}
+
+function warningKey(row) {
+  if (!row || typeof row !== 'object') return cleanEngineId(row, 240) || 'warning';
+  const kind = cleanEngineId(row.kind || row.id || row.type || 'warning', 120);
+  const engineId = cleanEngineId(row.engine_id || '', 120);
+  if (
+    engineId &&
+    (kind === 'bounded_envelope_review_window_active' ||
+      kind === 'upstream_native_transport_probe_pending')
+  ) {
+    return ['bounded_envelope_native_transport_pending', engineId].join('|');
+  }
+  return [
+    kind,
+    engineId,
+    cleanEngineId(row.path || '', 240),
+    cleanEngineId(row.detail || row.reason || '', 500),
+  ].join('|');
+}
+
+function warningRollup(gateResults) {
+  const rawWarningCount = gateResults.reduce(
+    (sum, gate) => sum + (Number(gate.parsed_meta && gate.parsed_meta.warning_count) || 0),
+    0,
+  );
+  const warnings = gateResults
+    .filter((gate) => (Number(gate.parsed_meta && gate.parsed_meta.warning_count) || 0) > 0)
+    .map((gate) => {
+      const parsedWarnings = gate.parsed_warnings || [];
+      const uniqueKeys = new Set(parsedWarnings.map(warningKey));
+      return {
+        id: gate.id,
+        script: gate.script,
+        raw_warning_count: Number(gate.parsed_meta && gate.parsed_meta.warning_count) || 0,
+        unique_warning_count: uniqueKeys.size,
+        warning_count: uniqueKeys.size || Number(gate.parsed_meta && gate.parsed_meta.warning_count) || 0,
+        warnings: parsedWarnings,
+      };
+    });
+  const uniqueWarningKeys = new Set();
+  for (const gate of warnings) {
+    for (const row of gate.warnings || []) uniqueWarningKeys.add(warningKey(row));
+  }
+  const uniqueWarningCount =
+    uniqueWarningKeys.size ||
+    warnings.reduce((sum, gate) => sum + (Number(gate.warning_count) || 0), 0);
+  return {
+    raw_warning_count: rawWarningCount,
+    unique_warning_count: uniqueWarningCount,
+    warnings,
   };
 }
 
@@ -233,6 +378,7 @@ function runGate(gate) {
     parsed_ok: parsed && typeof parsed.ok === 'boolean' ? parsed.ok : null,
     coverage_scope: gate.coverage_scope,
     parsed_meta: parsedMeta(parsed),
+    parsed_warnings: parsedWarnings(parsed),
     stdout_preview: preview(child.stdout),
     stderr_preview: preview(child.stderr),
     error: child.error
@@ -292,6 +438,7 @@ function main() {
   const gateResults = GATES.map(runGate);
   const coverage = buildCoverageReport(gateResults);
   const failures = gateResults.filter((gate) => !gate.ok);
+  const warningSummary = warningRollup(gateResults);
   const allFailures = [
     ...failures.map((gate) => ({ kind: 'gate_failed', id: gate.id, gate })),
     ...coverage.failures.map((row) => ({ kind: 'coverage_failed', id: row.id, coverage: row })),
@@ -316,9 +463,13 @@ function main() {
       gate_count: gateResults.length,
       pass_count: gateResults.length - failures.length,
       failure_count: allFailures.length,
+      warning_count: warningSummary.unique_warning_count,
+      unique_warning_count: warningSummary.unique_warning_count,
+      raw_warning_count: warningSummary.raw_warning_count,
       duration_ms: Date.now() - startedAt,
     },
     coverage,
+    warnings: warningSummary.warnings,
     gates: gateResults,
     failures: allFailures.map((failure) => {
       if (failure.kind === 'coverage_failed') return failure;

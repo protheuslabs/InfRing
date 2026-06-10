@@ -8,6 +8,8 @@
   "legacy_debt_management": {
     "debt_cliff": "2026-07-01",
     "review_required_by": "2026-06-24",
+    "review_warning_days": 21,
+    "debt_cliff_warning_days": 30,
     "expired_exception_policy": "fail_closed",
     "renewal_requires": [
       "new allowed_until date",

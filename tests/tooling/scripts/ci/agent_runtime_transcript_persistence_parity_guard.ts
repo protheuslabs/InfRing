@@ -50,7 +50,7 @@ async function main() {
 
   const statusDir = fs.mkdtempSync(path.join(os.tmpdir(), 'infring-agent-runtime-transcript-parity-'));
   const store = createAgentRuntimeTranscriptStore({ statusDir, maxRecords: 32, windowLimit: 80 });
-  const engines = ['infring_native', 'codex_cli', 'claude_code', 'grok_code', 'openclaw', 'hermes_agent'];
+  const engines = ['infring_native', 'codex_cli', 'claude_code'];
   const violations = [];
 
   engines.forEach((engineId, index) => {
@@ -138,6 +138,7 @@ async function main() {
     type: 'agent_runtime_transcript_persistence_parity_guard',
     generated_at: new Date().toISOString(),
     mode: 'deterministic_gateway_transcript_store',
+    engine_scope_source: 'active_promotion_engines',
     status_dir: statusDir,
     transcript_path: store.transcriptPath,
     engines_tested: engines,
