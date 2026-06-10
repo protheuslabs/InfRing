@@ -74,6 +74,38 @@ fn field_u64(map: &Map<String, Value>, key: &str, fallback: u64) -> u64 {
     map.get(key).and_then(Value::as_u64).unwrap_or(fallback)
 }
 
+fn normalized_env_value(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
+fn is_production_release_channel(value: &str) -> bool {
+    matches!(
+        value,
+        "production" | "prod" | "release" | "stable" | "ga"
+    )
+}
+
+fn is_production_mode() -> bool {
+    ["NODE_ENV", "INFRING_ENV", "INFRING_RUNTIME_ENV", "INFRING_PROFILE", "INFRING_RELEASE_CHANNEL"]
+        .iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .map(|value| normalized_env_value(&value))
+        .any(|normalized| normalized == "production" || is_production_release_channel(&normalized))
+}
+
+fn is_dev_fallback_secret(value: &str) -> bool {
+    matches!(value, "conduit-dev-signing-secret" | "conduit-dev-token-secret")
+}
+
+fn assert_not_dev_fallback_production(value: &str, kind: &str) -> Result<(), String> {
+    if is_production_mode() && is_dev_fallback_secret(value) {
+        return Err(format!(
+            "conduit_security_fallback_secret_rejected_in_production:{kind}"
+        ));
+    }
+    Ok(())
+}
+
 fn env_string(key: &str) -> Option<String> {
     std::env::var(key)
         .ok()
@@ -101,7 +133,7 @@ fn resolve_transport_policy(payload: &Map<String, Value>) -> Value {
     })
 }
 
-fn resolve_security_config(payload: &Map<String, Value>) -> Value {
+fn resolve_security_config(payload: &Map<String, Value>) -> Result<Value, String> {
     let override_map = payload
         .get("override")
         .and_then(Value::as_object)
@@ -134,6 +166,7 @@ fn resolve_security_config(payload: &Map<String, Value>) -> Value {
         .map(str::to_string)
         .or_else(|| env_string("CONDUIT_SIGNING_SECRET"))
         .unwrap_or_else(|| "conduit-dev-signing-secret".to_string());
+    assert_not_dev_fallback_production(&signing_secret, "signing_secret")?;
 
     let token_key_id = override_map
         .get("token_key_id")
@@ -152,6 +185,7 @@ fn resolve_security_config(payload: &Map<String, Value>) -> Value {
         .map(str::to_string)
         .or_else(|| env_string("CONDUIT_TOKEN_SECRET"))
         .unwrap_or_else(|| "conduit-dev-token-secret".to_string());
+    assert_not_dev_fallback_production(&token_secret, "token_secret")?;
 
     let token_ttl_ms = override_map
         .get("token_ttl_ms")
@@ -159,14 +193,14 @@ fn resolve_security_config(payload: &Map<String, Value>) -> Value {
         .or_else(|| env_u64("CONDUIT_TOKEN_TTL_MS"))
         .unwrap_or(300_000);
 
-    json!({
+    Ok(json!({
         "client_id": client_id,
         "signing_key_id": signing_key_id,
         "signing_secret": signing_secret,
         "token_key_id": token_key_id,
         "token_secret": token_secret,
         "token_ttl_ms": token_ttl_ms
-    })
+    }))
 }
 
 fn build_security(payload: &Map<String, Value>) -> Result<Value, String> {
@@ -192,6 +226,8 @@ fn build_security(payload: &Map<String, Value>) -> Result<Value, String> {
     let signing_secret = field_string(security, "signing_secret", "conduit-dev-signing-secret");
     let token_key_id = field_string(security, "token_key_id", "conduit-token-k1");
     let token_secret = field_string(security, "token_secret", "conduit-dev-token-secret");
+    assert_not_dev_fallback_production(&signing_secret, "signing_secret")?;
+    assert_not_dev_fallback_production(&token_secret, "token_secret")?;
     let token_ttl_ms = field_u64(security, "token_ttl_ms", 300_000);
 
     let issued_at_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
@@ -314,7 +350,17 @@ pub fn run(_root: &std::path::Path, argv: &[String]) -> i32 {
 
     let payload_obj = payload.as_object().cloned().unwrap_or_default();
     let security = if command == "resolve-security-config" {
-        resolve_security_config(&payload_obj)
+        match resolve_security_config(&payload_obj) {
+            Ok(v) => v,
+            Err(err) => {
+                print_json_line(&json!({
+                    "ok": false,
+                    "type": "conduit_client_security_kernel_error",
+                    "error": err
+                }));
+                return 1;
+            }
+        }
     } else if command == "resolve-transport-policy" {
         resolve_transport_policy(&payload_obj)
     } else if command == "build-envelope" {
@@ -357,6 +403,22 @@ pub fn run(_root: &std::path::Path, argv: &[String]) -> i32 {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::env;
+
+    fn with_release_channel(channel: Option<&str>, assert: impl FnOnce()) {
+        let key = "INFRING_RELEASE_CHANNEL";
+        let previous = env::var(key).ok();
+        if let Some(value) = channel {
+            env::set_var(key, value);
+        } else {
+            env::remove_var(key);
+        }
+        assert();
+        match previous {
+            Some(value) => env::set_var(key, value),
+            None => env::remove_var(key),
+        }
+    }
 
     #[test]
     fn build_security_uses_command_scope() {
@@ -438,5 +500,43 @@ mod tests {
             out.get("stdio_timeout_ms").and_then(Value::as_u64),
             Some(300_000)
         );
+    }
+
+    #[test]
+    fn resolve_security_config_rejects_dev_fallbacks_in_production() {
+        with_release_channel(Some("stable"), || {
+            let payload = json!({});
+            let result = resolve_security_config(payload.as_object().expect("payload object"));
+            match result {
+                Ok(_) => panic!("expected production fallback rejection"),
+                Err(err) => assert!(
+                    err.contains("conduit_security_fallback_secret_rejected_in_production"),
+                    "unexpected error: {err}"
+                ),
+            }
+        });
+    }
+
+    #[test]
+    fn build_security_rejects_dev_fallbacks_in_production() {
+        with_release_channel(Some("stable"), || {
+            let payload = json!({
+                "request_id": "req-prod-fallback",
+                "command": { "type": "get_system_status" },
+                "security": {
+                    "client_id": "ts-surface",
+                    "signing_key_id": "sig-key",
+                    "signing_secret": "conduit-dev-signing-secret",
+                    "token_key_id": "tok-key",
+                    "token_secret": "conduit-dev-token-secret",
+                    "token_ttl_ms": 300_000u64
+                }
+            });
+            let result = build_security(payload.as_object().expect("payload object"));
+            match result {
+                Ok(_) => panic!("expected production fallback rejection"),
+                Err(err) => assert!(err.contains("conduit_security_fallback_secret_rejected_in_production")),
+            }
+        });
     }
 }
