@@ -38,12 +38,13 @@ fn run_dashboard_watchdog(root: &Path, argv: &[String]) -> i32 {
         format!("{}\n", current_pid),
     );
     let watchdog_pids = dashboard_watchdog_runtime_pids(&cfg);
-    let other_watchdogs = watchdog_pids
+    let leader_watchdog_pid = watchdog_pids.first().copied().unwrap_or(current_pid);
+    let mut other_watchdogs = watchdog_pids
         .iter()
         .copied()
         .filter(|pid| *pid != current_pid)
         .collect::<Vec<_>>();
-    if !other_watchdogs.is_empty() {
+    if leader_watchdog_pid != current_pid {
         append_watchdog_log(
             root,
             &json!({
@@ -51,6 +52,7 @@ fn run_dashboard_watchdog(root: &Path, argv: &[String]) -> i32 {
                 "type": "dashboard_watchdog",
                 "event": "duplicate_watchdog_preempted",
                 "pid": current_pid,
+                "leader_pid": leader_watchdog_pid,
                 "other_watchdogs": other_watchdogs,
                 "watchdog_pids": watchdog_pids,
                 "port": cfg.port,
@@ -62,11 +64,31 @@ fn run_dashboard_watchdog(root: &Path, argv: &[String]) -> i32 {
             "running": false,
             "reason": "duplicate_watchdog_running",
             "pid": current_pid,
+            "leader_pid": leader_watchdog_pid,
             "other_watchdogs": other_watchdogs,
             "watchdog_pids": watchdog_pids,
             "port": cfg.port,
         }));
         return 2;
+    }
+    if !other_watchdogs.is_empty() {
+        let mut preempted_watchdogs = Vec::new();
+        for pid in other_watchdogs {
+            if kill_pid(pid) {
+                preempted_watchdogs.push(pid);
+            }
+        }
+        append_watchdog_log(
+            root,
+            &json!({
+                "ok": !preempted_watchdogs.is_empty(),
+                "type": "dashboard_watchdog",
+                "event": "duplicate_watchdog_preempted",
+                "pid": current_pid,
+                "preempted_watchdogs": preempted_watchdogs,
+                "port": cfg.port,
+            }),
+        );
     }
     append_watchdog_log(
         root,
@@ -106,6 +128,26 @@ fn run_dashboard_watchdog(root: &Path, argv: &[String]) -> i32 {
                 exit_reason = "duplicate_watchdog_running";
                 exit_code = 2;
                 break;
+            }
+            let mut preempted_watchdogs = Vec::new();
+            for pid in watchdog_pids.iter().copied().filter(|pid| *pid != current_pid) {
+                if kill_pid(pid) {
+                    preempted_watchdogs.push(pid);
+                }
+            }
+            if !preempted_watchdogs.is_empty() {
+                append_watchdog_log(
+                    root,
+                    &json!({
+                        "ok": true,
+                        "type": "dashboard_watchdog",
+                        "event": "duplicate_watchdog_preempted",
+                        "pid": current_pid,
+                        "preempted_watchdogs": preempted_watchdogs,
+                        "watchdog_pids": watchdog_pids,
+                        "port": cfg.port,
+                    }),
+                );
             }
         }
         if dashboard_stop_latch_active(root) {

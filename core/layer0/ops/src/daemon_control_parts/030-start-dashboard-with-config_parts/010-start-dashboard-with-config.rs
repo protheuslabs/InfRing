@@ -13,19 +13,13 @@ fn start_dashboard_with_config(
             "url": url
         });
     }
-    if let Some(duplicate_runtime) = dashboard_runtime_duplicate_guard(root, cfg) {
-        return json!({
-            "enabled": true,
-            "running": false,
-            "launched": false,
-            "opened_browser": false,
-            "url": url,
-            "ready_timeout_ms": cfg.ready_timeout_ms,
-            "error": "dashboard_duplicate_runtime_detected",
+    let duplicate_recovery = dashboard_runtime_duplicate_guard(root, cfg).map(|duplicate_runtime| {
+        let stop_attempt = kill_dashboard_process(root, cfg);
+        json!({
             "duplicate_runtime": duplicate_runtime,
-            "watchdog": dashboard_watchdog_status(root),
-        });
-    }
+            "stop_attempt": stop_attempt,
+        })
+    });
     if dashboard_health_ok_fast(cfg.host.as_str(), cfg.port) {
         return json!({
             "enabled": true,
@@ -33,7 +27,8 @@ fn start_dashboard_with_config(
             "launched": false,
             "opened_browser": false,
             "url": url,
-            "ready_timeout_ms": cfg.ready_timeout_ms
+            "ready_timeout_ms": cfg.ready_timeout_ms,
+            "duplicate_recovery": duplicate_recovery
         });
     }
 
@@ -114,6 +109,9 @@ fn start_dashboard_with_config(
     });
     if allow_browser && cfg.open_browser && running {
         out["opened_browser"] = Value::Bool(open_browser(cfg.url().as_str()));
+    }
+    if let Some(duplicate_recovery) = duplicate_recovery {
+        out["duplicate_recovery"] = duplicate_recovery;
     }
     if let Err(err) = first_spawn {
         out["spawn_error"] = Value::String(err);
