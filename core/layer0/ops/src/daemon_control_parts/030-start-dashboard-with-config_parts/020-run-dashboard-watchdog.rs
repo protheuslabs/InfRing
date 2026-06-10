@@ -2,6 +2,13 @@
 fn run_dashboard_watchdog(root: &Path, argv: &[String]) -> i32 {
     let cfg = parse_dashboard_launch_config(argv, "start");
     let current_pid = std::process::id();
+    let duplicate_recovery = dashboard_runtime_duplicate_guard(root, &cfg).map(|duplicate_runtime| {
+        let stop_attempt = kill_dashboard_process(root, &cfg);
+        json!({
+            "duplicate_runtime": duplicate_runtime,
+            "stop_attempt": stop_attempt,
+        })
+    });
     if !cfg.enabled {
         print_json_line(&json!({
             "ok": true,
@@ -13,28 +20,18 @@ fn run_dashboard_watchdog(root: &Path, argv: &[String]) -> i32 {
         }));
         return 0;
     }
-    if let Some(duplicate_runtime) = dashboard_runtime_duplicate_guard(root, &cfg) {
+    if let Some(duplicate_recovery) = &duplicate_recovery {
         append_watchdog_log(
             root,
             &json!({
                 "ok": false,
                 "type": "dashboard_watchdog",
-                "event": "authority_guard_blocked",
+                "event": "duplicate_runtime_recovery",
                 "pid": current_pid,
-                "duplicate_runtime": duplicate_runtime,
+                "duplicate_recovery": duplicate_recovery,
                 "port": cfg.port,
             }),
         );
-        print_json_line(&json!({
-            "ok": false,
-            "type": "dashboard_watchdog",
-            "running": false,
-            "reason": "dashboard_duplicate_runtime_detected",
-            "pid": current_pid,
-            "duplicate_runtime": duplicate_runtime,
-            "port": cfg.port,
-        }));
-        return 2;
     }
     let _ = fs::write(
         dashboard_watchdog_pid_path(root),
@@ -203,6 +200,7 @@ fn run_dashboard_watchdog(root: &Path, argv: &[String]) -> i32 {
             "reason": exit_reason,
             "host": cfg.host,
             "port": cfg.port,
+            "duplicate_recovery": &duplicate_recovery,
         }),
     );
     print_json_line(&json!({
@@ -212,6 +210,7 @@ fn run_dashboard_watchdog(root: &Path, argv: &[String]) -> i32 {
         "reason": exit_reason,
         "host": cfg.host,
         "port": cfg.port,
+        "duplicate_recovery": &duplicate_recovery,
     }));
     exit_code
 }
