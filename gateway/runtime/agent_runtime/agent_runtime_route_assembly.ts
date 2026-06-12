@@ -52,6 +52,12 @@ const {
   createAgentRuntimeEngineRouteHandler,
 } = require('./agent_runtime_engine_routes.ts');
 const {
+  createAgentRuntimeCommandCatalogStore,
+} = require('./agent_runtime_command_catalog.ts');
+const {
+  createAgentRuntimeCommandRouteHandler,
+} = require('./agent_runtime_command_routes.ts');
+const {
   createAgentRuntimeTurnProjectionStore,
   sanitizeAgentRuntimeActivityEvent,
 } = require('./agent_runtime_turn_projection.ts');
@@ -169,11 +175,23 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
     loadSelection: loadAgentRuntimeSelection,
     saveSelection: saveAgentRuntimeSelection,
   });
+  const agentRuntimeCommandCatalogStore = createAgentRuntimeCommandCatalogStore({
+    loadRegistry: () => loadAgentRuntimeEngineRegistry(root),
+    loadSelection: loadAgentRuntimeSelection,
+    createAdapterMap,
+  });
   const {
     handleAgentRuntimeEngineRoute,
   } = createAgentRuntimeEngineRouteHandler({
     engineProjectionStore: agentRuntimeEngineProjectionStore,
     selectEngine: agentRuntimeEngineProjectionStore.agentRuntimeSelectionProjection,
+    readJsonBody,
+    sendJson,
+  });
+  const {
+    handleAgentRuntimeCommandRoute,
+  } = createAgentRuntimeCommandRouteHandler({
+    commandCatalogStore: agentRuntimeCommandCatalogStore,
     readJsonBody,
     sendJson,
   });
@@ -224,6 +242,7 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
     turnProjectionStore: agentRuntimeTurnProjectionStore,
     contextPreviewProjectionStore: agentRuntimeContextPreviewProjectionStore,
     approvalStore: agentRuntimeApprovalStore,
+    appendAgentRuntimeTranscriptTurn,
     selectEngine: agentRuntimeEngineProjectionStore.agentRuntimeSelectionProjection,
     steer: agentRuntimeSteerProjection,
     createNativeOrchestrationClient,
@@ -239,12 +258,14 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
     agentRuntimeTranscriptStore,
     agentRuntimeSessionStateStore,
     agentRuntimeEngineProjectionStore,
+    agentRuntimeCommandCatalogStore,
     agentRuntimeTurnProjectionStore,
     agentRuntimeContextPreviewProjectionStore,
     handleAgentRuntimeWorkspaceRoute,
     handleAgentRuntimeApprovalRoute,
     handleShellSocketAgentRuntimeOverlayRoute,
     handleAgentRuntimeEngineRoute,
+    handleAgentRuntimeCommandRoute,
     handleAgentRuntimeTurnRoute,
     agentRuntimeSocketHandler,
     agentRuntimeSocketTransport,

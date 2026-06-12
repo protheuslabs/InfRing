@@ -16,6 +16,147 @@
       }).catch(function() { /* silent — use hardcoded list */ });
     },
 
+    normalizeAgentRuntimeSlashCommandRow: function(row, group) {
+      if (!row || typeof row !== 'object') return null;
+      var displayCommand = String(row.display_command || row.command || '').trim();
+      if (!displayCommand) return null;
+      var title = String(row.title || row.intent_id || displayCommand).trim();
+      var description = String(row.description || '').trim();
+      var operationalState = String(row.operational_state || 'stubbed_or_unwired').trim();
+      var operationalLabel = String(row.operational_label || operationalState).trim();
+      return {
+        row_kind: 'command',
+        cmd: displayCommand,
+        desc: description || title,
+        title: title,
+        source: 'agent_runtime_command_catalog',
+        command_id: String(row.command_id || ''),
+        intent_id: String(row.intent_id || ''),
+        engine_id: String(row.engine_id || ''),
+        group_id: String(row.group_id || (group && group.group_id) || ''),
+        group_title: String((group && group.title) || ''),
+        native_command: String(row.native_command || ''),
+        native_command_kind: String(row.native_command_kind || ''),
+        execution_kind: String(row.execution_kind || ''),
+        safety_class: String(row.safety_class || ''),
+        operational_state: operationalState,
+        operational_label: operationalLabel,
+        operational_detail: String(row.operational_detail || ''),
+        connected: row.connected !== false,
+        fully_operational: row.fully_operational === true,
+        selectable: true,
+        action_route: String(row.action_route || '/api/shell-socket/agent-runtime/commands/execute'),
+        default_passthrough_allowed: false,
+        chat_memory_eligible: false
+      };
+    },
+
+    normalizeAgentRuntimeSlashCommandProjection: function(payload) {
+      var groups = Array.isArray(payload && payload.groups) ? payload.groups : [];
+      var rows = [];
+      for (var i = 0; i < groups.length; i += 1) {
+        var group = groups[i] && typeof groups[i] === 'object' ? groups[i] : {};
+        var commands = Array.isArray(group.commands) ? group.commands : [];
+        for (var j = 0; j < commands.length; j += 1) {
+          var normalized = this.normalizeAgentRuntimeSlashCommandRow(commands[j], group);
+          if (normalized) rows.push(normalized);
+        }
+      }
+      return rows;
+    },
+
+    fetchAgentRuntimeSlashCommands: function(force) {
+      var self = this;
+      var engineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var now = Date.now();
+      if (
+        force !== true &&
+        this.agentRuntimeSlashCommandProjection &&
+        this._agentRuntimeSlashCommandProjectionEngineId === engineId &&
+        now - Number(this._agentRuntimeSlashCommandProjectionAt || 0) < 10000
+      ) {
+        return Promise.resolve(this.agentRuntimeSlashCommandProjection);
+      }
+      if (this._agentRuntimeSlashCommandProjectionLoading && force !== true) {
+        return Promise.resolve(this.agentRuntimeSlashCommandProjection);
+      }
+      this._agentRuntimeSlashCommandProjectionLoading = true;
+      return InfringAPI.get('/api/shell-socket/agent-runtime/commands?engine_id=' + encodeURIComponent(engineId)).then(function(payload) {
+        self.agentRuntimeSlashCommandProjection = payload || null;
+        self.agentRuntimeSlashCommandRows = self.normalizeAgentRuntimeSlashCommandProjection(payload);
+        self._agentRuntimeSlashCommandProjectionAt = Date.now();
+        self._agentRuntimeSlashCommandProjectionEngineId = engineId;
+        self._agentRuntimeSlashCommandProjectionLoading = false;
+        return payload;
+      }).catch(function() {
+        self._agentRuntimeSlashCommandProjectionLoading = false;
+        return null;
+      });
+    },
+
+    executeAgentRuntimeSlashCommand: async function(row, cmdArgs) {
+      var command = row && typeof row === 'object' ? row : {};
+      var engineId = String(command.engine_id || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var payload = {
+        engine_id: engineId,
+        intent_id: String(command.intent_id || ''),
+        display_command: String(command.cmd || command.display_command || ''),
+        args: String(cmdArgs || ''),
+        client_surface: 'dashboard',
+        source: 'slash_command_menu'
+      };
+      if (typeof this.publishSlashCommandFeedback === 'function') {
+        this.publishSlashCommandFeedback(command, {
+          status: 'pending',
+          notice_type: 'info',
+          text: 'Sending command intent to Gateway.'
+        });
+      }
+      try {
+        var res = await InfringAPI.post('/api/shell-socket/agent-runtime/commands/execute', payload);
+        var text = String(res && (res.display_text || res.message || res.status || '') || '').trim();
+        if (typeof this.publishSlashCommandFeedback === 'function') {
+          this.publishSlashCommandFeedback(command, {
+            status: String(res && (res.terminal_outcome || res.status) || 'completed'),
+            notice_type: res && res.status === 'manual_action_required' ? 'warning' : 'info',
+            text: text || 'Gateway accepted the runtime command intent.',
+            persist: !!(res && res.status === 'manual_action_required')
+          });
+        }
+        if (text) {
+          this.messages.push({
+            id: ++msgId,
+            role: 'system',
+            is_notice: true,
+            notice_type: res && res.status === 'manual_action_required' ? 'warning' : 'info',
+            notice_label: String(command.title || command.cmd || 'Runtime command'),
+            text: text,
+            meta: '',
+            tools: [],
+            system_origin: 'slash:agent-runtime-command',
+            ts: Date.now()
+          });
+          this.scrollToBottom();
+          this.scheduleConversationPersist();
+        }
+        return res;
+      } catch (error) {
+        var message = String(error && error.message ? error.message : error || 'runtime_command_failed').trim();
+        if (typeof this.publishSlashCommandFeedback === 'function') {
+          this.publishSlashCommandFeedback(command, {
+            status: 'failed',
+            notice_type: 'error',
+            text: message,
+            persist: true
+          });
+        }
+        if (typeof this.emitCommandFailureNotice === 'function') {
+          this.emitCommandFailureNotice(command.cmd || payload.display_command, message, ['/help']);
+        }
+        return null;
+      }
+    },
+
     // Keep thinking indicators alive while work is still in-flight.
     // Only hard-timeout once no pending activity remains or the request is
     // genuinely stale far beyond expected runtime.
@@ -893,5 +1034,5 @@
       this._pendingWsRecovering = false;
     },
 
-    async executeSlashCommand(cmd, cmdArgs) {
+    async executeSlashCommand(cmd, cmdArgs, commandRow) {
       this.showSlashMenu = false;

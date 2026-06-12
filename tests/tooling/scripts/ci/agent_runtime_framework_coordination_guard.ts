@@ -31,9 +31,24 @@ const GATES = [
     coverage_scope: 'single_route_lifecycle',
   },
   {
+    id: 'permission_pause_resume_normalization',
+    script: 'tests/tooling/scripts/ci/agent_runtime_permission_pause_resume_normalization_guard.ts',
+    coverage_scope: 'primary_external_cli_final_answer_proposal_pause_resume',
+  },
+  {
+    id: 'artifact_proposal_apply',
+    script: 'tests/tooling/scripts/ci/agent_runtime_artifact_proposal_apply_guard.ts',
+    coverage_scope: 'primary_external_cli_create_edit_proposal_approval_apply',
+  },
+  {
     id: 'context_continuity',
     script: 'tests/tooling/scripts/ci/agent_runtime_context_continuity_eval.ts',
     coverage_scope: 'active_promotion_subset',
+  },
+  {
+    id: 'context_switch_continuity',
+    script: 'tests/tooling/scripts/ci/agent_runtime_context_switch_continuity_guard.ts',
+    coverage_scope: 'primary_external_public_route_engine_switch',
   },
   {
     id: 'transcript_persistence_parity',
@@ -46,14 +61,34 @@ const GATES = [
     coverage_scope: 'adapter_ready_subset',
   },
   {
+    id: 'transcript_reload_persistence',
+    script: 'tests/tooling/scripts/ci/agent_runtime_transcript_reload_persistence_guard.ts',
+    coverage_scope: 'primary_external_completed_failed_stopped_reload_projection',
+  },
+  {
     id: 'activity_projection',
     script: 'tests/tooling/scripts/ci/agent_runtime_activity_projection_guard.ts',
     coverage_scope: 'provider_fixture_subset',
   },
   {
+    id: 'activity_decision_trace_persistence',
+    script: 'tests/tooling/scripts/ci/agent_runtime_activity_decision_trace_persistence_guard.ts',
+    coverage_scope: 'primary_external_public_route_decision_dialog_tool_trace_reload_projection',
+  },
+  {
     id: 'model_projection',
     script: 'tests/tooling/scripts/ci/agent_runtime_model_projection_guard.ts',
     coverage_scope: 'selectable_projection_subset',
+  },
+  {
+    id: 'model_projection_truth',
+    script: 'tests/tooling/scripts/ci/agent_runtime_model_projection_truth_guard.ts',
+    coverage_scope: 'primary_external_gateway_model_projection_truth',
+  },
+  {
+    id: 'runtime_command_execution',
+    script: 'tests/tooling/scripts/ci/agent_runtime_command_execution_guard.ts',
+    coverage_scope: 'primary_external_safe_status_execution_and_manual_auth',
   },
   {
     id: 'engine_focus',
@@ -91,9 +126,24 @@ const GATES = [
     coverage_scope: 'provider_error_projection',
   },
   {
+    id: 'hard_failure_projection',
+    script: 'tests/tooling/scripts/ci/agent_runtime_hard_failure_projection_guard.ts',
+    coverage_scope: 'primary_external_public_route_quota_auth_rate_network_missing_runtime_failures',
+  },
+  {
     id: 'shadow_attachment_bridge',
     script: 'tests/tooling/scripts/ci/agent_runtime_shadow_attachment_guard.ts',
     coverage_scope: 'adapter_capability_policy',
+  },
+  {
+    id: 'attachment_context_bridge',
+    script: 'tests/tooling/scripts/ci/agent_runtime_attachment_context_bridge_guard.ts',
+    coverage_scope: 'primary_external_public_route_large_paste_refs',
+  },
+  {
+    id: 'stop_cancel_semantics',
+    script: 'tests/tooling/scripts/ci/agent_runtime_stop_cancel_semantics_guard.ts',
+    coverage_scope: 'primary_external_public_socket_cancel_transcript_persistence',
   },
   {
     id: 'real_work_replay',
@@ -104,6 +154,11 @@ const GATES = [
     id: 'working_directory_parity',
     script: 'tests/tooling/scripts/ci/agent_runtime_working_directory_parity_guard.ts',
     coverage_scope: 'adapter_ready_subset',
+  },
+  {
+    id: 'working_directory_control',
+    script: 'tests/tooling/scripts/ci/agent_runtime_working_directory_control_guard.ts',
+    coverage_scope: 'primary_external_cli_selected_workspace_and_escape_rejection',
   },
   {
     id: 'native_transport_probe',
@@ -129,6 +184,11 @@ const GATES = [
     id: 'claude_stream_json_live_acceptance_probe',
     script: 'tests/tooling/scripts/ci/agent_runtime_claude_stream_json_live_acceptance_probe.ts',
     coverage_scope: 'claude_code_native_transport_live_acceptance_disabled_by_default',
+  },
+  {
+    id: 'provider_live_smoke_readiness',
+    script: 'tests/tooling/scripts/ci/agent_runtime_provider_live_smoke_readiness_guard.ts',
+    coverage_scope: 'primary_external_provider_live_smoke_opt_in_scope',
   },
   {
     id: 'transport_migration_pressure',

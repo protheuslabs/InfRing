@@ -19,6 +19,8 @@
   "socket_contract": "validation/conformance/contracts/agent_runtime_socket_contract.json",
   "turn_outcome_contract": "validation/conformance/contracts/agent_runtime_turn_outcome_contract.json",
   "router_scope_contract": "validation/conformance/contracts/agent_runtime_router_scope_contract.json",
+  "command_catalog_contract": "validation/conformance/contracts/agent_runtime_command_catalog_contract.json",
+  "feature_parity_contract": "validation/conformance/contracts/agent_runtime_framework_feature_parity_contract.json",
   "selection_rule": "Shell and external clients may select engine_id only through the Gateway socket. Engine-specific execution remains behind Gateway adapters.",
   "validation_focus_policy": {
     "broad_registry_allowed": true,
@@ -90,6 +92,8 @@
     "mutation_allowed": false,
     "tools_allowed": false,
     "proof_artifact": "core/local/artifacts/agent_runtime_cli_live_turn_smoke_current.json",
+    "readiness_guard": "tests/tooling/scripts/ci/agent_runtime_provider_live_smoke_readiness_guard.ts",
+    "readiness_artifact": "core/local/artifacts/agent_runtime_provider_live_smoke_readiness_guard_current.json",
     "command": "npm run -s ops:agent-runtime:cli-live-turn:smoke",
     "does_not_prove": [
       "live_real_work_task_success",
@@ -412,17 +416,19 @@
         },
         "clear_warning_when": "All exit_criteria are either satisfied by compact proof artifacts or explicitly renewed with a later review_by date and rationale.",
         "native_transport_probe": {
-          "source_authority": "local_cli_help_probe_2026-06-10",
-          "status": "candidate_unvalidated",
-          "typed_turn_api_available": false,
+          "source_authority": "agent_runtime_codex_app_server_live_acceptance_probe_2026-06-12",
+          "status": "live_acceptance_proven",
+          "typed_turn_api_available": true,
           "observed_local_cli": [
             "codex exec --json prints events to stdout as JSONL, but instructions are still prompt/stdin text.",
             "codex app-server supports stdio/unix/ws transports and can generate JSON Schema for the app-server protocol.",
             "codex mcp-server starts Codex as an MCP server over stdio, but this is not yet proven as an AgentRuntimeStructuredTurn turn API."
           ],
-          "candidate_api": "codex app-server protocol or exec JSONL event stream",
-          "evidence": "Local Codex CLI exposes JSONL event output and experimental app-server protocol tooling, but no validated direct AgentRuntimeStructuredTurn input contract has been proven yet.",
-          "next_action": "Generate/inspect Codex app-server protocol schema and test whether a bounded AgentRuntimeStructuredTurn can be submitted without rendering context as prompt/stdin text."
+          "candidate_api": "codex app-server JSON-RPC thread/start + turn/start",
+          "evidence": "Codex app-server accepted a disposable typed initialize + thread/start + turn/start JSON-RPC sequence through the live acceptance probe.",
+          "next_action": "Map full AgentRuntimeStructuredTurn context, activity, approval, and output projections onto Codex app-server before replacing bounded stdin compatibility transport.",
+          "candidate_mapping_probe_ref": "core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json",
+          "live_acceptance_probe_ref": "core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json"
         }
       }
     },
@@ -606,17 +612,19 @@
         },
         "clear_warning_when": "All exit_criteria are either satisfied by compact proof artifacts or explicitly renewed with a later review_by date and rationale.",
         "native_transport_probe": {
-          "source_authority": "local_cli_help_probe_2026-06-10",
-          "status": "candidate_unvalidated",
-          "typed_turn_api_available": false,
+          "source_authority": "agent_runtime_claude_stream_json_live_acceptance_probe_2026-06-12",
+          "status": "live_acceptance_proven",
+          "typed_turn_api_available": true,
           "observed_local_cli": [
             "claude --print supports --input-format stream-json for realtime streaming input.",
             "claude --print supports --output-format stream-json for realtime streaming output.",
             "claude supports --session-id/--resume/--continue for conversation continuity, but InfRing has not proven direct AgentRuntimeStructuredTurn transport yet."
           ],
           "candidate_api": "claude --print --input-format stream-json --output-format stream-json",
-          "evidence": "Local Claude Code CLI exposes stream-json input/output, but InfRing has not validated a direct structured turn mapping from AgentRuntimeStructuredTurn without bounded prompt rendering.",
-          "next_action": "Create a disposable Claude Code stream-json mapping probe that submits a minimal AgentRuntimeStructuredTurn-derived event stream and verifies structured activity/output without prompt preamble parsing."
+          "evidence": "Claude Code accepted a disposable stream-json input probe and returned the expected marker through the live acceptance probe.",
+          "next_action": "Map full AgentRuntimeStructuredTurn context, activity, approval, and output projections onto Claude stream-json before replacing bounded CLI-arg compatibility transport.",
+          "candidate_mapping_probe_ref": "core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json",
+          "live_acceptance_probe_ref": "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json"
         }
       }
     },

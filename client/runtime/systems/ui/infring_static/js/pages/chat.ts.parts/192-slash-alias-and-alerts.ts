@@ -168,6 +168,12 @@
     findSlashCommandDefinition: function(value) {
       var target = this.normalizeSlashCommandName(value);
       if (!target) return null;
+      var projectedRows = Array.isArray(this.filteredSlashCommands) ? this.filteredSlashCommands : [];
+      for (var p = 0; p < projectedRows.length; p += 1) {
+        var projected = projectedRows[p] && typeof projectedRows[p] === 'object' ? projectedRows[p] : null;
+        if (!projected || projected.row_kind === 'heading' || projected.selectable === false) continue;
+        if (this.normalizeSlashCommandName(projected.cmd) === target) return projected;
+      }
       var rows = Array.isArray(this.slashCommands) ? this.slashCommands : [];
       for (var i = 0; i < rows.length; i += 1) {
         var row = rows[i] && typeof rows[i] === 'object' ? rows[i] : null;
@@ -338,10 +344,75 @@
       return rows.slice(-4);
     },
 
+    publishSlashCommandFeedback: function(command, options) {
+      var row = command && typeof command === 'object' ? command : {};
+      var opts = options && typeof options === 'object' ? options : {};
+      var cmd = String(row.cmd || row.display_command || opts.display_command || '').trim();
+      var title = String(opts.title || row.title || row.label || cmd || 'Slash command').replace(/\s+/g, ' ').trim();
+      var status = String(opts.status || row.operational_state || 'completed').replace(/\s+/g, ' ').trim();
+      var text = String(
+        opts.text ||
+        opts.display_text ||
+        row.operational_detail ||
+        row.desc ||
+        row.description ||
+        row.operational_label ||
+        status ||
+        'Command accepted.'
+      ).replace(/\s+/g, ' ').trim();
+      if (text.length > 260) text = text.slice(0, 257) + '...';
+      var noticeType = String(opts.notice_type || '').trim();
+      if (!noticeType) {
+        noticeType = /failed|error|denied/i.test(status) ? 'error' : (/manual|warning|required/i.test(status) ? 'warning' : 'info');
+      }
+      if (this._slashCommandFeedbackTimer) {
+        clearTimeout(this._slashCommandFeedbackTimer);
+        this._slashCommandFeedbackTimer = 0;
+      }
+      this.slashCommandFeedback = {
+        id: 'slash-command-feedback-' + Date.now(),
+        type: 'slash_command_feedback_projection',
+        command: cmd,
+        title: title,
+        text: text,
+        status: status,
+        notice_type: noticeType,
+        created_at: Date.now(),
+        source_authority: row.source === 'agent_runtime_command_catalog'
+          ? 'gateway.agent_runtime_command_catalog'
+          : 'client.runtime.slash_command_projection'
+      };
+      var shouldPersist = opts.persist === true || /manual|required|failed|error|denied/i.test(status);
+      if (!shouldPersist) {
+        var self = this;
+        this._slashCommandFeedbackTimer = setTimeout(function() {
+          if (self.slashCommandFeedback && self.slashCommandFeedback.id) self.slashCommandFeedback = null;
+          self._slashCommandFeedbackTimer = 0;
+        }, 12000);
+      }
+      return this.slashCommandFeedback;
+    },
+
+    dismissSlashCommandFeedback: function() {
+      if (this._slashCommandFeedbackTimer) {
+        clearTimeout(this._slashCommandFeedbackTimer);
+        this._slashCommandFeedbackTimer = 0;
+      }
+      this.slashCommandFeedback = null;
+    },
+
     emitCommandFailureNotice: function(command, error, fallbackCommands) {
       var cmd = String(command || '').trim() || '/status';
       var message = String(error && error.message ? error.message : error || 'command_failed').trim();
       if (message.length > 220) message = message.slice(0, 217) + '...';
+      if (typeof this.publishSlashCommandFeedback === 'function') {
+        this.publishSlashCommandFeedback({ cmd: cmd, title: 'Command ' + cmd + ' failed' }, {
+          status: 'failed',
+          notice_type: 'error',
+          text: message,
+          persist: true
+        });
+      }
       var fallbacks = Array.isArray(fallbackCommands) ? fallbackCommands : [];
       var fallbackText = fallbacks
         .map(function(row) { return '`' + String(row || '').trim() + '`'; })
@@ -366,6 +437,9 @@
     },
 
     get filteredSlashCommands() {
+      if (this.showSlashMenu && typeof this.fetchAgentRuntimeSlashCommands === 'function') {
+        this.fetchAgentRuntimeSlashCommands(false);
+      }
       var base = Array.isArray(this.slashCommands) ? this.slashCommands.slice() : [];
       var aliases = this.slashAliasMap || {};
       Object.keys(aliases).forEach(function(alias) {
@@ -377,9 +451,97 @@
           });
         }
       });
-      if (!this.slashFilter) return base;
-      var f = this.slashFilter;
-      return base.filter(function(c) {
-        return c.cmd.toLowerCase().indexOf(f) !== -1 || c.desc.toLowerCase().indexOf(f) !== -1;
+      var runtimeRows = Array.isArray(this.agentRuntimeSlashCommandRows) ? this.agentRuntimeSlashCommandRows : [];
+      var gatewayByCmd = {};
+      runtimeRows.forEach(function(row) {
+        if (!row || row.group_id !== 'infring_native_commands') return;
+        var cmd = String(row.cmd || '').trim().toLowerCase();
+        if (cmd) gatewayByCmd[cmd] = row;
       });
+      var localOperational = function(cmd) {
+        var target = String(cmd || '').trim().toLowerCase();
+        if (/^\/(model|apikey|file|folder|stop|usage|think|context|verbose|queue|status|alerts|next|memory|continuity|aliases|alias|opt|clear|help)$/i.test(target)) {
+          return {
+            operational_state: 'connected',
+            operational_label: 'Operational',
+            operational_detail: 'Handled by the current InfRing client command path.',
+            connected: true,
+            fully_operational: true
+          };
+        }
+        return {
+          operational_state: 'intent_route_only',
+          operational_label: 'Legacy route',
+          operational_detail: 'Cataloged as an InfRing slash command; full operational proof is not yet attached.',
+          connected: true,
+          fully_operational: false
+        };
+      };
+      var commandRow = function(row) {
+        var cmd = String(row && row.cmd || '').trim();
+        var gateway = gatewayByCmd[cmd.toLowerCase()] || null;
+        var meta = gateway || localOperational(cmd);
+        return {
+          row_kind: 'command',
+          cmd: cmd,
+          desc: String(row && row.desc || gateway && gateway.desc || '').trim(),
+          title: String(row && row.title || gateway && gateway.title || cmd).trim(),
+          source: String(row && row.source || 'infring_native_slash'),
+          command_id: String(gateway && gateway.command_id || ('infring-local:' + cmd.replace(/^\//, ''))),
+          intent_id: String(gateway && gateway.intent_id || ''),
+          engine_id: String(gateway && gateway.engine_id || 'infring'),
+          group_id: 'infring_native_commands',
+          group_title: 'InfRing native / commands',
+          execution_kind: String(gateway && gateway.execution_kind || 'client_command_handler'),
+          safety_class: String(gateway && gateway.safety_class || 'control'),
+          operational_state: String(meta.operational_state || 'stubbed_or_unwired'),
+          operational_label: String(meta.operational_label || meta.operational_state || 'Unknown'),
+          operational_detail: String(meta.operational_detail || ''),
+          connected: meta.connected !== false,
+          fully_operational: meta.fully_operational === true,
+          selectable: true,
+          action_route: String(gateway && gateway.action_route || '')
+        };
+      };
+      var sections = [];
+      var f = String(this.slashFilter || '').trim().toLowerCase();
+      var matches = function(row) {
+        if (!f) return true;
+        return String(row.cmd || '').toLowerCase().indexOf(f) !== -1 ||
+          String(row.desc || '').toLowerCase().indexOf(f) !== -1 ||
+          String(row.title || '').toLowerCase().indexOf(f) !== -1 ||
+          String(row.operational_label || '').toLowerCase().indexOf(f) !== -1;
+      };
+      var addSection = function(label, rows, source) {
+        var filtered = rows.filter(matches);
+        if (!filtered.length) return;
+        sections.push({
+          row_kind: 'heading',
+          cmd: '__heading_' + source + '_' + sections.length,
+          label: label,
+          desc: '',
+          source: source,
+          selectable: false
+        });
+        Array.prototype.push.apply(sections, filtered);
+      };
+      var activeRuntimeRows = runtimeRows.filter(function(row) {
+        return row && row.group_id === 'runtime_native_commands';
+      });
+      addSection(
+        activeRuntimeRows.length && activeRuntimeRows[0].group_title ? activeRuntimeRows[0].group_title : 'Runtime / commands',
+        activeRuntimeRows,
+        'agent_runtime_command_catalog'
+      );
+      var localRows = base.map(commandRow).filter(function(row) { return !!row.cmd; });
+      runtimeRows.forEach(function(row) {
+        if (!row || row.group_id !== 'infring_native_commands') return;
+        var cmd = String(row.cmd || '').trim().toLowerCase();
+        if (!cmd) return;
+        if (!localRows.some(function(local) { return String(local.cmd || '').trim().toLowerCase() === cmd; })) {
+          localRows.push(row);
+        }
+      });
+      addSection('InfRing native / commands', localRows, 'infring_native_slash');
+      return sections;
     },

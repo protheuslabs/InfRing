@@ -1,0 +1,160 @@
+{
+  "type": "agent_runtime_command_catalog_contract",
+  "schema_version": 1,
+  "version": "2026-06-10",
+  "owner": "gateway.agent_runtime_command_catalog",
+  "status": "contracted",
+  "purpose": "Expose framework slash/CLI controls as canonical InfRing runtime command intents without making Shell, CLI clients, or chat turns execute raw provider commands.",
+  "routes": {
+    "projection": [
+      "/api/shell-socket/agent-runtime/commands",
+      "/api/agent-runtime/commands"
+    ],
+    "action": [
+      "/api/shell-socket/agent-runtime/commands/execute",
+      "/api/agent-runtime/commands/execute"
+    ]
+  },
+  "source_authority": "gateway.agent_runtime_command_catalog",
+  "projection_shape": {
+    "type": "agent_runtime_command_catalog_projection",
+    "required_fields": [
+      "type",
+      "source_authority",
+      "trace_id",
+      "engine_id",
+      "groups",
+      "commands",
+      "canonical_intent_authority",
+      "runtime_private_command_passthrough_default_allowed",
+      "shell_may_execute_raw_runtime_command",
+      "secrets_included"
+    ],
+    "group_shape": {
+      "required_fields": [
+        "type",
+        "group_id",
+        "title",
+        "engine_id",
+        "commands"
+      ],
+      "expected_groups": [
+        "runtime_native_commands",
+        "infring_native_commands"
+      ]
+    },
+    "command_row_shape": {
+      "required_fields": [
+        "type",
+        "command_id",
+        "intent_id",
+        "display_command",
+        "title",
+        "description",
+        "group_id",
+        "engine_id",
+        "execution_kind",
+        "safety_class",
+        "operational_state",
+        "operational_label",
+        "connected",
+        "fully_operational",
+        "action_route",
+        "default_passthrough_allowed",
+        "chat_memory_eligible",
+        "secrets_included"
+      ]
+    },
+    "operational_states": [
+      "connected",
+      "projection_connected",
+      "manual_action_required",
+      "intent_route_only",
+      "stubbed_or_unwired",
+      "unsupported",
+      "not_available"
+    ]
+  },
+  "canonical_intents": [
+    "runtime.authenticate",
+    "runtime.refresh_status",
+    "runtime.select",
+    "runtime.set_model",
+    "runtime.set_workspace",
+    "runtime.context_preview",
+    "runtime.approvals",
+    "runtime.help"
+  ],
+  "runtime_mapping_policy": {
+    "adapter_declares_private_native_command": true,
+    "gateway_projects_canonical_intent": true,
+    "shell_renders_projection_only": true,
+    "shell_may_not_execute_native_command": true,
+    "chat_turn_may_not_receive_control_command_as_user_prompt_by_default": true,
+    "raw_passthrough_default_allowed": false,
+    "operational_state_required": true,
+    "unwired_commands_must_be_visible_as_not_fully_operational": true,
+    "interactive_auth_must_return_manual_action_required_until_bounded_auth_bridge_exists": true
+  },
+  "authority_rules": {
+    "gateway_owns_command_projection": true,
+    "gateway_owns_command_action_admission": true,
+    "adapters_translate_private_runtime_command_syntax": true,
+    "adapters_do_not_make_policy_decisions": true,
+    "shell_and_cli_clients_submit_intents_only": true,
+    "durable_effects_require_receipts": true,
+    "commands_do_not_enter_conversation_memory_by_default": true
+  },
+  "known_initial_runtime_mappings": {
+    "claude_code": [
+      {
+        "intent_id": "runtime.authenticate",
+        "display_command": "/login",
+        "native_command_kind": "slash_command",
+        "execution_kind": "interactive_runtime_control"
+      },
+      {
+        "intent_id": "runtime.refresh_status",
+        "display_command": "/status",
+        "native_command_kind": "slash_command",
+        "execution_kind": "gateway_health_projection"
+      }
+    ],
+    "codex_cli": [
+      {
+        "intent_id": "runtime.authenticate",
+        "display_command": "/login",
+        "native_command_kind": "cli_command",
+        "execution_kind": "interactive_runtime_control"
+      },
+      {
+        "intent_id": "runtime.refresh_status",
+        "display_command": "/status",
+        "native_command_kind": "cli_command",
+        "execution_kind": "gateway_health_projection"
+      }
+    ]
+  },
+  "forbidden_default_payload_fields": [
+    "raw",
+    "root",
+    "all_messages",
+    "conversation_tree",
+    "raw_tool_input",
+    "raw_tool_result",
+    "trace_body",
+    "plan_graph",
+    "workflow_graph",
+    "execution_observation",
+    "authorization_state",
+    "policy_decision",
+    "external_framework_transcript",
+    "adapter_process_dump"
+  ],
+  "evidence": {
+    "guard": "tests/tooling/scripts/ci/agent_runtime_command_catalog_guard.ts",
+    "artifact": "core/local/artifacts/agent_runtime_command_catalog_guard_current.json",
+    "execution_guard": "tests/tooling/scripts/ci/agent_runtime_command_execution_guard.ts",
+    "execution_artifact": "core/local/artifacts/agent_runtime_command_execution_guard_current.json"
+  }
+}

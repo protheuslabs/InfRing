@@ -43,6 +43,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     promptSuggestionsEnabled: false,
     promptQueueItems: [],
     permissionRequests: [],
+    slashCommandFeedback: null,
     promptSuggestions: [],
     slashOpen: false,
     slashRows: [],
@@ -151,6 +152,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
       promptSuggestionsEnabled: !!p.promptSuggestionsEnabled,
       promptQueueItems: list('promptQueueItems'),
       permissionRequests: list('pendingAgentRuntimePermissionRequests'),
+      slashCommandFeedback: p.slashCommandFeedback || null,
       promptSuggestions: list('promptSuggestions'),
       slashOpen: !terminalMode && !!p.showSlashMenu,
       slashRows: list('filteredSlashCommands'),
@@ -182,6 +184,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     const p = cp();
     inputText = String(value == null ? '' : value);
     if (p) p.inputText = inputText;
+    if (textarea && typeof textarea.value === 'string' && textarea.value !== inputText) textarea.value = inputText;
     if (state.terminalMode) call('updateTerminalCursor', { target: textarea });
     call('refreshChatInputOverlayMetrics');
     refresh();
@@ -628,6 +631,47 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
   function permissionPreview(row) { return String(call('permissionRequestPreview', row) || 'Permission requested'); }
   function permissionReason(row) { return String(call('permissionRequestReason', row) || 'Approval required'); }
   function decidePermission(row, decision) { call('submitAgentRuntimePermissionDecision', row, decision); refresh(); }
+  function slashFeedbackTitle(row) {
+    const command = String(row && row.command || '').trim();
+    const title = String(row && row.title || command || 'Slash command').trim();
+    return command && !title.includes(command) ? command + ' ' + title : title;
+  }
+  function slashFeedbackText(row) {
+    return String(row && row.text || row && row.status || 'Command accepted.').trim();
+  }
+  function slashFeedbackStatus(row) {
+    return String(row && row.status || '').replace(/_/g, ' ').trim();
+  }
+  function dismissSlashFeedback() { call('dismissSlashCommandFeedback'); refresh(); }
+  function slashRowKey(row, index) {
+    return String(row && (row.command_id || row.cmd || row.label || row.title) || 'slash-row') + '-' + String(index);
+  }
+  function slashRowStatus(row) {
+    const label = String(row && (row.operational_label || row.operational_state) || '').trim();
+    return label;
+  }
+  function slashRowStatusTitle(row) {
+    return String(row && (row.operational_detail || row.operational_label || row.operational_state) || '').trim();
+  }
+  function slashRowDesc(row) {
+    return String(row && (row.desc || row.title || '') || '').trim();
+  }
+  function executeSlashRow(row, index) {
+    if (!row) return;
+    if (row.row_kind === 'heading' || row.selectable === false) {
+      const rows = state.slashRows || [];
+      const next = rows.slice(index + 1).find((candidate) => candidate && candidate.row_kind !== 'heading' && candidate.selectable !== false);
+      if (next) {
+        syncInput('');
+        call('executeSlashCommand', next.cmd, '', next);
+      }
+      refresh();
+      return;
+    }
+    syncInput('');
+    call('executeSlashCommand', row.cmd, '', row);
+    refresh();
+  }
   function keyForAttachment(att, index) {
     const file = att && att.file;
     return String(file && file.name || 'attachment') + '-' + String(file && file.size || index);
@@ -638,7 +682,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
       event.preventDefault();
       if (!state.terminalMode && p.showModelPicker && state.modelPickerRows.length) call('pickModel', state.modelPickerRows[state.modelPickerIdx] && state.modelPickerRows[state.modelPickerIdx].id);
-      else if (!state.terminalMode && p.showSlashMenu && state.slashRows.length) call('executeSlashCommand', state.slashRows[state.slashIdx] && state.slashRows[state.slashIdx].cmd);
+      else if (!state.terminalMode && p.showSlashMenu && state.slashRows.length) executeSlashRow(state.slashRows[state.slashIdx], state.slashIdx);
       else runSend();
       return;
     }
@@ -710,7 +754,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
       </div>
     {/if}
     {#if state.slashOpen && state.slashRows.length}
-      <infring-slash-command-menu-shell><div class="slash-menu">{#each state.slashRows as cmd, idx (cmd.cmd)}<div class:slash-active={idx === state.slashIdx} class="slash-menu-item" on:click={() => call('executeSlashCommand', cmd.cmd)} on:mouseenter={() => { const p = cp(); if (p) p.slashIdx = idx; refresh(); }}><span class="font-bold" style="font-size:13px">{cmd.cmd}</span><span class="text-xs text-dim">{cmd.desc}</span></div>{/each}</div></infring-slash-command-menu-shell>
+      <infring-slash-command-menu-shell><div class="slash-menu slash-command-menu-grouped">{#each state.slashRows as cmd, idx (slashRowKey(cmd, idx))}{#if cmd.row_kind === 'heading'}<div class="slash-menu-heading">{cmd.label || cmd.title || 'Commands'}</div>{:else}<div class={'slash-menu-item' + (idx === state.slashIdx ? ' slash-active' : '') + (cmd.fully_operational === false ? ' slash-menu-item-partial' : '') + (cmd.connected === false ? ' slash-menu-item-disconnected' : '')} title={slashRowStatusTitle(cmd)} on:click={() => executeSlashRow(cmd, idx)} on:mouseenter={() => { const p = cp(); if (p) p.slashIdx = idx; refresh(); }}><span class="slash-menu-command-main"><span class="slash-menu-command-name">{cmd.cmd}</span><span class="slash-menu-command-desc">{slashRowDesc(cmd)}</span></span>{#if slashRowStatus(cmd)}<span class="slash-menu-command-status">{slashRowStatus(cmd)}</span>{/if}</div>{/if}{/each}</div></infring-slash-command-menu-shell>
     {/if}
     {#if state.modelPickerOpen && state.modelPickerRows.length}
       <infring-model-picker-menu-shell><div class="slash-menu" style="max-height:280px;overflow-y:auto"><div class="text-xs text-dim" style="padding:4px 10px;border-bottom:1px solid var(--border)">Available models - pick one or keep typing</div>{#each state.modelPickerRows as m, idx (m.id)}<div class:slash-active={idx === state.modelPickerIdx} class="slash-menu-item" on:click={() => call('pickModel', m.id)} on:mouseenter={() => { const p = cp(); if (p) p.modelPickerIdx = idx; refresh(); }}><span class="font-bold" style="font-size:12px;font-family:var(--font-mono)">{m.id}</span><span class="text-xs text-dim">{modelMeta(m)}</span></div>{/each}</div></infring-model-picker-menu-shell>
@@ -718,6 +762,8 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     <div class="composer-stack">
       {#if !state.terminalMode && state.permissionRequests.length}
         <infring-prompt-queue-shell><div class="prompt-queue-row"><div class="prompt-queue-list">{#each state.permissionRequests as item (item.approval_id)}<div class="prompt-queue-item" title={permissionReason(item)}><span class="prompt-queue-drag" title="Approval gate">!</span><button class="prompt-queue-text" type="button" title={permissionReason(item)}>{permissionPreview(item)}</button><button class="prompt-queue-steer" type="button" on:click={() => decidePermission(item, 'allow_once')}>Allow</button><button class="prompt-queue-steer" type="button" on:click={() => decidePermission(item, 'always_allow_tool_call')}>Always</button><button class="prompt-queue-remove" type="button" on:click={() => decidePermission(item, 'deny')} aria-label="Deny permission">Deny</button></div>{/each}</div></div></infring-prompt-queue-shell>
+      {:else if !state.terminalMode && state.slashCommandFeedback}
+        <infring-slash-command-feedback-shell><div class="prompt-queue-row slash-command-feedback-row"><div class="prompt-queue-list"><div class={'prompt-queue-item slash-command-feedback-item slash-command-feedback-' + (state.slashCommandFeedback.notice_type || 'info')} title={slashFeedbackText(state.slashCommandFeedback)}><span class="prompt-queue-drag" title="Slash command">/</span><button class="prompt-queue-text" type="button" title={slashFeedbackText(state.slashCommandFeedback)}>{slashFeedbackTitle(state.slashCommandFeedback)} — {slashFeedbackText(state.slashCommandFeedback)}</button>{#if slashFeedbackStatus(state.slashCommandFeedback)}<span class="prompt-queue-steer">{slashFeedbackStatus(state.slashCommandFeedback)}</span>{/if}<button class="prompt-queue-remove" type="button" on:click={dismissSlashFeedback} aria-label="Dismiss slash command result">&times;</button></div></div></div></infring-slash-command-feedback-shell>
       {:else if !state.terminalMode && state.promptQueueItems.length}
         <infring-prompt-queue-shell><div class="prompt-queue-row"><div class="prompt-queue-list">{#each state.promptQueueItems as item (item.queue_id)}<div class="prompt-queue-item" draggable="true" on:dragstart={(e) => call('onPromptQueueDragStart', item.queue_id, e)} on:dragover|preventDefault on:drop={(e) => call('onPromptQueueDrop', item.queue_id, e)} on:dragend={() => call('onPromptQueueDragEnd')}><span class="prompt-queue-drag" title="Drag to reorder">⋮⋮</span><button class="prompt-queue-text" type="button" on:click={() => setQueueText(item)} title={item.text}>{queuePreview(item)}</button><button class="prompt-queue-steer" type="button" on:click={() => call('steerPromptQueueItem', item.queue_id)}>{queueSteerLabel(item)}</button><button class="prompt-queue-remove" type="button" on:click={() => call('removePromptQueueItem', item.queue_id)} aria-label="Remove queued prompt">&times;</button></div>{/each}</div></div></infring-prompt-queue-shell>
       {:else if !state.terminalMode && state.promptSuggestionsEnabled && state.promptSuggestions.length}

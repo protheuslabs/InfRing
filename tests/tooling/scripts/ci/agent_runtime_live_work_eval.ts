@@ -182,6 +182,46 @@ function outputText(row: JsonObject | null): string {
   return String(p.output_text || p.text || p.display_text || p.message?.content || p.assistant_message?.content || '').trim();
 }
 
+function compactProviderJsonText(value: any, max = 1000): string {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return '';
+  const prefix = raw.startsWith('Permission required:') ? 'Permission required: ' : '';
+  const maybeJson = prefix ? raw.slice('Permission required:'.length).trim() : raw;
+  const unescaped = raw.replace(/\\n/g, ' ').replace(/\\"/g, '"');
+  const blockedIndex = unescaped.indexOf('Blocked action:');
+  if (blockedIndex >= 0) {
+    const blocked = unescaped
+      .slice(blockedIndex)
+      .split(/"?\s*,\s*"(?:stop_reason|session_id|total_cost_usd|usage)"\s*:/)[0]
+      .replace(/[{}"]+$/g, '')
+      .trim();
+    if (blocked) return clean(`${prefix}${blocked}`, max);
+  }
+  if (maybeJson.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(maybeJson);
+      const result = clean(parsed && parsed.result, max);
+      if (result) return clean(`${prefix}${result}`, max);
+      const subtype = clean(parsed && parsed.subtype, 120);
+      const stopReason = clean(parsed && parsed.stop_reason, 120);
+      if (subtype || stopReason) return clean(`${prefix}provider result ${subtype || 'unknown'}${stopReason ? ` (${stopReason})` : ''}`, max);
+    } catch {
+      const resultMatch = maybeJson.match(/"result"\s*:\s*"((?:\\.|[^"\\])*)"/);
+      if (resultMatch && resultMatch[1]) {
+        try {
+          return clean(`${prefix}${JSON.parse(`"${resultMatch[1]}"`)}`, max);
+        } catch {
+          return clean(`${prefix}${resultMatch[1].replace(/\\"/g, '"').replace(/\\n/g, ' ')}`, max);
+        }
+      }
+    }
+  }
+  if (/"(usage|total_cost_usd|cache_creation|cache_read_input_tokens|input_tokens|output_tokens)"\s*:/.test(raw)) {
+    return clean(raw.replace(/\{[\s\S]*$/, '[provider payload compacted; see runtime trace refs for raw details]'), max);
+  }
+  return clean(raw, max);
+}
+
 function hasBoundedActivityTrace(row: JsonObject | null): boolean {
   const trace = row && row.activity_trace && typeof row.activity_trace === 'object' ? row.activity_trace : null;
   return !!(
@@ -407,8 +447,8 @@ async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: numbe
         status_code: completion.statusCode,
         status: completionPayload.status || '',
         error_code: completionPayload.error_code || '',
-        reason: clean(completionPayload.reason || completion.error || '', 1000),
-        output_preview: clean(outputText(completionPayload), 1000),
+        reason: compactProviderJsonText(completionPayload.reason || completion.error || '', 1000),
+        output_preview: compactProviderJsonText(outputText(completionPayload), 1000),
         activity_trace: hasBoundedActivityTrace(completionPayload),
         receipt_refs: Array.isArray(completionPayload.receipt_refs) ? completionPayload.receipt_refs.length : 0,
       },
@@ -418,8 +458,8 @@ async function runEngineEval(baseUrl: string, engineId: string, timeoutMs: numbe
         status_code: approval.statusCode,
         status: approvalPayload.status || '',
         error_code: approvalPayload.error_code || '',
-        reason: clean(approvalPayload.reason || approval.error || '', 1000),
-        output_preview: clean(outputText(approvalPayload), 1200),
+        reason: compactProviderJsonText(approvalPayload.reason || approval.error || '', 1000),
+        output_preview: compactProviderJsonText(outputText(approvalPayload), 1200),
         approval_id: request && request.approval_id || '',
         request_source: clean(request && request.source, 160),
         shell_projection_bounded: shellProjectionBounded(request),

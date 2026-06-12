@@ -136,6 +136,9 @@ function createAgentRuntimeSocketHandler(options = {}) {
   const approvalStore = options.approvalStore;
   const selectEngine = options.selectEngine;
   const steer = options.steer;
+  const appendAgentRuntimeTranscriptTurn = typeof options.appendAgentRuntimeTranscriptTurn === 'function'
+    ? options.appendAgentRuntimeTranscriptTurn
+    : () => {};
   const createNativeOrchestrationClient = typeof options.createNativeOrchestrationClient === 'function'
     ? options.createNativeOrchestrationClient
     : () => ({});
@@ -374,15 +377,80 @@ function createAgentRuntimeSocketHandler(options = {}) {
     else if (type === 'session.start') await emitSessionStarted(normalized, emit, emitted);
     else if (type === 'turn.submit') await emitTurnSubmit(normalized, emit, emitted, context);
     else if (type === 'turn.cancel') {
+      const engineId = cleanEngineId(normalized.engine_id);
+      const sessionId = cleanText(normalized.session_id, 200);
+      const turnId = cleanText(normalized.turn_id, 200);
+      const agentId = cleanText(normalized.agent_id, 160) || 'default';
+      const reason = cleanDisplayText(
+        normalized.reason || normalized.cancel_reason || 'User stopped the external runtime turn.',
+        1000,
+      );
+      const displayText = `${engineId || 'agent_runtime'} stopped this turn: ${reason}`;
+      try {
+        appendAgentRuntimeTranscriptTurn({
+          sessionId,
+          agentId,
+          traceId,
+          turnId,
+          engineId,
+          userText: '',
+          assistantText: displayText,
+          status: 'cancelled',
+          activityEvents: [{
+            type: 'agent_activity_event',
+            activity_kind: 'error',
+            provider_event_type: 'turn.cancelled',
+            source: 'gateway_runtime_socket_cancel',
+            sequence_no: 1,
+            item_id: 'gateway-socket-cancel',
+            status: 'cancelled',
+            text: displayText,
+            display_text: displayText,
+            engine_id: engineId,
+            trace_id: traceId,
+            session_id: sessionId,
+            turn_id: turnId,
+          }],
+          activityTrace: {
+            type: 'agent_runtime_activity_trace_projection',
+            source_authority: 'gateway.runtime.agent_runtime_socket_handler',
+            trace_id: traceId,
+            engine_id: engineId,
+            session_id: sessionId,
+            turn_id: turnId,
+            collapsed_by_default: true,
+            collapse_label: 'Stopped',
+            worked_ms: 0,
+            row_count: 1,
+            raw_activity_event_count: 1,
+            rows: [{
+              type: 'agent_runtime_activity_trace_row',
+              sequence_no: 1,
+              activity_kind: 'error',
+              provider_event_type: 'turn.cancelled',
+              status: 'cancelled',
+              title: displayText,
+              display_in_thinking_bubble: true,
+              detail_ref: `agent-runtime-activity/${traceId}/${turnId || 'turn'}/cancel`,
+            }],
+            summary_text: displayText,
+          },
+          workedMs: 0,
+          workedLabel: 'Stopped',
+        });
+      } catch {}
       emitEvent(emit, {
         type: 'turn.complete',
         trace_id: traceId,
         request_id: requestIdFor(normalized),
-        engine_id: cleanEngineId(normalized.engine_id),
-        session_id: cleanText(normalized.session_id, 200),
-        turn_id: cleanText(normalized.turn_id, 200),
+        engine_id: engineId,
+        session_id: sessionId,
+        turn_id: turnId,
         status: 'cancelled',
         ok: true,
+        display_text: displayText,
+        output_text: displayText,
+        terminal_outcome: 'cancelled',
         source_authority: 'gateway.runtime.agent_runtime_socket_handler',
       }, emitted);
     } else if (type === 'heartbeat' || type === 'ping') {

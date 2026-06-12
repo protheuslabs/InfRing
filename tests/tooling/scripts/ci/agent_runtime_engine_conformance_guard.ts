@@ -672,6 +672,9 @@ if (exists(cliRuntimePath)) {
   if (!cliSource.includes('contextTransportMode') || !cliSource.includes('transportMigrationStatus')) {
     violations.push({ kind: 'cli_runtime_transport_mode_declaration_missing', path: cliRuntimePath });
   }
+  for (const marker of ['nativeTransportProjection', 'native_transport_mapper_missing', 'native_transport_mapping_status']) {
+    if (!cliSource.includes(marker)) violations.push({ kind: 'cli_runtime_native_transport_migration_marker_missing', marker, path: cliRuntimePath });
+  }
   for (const marker of ['resolveTurnTimeoutMs', 'cliRuntimeFailureText', 'timed_out', 'timeout_ms']) {
     if (!cliSource.includes(marker)) violations.push({ kind: 'cli_runtime_turn_outcome_marker_missing', marker, path: cliRuntimePath });
   }
@@ -683,6 +686,15 @@ if (exists(codexPath)) {
   const codexSource = fs.readFileSync(path.join(ROOT, codexPath), 'utf8');
   if (!codexSource.includes('createCliRuntimeEngineAdapter')) violations.push({ kind: 'codex_cli_shared_adapter_missing', path: codexPath });
   if (codexSource.includes('--ephemeral')) violations.push({ kind: 'codex_cli_ephemeral_session_forbidden', path: codexPath });
+  for (const marker of ['nativeTransport', 'codex_app_server_json_rpc', 'INFRING_AGENT_RUNTIME_CODEX_NATIVE_TRANSPORT']) {
+    if (!codexSource.includes(marker)) violations.push({ kind: 'codex_cli_native_transport_marker_missing', marker, path: codexPath });
+  }
+}
+if (exists(claudePath)) {
+  const claudeSource = fs.readFileSync(path.join(ROOT, claudePath), 'utf8');
+  for (const marker of ['nativeTransport', 'claude_stream_json', 'INFRING_AGENT_RUNTIME_CLAUDE_CODE_NATIVE_TRANSPORT']) {
+    if (!claudeSource.includes(marker)) violations.push({ kind: 'claude_code_native_transport_marker_missing', marker, path: claudePath });
+  }
 }
 if (exists(universalCoreToolsPath)) {
   const tools = require(path.join(ROOT, universalCoreToolsPath));

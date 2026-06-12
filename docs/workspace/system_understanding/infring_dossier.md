@@ -7,7 +7,7 @@ Metadata:
 - `target_version_or_revision`: `kernel-sentinel-contract-v1`
 - `status`: `Draft`
 - `confidence_overall`: `0.66`
-- `updated_at`: `2026-06-10T06:45:52.804Z`
+- `updated_at`: `2026-06-11T06:48:55.273Z`
 
 ## Soul / Philosophy
 - Confidence: `0.78`
@@ -50,7 +50,7 @@ Rejected capabilities:
 ## Failure Model
 - Confidence: `0.71`
 - Known failure modes: none
-- Violated invariants: unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant
+- Violated invariants: unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant, unknown_invariant
 - Stop-patching triggers: none
 
 ## Transfer / Improvement Plan

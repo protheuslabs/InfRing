@@ -284,6 +284,69 @@ async function runClaudePluginTokenFailureProbe() {
   };
 }
 
+async function runClaudePluginTokenFirstFailureProbe() {
+  const traceId = `validation:agent-runtime-cli-adapter-claude-plugin-token-first:${Date.now()}`;
+  const claudeMessage = 'Claude Code subscription is unavailable because account usage is exhausted.';
+  const pluginToken = 'rust-analyzer-lsp@claude-plugins-official';
+  const childScript = [
+    `process.stderr.write(${JSON.stringify(JSON.stringify(pluginToken))} + '\\n');`,
+    `process.stderr.write(${JSON.stringify(claudeMessage)} + '\\n');`,
+    'process.exit(9);',
+  ].join('\n');
+
+  const adapter = createCliRuntimeEngineAdapter({
+    engineId: 'claude_code',
+    command: process.execPath,
+    commandFallback: process.execPath,
+    liveDispatch: true,
+    timeoutMs: 10000,
+    versionArgs: ['--version'],
+    runArgs: () => ['-e', childScript],
+    runStdin: (prompt) => prompt,
+    cwd: ROOT,
+  });
+
+  const projection = await adapter.stream_turn({
+    message: {
+      trace_id: traceId,
+      request_id: `${traceId}:request`,
+      turn_id: `${traceId}:turn`,
+      engine_id: 'claude_code',
+      agent_id: 'agent-runtime-cli-adapter-claude-plugin-token-first-guard',
+      session_id: 'cli-adapter-claude-plugin-token-first-session',
+      input: { text: 'claude plugin token first failure probe' },
+      input_text: 'claude plugin token first failure probe',
+      working_directory: ROOT,
+      capability_budget: { max_turn_seconds: 30 },
+    },
+    engine: { engine_id: 'claude_code' },
+    onActivity: () => {},
+  });
+
+  const reasonText = cleanText(projection && projection.reason);
+  const outputText = cleanText(projection && (projection.output_text || projection.output_preview || projection.reason));
+  const violations = [];
+  if (!projection) violations.push('claude_plugin_token_first_projection_missing');
+  if (!projection || projection.status !== 'failed') violations.push(`claude_plugin_token_first_status_unexpected:${projection && projection.status || 'missing'}`);
+  if (!projection || projection.error_code !== 'claude_code_provider_quota_or_subscription_unavailable') {
+    violations.push(`claude_plugin_token_first_code_unexpected:${projection && projection.error_code || 'missing'}`);
+  }
+  if (!reasonText.includes(claudeMessage)) violations.push(`claude_plugin_token_first_reason_missing_message:${reasonText}`);
+  if (reasonText.includes(pluginToken)) violations.push(`claude_plugin_token_first_reason_leaked_plugin:${reasonText}`);
+  if (!outputText.includes(claudeMessage)) violations.push(`claude_plugin_token_first_output_missing_message:${outputText}`);
+  if (outputText.includes(pluginToken)) violations.push(`claude_plugin_token_first_output_leaked_plugin:${outputText}`);
+
+  return {
+    trace_id: traceId,
+    status: projection && projection.status || null,
+    error_code: projection && projection.error_code || null,
+    reason_text: reasonText,
+    output_text: outputText,
+    plugin_token: pluginToken,
+    violations,
+  };
+}
+
 function runPreTurnUsageLimitProjectionProbe() {
   const traceId = `validation:agent-runtime-pre-turn-usage-limit:${Date.now()}`;
   const usageLimitText = "You've hit your usage limit for GPT-5.3-Codex-Spark. Switch to another model now, or try again at 1:49 PM.";
@@ -325,12 +388,14 @@ function runPreTurnUsageLimitProjectionProbe() {
 async function runDecisionDialogProbe() {
   const traceId = `validation:agent-runtime-cli-adapter-dialog:${Date.now()}`;
   const narrationText = 'I will inspect package.json before running the command.';
+  const assistantRoleNarrationText = 'I am checking the available scripts before deciding what to run.';
   const finalText = 'One script category is ops commands.';
   const childScript = [
     'const rows = [',
     `  ${JSON.stringify({ type: 'thread.started', thread_id: 'thread-dialog-probe' })},`,
     `  ${JSON.stringify({ type: 'turn.started' })},`,
     `  ${JSON.stringify({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: narrationText } })},`,
+    `  ${JSON.stringify({ type: 'message', role: 'assistant', id: 'msg_0', text: assistantRoleNarrationText })},`,
     `  ${JSON.stringify({ type: 'item.started', item: { id: 'item_1', type: 'command_execution', status: 'in_progress', command: 'node --version' } })},`,
     `  ${JSON.stringify({ type: 'item.completed', item: { id: 'item_1', type: 'command_execution', status: 'completed', command: 'node --version' } })},`,
     `  ${JSON.stringify({ type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: finalText } })},`,
@@ -378,6 +443,9 @@ async function runDecisionDialogProbe() {
   const projectedDialog = projectedActivity.find((event) =>
     event && event.activity_kind === 'decision_dialog' && cleanText(event.display_text, 4000).includes(narrationText)
   );
+  const assistantRoleDialog = projectedActivity.find((event) =>
+    event && event.activity_kind === 'decision_dialog' && cleanText(event.display_text, 4000).includes(assistantRoleNarrationText)
+  );
   const finalLeakedIntoDialog = projectedActivity.some((event) =>
     event && event.activity_kind === 'decision_dialog' && cleanText(event.display_text, 4000).includes(finalText)
   );
@@ -390,6 +458,7 @@ async function runDecisionDialogProbe() {
   if (!projection || projection.status !== 'completed') violations.push(`dialog_probe_status_unexpected:${projection && projection.status || 'missing'}`);
   if (!streamedDialog) violations.push('dialog_probe_streamed_decision_dialog_missing');
   if (!projectedDialog) violations.push('dialog_probe_projected_decision_dialog_missing');
+  if (!assistantRoleDialog) violations.push('dialog_probe_assistant_role_decision_dialog_missing');
   if (finalLeakedIntoDialog) violations.push('dialog_probe_final_answer_leaked_into_decision_dialog');
   if (!commandProjected) violations.push('dialog_probe_command_activity_missing');
   if (!outputText.includes(finalText)) violations.push(`dialog_probe_final_output_missing:${outputText}`);
@@ -402,6 +471,7 @@ async function runDecisionDialogProbe() {
     projected_activity_count: projectedActivity.length,
     streamed_dialog_text: streamedDialog ? cleanText(streamedDialog.display_text, 4000) : '',
     projected_dialog_text: projectedDialog ? cleanText(projectedDialog.display_text, 4000) : '',
+    assistant_role_dialog_text: assistantRoleDialog ? cleanText(assistantRoleDialog.display_text, 4000) : '',
     command_projected: commandProjected,
     final_leaked_into_dialog: finalLeakedIntoDialog,
     violations,
@@ -543,6 +613,7 @@ async function main() {
   const failureProbe = await runFailureProbe();
   const claudeMalformedJsonFailureProbe = await runClaudeMalformedJsonFailureProbe();
   const claudePluginTokenFailureProbe = await runClaudePluginTokenFailureProbe();
+  const claudePluginTokenFirstFailureProbe = await runClaudePluginTokenFirstFailureProbe();
   const preTurnUsageLimitProbe = runPreTurnUsageLimitProjectionProbe();
   const decisionDialogProbe = await runDecisionDialogProbe();
 
@@ -564,6 +635,7 @@ async function main() {
   if (failureProbe.violations.length) violations.push(...failureProbe.violations.map((violation) => `failure_probe_${violation}`));
   if (claudeMalformedJsonFailureProbe.violations.length) violations.push(...claudeMalformedJsonFailureProbe.violations.map((violation) => `claude_malformed_json_probe_${violation}`));
   if (claudePluginTokenFailureProbe.violations.length) violations.push(...claudePluginTokenFailureProbe.violations.map((violation) => `claude_plugin_token_probe_${violation}`));
+  if (claudePluginTokenFirstFailureProbe.violations.length) violations.push(...claudePluginTokenFirstFailureProbe.violations.map((violation) => `claude_plugin_token_first_probe_${violation}`));
   if (preTurnUsageLimitProbe.violations.length) violations.push(...preTurnUsageLimitProbe.violations.map((violation) => `pre_turn_probe_${violation}`));
   if (decisionDialogProbe.violations.length) violations.push(...decisionDialogProbe.violations.map((violation) => `decision_dialog_probe_${violation}`));
 
@@ -603,6 +675,7 @@ async function main() {
     },
     claude_malformed_json_failure_probe: claudeMalformedJsonFailureProbe,
     claude_plugin_token_failure_probe: claudePluginTokenFailureProbe,
+    claude_plugin_token_first_failure_probe: claudePluginTokenFirstFailureProbe,
     pre_turn_usage_limit_probe: preTurnUsageLimitProbe,
     decision_dialog_probe: decisionDialogProbe,
     violations,

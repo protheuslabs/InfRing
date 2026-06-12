@@ -218,8 +218,7 @@
     "script": "tests/tooling/scripts/ci/agent_runtime_cli_live_turn_smoke.ts",
     "engines": [
       "codex_cli",
-      "claude_code",
-      "grok_code"
+      "claude_code"
     ],
     "must_check_health": true,
     "must_submit_real_turn": true,

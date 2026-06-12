@@ -20,6 +20,7 @@ function stripTerminalControls(value) {
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 }
 function cleanDisplayText(value, maxLen = 24000) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim().slice(0, maxLen); }
+function cleanArtifactContent(value, maxLen = 262144) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').slice(0, maxLen); }
 function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanApprovalId(value) { return cleanText(value, 260).replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, ''); }
 function cleanReceiptComponent(value, maxLen = 200) { return cleanText(value, maxLen).replace(/[^A-Za-z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown'; }
@@ -88,9 +89,9 @@ function createAgentRuntimeApprovalStore(options = {}) {
     if (rawPath) out.path = rawPath;
     const mimeType = cleanText(source.mime_type || source.content_type || 'text/plain', 120);
     if (mimeType) out.mime_type = mimeType;
-    if (source.content != null) out.content = cleanDisplayText(source.content, 262144);
-    else if (source.text != null) out.content = cleanDisplayText(source.text, 262144);
-    else if (source.body != null) out.content = cleanDisplayText(source.body, 262144);
+    if (source.content != null) out.content = cleanArtifactContent(source.content, 262144);
+    else if (source.text != null) out.content = cleanArtifactContent(source.text, 262144);
+    else if (source.body != null) out.content = cleanArtifactContent(source.body, 262144);
     return out;
   }
 
@@ -117,7 +118,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
     if (toolId !== 'artifact.create_propose') return null;
     const args = sanitizeAgentRuntimeProposalArguments(body && (body.proposal_arguments || body.arguments));
     const resolved = resolveAgentRuntimeArtifactPath(args.path, body && body.working_directory);
-    const content = cleanDisplayText(args.content || '', 262144);
+    const content = cleanArtifactContent(args.content || '', 262144);
     ensureDir(path.dirname(resolved.target));
     fs.writeFileSync(resolved.target, content, 'utf8');
     const digest = createHash('sha256').update(content).digest('hex');

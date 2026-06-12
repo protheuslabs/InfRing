@@ -90,9 +90,14 @@
         var aliasResolution = this.resolveSlashAlias(cmd, cmdArgs);
         var routedCmd = String(aliasResolution && aliasResolution.cmd ? aliasResolution.cmd : cmd).toLowerCase();
         var routedArgs = String(aliasResolution && typeof aliasResolution.args === 'string' ? aliasResolution.args : cmdArgs).trim();
-        var matched = this.slashCommands.find(function(c) { return c.cmd === routedCmd; });
+        if (typeof this.fetchAgentRuntimeSlashCommands === 'function') {
+          await this.fetchAgentRuntimeSlashCommands(false);
+        }
+        var matched = typeof this.findSlashCommandDefinition === 'function'
+          ? this.findSlashCommandDefinition(routedCmd)
+          : this.slashCommands.find(function(c) { return c.cmd === routedCmd; });
         if (matched) {
-          this.executeSlashCommand(matched.cmd, routedArgs);
+          this.executeSlashCommand(matched.cmd, routedArgs, matched);
           return;
         }
       }

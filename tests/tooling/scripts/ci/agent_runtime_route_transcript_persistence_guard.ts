@@ -77,6 +77,17 @@ function createDeterministicAdapter(engineId) {
       activity_events: [
         {
           type: 'agent_activity_event',
+          activity_kind: 'decision_dialog',
+          provider_event_type: 'deterministic.decision_dialog',
+          status: 'completed',
+          display_text: `${engineId} decided to preserve the route transcript continuity key before writing the final response.`,
+          engine_id: engineId,
+          trace_id: message && message.trace_id,
+          session_id: message && message.session_id,
+          turn_id: message && message.turn_id,
+        },
+        {
+          type: 'agent_activity_event',
           activity_kind: 'activity',
           provider_event_type: 'deterministic.turn.persisted',
           status: 'completed',
@@ -221,6 +232,7 @@ async function main() {
   const previewFragments = preview.payload && Array.isArray(preview.payload.fragments) ? preview.payload.fragments : [];
   const previewText = rowText(previewFragments);
   const mergedText = rowText(rows);
+  const assistantRows = rows.filter((row) => clean(row && row.role, 40) === 'assistant');
   const violations = [];
 
   if (!turnResults.every((row) => row.ok)) {
@@ -255,6 +267,15 @@ async function main() {
     violations.push({ kind: 'transcript_projection_owner_not_gateway' });
   }
   if (!rows.every((row) => clean(row && row.trace_id, 200))) violations.push({ kind: 'transcript_trace_id_missing' });
+  if (!assistantRows.every((row) => row && row.activity_trace && row.activity_trace.collapse_label && /^Worked for /.test(String(row.activity_trace.collapse_label)))) {
+    violations.push({ kind: 'assistant_worked_for_trace_not_persisted' });
+  }
+  if (!assistantRows.every((row) => row && Array.isArray(row.tools) && row.tools.some((tool) => tool && tool.agent_runtime_decision_dialog === true))) {
+    violations.push({ kind: 'assistant_decision_tool_not_persisted' });
+  }
+  if (!assistantRows.every((row) => row && Array.isArray(row.agent_activity_events) && row.agent_activity_events.some((event) => event && event.activity_kind === 'decision_dialog'))) {
+    violations.push({ kind: 'assistant_decision_dialog_event_not_persisted' });
+  }
   if (Buffer.byteLength(JSON.stringify(merged), 'utf8') > 65536) {
     violations.push({
       kind: 'public_route_transcript_projection_exceeds_budget',

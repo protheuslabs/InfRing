@@ -2,6 +2,23 @@
       this.inputText = '';
       var self = this;
       cmdArgs = cmdArgs || '';
+      var selectedSlashRow = commandRow && typeof commandRow === 'object'
+        ? commandRow
+        : (typeof this.findSlashCommandDefinition === 'function' ? this.findSlashCommandDefinition(cmd) : null);
+      if (
+        selectedSlashRow &&
+        selectedSlashRow.source === 'agent_runtime_command_catalog' &&
+        typeof this.executeAgentRuntimeSlashCommand === 'function'
+      ) {
+        return this.executeAgentRuntimeSlashCommand(selectedSlashRow, cmdArgs);
+      }
+      if (typeof this.publishSlashCommandFeedback === 'function') {
+        this.publishSlashCommandFeedback(selectedSlashRow || { cmd: cmd }, {
+          status: 'accepted',
+          notice_type: 'info',
+          text: String(selectedSlashRow && (selectedSlashRow.desc || selectedSlashRow.title || selectedSlashRow.operational_label) || 'Command accepted.').trim()
+        });
+      }
       switch (cmd) {
         case '/help':
           self.messages.push({

@@ -13,7 +13,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const ROOT = process.cwd();
-const outPath = 'core/local/artifacts/agent_runtime_cli_live_turn_smoke_current.json';
+const outPath = cleanString(
+  argValue('--out') || process.env.INFRING_AGENT_RUNTIME_LIVE_TURN_SMOKE_OUT || 'core/local/artifacts/agent_runtime_cli_live_turn_smoke_current.json',
+  1000,
+);
 
 function argValue(name) {
   const prefix = `${name}=`;
@@ -33,7 +36,7 @@ function load(rel) {
 }
 
 const live = argValue('--live') === '1' || process.env.INFRING_AGENT_RUNTIME_LIVE_TURN_SMOKE === '1';
-const requestedEngines = cleanString(argValue('--engines') || process.env.INFRING_AGENT_RUNTIME_LIVE_TURN_ENGINES || 'codex_cli,claude_code,grok_code', 1000)
+const requestedEngines = cleanString(argValue('--engines') || process.env.INFRING_AGENT_RUNTIME_LIVE_TURN_ENGINES || 'codex_cli,claude_code', 1000)
   .split(',')
   .map((entry) => cleanString(entry, 120))
   .filter(Boolean);

@@ -165,6 +165,63 @@
 .slash-menu-item:last-child { border-bottom: none; }
 .slash-menu-item:hover, .slash-menu-item.slash-active { background: var(--surface2); }
 
+.slash-command-menu-grouped {
+  max-height: 280px;
+}
+
+.slash-menu-heading {
+  padding: 7px 14px 5px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  background: color-mix(in srgb, var(--surface2) 56%, transparent);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: default;
+}
+
+.slash-menu-command-main {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.slash-menu-command-name {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.slash-menu-command-desc {
+  min-width: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slash-menu-command-status {
+  flex: 0 0 auto;
+  margin-left: 10px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.slash-menu-item-partial .slash-menu-command-status {
+  color: color-mix(in srgb, var(--warning) 75%, var(--text-muted));
+}
+
+.slash-menu-item-disconnected {
+  opacity: 0.62;
+}
+
 .prompt-suggestions-row {
   display: flex;
   align-items: flex-end;

@@ -165,6 +165,7 @@ const {
   handleAgentRuntimeApprovalRoute,
   handleShellSocketAgentRuntimeOverlayRoute,
   handleAgentRuntimeEngineRoute,
+  handleAgentRuntimeCommandRoute,
   handleAgentRuntimeTurnRoute,
   agentRuntimeSocketTransport,
 } = createGatewayAgentRuntimeRouteAssembly({
@@ -274,6 +275,7 @@ async function runServe(flags) {
       if (await handleAgentRuntimeTurnRoute({ req, res, pathname, traceId, flags })) return;
       if (await handleAgentRuntimeApprovalRoute({ req, res, pathname, traceId })) return;
       if (await handleAgentRuntimeEngineRoute({ req, res, pathname, traceId })) return;
+      if (await handleAgentRuntimeCommandRoute({ req, res, pathname, requestUrl, traceId })) return;
       if (await handleAgentRuntimeWorkspaceRoute({ req, res, pathname, traceId })) return;
       if (await handleShellSocketCoreRoute({ req, res, pathname, requestUrl, traceId, flags })) return;
       if (await dashboardRequestBoundary.proxyDashboardBackendRoute({ req, res, pathname, flags, requestTraceId })) return;

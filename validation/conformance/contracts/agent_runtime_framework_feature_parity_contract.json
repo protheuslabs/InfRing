@@ -1,0 +1,379 @@
+{
+  "type": "agent_runtime_framework_feature_parity_contract",
+  "schema_version": 1,
+  "version": "2026-06-11",
+  "owner": "validation.agent_runtime",
+  "status": "contracted",
+  "purpose": "Track whether InfRing preserves the useful native features of external agent frameworks when they run through the Gateway Agent Runtime socket.",
+  "source_authority": "validation.agent_runtime.framework_feature_parity",
+  "non_authority": [
+    "This contract does not make a runtime reliable.",
+    "This contract does not prove native InfRing intelligence.",
+    "This contract does not authorize Shell, adapters, or external engines to bypass Gateway.",
+    "This contract does not turn private runtime slash or CLI commands into raw passthrough chat prompts."
+  ],
+  "promotion_scope": {
+    "native_engine": "infring_native",
+    "primary_external_engines": [
+      "codex_cli",
+      "claude_code"
+    ],
+    "catalog_only_engines_are_not_promoted": true,
+    "rule": "Codex and Claude Code are the golden external runtime pair. Other runtimes may be cataloged or selectable, but they must not be promoted until they pass this same feature-parity matrix with compact evidence."
+  },
+  "parity_status_values": [
+    "preserved",
+    "partial",
+    "gap",
+    "not_applicable"
+  ],
+  "required_status_fields": [
+    "status",
+    "evidence_ref",
+    "risk",
+    "next_action"
+  ],
+  "feature_dimensions": [
+    {
+      "dimension_id": "context_continuity",
+      "title": "Context continuity",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Can the runtime see enough prior InfRing conversation context to continue naturally without starting cold?",
+      "infRing_boundary": "Gateway projects bounded context packs from canonical InfRing context authority.",
+      "forbidden_shortcut": "Shell-owned prompt stuffing or engine-private memory replacing InfRing context."
+    },
+    {
+      "dimension_id": "transcript_persistence",
+      "title": "Transcript persistence",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Are user messages, assistant responses, terminal failures, and compact work summaries persisted as canonical conversation records?",
+      "infRing_boundary": "Gateway writes transcript projections and compact refs; Shell only renders them.",
+      "forbidden_shortcut": "Visual-only external runtime messages that disappear on reload."
+    },
+    {
+      "dimension_id": "activity_decision_trace",
+      "title": "Activity and decision trace",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Does InfRing preserve useful runtime activity and decision/dialog text in a concise collapsible turn summary?",
+      "infRing_boundary": "Adapters translate private stream events; Gateway normalizes bounded activity projections.",
+      "forbidden_shortcut": "Raw process dumps, generic Started/Done rows, or Shell-authored interpretation."
+    },
+    {
+      "dimension_id": "slash_command_catalog",
+      "title": "Slash and CLI command catalog",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Are native runtime slash/CLI controls visible as canonical InfRing command intents with operational status?",
+      "infRing_boundary": "Gateway command catalog projects runtime commands and InfRing native commands.",
+      "forbidden_shortcut": "Shell executing raw runtime commands or hiding unwired commands as if they work."
+    },
+    {
+      "dimension_id": "runtime_command_execution",
+      "title": "Runtime command execution",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Can safe runtime commands execute or return an honest manual-action/projection-only state through Gateway?",
+      "infRing_boundary": "Gateway admits command intents and adapters translate private runtime syntax.",
+      "forbidden_shortcut": "Chat-prompt passthrough for control commands."
+    },
+    {
+      "dimension_id": "model_projection",
+      "title": "Runtime model projection",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Does the active runtime expose truthful model rows without fake defaults, stale rows, or wrong provider menus?",
+      "infRing_boundary": "Gateway projects available models and capability states; Shell renders rows.",
+      "forbidden_shortcut": "Dashboard-owned model truth or cross-runtime stale menu leakage."
+    },
+    {
+      "dimension_id": "permission_pause_resume",
+      "title": "Permission pause and resume",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Do risky actions pause before final answer, ask for approval, then resume or deny with receipts?",
+      "infRing_boundary": "Gateway owns pending request, resume token, decision admission, and receipt.",
+      "forbidden_shortcut": "External runtime converting blocked writes into final text without an approval opportunity."
+    },
+    {
+      "dimension_id": "artifact_proposal_apply",
+      "title": "Artifact proposal and apply",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Can approved artifact proposals become real files through Gateway with verification evidence?",
+      "infRing_boundary": "Durable effects require Gateway/Kernel-approved application and receipts.",
+      "forbidden_shortcut": "External engine direct write by default or Shell applying proposal payloads."
+    },
+    {
+      "dimension_id": "working_directory_control",
+      "title": "Working directory control",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Does the runtime honor the InfRing-selected working directory while preserving explicit out-of-tree permission boundaries?",
+      "infRing_boundary": "Gateway projects workspace scope and adapter launch context.",
+      "forbidden_shortcut": "Hard-coded user paths or Shell-owned filesystem authority."
+    },
+    {
+      "dimension_id": "hard_failure_projection",
+      "title": "Hard failure projection",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Do usage limits, auth failures, provider outages, missing CLIs, and timeouts become visible chat terminal states with next actions?",
+      "infRing_boundary": "Adapters classify provider/runtime failures; Gateway projects terminal outcome.",
+      "forbidden_shortcut": "Silent drops, generic 502s, or raw stack traces as user-facing messages."
+    },
+    {
+      "dimension_id": "stop_cancel_semantics",
+      "title": "Stop and cancellation semantics",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Can a user stop a runtime turn and still receive a persisted visible stopped/interrupted transcript outcome?",
+      "infRing_boundary": "Gateway owns cancel intent projection and transcript terminal state.",
+      "forbidden_shortcut": "Detached processes or vanished turns."
+    },
+    {
+      "dimension_id": "attachment_context_bridge",
+      "title": "Attachment and pasted-context bridge",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Can large pasted text and attachments become bounded refs the runtime can read without bloating chat context?",
+      "infRing_boundary": "Gateway/context authority materializes refs; adapters receive bounded references.",
+      "forbidden_shortcut": "Shell stuffing huge pasted text into chat memory."
+    }
+  ],
+  "engine_parity_matrix": {
+    "codex_cli": {
+      "display_name": "Codex",
+      "runtime_kind": "external_cli_adapter",
+      "current_promotion_state": "provider_live_real_work_ready_typed_transport_pending",
+      "feature_status": {
+        "context_continuity": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_context_switch_continuity_guard_current.json",
+          "risk": "Codex can recover continuity from Gateway context after engine switches, but live provider proof should continue watching for private-session memory drift.",
+          "next_action": "Keep public-route engine-switch continuity in coordination gates and extend with provider-live smoke when quota-safe."
+        },
+        "transcript_persistence": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_transcript_reload_persistence_guard_current.json",
+          "risk": "Completed, failed, and stopped Codex outcomes persist through Gateway reload projection, but live dashboard reload smoke should continue watching for rendering regressions.",
+          "next_action": "Keep reload persistence in coordination gates and extend with provider-live smoke when quota-safe."
+        },
+        "activity_decision_trace": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_activity_decision_trace_persistence_guard_current.json",
+          "risk": "Codex decision/dialog text and tool activity now survive the public Gateway route and fresh transcript projection, but provider-live rendering should remain covered when quota-safe.",
+          "next_action": "Keep the activity decision trace persistence guard in coordination gates and extend with live Codex smoke when quota-safe."
+        },
+        "slash_command_catalog": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_command_catalog_guard_current.json",
+          "risk": "Catalog projection is present, but this does not prove every command executes.",
+          "next_action": "Keep command execution tracked separately under runtime_command_execution."
+        },
+        "runtime_command_execution": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_command_execution_guard_current.json",
+          "risk": "Codex safe status refresh now executes through Gateway as a bounded health projection while interactive auth remains manual-action; provider-live command smoke should still run when quota-safe.",
+          "next_action": "Keep the runtime command execution guard in coordination gates and extend with live Codex status refresh smoke when quota-safe."
+        },
+        "model_projection": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_model_projection_truth_guard_current.json",
+          "risk": "Codex model rows now stay runtime-scoped and default metadata is not projected as a selectable model row, but provider-live discovery should remain watched when quota-safe.",
+          "next_action": "Keep the model projection truth guard in coordination gates and extend with live Codex model discovery smoke when quota-safe."
+        },
+        "permission_pause_resume": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_permission_pause_resume_normalization_guard_current.json",
+          "risk": "Codex-style CLI final answers with embedded InfRing artifact proposals now normalize into Gateway permission_required pause/resume with bounded pending arguments and approval receipts, but provider-live UI proof should remain covered when quota-safe.",
+          "next_action": "Keep the permission pause/resume normalization guard in coordination gates and extend with live Codex blocked-write smoke when quota-safe."
+        },
+        "artifact_proposal_apply": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_artifact_proposal_apply_guard_current.json",
+          "risk": "Codex-style create/edit artifact proposals now apply through Gateway approval decisions with verified effect receipts, but live provider smoke should remain covered when quota-safe.",
+          "next_action": "Keep the artifact proposal apply guard in coordination gates and extend with live Codex create/edit smoke when quota-safe."
+        },
+        "working_directory_control": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_working_directory_control_guard_current.json",
+          "risk": "Codex-style relative artifact proposals now apply under the selected working directory and out-of-tree paths fail closed, but live UI cwd switching should remain covered when quota-safe.",
+          "next_action": "Keep the working-directory control guard in coordination gates and extend with live Codex cwd-switch smoke when quota-safe."
+        },
+        "hard_failure_projection": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_hard_failure_projection_guard_current.json",
+          "risk": "Codex quota/auth/rate/network/missing-runtime failures now project as visible failed_with_reason outcomes with next actions, but provider-live smoke should remain covered when quota-safe.",
+          "next_action": "Keep the hard-failure projection guard in coordination gates and extend with live Codex failure smoke when quota-safe."
+        },
+        "stop_cancel_semantics": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_stop_cancel_semantics_guard_current.json",
+          "risk": "Cancel events now persist compact stopped transcript outcomes for Codex, but live process-kill proof should remain covered by child-process timeout/cancel guards.",
+          "next_action": "Keep the public socket cancel transcript guard in coordination gates and extend live UI stop-button proof when provider quota is safe."
+        },
+        "attachment_context_bridge": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_attachment_context_bridge_guard_current.json",
+          "risk": "Large pasted text is Gateway-materialized as refs for Codex, but live UI reload proof should still watch for visual-only attachment regressions.",
+          "next_action": "Keep the public-route attachment bridge guard in coordination gates and extend it to real live Codex turns when quota-safe."
+        }
+      }
+    },
+    "claude_code": {
+      "display_name": "Claude Code",
+      "runtime_kind": "external_cli_adapter",
+      "current_promotion_state": "provider_live_real_work_ready_typed_transport_pending",
+      "feature_status": {
+        "context_continuity": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_context_switch_continuity_guard_current.json",
+          "risk": "Claude can recover continuity from Gateway context after engine switches, but live provider proof should continue watching for private-session memory drift.",
+          "next_action": "Keep public-route engine-switch continuity in coordination gates and extend with provider-live smoke when auth/quota-safe."
+        },
+        "transcript_persistence": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_transcript_reload_persistence_guard_current.json",
+          "risk": "Completed, failed, and stopped Claude outcomes persist through Gateway reload projection, but live dashboard reload smoke should continue watching for rendering regressions.",
+          "next_action": "Keep reload persistence in coordination gates and extend with provider-live smoke when auth/quota-safe."
+        },
+        "activity_decision_trace": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_activity_decision_trace_persistence_guard_current.json",
+          "risk": "Claude decision/dialog text and tool activity now survive the public Gateway route and fresh transcript projection, but provider-live rendering should remain covered when auth/quota-safe.",
+          "next_action": "Keep the activity decision trace persistence guard in coordination gates and extend with live Claude smoke when auth/quota-safe."
+        },
+        "slash_command_catalog": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_command_catalog_guard_current.json",
+          "risk": "Catalog projection is present, but this does not prove every command executes.",
+          "next_action": "Keep command execution tracked separately under runtime_command_execution."
+        },
+        "runtime_command_execution": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_command_execution_guard_current.json",
+          "risk": "Claude safe status refresh now executes through Gateway as a bounded health projection while interactive /login remains manual-action; provider-live command smoke should still run when auth/quota-safe.",
+          "next_action": "Keep the runtime command execution guard in coordination gates and extend with live Claude status refresh smoke when auth/quota-safe."
+        },
+        "model_projection": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_model_projection_truth_guard_current.json",
+          "risk": "Claude model rows now stay runtime-scoped and default metadata is not projected as a selectable model row, but provider-live discovery should remain watched when auth/quota-safe.",
+          "next_action": "Keep the model projection truth guard in coordination gates and extend with live Claude model discovery smoke when auth/quota-safe."
+        },
+        "permission_pause_resume": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_permission_pause_resume_normalization_guard_current.json",
+          "risk": "Claude-style CLI final answers with embedded InfRing artifact proposals now normalize into Gateway permission_required pause/resume with bounded pending arguments and approval receipts, but provider-live UI proof should remain covered when auth/quota-safe.",
+          "next_action": "Keep the permission pause/resume normalization guard in coordination gates and extend with live Claude blocked-write smoke when auth/quota-safe."
+        },
+        "artifact_proposal_apply": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_artifact_proposal_apply_guard_current.json",
+          "risk": "Claude-style create/edit artifact proposals now apply through Gateway approval decisions with verified effect receipts, but live provider smoke should remain covered when auth/quota-safe.",
+          "next_action": "Keep the artifact proposal apply guard in coordination gates and extend with live Claude create/edit smoke when auth/quota-safe."
+        },
+        "working_directory_control": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_working_directory_control_guard_current.json",
+          "risk": "Claude-style relative artifact proposals now apply under the selected working directory and out-of-tree paths fail closed, but live UI cwd switching should remain covered when auth/quota-safe.",
+          "next_action": "Keep the working-directory control guard in coordination gates and extend with live Claude cwd-switch smoke when auth/quota-safe."
+        },
+        "hard_failure_projection": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_hard_failure_projection_guard_current.json",
+          "risk": "Claude auth/quota/plugin-noise/rate/network/missing-runtime failures now project as visible failed_with_reason outcomes with next actions, but provider-live smoke should remain covered when auth/quota-safe.",
+          "next_action": "Keep the hard-failure projection guard in coordination gates and extend with live Claude failure smoke when auth/quota-safe."
+        },
+        "stop_cancel_semantics": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_stop_cancel_semantics_guard_current.json",
+          "risk": "Cancel events now persist compact stopped transcript outcomes for Claude, but live process-kill proof should remain covered by child-process timeout/cancel guards.",
+          "next_action": "Keep the public socket cancel transcript guard in coordination gates and extend live UI stop-button proof when Claude auth/quota is safe."
+        },
+        "attachment_context_bridge": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_attachment_context_bridge_guard_current.json",
+          "risk": "Large pasted text is Gateway-materialized as refs for Claude, but live UI reload proof should still watch for visual-only attachment regressions.",
+          "next_action": "Keep the public-route attachment bridge guard in coordination gates and extend it to real live Claude turns when auth/quota-safe."
+        }
+      }
+    }
+  },
+  "promotion_rule": {
+    "golden_pair_ready_when": "Every required feature dimension for codex_cli and claude_code is preserved with compact evidence refs, and no gap or partial remains for required dimensions.",
+    "partial_or_gap_is_allowed_in_contract": true,
+    "partial_or_gap_blocks_reliable_promotion": true,
+    "external_engine_success_is_substrate_proof_only": true,
+    "native_infring_intelligence_proof_is_separate": true
+  },
+  "provider_live_smoke": {
+    "status": "bounded_provider_live_smoke_passing",
+    "evidence_ref": "core/local/artifacts/agent_runtime_cli_live_turn_smoke_current.json",
+    "readiness_ref": "core/local/artifacts/agent_runtime_provider_live_smoke_readiness_guard_current.json",
+    "live_artifact": "core/local/artifacts/agent_runtime_cli_live_turn_smoke_current.json",
+    "engines": [
+      "codex_cli",
+      "claude_code"
+    ],
+    "live_opt_in": "INFRING_AGENT_RUNTIME_LIVE_TURN_SMOKE=1 or npm run -s ops:agent-runtime:cli-live-turn:smoke",
+    "default_behavior": "writes a skip artifact without submitting provider turns",
+    "does_not_prove": [
+      "live_real_work_task_success",
+      "artifact_creation",
+      "approval_pause_resume_live",
+      "native_infring_intelligence_parity"
+    ]
+  },
+  "provider_live_real_work": {
+    "status": "passing",
+    "evidence_ref": "core/local/artifacts/agent_runtime_live_work_eval_current.json",
+    "scorecard_ref": "core/local/artifacts/agent_runtime_engine_scorecard_current.json",
+    "engines": [
+      "codex_cli",
+      "claude_code"
+    ],
+    "proves": [
+      "completed_visible_response",
+      "permission_required_pause",
+      "bounded_shell_projection",
+      "approval_decision_resolution",
+      "durable_effect_or_normalized_denial",
+      "receipt_refs",
+      "bounded_activity_trace",
+      "probe_artifact_cleanup"
+    ],
+    "does_not_prove": [
+      "native_infring_intelligence_parity",
+      "adapter_dispatch_uses_native_structured_transport_by_default",
+      "all_catalog_engines_are_daily_driver_ready"
+    ],
+    "next_action": "Map AgentRuntimeStructuredTurn onto native transport adapter paths for Codex and Claude behind an explicit disabled-by-default migration flag."
+  },
+  "native_structured_transport_acceptance": {
+    "status": "live_acceptance_proven_adapter_mapping_pending",
+    "evidence_ref": "core/local/artifacts/agent_runtime_native_transport_probe_current.json",
+    "scorecard_ref": "core/local/artifacts/agent_runtime_engine_scorecard_current.json",
+    "engines": [
+      "codex_cli",
+      "claude_code"
+    ],
+    "codex_live_ref": "core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json",
+    "claude_live_ref": "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json",
+    "proves": [
+      "codex_app_server_accepts_typed_initialize_thread_and_turn_sequence",
+      "claude_stream_json_accepts_typed_input_and_returns_structured_events",
+      "transport_migration_guard_no_longer_warns_on_codex_cli_or_claude_code",
+      "scorecard_promotes_codex_cli_and_claude_code_to_daily_driver_candidate"
+    ],
+    "does_not_prove": [
+      "adapter_dispatch_uses_native_structured_transport_by_default",
+      "full_context_activity_approval_and_output_mapping_over_native_transport",
+      "secondary_engines_have_native_transport"
+    ],
+    "next_action": "Build a disabled-by-default native transport adapter path for one golden engine, replay the live-work eval through it, then repeat for the second golden engine."
+  },
+  "authority_rules": {
+    "shell_renders_parity_projection_only": true,
+    "gateway_owns_runtime_socket_and_projection": true,
+    "adapters_translate_private_runtime_schemas_only": true,
+    "universal_tools_remain_small_and_proposal_oriented": true,
+    "durable_effects_require_receipts": true,
+    "raw_runtime_transcripts_must_not_be_default_payloads": true
+  },
+  "evidence": {
+    "guard": "tests/tooling/scripts/ci/agent_runtime_framework_feature_parity_guard.ts",
+    "artifact": "core/local/artifacts/agent_runtime_framework_feature_parity_guard_current.json"
+  }
+}

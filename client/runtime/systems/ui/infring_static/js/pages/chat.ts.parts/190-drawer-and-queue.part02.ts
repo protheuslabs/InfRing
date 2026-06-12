@@ -25,7 +25,16 @@
     },
 
     isThoughtTool: function(tool) {
-      return !!(tool && String(tool.name || '').toLowerCase() === 'thought_process');
+      var row = tool && typeof tool === 'object' ? tool : null;
+      if (!row) return false;
+      var name = String(row.name || '').toLowerCase();
+      return !!(
+        name === 'thought_process' ||
+        row.agent_decision_dialog ||
+        row.agent_runtime_decision_dialog ||
+        row.agent_runtime_activity_trace ||
+        row.projection_kind === 'decision_dialog'
+      );
     },
 
     toolNameKey: function(tool) {

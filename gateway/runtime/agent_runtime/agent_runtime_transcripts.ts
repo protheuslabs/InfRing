@@ -26,6 +26,124 @@ function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().repla
 function cleanTranscriptComponent(value, maxLen = 200) { return cleanText(value, maxLen).replace(/[^A-Za-z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '') || 'default'; }
 function agentRuntimeSessionRef(agentId, sessionId) { return `${cleanTranscriptComponent(agentId, 160)}::${cleanTranscriptComponent(sessionId, 200)}`; }
 
+function activityLineKindFromTraceRow(row) {
+  const trace = row && typeof row === 'object' ? row : {};
+  const joined = [
+    trace.activity_kind,
+    trace.provider_event_type,
+    trace.title,
+  ].map((item) => cleanText(item, 500).toLowerCase()).join(' ');
+  if (/decision|reasoning|thought|plan|dialog/.test(joined)) return 'dialog';
+  if (/file|write|edit|patch|diff|created|updated/.test(joined)) return 'write';
+  if (/read|search|grep|find|open/.test(joined)) return 'read';
+  if (/command|exec|shell|bash|tool|permission|approval|error|failed/.test(joined)) return 'tool';
+  return 'status';
+}
+
+function activityStateFromTraceRow(row) {
+  const status = cleanText(row && row.status, 80).toLowerCase();
+  if (/fail|error/.test(status)) return 'error';
+  if (/pause|block|pending/.test(status)) return 'blocked';
+  if (/start|run|progress/.test(status)) return 'running';
+  return 'done';
+}
+
+function transcriptActivityTraceRows(activityTrace) {
+  const rows = Array.isArray(activityTrace && activityTrace.rows) ? activityTrace.rows : [];
+  return rows.map((row, index) => {
+    const title = cleanDisplayText(row && (row.title || row.display_text || row.text), 1400);
+    if (!title) return null;
+    return {
+      id: cleanText(row && (row.detail_ref || row.item_id || row.sequence_no || `activity-${index + 1}`), 180),
+      text: title,
+      line_kind: activityLineKindFromTraceRow(row),
+      state: activityStateFromTraceRow(row),
+      status: cleanText(row && row.status, 80),
+      activity_key: cleanText(row && (row.detail_ref || row.item_id || ''), 240),
+      activity_target: cleanText(row && (row.target || row.path || ''), 900),
+      engine_id: cleanEngineId(activityTrace && activityTrace.engine_id),
+      ts: Date.now(),
+    };
+  }).filter(Boolean).slice(-48);
+}
+
+function transcriptDecisionDialogText(activityEvents) {
+  const rows = Array.isArray(activityEvents) ? activityEvents : [];
+  const lines = [];
+  const seen = new Set();
+  for (const event of rows) {
+    const row = event && typeof event === 'object' ? event : {};
+    const text = cleanDisplayText(row.display_text || row.text || row.summary || '', 2000);
+    const joined = [
+      row.activity_kind,
+      row.provider_event_type,
+      text,
+    ].map((item) => cleanText(item, 500).toLowerCase()).join(' ');
+    if (!text || !/decision|reasoning|thought|plan|dialog/.test(joined)) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push(text);
+    if (lines.length >= 80) break;
+  }
+  return lines.join('\n');
+}
+
+function transcriptDecisionTool(input) {
+  const activityTrace = input && input.activityTrace && typeof input.activityTrace === 'object' ? input.activityTrace : null;
+  const activityEvents = Array.isArray(input && input.activityEvents) ? input.activityEvents : [];
+  const traceRows = transcriptActivityTraceRows(activityTrace);
+  const dialog = cleanDisplayText(input && input.decisionDialogText, 12000) || transcriptDecisionDialogText(activityEvents);
+  if (!dialog && !traceRows.length) return null;
+  const workedMs = Math.max(0, Number(input && input.workedMs) || Number(activityTrace && activityTrace.worked_ms) || 0);
+  const workedLabel = cleanText(input && input.workedLabel, 120) || cleanText(activityTrace && activityTrace.collapse_label, 120);
+  return {
+    id: cleanText(input && input.toolId, 200) || `agent-runtime-work:${cleanTranscriptComponent(input && input.turnId, 160)}`,
+    name: 'thought_process',
+    status: 'completed',
+    running: false,
+    expanded: false,
+    input: dialog,
+    input_preview: dialog,
+    result: '',
+    result_preview: dialog,
+    summary: workedLabel || 'Agent decision dialog',
+    display_text: dialog,
+    duration_ms: workedMs,
+    agent_decision_dialog: true,
+    agent_runtime_decision_dialog: true,
+    agent_runtime_activity_trace: true,
+    agent_runtime_trace_rows: traceRows,
+    agent_runtime_engine_id: cleanEngineId(input && input.engineId),
+    projection_kind: 'decision_dialog',
+    projection_schema_version: 1,
+  };
+}
+
+function transcriptActivityEvents(events) {
+  return (Array.isArray(events) ? events : []).map((event, index) => {
+    const row = event && typeof event === 'object' ? event : {};
+    const text = cleanDisplayText(row.display_text || row.text || row.summary || '', 2000);
+    const provider = cleanText(row.provider_event_type || row.event_type || '', 160);
+    if (!text && !provider) return null;
+    return {
+      type: 'agent_activity_event',
+      activity_kind: cleanText(row.activity_kind || row.kind || row.type || 'activity', 80),
+      provider_event_type: provider,
+      source: cleanText(row.source || 'gateway_agent_runtime_transcript', 120),
+      sequence_no: Number(row.sequence_no || index + 1) || index + 1,
+      item_id: cleanText(row.item_id || row.itemId || '', 200),
+      status: cleanText(row.status || '', 80),
+      text,
+      display_text: text,
+      engine_id: cleanEngineId(row.engine_id),
+      trace_id: cleanText(row.trace_id, 200),
+      session_id: cleanText(row.session_id, 200),
+      turn_id: cleanText(row.turn_id, 200),
+    };
+  }).filter(Boolean).slice(-80);
+}
+
 function decodeAgentRuntimeSessionRef(value) {
   const raw = cleanText(decodeURIComponent(String(value || '')), 420);
   const parts = raw.split('::');
@@ -77,7 +195,18 @@ function createAgentRuntimeTranscriptStore(options = {}) {
     const role = cleanText(input && input.role, 40) || 'assistant';
     const turnId = cleanTranscriptComponent(input && input.turnId, 200);
     const timestamp = cleanText(input && input.timestamp, 80) || nowIso();
-    return {
+    const activityTrace = input && input.activityTrace && typeof input.activityTrace === 'object' ? input.activityTrace : null;
+    const activityEvents = transcriptActivityEvents(input && input.activityEvents);
+    const decisionTool = role === 'assistant' ? transcriptDecisionTool({
+      turnId,
+      engineId: input && input.engineId,
+      workedMs: input && input.workedMs,
+      workedLabel: input && input.workedLabel,
+      decisionDialogText: input && input.decisionDialogText,
+      activityEvents,
+      activityTrace,
+    }) : null;
+    const row = {
       id: cleanText(input && input.id, 240) || `agent_runtime:${turnId}:${role}`,
       role,
       origin_kind: role === 'user' ? 'user' : 'assistant',
@@ -94,6 +223,21 @@ function createAgentRuntimeTranscriptStore(options = {}) {
       source: 'agent_runtime_socket',
       projection_owner: 'gateway.runtime.agent_runtime_transcript',
     };
+    if (role === 'assistant') {
+      row.agent_activity_events = activityEvents;
+      row.agent_activity_event_count = activityEvents.length;
+      if (activityTrace) {
+        row.activity_trace = activityTrace;
+        row.agent_runtime_activity_trace = activityTrace;
+        row.agent_runtime_worked_ms = Math.max(0, Number(input && input.workedMs) || Number(activityTrace.worked_ms) || 0);
+        row.agent_runtime_worked_label = cleanText(input && input.workedLabel, 120) || cleanText(activityTrace.collapse_label, 120);
+      }
+      if (decisionTool) {
+        row.tools = [decisionTool];
+        row.agent_runtime_decision_dialog_text = decisionTool.display_text || '';
+      }
+    }
+    return row;
   }
 
   function appendAgentRuntimeTranscriptTurn(input) {
@@ -120,7 +264,14 @@ function createAgentRuntimeTranscriptStore(options = {}) {
         turnId,
         traceId: input && input.traceId,
         engineId,
-        status: input && input.pendingPermissionRequest ? 'permission_required' : 'completed',
+        status: input && input.pendingPermissionRequest
+          ? 'permission_required'
+          : cleanText(input && input.status, 80) || 'completed',
+        activityEvents: input && input.activityEvents,
+        activityTrace: input && input.activityTrace,
+        workedMs: input && input.workedMs,
+        workedLabel: input && input.workedLabel,
+        decisionDialogText: input && input.decisionDialogText,
       }),
     ].filter(Boolean);
     if (!messages.length) return;
@@ -223,9 +374,11 @@ function createAgentRuntimeTranscriptStore(options = {}) {
     const overlayRows = loadAgentRuntimeTranscriptRows({ agentId, sessionId, allowAgentFallback: true });
     if (!overlayRows.length) return base;
     let projectedRows = [];
+    let projectedIntoMessageWindow = false;
     if (base.message_window && typeof base.message_window === 'object') {
       const rows = mergeAgentRuntimeMessageRows(base.message_window.rows, overlayRows, limit);
       projectedRows = rows;
+      projectedIntoMessageWindow = true;
       base.message_window = {
         ...base.message_window,
         rows,
@@ -245,7 +398,7 @@ function createAgentRuntimeTranscriptStore(options = {}) {
       base.message_count = base.messages.length;
     }
     if (projectedRows.length) {
-      if (!Array.isArray(base.messages)) {
+      if (!projectedIntoMessageWindow && !Array.isArray(base.messages)) {
         base.messages = mergeAgentRuntimeMessageRows([], projectedRows, limit);
         base.message_count = Math.max(Number(base.message_count) || 0, base.messages.length);
       }

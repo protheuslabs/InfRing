@@ -44,6 +44,11 @@ function chatPage() {
     slashIdx: 0,
     slashAliasMap: {},
     slashAliasStorageKey: 'infring-chat-slash-aliases-v1',
+    agentRuntimeSlashCommandProjection: null,
+    agentRuntimeSlashCommandRows: [],
+    _agentRuntimeSlashCommandProjectionAt: 0,
+    _agentRuntimeSlashCommandProjectionEngineId: '',
+    _agentRuntimeSlashCommandProjectionLoading: false,
     attachments: [],
     pasteToMarkdownEnabled: true,
     pasteToMarkdownCharThreshold: 2000,
@@ -8288,6 +8293,124 @@ function chatPage() {
       }).catch(function() { /* silent — use hardcoded list */ });
     },
 
+    normalizeAgentRuntimeSlashCommandRow: function(row, group) {
+      if (!row || typeof row !== 'object') return null;
+      var displayCommand = String(row.display_command || row.command || '').trim();
+      if (!displayCommand) return null;
+      var title = String(row.title || row.intent_id || displayCommand).trim();
+      var description = String(row.description || '').trim();
+      var operationalState = String(row.operational_state || 'stubbed_or_unwired').trim();
+      var operationalLabel = String(row.operational_label || operationalState).trim();
+      return {
+        row_kind: 'command',
+        cmd: displayCommand,
+        desc: description || title,
+        title: title,
+        source: 'agent_runtime_command_catalog',
+        command_id: String(row.command_id || ''),
+        intent_id: String(row.intent_id || ''),
+        engine_id: String(row.engine_id || ''),
+        group_id: String(row.group_id || (group && group.group_id) || ''),
+        group_title: String((group && group.title) || ''),
+        native_command: String(row.native_command || ''),
+        native_command_kind: String(row.native_command_kind || ''),
+        execution_kind: String(row.execution_kind || ''),
+        safety_class: String(row.safety_class || ''),
+        operational_state: operationalState,
+        operational_label: operationalLabel,
+        operational_detail: String(row.operational_detail || ''),
+        connected: row.connected !== false,
+        fully_operational: row.fully_operational === true,
+        selectable: true,
+        action_route: String(row.action_route || '/api/shell-socket/agent-runtime/commands/execute'),
+        default_passthrough_allowed: false,
+        chat_memory_eligible: false
+      };
+    },
+
+    normalizeAgentRuntimeSlashCommandProjection: function(payload) {
+      var groups = Array.isArray(payload && payload.groups) ? payload.groups : [];
+      var rows = [];
+      for (var i = 0; i < groups.length; i += 1) {
+        var group = groups[i] && typeof groups[i] === 'object' ? groups[i] : {};
+        var commands = Array.isArray(group.commands) ? group.commands : [];
+        for (var j = 0; j < commands.length; j += 1) {
+          var normalized = this.normalizeAgentRuntimeSlashCommandRow(commands[j], group);
+          if (normalized) rows.push(normalized);
+        }
+      }
+      return rows;
+    },
+
+    fetchAgentRuntimeSlashCommands: function(force) {
+      var self = this;
+      var engineId = String(this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var now = Date.now();
+      if (
+        force !== true &&
+        this.agentRuntimeSlashCommandProjection &&
+        this._agentRuntimeSlashCommandProjectionEngineId === engineId &&
+        now - Number(this._agentRuntimeSlashCommandProjectionAt || 0) < 10000
+      ) {
+        return Promise.resolve(this.agentRuntimeSlashCommandProjection);
+      }
+      if (this._agentRuntimeSlashCommandProjectionLoading && force !== true) {
+        return Promise.resolve(this.agentRuntimeSlashCommandProjection);
+      }
+      this._agentRuntimeSlashCommandProjectionLoading = true;
+      return InfringAPI.get('/api/shell-socket/agent-runtime/commands?engine_id=' + encodeURIComponent(engineId)).then(function(payload) {
+        self.agentRuntimeSlashCommandProjection = payload || null;
+        self.agentRuntimeSlashCommandRows = self.normalizeAgentRuntimeSlashCommandProjection(payload);
+        self._agentRuntimeSlashCommandProjectionAt = Date.now();
+        self._agentRuntimeSlashCommandProjectionEngineId = engineId;
+        self._agentRuntimeSlashCommandProjectionLoading = false;
+        return payload;
+      }).catch(function() {
+        self._agentRuntimeSlashCommandProjectionLoading = false;
+        return null;
+      });
+    },
+
+    executeAgentRuntimeSlashCommand: async function(row, cmdArgs) {
+      var command = row && typeof row === 'object' ? row : {};
+      var engineId = String(command.engine_id || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var payload = {
+        engine_id: engineId,
+        intent_id: String(command.intent_id || ''),
+        display_command: String(command.cmd || command.display_command || ''),
+        args: String(cmdArgs || ''),
+        client_surface: 'dashboard',
+        source: 'slash_command_menu'
+      };
+      try {
+        var res = await InfringAPI.post('/api/shell-socket/agent-runtime/commands/execute', payload);
+        var text = String(res && (res.display_text || res.message || res.status || '') || '').trim();
+        if (text) {
+          this.messages.push({
+            id: ++msgId,
+            role: 'system',
+            is_notice: true,
+            notice_type: res && res.status === 'manual_action_required' ? 'warning' : 'info',
+            notice_label: String(command.title || command.cmd || 'Runtime command'),
+            text: text,
+            meta: '',
+            tools: [],
+            system_origin: 'slash:agent-runtime-command',
+            ts: Date.now()
+          });
+          this.scrollToBottom();
+          this.scheduleConversationPersist();
+        }
+        return res;
+      } catch (error) {
+        var message = String(error && error.message ? error.message : error || 'runtime_command_failed').trim();
+        if (typeof this.emitCommandFailureNotice === 'function') {
+          this.emitCommandFailureNotice(command.cmd || payload.display_command, message, ['/help']);
+        }
+        return null;
+      }
+    },
+
     // Keep thinking indicators alive while work is still in-flight.
     // Only hard-timeout once no pending activity remains or the request is
     // genuinely stale far beyond expected runtime.
@@ -9165,13 +9288,23 @@ function chatPage() {
       this._pendingWsRecovering = false;
     },
 
-    async executeSlashCommand(cmd, cmdArgs) {
+    async executeSlashCommand(cmd, cmdArgs, commandRow) {
       this.showSlashMenu = false;
 
 // Layer ownership: client/runtime/systems/ui (dashboard static UX surface only; no runtime authority).
       this.inputText = '';
       var self = this;
       cmdArgs = cmdArgs || '';
+      var selectedSlashRow = commandRow && typeof commandRow === 'object'
+        ? commandRow
+        : (typeof this.findSlashCommandDefinition === 'function' ? this.findSlashCommandDefinition(cmd) : null);
+      if (
+        selectedSlashRow &&
+        selectedSlashRow.source === 'agent_runtime_command_catalog' &&
+        typeof this.executeAgentRuntimeSlashCommand === 'function'
+      ) {
+        return this.executeAgentRuntimeSlashCommand(selectedSlashRow, cmdArgs);
+      }
       switch (cmd) {
         case '/help':
           self.messages.push({
@@ -14963,9 +15096,18 @@ function chatPage() {
       return true;
     },
 
-    isThoughtTool: function(tool) {
-      return !!(tool && String(tool.name || '').toLowerCase() === 'thought_process');
-    },
+  isThoughtTool: function(tool) {
+    var row = tool && typeof tool === 'object' ? tool : null;
+    if (!row) return false;
+    var name = String(row.name || '').toLowerCase();
+    return !!(
+      name === 'thought_process' ||
+      row.agent_decision_dialog ||
+      row.agent_runtime_decision_dialog ||
+      row.agent_runtime_activity_trace ||
+      row.projection_kind === 'decision_dialog'
+    );
+  },
 
     toolNameKey: function(tool) {
       if (!tool) return '';
@@ -16378,6 +16520,12 @@ function chatPage() {
     findSlashCommandDefinition: function(value) {
       var target = this.normalizeSlashCommandName(value);
       if (!target) return null;
+      var projectedRows = Array.isArray(this.filteredSlashCommands) ? this.filteredSlashCommands : [];
+      for (var p = 0; p < projectedRows.length; p += 1) {
+        var projected = projectedRows[p] && typeof projectedRows[p] === 'object' ? projectedRows[p] : null;
+        if (!projected || projected.row_kind === 'heading' || projected.selectable === false) continue;
+        if (this.normalizeSlashCommandName(projected.cmd) === target) return projected;
+      }
       var rows = Array.isArray(this.slashCommands) ? this.slashCommands : [];
       for (var i = 0; i < rows.length; i += 1) {
         var row = rows[i] && typeof rows[i] === 'object' ? rows[i] : null;
@@ -16576,6 +16724,9 @@ function chatPage() {
     },
 
     get filteredSlashCommands() {
+      if (this.showSlashMenu && typeof this.fetchAgentRuntimeSlashCommands === 'function') {
+        this.fetchAgentRuntimeSlashCommands(false);
+      }
       var base = Array.isArray(this.slashCommands) ? this.slashCommands.slice() : [];
       var aliases = this.slashAliasMap || {};
       Object.keys(aliases).forEach(function(alias) {
@@ -16587,11 +16738,99 @@ function chatPage() {
           });
         }
       });
-      if (!this.slashFilter) return base;
-      var f = this.slashFilter;
-      return base.filter(function(c) {
-        return c.cmd.toLowerCase().indexOf(f) !== -1 || c.desc.toLowerCase().indexOf(f) !== -1;
+      var runtimeRows = Array.isArray(this.agentRuntimeSlashCommandRows) ? this.agentRuntimeSlashCommandRows : [];
+      var gatewayByCmd = {};
+      runtimeRows.forEach(function(row) {
+        if (!row || row.group_id !== 'infring_native_commands') return;
+        var cmd = String(row.cmd || '').trim().toLowerCase();
+        if (cmd) gatewayByCmd[cmd] = row;
       });
+      var localOperational = function(cmd) {
+        var target = String(cmd || '').trim().toLowerCase();
+        if (/^\/(model|apikey|file|folder|stop|usage|think|context|verbose|queue|status|alerts|next|memory|continuity|aliases|alias|opt|clear|help)$/i.test(target)) {
+          return {
+            operational_state: 'connected',
+            operational_label: 'Operational',
+            operational_detail: 'Handled by the current InfRing client command path.',
+            connected: true,
+            fully_operational: true
+          };
+        }
+        return {
+          operational_state: 'intent_route_only',
+          operational_label: 'Legacy route',
+          operational_detail: 'Cataloged as an InfRing slash command; full operational proof is not yet attached.',
+          connected: true,
+          fully_operational: false
+        };
+      };
+      var commandRow = function(row) {
+        var cmd = String(row && row.cmd || '').trim();
+        var gateway = gatewayByCmd[cmd.toLowerCase()] || null;
+        var meta = gateway || localOperational(cmd);
+        return {
+          row_kind: 'command',
+          cmd: cmd,
+          desc: String(row && row.desc || gateway && gateway.desc || '').trim(),
+          title: String(row && row.title || gateway && gateway.title || cmd).trim(),
+          source: String(row && row.source || 'infring_native_slash'),
+          command_id: String(gateway && gateway.command_id || ('infring-local:' + cmd.replace(/^\//, ''))),
+          intent_id: String(gateway && gateway.intent_id || ''),
+          engine_id: String(gateway && gateway.engine_id || 'infring'),
+          group_id: 'infring_native_commands',
+          group_title: 'InfRing native / commands',
+          execution_kind: String(gateway && gateway.execution_kind || 'client_command_handler'),
+          safety_class: String(gateway && gateway.safety_class || 'control'),
+          operational_state: String(meta.operational_state || 'stubbed_or_unwired'),
+          operational_label: String(meta.operational_label || meta.operational_state || 'Unknown'),
+          operational_detail: String(meta.operational_detail || ''),
+          connected: meta.connected !== false,
+          fully_operational: meta.fully_operational === true,
+          selectable: true,
+          action_route: String(gateway && gateway.action_route || '')
+        };
+      };
+      var sections = [];
+      var f = String(this.slashFilter || '').trim().toLowerCase();
+      var matches = function(row) {
+        if (!f) return true;
+        return String(row.cmd || '').toLowerCase().indexOf(f) !== -1 ||
+          String(row.desc || '').toLowerCase().indexOf(f) !== -1 ||
+          String(row.title || '').toLowerCase().indexOf(f) !== -1 ||
+          String(row.operational_label || '').toLowerCase().indexOf(f) !== -1;
+      };
+      var addSection = function(label, rows, source) {
+        var filtered = rows.filter(matches);
+        if (!filtered.length) return;
+        sections.push({
+          row_kind: 'heading',
+          cmd: '__heading_' + source + '_' + sections.length,
+          label: label,
+          desc: '',
+          source: source,
+          selectable: false
+        });
+        Array.prototype.push.apply(sections, filtered);
+      };
+      var activeRuntimeRows = runtimeRows.filter(function(row) {
+        return row && row.group_id === 'runtime_native_commands';
+      });
+      addSection(
+        activeRuntimeRows.length && activeRuntimeRows[0].group_title ? activeRuntimeRows[0].group_title : 'Runtime / commands',
+        activeRuntimeRows,
+        'agent_runtime_command_catalog'
+      );
+      var localRows = base.map(commandRow).filter(function(row) { return !!row.cmd; });
+      runtimeRows.forEach(function(row) {
+        if (!row || row.group_id !== 'infring_native_commands') return;
+        var cmd = String(row.cmd || '').trim().toLowerCase();
+        if (!cmd) return;
+        if (!localRows.some(function(local) { return String(local.cmd || '').trim().toLowerCase() === cmd; })) {
+          localRows.push(row);
+        }
+      });
+      addSection('InfRing native / commands', localRows, 'infring_native_slash');
+      return sections;
     },
 
     toolAttemptIdentity: function(tool, idx, prefix) {
@@ -17194,9 +17433,14 @@ function chatPage() {
         var aliasResolution = this.resolveSlashAlias(cmd, cmdArgs);
         var routedCmd = String(aliasResolution && aliasResolution.cmd ? aliasResolution.cmd : cmd).toLowerCase();
         var routedArgs = String(aliasResolution && typeof aliasResolution.args === 'string' ? aliasResolution.args : cmdArgs).trim();
-        var matched = this.slashCommands.find(function(c) { return c.cmd === routedCmd; });
+        if (typeof this.fetchAgentRuntimeSlashCommands === 'function') {
+          await this.fetchAgentRuntimeSlashCommands(false);
+        }
+        var matched = typeof this.findSlashCommandDefinition === 'function'
+          ? this.findSlashCommandDefinition(routedCmd)
+          : this.slashCommands.find(function(c) { return c.cmd === routedCmd; });
         if (matched) {
-          this.executeSlashCommand(matched.cmd, routedArgs);
+          this.executeSlashCommand(matched.cmd, routedArgs, matched);
           return;
         }
       }

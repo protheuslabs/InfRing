@@ -1414,6 +1414,29 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       .filter(Boolean)
       .slice(-48);
     const workedLabel = workedLabelFromMs(workedMs);
+    const activityTraceProjection = {
+      type: 'agent_runtime_activity_trace_projection',
+      source_authority: 'gateway.runtime.agent_runtime_turn_projection',
+      trace_id: traceId,
+      engine_id: engineId,
+      session_id: sessionId,
+      turn_id: turnId,
+      collapsed_by_default: true,
+      collapse_label: workedLabel,
+      worked_ms: workedMs,
+      row_count: activityTraceRows.length,
+      raw_activity_event_count: Number(turn && turn.activity_event_count) || activityEvents.length,
+      rows: activityTraceRows,
+      summary_text: projectedPendingPermission
+        ? permissionDisplayText
+        : terminalOutcomeStatus === 'completed'
+          ? `${engineId} completed the turn.`
+          : terminalOutcomeStatus === 'failed_with_reason'
+            ? `${engineId} failed with ${cleanText(turn && turn.error_code, 120) || 'a classified error'}.`
+            : terminalOutcomeStatus === 'timed_out_with_reason'
+              ? `${engineId} timed out.`
+              : `${engineId} ended with status ${terminalOutcomeStatus}.`,
+    };
     const persistedAssistantOutput = projectedPendingPermission ? permissionDisplayText : output;
     try {
       (deps.appendAgentRuntimeTurnAtoms || noop)({
@@ -1438,7 +1461,12 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
         engineId,
         userText: '',
         assistantText: persistedAssistantOutput,
+        status: terminalOutcomeStatus,
         pendingPermissionRequest: projectedPendingPermission,
+        activityEvents,
+        activityTrace: activityTraceProjection,
+        workedMs,
+        workedLabel,
       });
     } catch {}
     let receiptProjection = null;
@@ -1492,29 +1520,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       activity_event_count: activityEvents.length,
       raw_activity_event_count: Number(turn && turn.activity_event_count) || activityEvents.length,
       structured_activity: turn && turn.structured_activity === true,
-      activity_trace: {
-        type: 'agent_runtime_activity_trace_projection',
-        source_authority: 'gateway.runtime.agent_runtime_turn_projection',
-        trace_id: traceId,
-        engine_id: engineId,
-        session_id: sessionId,
-        turn_id: turnId,
-        collapsed_by_default: true,
-        collapse_label: workedLabel,
-        worked_ms: workedMs,
-        row_count: activityTraceRows.length,
-        raw_activity_event_count: Number(turn && turn.activity_event_count) || activityEvents.length,
-        rows: activityTraceRows,
-        summary_text: projectedPendingPermission
-          ? permissionDisplayText
-          : terminalOutcomeStatus === 'completed'
-            ? `${engineId} completed the turn.`
-            : terminalOutcomeStatus === 'failed_with_reason'
-              ? `${engineId} failed with ${cleanText(turn && turn.error_code, 120) || 'a classified error'}.`
-              : terminalOutcomeStatus === 'timed_out_with_reason'
-                ? `${engineId} timed out.`
-                : `${engineId} ended with status ${terminalOutcomeStatus}.`,
-      },
+      activity_trace: activityTraceProjection,
       result_ref: cleanText(turn && turn.result_ref, 240),
       receipt_ref: cleanText(turn && turn.receipt_ref, 240),
       receipt_refs: receiptProjection && Array.isArray(receiptProjection.receipt_refs)

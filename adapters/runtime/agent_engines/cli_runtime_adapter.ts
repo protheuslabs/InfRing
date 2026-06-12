@@ -215,7 +215,9 @@ function isProviderUsageOrQuotaText(value) {
 
 function extractProviderUsageFailureReason(value) {
   const structuredReason = extractStructuredFailureReason(value);
-  if (structuredReason) return structuredReason;
+  if (structuredReason && !isProviderMetadataToken(structuredReason) && isInformativeFailureText(structuredReason)) {
+    return structuredReason;
+  }
   const rawText = String(value == null ? '' : value);
   const rawLines = rawText.split(/\r?\n/).map((line) => cleanDisplayString(line, 2000)).filter(Boolean);
   const patterns = [
@@ -1516,7 +1518,15 @@ function semanticProviderEventType(row) {
 function isCliAgentMessageRow(row) {
   const eventType = compactEventType(row).toLowerCase();
   const itemType = cliActivityItemType(row);
-  return itemType === 'agent_message' || itemType === 'assistant_message' || eventType === 'agent_message';
+  const item = cliActivityItem(row);
+  const role = cleanString(row && (row.role || row.speaker || row.author), 80).toLowerCase();
+  const itemRole = cleanString(item && (item.role || item.speaker || item.author), 80).toLowerCase();
+  const joined = `${eventType} ${itemType} ${role} ${itemRole}`;
+  if (itemType === 'agent_message' || itemType === 'assistant_message') return true;
+  if (eventType === 'agent_message' || eventType === 'assistant_message') return true;
+  if ((role === 'assistant' || itemRole === 'assistant') && /message|content|text|delta|response/.test(joined)) return true;
+  if (/assistant[._:-]?message|agent[._:-]?message/.test(joined)) return true;
+  return false;
 }
 
 function extractCliAgentMessageText(row) {
@@ -1851,9 +1861,9 @@ function sanitizeProposalArguments(args, toolId) {
     if (rawPath) out.path = rawPath;
     const mimeType = cleanString(source.mime_type || source.content_type || 'text/plain', 120);
     if (mimeType) out.mime_type = mimeType;
-    if (source.content != null) out.content = cleanDisplayString(source.content, 262144);
-    else if (source.text != null) out.content = cleanDisplayString(source.text, 262144);
-    else if (source.body != null) out.content = cleanDisplayString(source.body, 262144);
+    if (source.content != null) out.content = cleanArtifactContent(source.content, 262144);
+    else if (source.text != null) out.content = cleanArtifactContent(source.text, 262144);
+    else if (source.body != null) out.content = cleanArtifactContent(source.body, 262144);
     return out;
   }
   for (const key of Object.keys(source).slice(0, 24)) {
@@ -1872,6 +1882,13 @@ function sanitizeProposalArguments(args, toolId) {
     }
   }
   return out;
+}
+
+function cleanArtifactContent(value, maxLen = 262144) {
+  return stripTerminalControls(value)
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .slice(0, maxLen);
 }
 
 function inferEffectiveProposalToolId(rawToolId, args) {
@@ -2034,7 +2051,7 @@ function deniedArtifactProposalArguments(text, ctx) {
   return {
     path: relativeDeniedArtifactPath(rawPath, ctx),
     mime_type: cleanString(input.mime_type || input.content_type || 'text/plain', 120),
-    content: cleanDisplayString(content, 262144),
+    content: cleanArtifactContent(content, 262144),
   };
 }
 
@@ -2368,7 +2385,7 @@ function buildPermissionRequestFromShadowChange(change, shadow, ctx, defaultEngi
     arguments: {
       path: rel,
       mime_type: 'text/plain',
-      content: cleanDisplayString(content, 262144),
+      content: cleanArtifactContent(content, 262144),
     },
   };
   const request = buildPermissionRequestFromProposal(proposal, ctx, defaultEngineId);
@@ -2664,6 +2681,20 @@ function createCliRuntimeEngineAdapter(options = {}) {
   const receiptKind = cleanString(options.receiptKind || 'external_cli_adapter_receipt', 120);
   const liveEnvVar = cleanString(options.liveEnvVar || `INFRING_AGENT_RUNTIME_${engineId.toUpperCase()}_LIVE`, 120);
   const liveDispatch = options.liveDispatch === true || process.env[liveEnvVar] === '1';
+  const nativeTransport = options.nativeTransport && typeof options.nativeTransport === 'object' ? options.nativeTransport : {};
+  const nativeTransportAvailable = nativeTransport.available === true;
+  const nativeTransportMode = cleanString(nativeTransport.mode || nativeTransport.transport_mode || structuredTransportTarget, 160);
+  const nativeTransportEnvVar = cleanString(
+    nativeTransport.envVar || nativeTransport.env_var || `INFRING_AGENT_RUNTIME_${engineId.toUpperCase()}_NATIVE_TRANSPORT`,
+    160,
+  );
+  const nativeTransportEnabled = nativeTransportAvailable &&
+    (options.nativeTransportEnabled === true || process.env[nativeTransportEnvVar] === '1');
+  const nativeTransportMappingStatus = cleanString(
+    nativeTransport.mappingStatus || nativeTransport.mapping_status || (nativeTransportAvailable ? 'adapter_mapping_pending' : ''),
+    160,
+  );
+  const nativeTransportEvidenceRef = cleanString(nativeTransport.evidenceRef || nativeTransport.evidence_ref || '', 500);
   const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 60000, 300000));
   const versionArgs = Array.isArray(options.versionArgs) ? options.versionArgs : ['--version'];
   const runArgs = typeof options.runArgs === 'function' ? options.runArgs : (prompt) => [prompt];
@@ -2678,6 +2709,17 @@ function createCliRuntimeEngineAdapter(options = {}) {
       cleanString(message.session_id || '', 240),
       cleanString(message.turn_id || '', 240),
     ].join('|');
+  }
+
+  function nativeTransportProjection() {
+    return {
+      available: nativeTransportAvailable,
+      enabled: nativeTransportEnabled,
+      mode: nativeTransportMode,
+      env_var: nativeTransportEnvVar,
+      mapping_status: nativeTransportMappingStatus,
+      evidence_ref: nativeTransportEvidenceRef,
+    };
   }
 
   function discover(ctx) {
@@ -2711,6 +2753,19 @@ function createCliRuntimeEngineAdapter(options = {}) {
     }
     const discovery = discover(ctx);
     const command = cleanString(discovery.command || selectedCommand || options.commandFallback || engineId, 500);
+    if (nativeTransportEnabled && typeof options.runNativeStructuredTurn !== 'function') {
+      const reason = `${engineId} native transport is enabled by ${nativeTransportEnvVar}, but the adapter mapping is not implemented yet. Disable the flag or finish the native transport mapper before retrying.`;
+      return {
+        ...baseEvent(ctx, 'error', engineId),
+        status: 'failed',
+        error_code: `${engineId}_native_transport_mapper_missing`,
+        reason,
+        retryable: false,
+        output_text: reason,
+        output_preview: cleanString(reason, 4000),
+        native_transport: nativeTransportProjection(),
+      };
+    }
     const runner = typeof ctx.onActivity === 'function' ? spawnActivityCapture : spawnCapture;
     const turnTimeoutMs = resolveTurnTimeoutMs(ctx, timeoutMs);
     const requestedCwd = options.cwd || (ctx && ctx.message && (
@@ -2850,6 +2905,7 @@ function createCliRuntimeEngineAdapter(options = {}) {
       timed_out: run.timed_out === true,
       timeout_ms: turnTimeoutMs,
       stderr_preview: cleanString(run.stderr, 2000),
+      native_transport: nativeTransportAvailable ? nativeTransportProjection() : undefined,
     };
   }
 
@@ -2892,6 +2948,12 @@ function createCliRuntimeEngineAdapter(options = {}) {
         context_transport_mode: contextTransportMode,
         structured_transport_target: structuredTransportTarget,
         transport_migration_status: transportMigrationStatus,
+        native_transport_available: nativeTransportAvailable,
+        native_transport_enabled: nativeTransportEnabled,
+        native_transport_mode: nativeTransportMode,
+        native_transport_mapping_status: nativeTransportMappingStatus,
+        native_transport_env_var: nativeTransportEnvVar,
+        native_transport_evidence_ref: nativeTransportEvidenceRef,
         supports_live_steering: false,
         supports_next_turn_steering: true,
         steering_transport: 'gateway_next_turn_intervention',

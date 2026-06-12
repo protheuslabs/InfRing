@@ -127,9 +127,12 @@ The checkpoint should produce or retain compact evidence for:
 - hard failure injection proof
 - model projection proof
 - framework capability catalog
+- framework feature-parity ledger for Codex and Claude Code
 - Gateway/adapters ownership guard
 
 The proof artifacts should be summaries with refs, not raw noise dumps.
+
+The framework feature-parity ledger is the checkpoint's accounting surface for external runtimes. It should mark each golden-path capability as `preserved`, `partial`, or `gap`, with evidence refs and next actions. A runtime may be selectable while still having partial/gap rows, but it must not be called reliable until the required rows are preserved.
 
 ## Non-goals for this checkpoint
 
