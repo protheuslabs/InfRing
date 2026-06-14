@@ -798,7 +798,7 @@
     },
     "ops:shell:chat-ownership:guard": {
       "owner": "ops",
-      "description": "Fail when chat.ts and chat.ts.parts/** are not explicitly classified as one logical Shell surface with chat.ts as the canonical runtime entry.",
+      "description": "Fail when chat.ts and chat.ts.parts/** are not explicitly classified as one logical Shell surface, or when oversized chat shards lack manifest-tracked extraction debt.",
       "timeout_env": "VERIFY_NPM_TIMEOUT_SEC",
       "timeout_sec": 60,
       "script": "ops:shell:chat-ownership:guard",

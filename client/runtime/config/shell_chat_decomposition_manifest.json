@@ -1,0 +1,82 @@
+{
+  "type": "shell_chat_decomposition_manifest",
+  "status": "decomposition_debt_open",
+  "owner": "shell.runtime",
+  "canonical_runtime_surface": "client/runtime/systems/ui/infring_static/js/pages/chat.ts",
+  "parts_root": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts",
+  "policy": "docs/workspace/shell_source_of_truth_policy.md",
+  "purpose": "Track the safe migration from one oversized assembled chat surface into real runtime modules without treating the temporary parts mirror as a second source of truth.",
+  "rules": [
+    "chat.ts remains the runtime entry until a module graph proves parity.",
+    "chat.ts.parts/** is migration debt, not an additive production surface.",
+    "New behavior must prefer Gateway projections over Shell inference.",
+    "No new part may exceed the target size unless listed as explicit debt here.",
+    "Closure requires counterpart_paths=0 and duplicate_loc_estimate=0 in the duplicate-surface inventory."
+  ],
+  "part_size_policy": {
+    "target_max_loc": 600,
+    "hard_fail_unlisted_oversized_parts": true,
+    "allowed_oversized_parts": [
+      {
+        "path": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/200-send-pipeline.part01.ts",
+        "reason": "runtime turn/send pipeline remains fragile and must be split only after agent-runtime permission/steering parity is stable",
+        "planned_extraction": "gateway-backed turn transport facade plus shell-only submit projection module"
+      },
+      {
+        "path": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/110-failover-and-health.part01.ts",
+        "reason": "legacy health/failover view code still mixes provider status projection and shell rendering",
+        "planned_extraction": "provider health projection renderer with Gateway-owned capability rows"
+      },
+      {
+        "path": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/030-init-selection-helpers.ts",
+        "reason": "runtime/model selection helpers still bridge old and new selector state",
+        "planned_extraction": "selector state renderer backed by normalized runtime/model projections"
+      },
+      {
+        "path": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/120-slash-and-agent-select.ts",
+        "reason": "slash command and agent selector compatibility remains active during external-runtime unification",
+        "planned_extraction": "slash menu renderer consuming Gateway command catalog projections"
+      },
+      {
+        "path": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/190-drawer-and-queue.part03.ts",
+        "reason": "thought/tool projection helpers currently preserve legacy chat behavior while Gateway projections mature",
+        "planned_extraction": "projection-only thought/tool renderer after Gateway emits compact trace rows"
+      },
+      {
+        "path": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/215-rendering-and-metadata-upgrades.ts",
+        "reason": "rendering metadata upgrades are still acting as compatibility glue for old and new chat projections",
+        "planned_extraction": "metadata projection renderer with no runtime activity inference"
+      },
+      {
+        "path": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/040-models-and-cache.part02.ts",
+        "reason": "model/provider cache compatibility still bridges legacy LLM menu state and runtime-owned model projections",
+        "planned_extraction": "model menu projection renderer backed by provider capability rows"
+      },
+      {
+        "path": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/090-init-hooks-and-shortcuts.part02.ts",
+        "reason": "runtime hooks and shortcut wiring still holds legacy dashboard behavior together",
+        "planned_extraction": "event binding module with no provider/runtime business logic"
+      },
+      {
+        "path": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/140-session-and-ws.part01.ts",
+        "reason": "session and websocket bootstrap still contains transition-era compatibility wiring",
+        "planned_extraction": "shell socket bootstrap renderer with Gateway-owned session state"
+      },
+      {
+        "path": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/040-models-and-cache.part01.ts",
+        "reason": "model cache setup remains larger than target while provider capability projection is being normalized",
+        "planned_extraction": "provider-model cache adapter removed from Shell once Gateway projection is complete"
+      },
+      {
+        "path": "client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/130-render-window-and-session.part01.ts",
+        "reason": "render window/session code is close to target but still too broad for safe ownership",
+        "planned_extraction": "render-window-only module plus session projection renderer"
+      }
+    ]
+  },
+  "next_safe_moves": [
+    "Move runtime activity/file trace compaction into Gateway projection and leave Shell as a children-row renderer.",
+    "Split 200-send-pipeline.part01.ts into transport submission, permission pause/resume rendering, and finalization projection helpers.",
+    "Retire chat.ts.parts mirrors only after chat.ts is replaced by a real module graph or the parts are deleted with parity evidence."
+  ]
+}

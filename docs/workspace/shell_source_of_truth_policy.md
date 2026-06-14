@@ -68,6 +68,12 @@ For assembled Shell files that also have `.parts/**` mirrors:
 
 During migration, the canonical logical surface may still be represented by the assembled file, but the decomposition shards must not inflate authored-source growth numbers.
 
+For `pages/chat.ts`, the active decomposition manifest is:
+
+- `client/runtime/config/shell_chat_decomposition_manifest.json`
+
+That manifest records current oversized shards, the target per-part size, and the planned extraction path for each exception. A shard that exceeds the target cap without being listed in the manifest is ungoverned Shell growth, not acceptable migration debt.
+
 ## Closure Semantics
 
 Classification is not completion. A Shell surface with an assembled parent and `.parts/**` counterparts is only source-of-truth clean when the duplicate-surface inventory reports both:
