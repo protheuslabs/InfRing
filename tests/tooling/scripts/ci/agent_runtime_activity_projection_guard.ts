@@ -24,11 +24,9 @@ const AGENT_ID = 'agent-runtime-activity-projection-agent';
 const PROVIDER_FIXTURES = {
   codex_cli: {
     expected: [
-      'Runtime thread started.',
       'Checking workspace state before editing.',
-      'Working on command: /bin/zsh -lc "pwd"',
-      'Completed file change: /tmp/activity-projection-codex.txt',
-      'Runtime completed the turn.',
+      'running /bin/zsh -lc "pwd"',
+      'wrote /tmp/activity-projection-codex.txt',
     ],
     events: [
       { type: 'thread.started', thread_id: 'thread-activity-projection' },
@@ -41,9 +39,9 @@ const PROVIDER_FIXTURES = {
   claude_code: {
     expected: [
       'I will inspect the requested change, then write the smallest safe patch.',
-      'Working on command: npm test -- --watch=false',
-      'Completed file change: /tmp/activity-projection-claude.ts',
-      'Working on tool: TodoWrite',
+      'running npm test -- --watch=false',
+      'wrote /tmp/activity-projection-claude.ts',
+      'running TodoWrite',
     ],
     events: [
       { type: 'reasoning', kind: 'decision_dialog', display_text: 'I will inspect the requested change, then write the smallest safe patch.' },
@@ -54,9 +52,9 @@ const PROVIDER_FIXTURES = {
   },
   grok_code: {
     expected: [
-      'Working on search: agent runtime projection',
-      'Working on command: python3 smoke.py',
-      'Completed file change: /tmp/activity-projection-grok.py',
+      'searching agent runtime projection',
+      'running python3 smoke.py',
+      'wrote /tmp/activity-projection-grok.py',
     ],
     events: [
       { event_type: 'search.started', state: 'running', query: 'agent runtime projection' },
@@ -66,8 +64,8 @@ const PROVIDER_FIXTURES = {
   },
   openclaw: {
     expected: [
-      'Working on command: rg activity projection',
-      'Completed file change: /tmp/activity-projection-openclaw.md',
+      'running rg activity projection',
+      'wrote /tmp/activity-projection-openclaw.md',
     ],
     events: [
       { type: 'runtime_event', kind: 'shell_command', status: 'running', payload: {}, command: 'rg activity projection' },
@@ -76,8 +74,8 @@ const PROVIDER_FIXTURES = {
   },
   hermes_agent: {
     expected: [
-      'Working on tool: planner.step',
-      'Completed file change: /tmp/activity-projection-hermes.json',
+      'running planner.step',
+      'wrote /tmp/activity-projection-hermes.json',
     ],
     events: [
       { type: 'agent_step', status: 'running', tool: { name: 'planner.step' } },

@@ -27,6 +27,22 @@ function makeResponse() {
   return { statusCode: 0, payload: null };
 }
 
+function contextPreviewText(payload) {
+  const fragments = payload && Array.isArray(payload.fragments) ? payload.fragments : [];
+  return fragments.map((fragment) => {
+    const payloadRow = fragment && fragment.payload && typeof fragment.payload === 'object' ? fragment.payload : {};
+    return clean(
+      fragment.summary ||
+        fragment.text_preview ||
+        payloadRow.text_preview ||
+        payloadRow.summary ||
+        (Array.isArray(payloadRow.task_refs) ? payloadRow.task_refs.join(' ') : '') ||
+        fragment.ref_id,
+      2000,
+    );
+  }).filter(Boolean).join('\n');
+}
+
 function createFakeApprovalRuntimeAdapter(artifactRel, artifactText) {
   return {
     health_check: async ({ message }) => ({
@@ -158,6 +174,36 @@ async function main() {
   const listedPending = Array.isArray(pendingListPayload.pending_requests)
     ? pendingListPayload.pending_requests.find((row) => row && request && row.approval_id === request.approval_id)
     : null;
+  const duplicateTurnRes = makeResponse();
+  const duplicateTurnHandled = await assembly.handleAgentRuntimeTurnRoute({
+    req: turnReq,
+    res: duplicateTurnRes,
+    pathname: '/api/shell-socket/agent-runtime/turn',
+    traceId: `${traceId}:duplicate`,
+    flags: {},
+  });
+  const duplicateTurnPayload = duplicateTurnRes.payload || {};
+  const duplicateRequest = duplicateTurnPayload.pending_permission_request || duplicateTurnPayload.permission_request || null;
+  const pendingListAfterDuplicateRes = makeResponse();
+  const pendingListAfterDuplicateHandled = await assembly.handleAgentRuntimeApprovalRoute({
+    req: pendingListReq,
+    res: pendingListAfterDuplicateRes,
+    pathname: '/api/shell-socket/approvals/pending',
+    traceId,
+  });
+  const pendingListAfterDuplicatePayload = pendingListAfterDuplicateRes.payload || {};
+  const duplicateCoalesced = !!(
+    duplicateTurnHandled === true &&
+    duplicateTurnRes.statusCode === 200 &&
+    request &&
+    duplicateRequest &&
+    duplicateRequest.coalesced_with_existing_pending_approval === true &&
+    duplicateRequest.active_approval_id === request.approval_id &&
+    duplicateRequest.coalesced_reason === 'duplicate_permission_request' &&
+    pendingListAfterDuplicateHandled === true &&
+    pendingListAfterDuplicateRes.statusCode === 200 &&
+    Number(pendingListAfterDuplicatePayload.pending_count) === 1
+  );
   const decisionReq = { method: 'POST', __body: { decision: 'allow_once' } };
   const decisionRes = makeResponse();
   const decisionHandled = approvalRoute
@@ -171,6 +217,38 @@ async function main() {
 
   const decisionPayload = decisionRes.payload || {};
   const wroteArtifact = fs.existsSync(artifactAbs) && fs.readFileSync(artifactAbs, 'utf8').includes(artifactText.trim());
+  const contextPreviewReq = {
+    method: 'POST',
+    __body: {
+      agent_id: 'agent-runtime-route-approval-lifecycle-guard',
+      session_id: 'route-approval-session',
+      engine_id: 'codex_cli',
+    },
+  };
+  const contextPreviewRes = makeResponse();
+  const contextPreviewHandled = await assembly.handleAgentRuntimeTurnRoute({
+    req: contextPreviewReq,
+    res: contextPreviewRes,
+    pathname: '/api/shell-socket/agent-runtime/context-pack/preview',
+    traceId,
+    flags: {},
+  });
+  const contextPreviewPayload = contextPreviewRes.payload || {};
+  const contextText = contextPreviewText(contextPreviewPayload);
+  const contextAppendOk = !!(
+    decisionPayload.execution_result &&
+    decisionPayload.execution_result.context_append &&
+    decisionPayload.execution_result.context_append.ok === true
+  );
+  const approvedEffectContextOk = !!(
+    contextAppendOk &&
+    contextPreviewHandled === true &&
+    contextPreviewRes.statusCode === 200 &&
+    contextPreviewPayload.ok === true &&
+    contextText.includes(artifactRel) &&
+    contextText.includes('artifact/tmp/route-level-approval.txt') &&
+    contextText.includes(artifactText.trim())
+  );
   const textPermission = 'Permission required: Create a simple standalone todo app in the workspace; Codex currently has read-only filesystem access.';
   const textSent = [];
   const textAssembly = createGatewayAgentRuntimeRouteAssembly({
@@ -256,15 +334,21 @@ async function main() {
     listedPending.projection_kind === 'permission_request' &&
     listedPending.proposal_arguments_ref &&
     !listedPending.proposal_arguments &&
+    duplicateCoalesced &&
     decisionHandled === true &&
     decisionRes.statusCode === 200 &&
     decisionPayload.ok === true &&
     decisionPayload.pending_request_found === true &&
     decisionPayload.durable_effect_executed === true &&
+    decisionPayload.approved_effect_executed === true &&
+    decisionPayload.approved_effect_path === artifactRel &&
+    clean(decisionPayload.display_text, 1000).includes(artifactRel) &&
+    clean(decisionPayload.output_text, 1000).includes(artifactRel) &&
     decisionPayload.resume_token === request.resume_token &&
     decisionPayload.decision_receipt &&
     decisionPayload.decision_receipt.receipt_hash &&
-    wroteArtifact
+    wroteArtifact &&
+    approvedEffectContextOk
   );
   const textPermissionOk = !!(
     textTurnHandled === true &&
@@ -315,6 +399,11 @@ async function main() {
       pending_list_count: Number(pendingListPayload.pending_count) || 0,
       pending_list_contains_request: !!listedPending,
       pending_list_projection_bounded: !!(listedPending && listedPending.proposal_arguments_ref && !listedPending.proposal_arguments),
+      duplicate_turn_handled: duplicateTurnHandled,
+      duplicate_turn_status_code: duplicateTurnRes.statusCode,
+      duplicate_coalesced: duplicateCoalesced,
+      duplicate_coalesced_reason: clean(duplicateRequest && duplicateRequest.coalesced_reason, 160),
+      pending_list_after_duplicate_count: Number(pendingListAfterDuplicatePayload.pending_count) || 0,
     },
     decision_probe: {
       decision_handled: decisionHandled,
@@ -322,10 +411,20 @@ async function main() {
       ok: decisionPayload.ok === true,
       pending_request_found: decisionPayload.pending_request_found === true,
       durable_effect_executed: decisionPayload.durable_effect_executed === true,
+      approved_effect_executed: decisionPayload.approved_effect_executed === true,
+      approved_effect_path: clean(decisionPayload.approved_effect_path, 300),
+      visible_display_text: clean(decisionPayload.display_text, 1000),
+      visible_output_text: clean(decisionPayload.output_text, 1000),
       resume_token_continuity: !!(request && decisionPayload.resume_token === request.resume_token),
       decision_receipt_ref: clean(decisionPayload.decision_receipt_ref, 300),
       decision_receipt_hash_present: !!(decisionPayload.decision_receipt && decisionPayload.decision_receipt.receipt_hash),
       wrote_artifact: wroteArtifact,
+      context_append_ok: contextAppendOk,
+      context_preview_handled: contextPreviewHandled,
+      context_preview_status_code: contextPreviewRes.statusCode,
+      context_preview_row_count: Number(contextPreviewPayload.row_count) || 0,
+      approved_effect_context_visible: approvedEffectContextOk,
+      context_preview_excerpt: clean(contextText, 1600),
     },
     text_permission_probe: {
       turn_handled: textTurnHandled,
@@ -352,6 +451,8 @@ async function main() {
         kind: 'route_level_approval_pause_decision_effect_lifecycle_broken',
         turn_payload_status: clean(turnPayload.status, 120),
         decision_payload_status: clean(decisionPayload.type || decisionPayload.error, 240),
+        approved_effect_context_visible: approvedEffectContextOk,
+        duplicate_coalesced: duplicateCoalesced,
         sent_count: sent.length,
       });
     }

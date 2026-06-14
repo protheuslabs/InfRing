@@ -16,6 +16,8 @@ const OUT_JSON = path.join(ROOT, 'core/local/artifacts/agent_runtime_route_trans
 const SCRATCH_DIR = path.join(ROOT, 'core/local/artifacts/agent-runtime-route-transcript-persistence-scratch');
 const AGENT_ID = 'agent-runtime-route-transcript-persistence-agent';
 const SESSION_ID = 'agent-runtime-route-transcript-persistence-session';
+const SELECTION_AGENT_ID = 'agent-runtime-route-selection-agent';
+const SELECTION_SESSION_ID = 'agent-runtime-route-selection-session';
 const CONTINUITY_KEY = 'route-transcript-key: violet-raven-318';
 const ENGINES = ['infring_native', 'codex_cli', 'claude_code'];
 
@@ -31,6 +33,37 @@ function makeResponse() {
   return { statusCode: 0, payload: null };
 }
 
+function makeStreamResponse() {
+  return {
+    statusCode: 0,
+    headers: null,
+    chunks: [],
+    writableEnded: false,
+    destroyed: false,
+    writeHead(statusCode, headers) {
+      this.statusCode = statusCode;
+      this.headers = headers || {};
+    },
+    write(chunk) {
+      this.chunks.push(String(chunk || ''));
+    },
+    end() {
+      this.writableEnded = true;
+    },
+  };
+}
+
+function parseStreamFinal(res) {
+  const lines = String((res.chunks || []).join('')).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed && parsed.type === 'final') return parsed.payload || null;
+    } catch {}
+  }
+  return null;
+}
+
 function rowText(rows) {
   return (Array.isArray(rows) ? rows : [])
     .map((row) => clean(row && (row.text || row.content || row.content_preview || row.summary), 1200))
@@ -43,8 +76,8 @@ function rowsForEngine(rows, engineId) {
     .filter((row) => clean(row && row.agent_runtime_engine_id, 120) === engineId);
 }
 
-function contextStatePath() {
-  return path.join(ROOT, 'core/local/state/agent_runtime/context', `${SESSION_ID}.json`);
+function contextStatePath(sessionId = SESSION_ID) {
+  return path.join(ROOT, 'core/local/state/agent_runtime/context', `${sessionId}.json`);
 }
 
 function createDeterministicAdapter(engineId) {
@@ -160,6 +193,129 @@ async function submitTurn(assembly, engineId, index) {
   };
 }
 
+async function selectRuntime(assembly, fieldName, engineId) {
+  const res = makeResponse();
+  const traceId = `validation:agent-runtime-selection:${fieldName}:${Date.now()}`;
+  const handled = await assembly.handleAgentRuntimeEngineRoute({
+    req: {
+      method: 'POST',
+      __body: {
+        [fieldName]: engineId,
+      },
+    },
+    res,
+    pathname: '/api/agent-runtime/selection',
+    traceId,
+    flags: {},
+  });
+  return {
+    field_name: fieldName,
+    requested_engine_id: engineId,
+    handled,
+    status_code: res.statusCode,
+    engine_id: clean(res.payload && res.payload.engine_id, 120),
+    error: clean(res.payload && res.payload.error, 120),
+    ok: !!(handled && res.statusCode === 200 && res.payload && res.payload.ok === true && clean(res.payload.engine_id, 120) === engineId),
+  };
+}
+
+async function projectEngines(assembly) {
+  const res = makeResponse();
+  const traceId = `validation:agent-runtime-selection-engines:${Date.now()}`;
+  const handled = await assembly.handleAgentRuntimeEngineRoute({
+    req: { method: 'GET', __body: {} },
+    res,
+    pathname: '/api/agent-runtime/engines',
+    traceId,
+    flags: {},
+  });
+  const rows = res.payload && Array.isArray(res.payload.engines) ? res.payload.engines : [];
+  return {
+    handled,
+    status_code: res.statusCode,
+    active_engine_id: clean(res.payload && res.payload.active_engine_id, 120),
+    selected_default_engine_id: clean(res.payload && res.payload.selected_default_engine_id, 120),
+    selected_rows: rows.filter((row) => row && row.selected === true).map((row) => clean(row.engine_id, 120)),
+    ok: !!(
+      handled &&
+      res.statusCode === 200 &&
+      clean(res.payload && res.payload.active_engine_id, 120) === 'codex_cli' &&
+      rows.some((row) => row && row.selected === true && clean(row.engine_id, 120) === 'codex_cli')
+    ),
+  };
+}
+
+async function submitSelectionTurn(assembly, bodyPatch, expectedEngineId, label) {
+  const res = makeResponse();
+  const traceId = `validation:agent-runtime-selection-turn:${label}:${Date.now()}`;
+  const handled = await assembly.handleAgentRuntimeTurnRoute({
+    req: {
+      method: 'POST',
+      __body: {
+        agent_id: SELECTION_AGENT_ID,
+        session_id: SELECTION_SESSION_ID,
+        conversation_id: SELECTION_SESSION_ID,
+        turn_id: `route-selection-turn-${label}`,
+        message: `Ask selected runtime to preserve ${CONTINUITY_KEY}.`,
+        input_text: `Ask selected runtime to preserve ${CONTINUITY_KEY}.`,
+        working_directory: ROOT,
+        test_probe: true,
+        ...bodyPatch,
+      },
+    },
+    res,
+    pathname: '/api/agent-runtime/turn',
+    traceId,
+    flags: {},
+  });
+  const output = clean(res.payload && (res.payload.output_text || res.payload.output_preview || res.payload.display_text), 1200);
+  return {
+    label,
+    expected_engine_id: expectedEngineId,
+    handled,
+    status_code: res.statusCode,
+    status: clean(res.payload && res.payload.status, 120),
+    output_preview: output,
+    ok: !!(handled && res.statusCode === 200 && res.payload && res.payload.status === 'completed' && output.includes(`${expectedEngineId} persisted`)),
+  };
+}
+
+async function submitSelectionStreamTurn(assembly, bodyPatch, expectedEngineId, label) {
+  const res = makeStreamResponse();
+  const traceId = `validation:agent-runtime-selection-stream:${label}:${Date.now()}`;
+  const handled = await assembly.handleAgentRuntimeTurnRoute({
+    req: {
+      method: 'POST',
+      __body: {
+        agent_id: SELECTION_AGENT_ID,
+        session_id: SELECTION_SESSION_ID,
+        conversation_id: SELECTION_SESSION_ID,
+        turn_id: `route-selection-stream-${label}`,
+        message: `Ask selected stream runtime to preserve ${CONTINUITY_KEY}.`,
+        input_text: `Ask selected stream runtime to preserve ${CONTINUITY_KEY}.`,
+        working_directory: ROOT,
+        test_probe: true,
+        ...bodyPatch,
+      },
+    },
+    res,
+    pathname: '/api/agent-runtime/turn/stream',
+    traceId,
+    flags: {},
+  });
+  const finalPayload = parseStreamFinal(res);
+  const output = clean(finalPayload && (finalPayload.output_text || finalPayload.output_preview || finalPayload.display_text), 1200);
+  return {
+    label,
+    expected_engine_id: expectedEngineId,
+    handled,
+    status_code: res.statusCode,
+    status: clean(finalPayload && finalPayload.status, 120),
+    output_preview: output,
+    ok: !!(handled && res.statusCode === 200 && finalPayload && finalPayload.status === 'completed' && output.includes(`${expectedEngineId} persisted`)),
+  };
+}
+
 async function previewContext(assembly) {
   const res = makeResponse();
   const traceId = `validation:agent-runtime-route-transcript-preview:${Date.now()}`;
@@ -184,9 +340,35 @@ async function previewContext(assembly) {
   };
 }
 
+async function previewContextWithAlias(assembly) {
+  const res = makeResponse();
+  const traceId = `validation:agent-runtime-selection-preview:${Date.now()}`;
+  const handled = await assembly.handleAgentRuntimeTurnRoute({
+    req: {
+      method: 'POST',
+      __body: {
+        agent_id: SELECTION_AGENT_ID,
+        session_id: SELECTION_SESSION_ID,
+        active_runtime_engine_id: 'claude_code',
+      },
+    },
+    res,
+    pathname: '/api/agent-runtime/context-pack/preview',
+    traceId,
+    flags: {},
+  });
+  return {
+    handled,
+    status_code: res.statusCode,
+    engine_id: clean(res.payload && res.payload.engine_id, 120),
+    ok: !!(handled && res.statusCode === 200 && res.payload && res.payload.ok && clean(res.payload.engine_id, 120) === 'claude_code'),
+  };
+}
+
 async function main() {
   try { fs.rmSync(SCRATCH_DIR, { recursive: true, force: true }); } catch {}
   try { fs.rmSync(contextStatePath(), { force: true }); } catch {}
+  try { fs.rmSync(contextStatePath(SELECTION_SESSION_ID), { force: true }); } catch {}
 
   const { createGatewayAgentRuntimeRouteAssembly } = require(path.join(ROOT, 'gateway/runtime/agent_runtime/agent_runtime_route_assembly.ts'));
   const adapterFactories = {};
@@ -205,6 +387,13 @@ async function main() {
     fetchBackendJson: async () => ({}),
     createNativeOrchestrationClient: () => ({}),
   });
+
+  const selectionResult = await selectRuntime(assembly, 'selected_runtime_engine_id', 'codex_cli');
+  const engineProjection = await projectEngines(assembly);
+  const selectedDefaultTurn = await submitSelectionTurn(assembly, {}, 'codex_cli', 'persisted-selection-default');
+  const activeAliasTurn = await submitSelectionTurn(assembly, { active_runtime_engine_id: 'claude_code' }, 'claude_code', 'active-runtime-alias');
+  const selectedAliasStreamTurn = await submitSelectionStreamTurn(assembly, { selected_runtime_engine_id: 'codex_cli' }, 'codex_cli', 'selected-runtime-stream-alias');
+  const aliasContextPreview = await previewContextWithAlias(assembly);
 
   const turnResults = [];
   for (let index = 0; index < ENGINES.length; index += 1) {
@@ -234,6 +423,13 @@ async function main() {
   const mergedText = rowText(rows);
   const assistantRows = rows.filter((row) => clean(row && row.role, 40) === 'assistant');
   const violations = [];
+
+  if (!selectionResult.ok) violations.push({ kind: 'runtime_selection_alias_rejected', selection_result: selectionResult });
+  if (!engineProjection.ok) violations.push({ kind: 'runtime_engine_projection_selected_row_missing', engine_projection: engineProjection });
+  if (!selectedDefaultTurn.ok) violations.push({ kind: 'persisted_selection_not_used_for_turn_without_engine_id', turn_result: selectedDefaultTurn });
+  if (!activeAliasTurn.ok) violations.push({ kind: 'active_runtime_engine_alias_not_used_for_turn', turn_result: activeAliasTurn });
+  if (!selectedAliasStreamTurn.ok) violations.push({ kind: 'selected_runtime_engine_alias_not_used_for_stream_turn', turn_result: selectedAliasStreamTurn });
+  if (!aliasContextPreview.ok) violations.push({ kind: 'runtime_engine_alias_not_used_for_context_preview', preview: aliasContextPreview });
 
   if (!turnResults.every((row) => row.ok)) {
     violations.push({
@@ -312,6 +508,14 @@ async function main() {
       status: row.status,
       ok: row.ok,
     })),
+    selection_alias_coverage: {
+      selection_result: selectionResult,
+      engine_projection: engineProjection,
+      selected_default_turn: selectedDefaultTurn,
+      active_alias_turn: activeAliasTurn,
+      selected_alias_stream_turn: selectedAliasStreamTurn,
+      alias_context_preview: aliasContextPreview,
+    },
     transcript_overlay: merged && merged.agent_runtime_transcript_overlay ? merged.agent_runtime_transcript_overlay : null,
     transcript_row_count: rows.length,
     context_preview: {
@@ -335,6 +539,7 @@ async function main() {
   console.log(JSON.stringify(report, null, 2));
   try { fs.rmSync(SCRATCH_DIR, { recursive: true, force: true }); } catch {}
   try { fs.rmSync(contextStatePath(), { force: true }); } catch {}
+  try { fs.rmSync(contextStatePath(SELECTION_SESSION_ID), { force: true }); } catch {}
   if (!report.ok) process.exit(1);
 }
 
@@ -349,5 +554,6 @@ main().catch((error) => {
   console.error(JSON.stringify(report, null, 2));
   try { fs.rmSync(SCRATCH_DIR, { recursive: true, force: true }); } catch {}
   try { fs.rmSync(contextStatePath(), { force: true }); } catch {}
+  try { fs.rmSync(contextStatePath(SELECTION_SESSION_ID), { force: true }); } catch {}
   process.exit(1);
 });

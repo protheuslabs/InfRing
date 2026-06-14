@@ -9,6 +9,11 @@
 
 'use strict';
 
+const {
+  resolveAgentRuntimeEngineId,
+  withCanonicalAgentRuntimeEngineId,
+} = require('./agent_runtime_engine_identity.ts');
+
 function cleanText(value, maxLen = 240) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen);
 }
@@ -142,6 +147,9 @@ function createAgentRuntimeSocketHandler(options = {}) {
   const createNativeOrchestrationClient = typeof options.createNativeOrchestrationClient === 'function'
     ? options.createNativeOrchestrationClient
     : () => ({});
+  const loadAgentRuntimeSelection = typeof options.loadAgentRuntimeSelection === 'function'
+    ? options.loadAgentRuntimeSelection
+    : null;
 
   if (!engineProjectionStore || typeof engineProjectionStore.agentRuntimeEnginesProjection !== 'function') {
     throw new Error('agent_runtime_socket_engine_projection_store_missing');
@@ -193,7 +201,10 @@ function createAgentRuntimeSocketHandler(options = {}) {
 
   async function emitSessionStarted(message, emit, emitted) {
     const traceId = traceIdFor(message);
-    const engineId = cleanEngineId(message.engine_id || 'infring_native');
+    const engineId = resolveAgentRuntimeEngineId(message, {
+      loadSelection: loadAgentRuntimeSelection,
+      defaultEngineId: 'infring_native',
+    });
     const sessionId = cleanText(message.session_id, 200) || `agent-runtime-session-${Date.now().toString(36)}`;
     const selection = selectEngine(traceId, { engine_id: engineId });
     if (selection && selection.ok === false) return emitEvent(emit, socketError(message, selection.error || 'agent_runtime_engine_unavailable', 'Session start failed engine selection.'), emitted);
@@ -243,11 +254,15 @@ function createAgentRuntimeSocketHandler(options = {}) {
 
   async function emitTurnSubmit(message, emit, emitted, context) {
     const traceId = traceIdFor(message);
+    const canonicalMessage = withCanonicalAgentRuntimeEngineId(message, {
+      loadSelection: loadAgentRuntimeSelection,
+      defaultEngineId: 'infring_native',
+    });
     emitEvent(emit, {
       type: 'tool.started',
       trace_id: traceId,
       request_id: requestIdFor(message),
-      engine_id: cleanEngineId(message.engine_id || 'infring_native'),
+      engine_id: cleanEngineId(canonicalMessage.engine_id || 'infring_native'),
       session_id: cleanText(message.session_id, 200),
       turn_id: cleanText(message.turn_id, 200),
       tool_call_ref: `agent-runtime-turn/${cleanRef(traceId, 120)}/${cleanRef(message.turn_id || 'turn', 120)}`,
@@ -256,7 +271,7 @@ function createAgentRuntimeSocketHandler(options = {}) {
       display_text: 'Started agent runtime turn through Gateway socket.',
       source_authority: 'gateway.runtime.agent_runtime_socket_handler',
     }, emitted);
-    const payload = await turnProjectionStore.agentRuntimeTurnProjection(traceId, message, {
+    const payload = await turnProjectionStore.agentRuntimeTurnProjection(traceId, canonicalMessage, {
       nativeOrchestrationClient: createNativeOrchestrationClient((context && context.flags) || {}),
       onActivity: (event) => emitEvent(emit, socketActivityToolEvent(message, event, 'started'), emitted),
     });

@@ -4,9 +4,10 @@
  * Toggle via:
  *   document.documentElement.dataset.uiBackgroundTemplate = 'default-grid' | 'light-wood' | 'sand'
  *
- * default-grid preserves the original shell background. light-wood and sand
- * use remote image templates and suppress the grid overlay.
+ * default-grid preserves the standard shell light/dark background. light-wood
+ * and sand use remote image templates and suppress the grid overlay.
  */
+:root,
 :root[data-ui-background-template='default-grid'] {
   --ui-background-template-color: var(--bg);
   --ui-background-template-dim-layer: none;
@@ -24,7 +25,13 @@
   --ui-background-template-grid-dark-opacity: calc(var(--chat-grid-active, 0) * 0.78);
 }
 
-:root,
+:root:not([data-ui-background-template]) body,
+:root[data-ui-background-template='default-grid'] body {
+  --ui-background-template-color: var(--bg);
+  --ui-background-template-dim-layer: none;
+  --ui-background-template-image: none;
+}
+
 :root[data-ui-background-template='light-wood'] {
   --ui-background-template-color: var(--bg);
   --ui-background-template-dim-layer: none;

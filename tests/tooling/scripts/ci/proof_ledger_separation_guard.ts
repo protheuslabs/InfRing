@@ -101,7 +101,34 @@ includesAll(violations, 'tests/tooling/scripts/ci/agent_runtime_proof_summary_gu
   "accounting.classification !== 'substrate_platform_proof'",
   'not_native_intelligence_proof',
   'does not prove native',
+  'validateSecondaryPromotionPlan',
+  'secondary_promotion_plan_native_proof_overclaim',
 ], 'proof_summary_guard_boundary_missing');
+
+includesAll(violations, 'tests/tooling/scripts/ci/agent_runtime_secondary_promotion_plan_guard.ts', [
+  'counts_as_native_intelligence_proof',
+  'counts_as_golden_pair_equivalent',
+  'daily_driver_eligible_now',
+  'Secondary readiness only identifies the next safe step. It does not promote a runtime.',
+], 'secondary_promotion_plan_guard_boundary_missing');
+
+const graduationContract = exists('validation/conformance/contracts/agent_runtime_graduation_baseline_contract.json')
+  ? json('validation/conformance/contracts/agent_runtime_graduation_baseline_contract.json')
+  : {};
+const secondaryPromotionPlan = graduationContract.secondary_promotion_plan_artifact || {};
+const secondaryPromotionEffect = secondaryPromotionPlan.promotion_effect || {};
+if (secondaryPromotionEffect.changes_daily_driver_eligibility !== false) {
+  push(violations, 'secondary_promotion_plan_daily_driver_boundary_missing', 'validation/conformance/contracts/agent_runtime_graduation_baseline_contract.json', 'changes_daily_driver_eligibility must be false');
+}
+if (secondaryPromotionEffect.counts_as_golden_pair_equivalent !== false) {
+  push(violations, 'secondary_promotion_plan_golden_pair_boundary_missing', 'validation/conformance/contracts/agent_runtime_graduation_baseline_contract.json', 'counts_as_golden_pair_equivalent must be false');
+}
+if (secondaryPromotionEffect.counts_as_native_intelligence_proof !== false) {
+  push(violations, 'secondary_promotion_plan_native_boundary_missing', 'validation/conformance/contracts/agent_runtime_graduation_baseline_contract.json', 'counts_as_native_intelligence_proof must be false');
+}
+if (!String(secondaryPromotionPlan.rule || '').includes('before operators spend live usage')) {
+  push(violations, 'secondary_promotion_plan_operator_boundary_missing', 'validation/conformance/contracts/agent_runtime_graduation_baseline_contract.json', secondaryPromotionPlan.rule);
+}
 
 includesAll(violations, 'docs/workspace/native_coding_useful_work_eval_v1.md', [
   'Infring-native',

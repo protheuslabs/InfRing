@@ -320,7 +320,7 @@
       : engineRow && engineRow.model_menu && typeof engineRow.model_menu === 'object'
       ? engineRow.model_menu
       : null;
-    if (!menu || menu.show_in_llm_menu === false) return list;
+    if (!menu || menu.show_in_llm_menu === false) return [];
     var sanitize = typeof this.sanitizeModelCatalogRows === 'function'
       ? this.sanitizeModelCatalogRows.bind(this)
       : function(value) { return Array.isArray(value) ? value : []; };

@@ -380,6 +380,11 @@
   border-right-color: var(--overlay-surface-bottom-rim-color) !important;
 }
 
+.message.user .message-bubble {
+  border-width: 1px !important;
+  border-color: var(--message-bubble-border-color) !important;
+}
+
 .chat-scroll-down {
   position: absolute;
   right: 10px;

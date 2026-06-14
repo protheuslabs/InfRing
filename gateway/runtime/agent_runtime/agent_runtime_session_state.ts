@@ -10,6 +10,9 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const {
+  resolveAgentRuntimeEngineId,
+} = require('./agent_runtime_engine_identity.ts');
 
 const DEFAULT_STEERING_MAX_RECORDS = 240;
 
@@ -22,6 +25,7 @@ function stripTerminalControls(value) {
 }
 function cleanDisplayText(value, maxLen = 24000) { return stripTerminalControls(value).replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim().slice(0, maxLen); }
 function cleanEngineId(value) { return cleanText(value, 120).toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, ''); }
+function cleanReceiptComponent(value, maxLen = 200) { return cleanText(value, maxLen).replace(/[^A-Za-z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown'; }
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -100,7 +104,7 @@ function createAgentRuntimeSessionStateStore(options = {}) {
   }
 
   function queueAgentRuntimeSteeringIntervention(traceId, body) {
-    const engineId = cleanEngineId(body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id)) || 'infring_native';
+    const engineId = resolveAgentRuntimeEngineId(body, { loadSelection: loadAgentRuntimeSelection, defaultEngineId: 'infring_native' });
     const agentId = cleanText(body && body.agent_id, 160) || 'default';
     const sessionId = cleanText(body && body.session_id, 200) || `shell_${agentId}`;
     const text = cleanDisplayText(body && (body.text || body.message || body.content), 12000);
@@ -125,6 +129,30 @@ function createAgentRuntimeSessionStateStore(options = {}) {
         : [],
     };
     appendBoundedJsonl(steeringPath, record, steeringMaxRecords);
+    const steeringActivityRow = {
+      type: 'agent_activity_event',
+      activity_kind: 'user_steer',
+      provider_event_type: 'steering.user_message',
+      source: 'gateway_runtime_steering',
+      sequence_no: 1,
+      item_id: cleanReceiptComponent(record.steering_id, 200),
+      status: record.status,
+      text: record.text_preview ? `User steered: ${record.text_preview}` : 'User steered this turn.',
+      display_text: record.text_preview ? `User steered: ${record.text_preview}` : 'User steered this turn.',
+      display_in_thinking_bubble: true,
+      role: 'user',
+      timeline_role: 'user_steer',
+      steering_id: record.steering_id,
+      user_text: record.text,
+      user_text_preview: record.text_preview,
+      created_at: record.created_at,
+      source_authority: record.source_authority,
+      engine_id: engineId,
+      trace_id: cleanText(traceId, 200),
+      session_id: sessionId,
+      agent_id: agentId,
+      line_kind: 'dialog',
+    };
     return {
       ok: true,
       status_code: 200,
@@ -139,11 +167,12 @@ function createAgentRuntimeSessionStateStore(options = {}) {
       live_injected: false,
       applies_to: 'next_turn',
       display_text: 'Steering recorded for the next runtime turn.',
+      steering_activity_row: steeringActivityRow,
     };
   }
 
   function agentRuntimeSteerProjection(traceId, body) {
-    const engineId = cleanEngineId(body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id)) || 'infring_native';
+    const engineId = resolveAgentRuntimeEngineId(body, { loadSelection: loadAgentRuntimeSelection, defaultEngineId: 'infring_native' });
     if (loadRegistry && findEngine) {
       const registry = loadRegistry();
       const engine = findEngine(registry, engineId);

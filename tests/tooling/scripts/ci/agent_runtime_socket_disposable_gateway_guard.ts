@@ -70,14 +70,14 @@ async function freePort() {
   });
 }
 
-function waitForHealth(port) {
+function waitForDashboardRoute(port) {
   const deadline = Date.now() + START_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     const attempt = () => {
-      const req = http.request({ host: HOST, port, path: '/healthz', method: 'GET', timeout: 1000 }, (res) => {
+      const req = http.request({ host: HOST, port, path: '/dashboard', method: 'GET', timeout: 1000 }, (res) => {
         res.resume();
-        if (res.statusCode >= 200 && res.statusCode < 500) {
-          resolve({ status_code: res.statusCode });
+        if (res.statusCode >= 200 && res.statusCode < 400) {
+          resolve({ route: '/dashboard', status_code: res.statusCode });
           return;
         }
         retry();
@@ -90,7 +90,7 @@ function waitForHealth(port) {
     };
     const retry = () => {
       if (Date.now() > deadline) {
-        reject(new Error(`disposable_gateway_health_timeout:${port}`));
+        reject(new Error(`disposable_gateway_dashboard_route_timeout:${port}`));
         return;
       }
       setTimeout(attempt, 250);
@@ -173,12 +173,12 @@ async function main() {
   child.stdout.on('data', (chunk) => { hostStdout += String(chunk || ''); });
   child.stderr.on('data', (chunk) => { hostStderr += String(chunk || ''); });
   const startedAt = Date.now();
-  let health = null;
+  let readiness = null;
   let liveGuard = null;
   let restoredStatus = false;
   let cleanupError = null;
   try {
-    health = await waitForHealth(port);
+    readiness = await waitForDashboardRoute(port);
     liveGuard = await runLiveGuard(port);
   } catch (error) {
     liveGuard = liveGuard || { ok: false, error: clean(error && error.stack ? error.stack : error, 6000) };
@@ -187,7 +187,7 @@ async function main() {
     try { restoredStatus = restoreStatusFile(statusSnapshot); } catch (error) { cleanupError = clean(error && error.stack ? error.stack : error, 1000); }
   }
   const violations = [];
-  if (!health) violations.push({ kind: 'disposable_gateway_health_missing' });
+  if (!readiness) violations.push({ kind: 'disposable_gateway_readiness_missing' });
   if (!liveGuard || liveGuard.ok !== true) violations.push({ kind: 'live_socket_guard_failed' });
   if (!restoredStatus) violations.push({ kind: 'dashboard_status_restore_failed' });
   if (cleanupError) violations.push({ kind: 'cleanup_error', error: cleanupError });
@@ -199,7 +199,7 @@ async function main() {
     canonical_socket_route: '/ws/agent-runtime',
     target: { host: HOST, port, source: 'disposable_gateway_host' },
     duration_ms: Date.now() - startedAt,
-    health,
+    readiness,
     live_guard: liveGuard && liveGuard.parsed ? {
       ok: liveGuard.parsed.ok,
       event_types: liveGuard.parsed.event_types || [],

@@ -696,7 +696,8 @@ function bindCliRuntimeAbortSignal(child, signal) {
 }
 
 function spawnCapture(command, args, options = {}) {
-  const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, 300000));
+  const maxTimeoutMs = Math.max(300000, Math.min(Number(options.maxTimeoutMs) || 300000, 3600000));
+  const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, maxTimeoutMs));
   const maxOutputBytes = Math.max(1024, Math.min(Number(options.maxOutputBytes) || 24000, 2097152));
   return new Promise((resolve) => {
     const child = childProcess.spawn(command, Array.isArray(args) ? args : [], {
@@ -748,7 +749,8 @@ function spawnCapture(command, args, options = {}) {
 }
 
 function spawnActivityCapture(command, args, options = {}) {
-  const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, 300000));
+  const maxTimeoutMs = Math.max(300000, Math.min(Number(options.maxTimeoutMs) || 300000, 3600000));
+  const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || 15000, maxTimeoutMs));
   const maxOutputBytes = Math.max(1024, Math.min(Number(options.maxOutputBytes) || 24000, 65536));
   const ctx = options.ctx || null;
   const engineId = cleanString(options.engineId || 'external_cli', 120);
@@ -770,6 +772,7 @@ function spawnActivityCapture(command, args, options = {}) {
     let activityIndex = 0;
     let pendingAgentMessage = null;
     let settled = false;
+    const progressPulseMs = Math.max(15000, Math.min(Math.floor(timeoutMs / 3), 60000));
     const append = (current, chunk) => {
       const next = Buffer.concat([current, Buffer.from(chunk || '')]);
       return next.length > maxOutputBytes ? next.subarray(next.length - maxOutputBytes) : next;
@@ -778,6 +781,25 @@ function spawnActivityCapture(command, args, options = {}) {
       if (!onActivity || !event) return;
       try { onActivity(event); } catch {}
     };
+    const progressPulseTimer = setInterval(() => {
+      if (settled) return;
+      emitActivityEvent({
+        ...baseEvent(ctx, 'runtime_progress', engineId),
+        type: 'agent_activity_event',
+        activity_kind: 'runtime_progress',
+        provider_event_type: 'external_cli.process_alive',
+        source: 'external_cli_process_lifecycle',
+        sequence_no: activityIndex + 1,
+        item_id: 'external-cli-process-alive',
+        status: 'running',
+        display_text: '',
+        text: '',
+        display_in_thinking_bubble: false,
+        persist_in_activity_trace: false,
+        progress_only: true,
+      });
+    }, progressPulseMs);
+    if (progressPulseTimer && typeof progressPulseTimer.unref === 'function') progressPulseTimer.unref();
     const emitParsedActivity = (parsed, index) => {
       const semantic = semanticCliActivityEvents([parsed], ctx, engineId)[0] || null;
       const normalized = semantic || normalizeCliActivityEvent(parsed, index, ctx, engineId);
@@ -839,6 +861,7 @@ function spawnActivityCapture(command, args, options = {}) {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      clearInterval(progressPulseTimer);
       stopCliRuntimeChild(child);
       drainStdoutLines('', true);
       resolve({ ok: false, timed_out: true, exit_code: null, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8') });
@@ -852,6 +875,7 @@ function spawnActivityCapture(command, args, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearInterval(progressPulseTimer);
       drainStdoutLines('', true);
       resolve({ ok: false, timed_out: false, exit_code: null, stdout: '', stderr: cleanString(err && err.message, 2000) });
     });
@@ -863,6 +887,7 @@ function spawnActivityCapture(command, args, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearInterval(progressPulseTimer);
       drainStdoutLines('', true);
       resolve({ ok: code === 0, timed_out: false, exit_code: code, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8') });
     });
@@ -1042,7 +1067,25 @@ function renderApprovalResumePromptSection(approvalResume) {
   const toolId = cleanString(row.approved_tool_id || row.tool_id, 120);
   const decision = cleanString(row.approval_decision, 80);
   const receiptRef = cleanString(row.decision_receipt_ref, 240);
-  if (!approvalId && !resumeToken && !toolId && !decision && !receiptRef) return '';
+  const effectExecuted = row.approved_effect_executed === true;
+  const effectPath = cleanString(row.approved_effect_path, 600);
+  const effectArtifactRef = cleanString(row.approved_effect_artifact_ref, 600);
+  const effectResultRef = cleanString(row.approved_effect_result_ref, 600);
+  const effectReceiptRef = cleanString(row.approved_effect_receipt_ref, 600);
+  const effectDisplayText = cleanDisplayString(row.approved_effect_display_text, 1000);
+  if (
+    !approvalId &&
+    !resumeToken &&
+    !toolId &&
+    !decision &&
+    !receiptRef &&
+    !effectExecuted &&
+    !effectPath &&
+    !effectArtifactRef &&
+    !effectResultRef &&
+    !effectReceiptRef &&
+    !effectDisplayText
+  ) return '';
   const lines = [
     'Approval resume:',
     '- policy: This turn is resuming after a Gateway approval decision. Treat the approval as scoped permission for the named tool only; do not claim durable effects unless an execution receipt or result is present.',
@@ -1052,6 +1095,12 @@ function renderApprovalResumePromptSection(approvalResume) {
   if (approvalId) lines.push(`- approval_id: ${approvalId}`);
   if (resumeToken) lines.push(`- resume_token: ${resumeToken}`);
   if (receiptRef) lines.push(`- decision_receipt_ref: ${receiptRef}`);
+  if (effectExecuted) lines.push('- approved_effect_executed: true');
+  if (effectDisplayText) lines.push(`- approved_effect: ${effectDisplayText}`);
+  if (effectPath) lines.push(`- approved_effect_path: ${effectPath}`);
+  if (effectArtifactRef) lines.push(`- approved_effect_artifact_ref: ${effectArtifactRef}`);
+  if (effectResultRef) lines.push(`- approved_effect_result_ref: ${effectResultRef}`);
+  if (effectReceiptRef) lines.push(`- approved_effect_receipt_ref: ${effectReceiptRef}`);
   return lines.join('\n');
 }
 
@@ -1130,13 +1179,18 @@ function resolveTurnTimeoutMs(ctx, fallbackTimeoutMs) {
   const budget = message.capability_budget && typeof message.capability_budget === 'object'
     ? message.capability_budget
     : {};
-  const budgetSeconds = Number(budget.max_turn_seconds || 0);
+  const budgetSeconds = Number(
+    budget.max_absolute_turn_seconds ||
+    message.max_absolute_turn_seconds ||
+    budget.max_turn_seconds ||
+    0
+  );
   const budgetTimeoutMs = Number.isFinite(budgetSeconds) && budgetSeconds > 0
     ? budgetSeconds * 1000
     : 0;
   const fallback = Number(fallbackTimeoutMs || 0);
   const selected = budgetTimeoutMs || (Number.isFinite(fallback) && fallback > 0 ? fallback : 60000);
-  return Math.max(1000, Math.min(selected, 300000));
+  return Math.max(1000, Math.min(selected, 3600000));
 }
 
 function cliRuntimeFailureText(engineId, run, timeoutMs) {
@@ -2055,6 +2109,20 @@ function deniedArtifactProposalArguments(text, ctx) {
   };
 }
 
+function permissionReasonFromDeniedText(rawText, toolId, proposalArguments) {
+  const args = proposalArguments && typeof proposalArguments === 'object' ? proposalArguments : {};
+  const targetPath = cleanString(args.path || args.file || args.filename || '', 400);
+  if (toolId === 'artifact.create_propose' && targetPath) {
+    return `External runtime requested approval to create or update ${targetPath}.`;
+  }
+  const text = cleanDisplayString(rawText, 1000);
+  if (!text) return 'External runtime requested permission to continue.';
+  if (/^[{[]/.test(text) || /\"type\"\\s*:|\"tool_use\"\\s*:|\"message\"\\s*:/.test(text)) {
+    return 'External runtime requested permission to continue.';
+  }
+  return text;
+}
+
 function buildPermissionRequestFromDenials(denials, ctx, defaultEngineId) {
   if (!Array.isArray(denials) || !denials.length) return null;
   const rawText = cleanDisplayString(denials[0], 12000);
@@ -2062,6 +2130,7 @@ function buildPermissionRequestFromDenials(denials, ctx, defaultEngineId) {
   const deniedArtifactArguments = deniedArtifactProposalArguments(rawText, ctx);
   const toolId = inferPermissionToolId(text);
   const proposalArguments = toolId === 'artifact.create_propose' ? deniedArtifactArguments : {};
+  const reason = permissionReasonFromDeniedText(rawText, toolId, proposalArguments);
   const base = baseEvent(ctx, 'permission.requested', defaultEngineId);
   const turnId = base.turn_id || base.request_id || 'turn';
   const approvalId = cleanString(`approval_${toolId}_${base.trace_id || 'trace'}_${turnId}`, 260)
@@ -2083,12 +2152,12 @@ function buildPermissionRequestFromDenials(denials, ctx, defaultEngineId) {
       : toolId === 'memory.write_propose'
         ? 'propose_memory_write'
         : 'request_permission',
-    reason: cleanDisplayString(text || 'External runtime requested permission to continue.', 1000),
+    reason,
     argument_keys: Object.keys(proposalArguments || {}).map((key) => cleanString(key, 80)).filter(Boolean).slice(0, 24),
     proposal_arguments: proposalArguments,
     status: 'paused_pending_approval',
     turn_status: 'permission_required',
-    pause_reason: cleanDisplayString(text || 'External runtime requested permission to continue.', 1000),
+    pause_reason: reason,
     resume_strategy: Object.keys(proposalArguments || {}).length
       ? 'gateway_apply_approved_effect'
       : 'grant_then_retry_next_turn',
@@ -2178,13 +2247,37 @@ function buildPermissionRequestFromProposals(proposals, ctx, defaultEngineId) {
 }
 
 const DIRECT_NATIVE_MUTATION_GRANTS = new Set(['direct_file_write', 'native.direct_file_write', 'filesystem.direct_write']);
+const RESUME_NATIVE_MUTATION_TOOLS = new Set([
+  'permission.request',
+  'artifact.create_propose',
+  'artifact.update_propose',
+  'artifact.write_propose',
+  'filesystem.write_propose',
+  'direct_file_write',
+  'native.direct_file_write',
+  'filesystem.direct_write',
+]);
 const SHADOW_EXCLUDED_DIRS = new Set(['.git', 'node_modules', 'target', 'dist', 'build', '.next', '.svelte-kit', 'coverage', '.cache']);
 
 function nativeDirectMutationGrantActive(ctx) {
-  const grants = ctx && ctx.message && ctx.message.context_pack && ctx.message.context_pack.universal_tool_grants;
+  const pack = ctx && ctx.message && ctx.message.context_pack && typeof ctx.message.context_pack === 'object'
+    ? ctx.message.context_pack
+    : {};
+  const grants = pack && pack.universal_tool_grants;
   const policy = grants && grants.permission_policy && typeof grants.permission_policy === 'object' ? grants.permission_policy : {};
   const always = Array.isArray(policy.always_allowed_tool_calls) ? policy.always_allowed_tool_calls : [];
-  return always.some((toolId) => DIRECT_NATIVE_MUTATION_GRANTS.has(String(toolId || '').trim()));
+  if (always.some((toolId) => DIRECT_NATIVE_MUTATION_GRANTS.has(String(toolId || '').trim()))) return true;
+  const resume = pack && pack.approval_resume && typeof pack.approval_resume === 'object'
+    ? pack.approval_resume
+    : null;
+  if (!resume) return false;
+  const decision = cleanString(resume.approval_decision, 80);
+  if (decision !== 'allow_once' && decision !== 'always_allow_tool_call') return false;
+  const approvalId = cleanString(resume.approval_id, 160);
+  const resumeToken = cleanString(resume.resume_token, 160);
+  if (!approvalId && !resumeToken) return false;
+  const approvedToolId = cleanString(resume.approved_tool_id || resume.tool_id, 120);
+  return RESUME_NATIVE_MUTATION_TOOLS.has(approvedToolId);
 }
 
 function safeRelativePath(value) {
@@ -2486,6 +2579,7 @@ function semanticProviderStatus(row) {
   if (eventType.includes('started') || eventType.includes('running') || eventType.includes('progress')) return 'running';
   if (eventType.includes('completed') || eventType.includes('finished') || eventType.includes('done')) return 'completed';
   if (eventType.includes('failed') || eventType.includes('error')) return 'failed';
+  if (eventType.includes('result')) return 'completed';
   const status = firstSemanticString(row, ['status', 'state', 'phase', 'outcome'], 0).toLowerCase();
   if (status.includes('fail') || status.includes('error')) return 'failed';
   if (status.includes('complete') || status.includes('done') || status.includes('success')) return 'completed';
@@ -2527,6 +2621,11 @@ function semanticProviderTool(row) {
   ], 0);
 }
 
+function isSemanticReadToolName(tool) {
+  const normalized = cleanString(tool || '', 120).toLowerCase();
+  return normalized === 'read' || normalized === 'ls' || normalized === 'glob' || normalized === 'grep';
+}
+
 function semanticProviderQuery(row) {
   return firstSemanticString(row, [
     'query',
@@ -2539,7 +2638,9 @@ function semanticProviderQuery(row) {
 
 function semanticActivityKindFromRow(row) {
   const type = semanticProviderEventType(row).toLowerCase();
+  const tool = semanticProviderTool(row);
   if (type.includes('reasoning') || type.includes('thought') || type.includes('plan')) return 'decision_dialog';
+  if (isSemanticReadToolName(tool)) return 'file_read';
   if (type.includes('command') || type.includes('bash') || type.includes('shell') || type.includes('exec')) return 'command';
   if (type.includes('file') || type.includes('edit') || type.includes('patch') || type.includes('write')) return 'file_change';
   if (type.includes('search') || type.includes('grep') || type.includes('find')) return 'search';
@@ -2558,33 +2659,36 @@ function semanticActivityTextFromRow(row, defaultEngineId) {
     if (dialog && !dialog.startsWith('{')) return dialog;
   }
   const status = semanticProviderStatus(row);
-  const statusPrefix = status === 'completed' ? 'Completed' : status === 'failed' ? 'Failed' : 'Working on';
+  const done = status === 'completed';
+  const failed = status === 'failed';
   const command = semanticProviderCommand(row);
+  const tool = semanticProviderTool(row);
+  const readTool = isSemanticReadToolName(tool);
   if (command || type.includes('command') || type.includes('bash') || type.includes('shell') || type.includes('exec')) {
-    return command
-      ? `${statusPrefix} command: ${command}`
-      : `${statusPrefix} a shell command.`;
+    const target = command || 'shell command';
+    return failed ? `failed running ${target}` : done ? `ran ${target}` : `running ${target}`;
   }
   const query = semanticProviderQuery(row);
   if (query || type.includes('search') || type.includes('grep') || type.includes('find')) {
-    return query
-      ? `${statusPrefix} search: ${query}`
-      : `${statusPrefix} a workspace search.`;
+    const target = query || 'workspace search';
+    return failed ? `failed searching ${target}` : done ? `searched ${target}` : `searching ${target}`;
   }
   const target = semanticProviderTarget(row);
   if (target || type.includes('file') || type.includes('edit') || type.includes('patch') || type.includes('write')) {
-    if (type.includes('read') || type.includes('open')) {
-      return target ? `Reading file: ${target}` : 'Reading a file.';
+    if (readTool || type.includes('read') || type.includes('open')) {
+      const readTarget = target || 'file';
+      return failed ? `failed reading ${readTarget}` : done ? `read ${readTarget}` : `reading ${readTarget}`;
     }
-    return target
-      ? `${statusPrefix} file change: ${target}`
-      : `${statusPrefix} a file change.`;
+    const writeTarget = target || 'file';
+    return failed ? `failed writing ${writeTarget}` : done ? `wrote ${writeTarget}` : `writing ${writeTarget}`;
   }
-  const tool = semanticProviderTool(row);
   if (tool || type.includes('tool')) {
-    return tool
-      ? `${statusPrefix} tool: ${tool}`
-      : `${statusPrefix} a tool call.`;
+    if (readTool) {
+      const readTarget = target || tool || 'file';
+      return failed ? `failed reading ${readTarget}` : done ? `read ${readTarget}` : `reading ${readTarget}`;
+    }
+    const toolTarget = tool || 'tool call';
+    return failed ? `failed running ${toolTarget}` : done ? `ran ${toolTarget}` : `running ${toolTarget}`;
   }
   if (type.includes('complete') || type.includes('result')) {
     return `${cleanString(defaultEngineId || 'agent_runtime', 80)} completed the turn; final answer is shown in the message.`;
@@ -2753,6 +2857,67 @@ function createCliRuntimeEngineAdapter(options = {}) {
     }
     const discovery = discover(ctx);
     const command = cleanString(discovery.command || selectedCommand || options.commandFallback || engineId, 500);
+    const turnTimeoutMs = resolveTurnTimeoutMs(ctx, timeoutMs);
+    const messageBudget = ctx && ctx.message && ctx.message.capability_budget && typeof ctx.message.capability_budget === 'object'
+      ? ctx.message.capability_budget
+      : {};
+    const absoluteBudgetSeconds = Number(
+      messageBudget.max_absolute_turn_seconds ||
+      (ctx && ctx.message && ctx.message.max_absolute_turn_seconds) ||
+      0
+    );
+    const absoluteTurnTimeoutMs = Math.max(turnTimeoutMs, Math.min(
+      Number.isFinite(absoluteBudgetSeconds) && absoluteBudgetSeconds > 0
+        ? absoluteBudgetSeconds * 1000
+        : turnTimeoutMs,
+      3600000,
+    ));
+    const requestedCwd = options.cwd || (ctx && ctx.message && (
+      ctx.message.working_directory ||
+      ctx.message.current_working_directory ||
+      ctx.message.present_working_directory ||
+      ctx.message.cwd ||
+      ctx.message.workspace_dir
+    )) || process.cwd();
+    if (nativeTransportEnabled && typeof options.runNativeStructuredTurn === 'function') {
+      const nativeResult = await options.runNativeStructuredTurn(ctx, {
+        command,
+        prompt,
+        cwd: requestedCwd,
+        timeoutMs: turnTimeoutMs,
+        nativeTransport: nativeTransportProjection(),
+      });
+      const status = cleanString(nativeResult && nativeResult.status, 120) || 'completed';
+      const outputText = cleanDisplayString(
+        nativeResult && (nativeResult.output_text || nativeResult.output || nativeResult.text || nativeResult.reason),
+        24000,
+      );
+      const reason = cleanDisplayString(nativeResult && nativeResult.reason, 4000);
+      return {
+        ...baseEvent(ctx, 'turn.complete', engineId),
+        status,
+        error_code: cleanString(nativeResult && nativeResult.error_code, 240),
+        reason,
+        retryable: nativeResult && nativeResult.retryable === true,
+        result_ref: stableRef(`artifact/${engineId}/result`, ctx, engineId),
+        receipt_ref: stableRef(`receipt/${engineId}/turn`, ctx, engineId),
+        output_text: outputText || reason,
+        output_preview: cleanString(outputText || reason, 4000),
+        activity_events: Array.isArray(nativeResult && nativeResult.activity_events) ? nativeResult.activity_events.slice(-80) : [],
+        activity_event_count: Array.isArray(nativeResult && nativeResult.activity_events) ? nativeResult.activity_events.length : 0,
+        structured_activity: true,
+        permission_request: nativeResult && nativeResult.permission_request,
+        exit_code: nativeResult && nativeResult.exit_code,
+        timed_out: nativeResult && nativeResult.timed_out === true,
+        timeout_ms: turnTimeoutMs,
+        stderr_preview: cleanString(nativeResult && nativeResult.stderr_preview, 2000),
+        native_transport: {
+          ...nativeTransportProjection(),
+          mapping_status: cleanString(nativeResult && nativeResult.native_transport_mapping_status, 160) ||
+            nativeTransportProjection().mapping_status,
+        },
+      };
+    }
     if (nativeTransportEnabled && typeof options.runNativeStructuredTurn !== 'function') {
       const reason = `${engineId} native transport is enabled by ${nativeTransportEnvVar}, but the adapter mapping is not implemented yet. Disable the flag or finish the native transport mapper before retrying.`;
       return {
@@ -2767,14 +2932,6 @@ function createCliRuntimeEngineAdapter(options = {}) {
       };
     }
     const runner = typeof ctx.onActivity === 'function' ? spawnActivityCapture : spawnCapture;
-    const turnTimeoutMs = resolveTurnTimeoutMs(ctx, timeoutMs);
-    const requestedCwd = options.cwd || (ctx && ctx.message && (
-      ctx.message.working_directory ||
-      ctx.message.current_working_directory ||
-      ctx.message.present_working_directory ||
-      ctx.message.cwd ||
-      ctx.message.workspace_dir
-    )) || process.cwd();
     const stableShadowWorkspaceKey = typeof options.stableShadowWorkspaceKey === 'function'
       ? cleanString(options.stableShadowWorkspaceKey(ctx, requestedCwd), 500)
       : cleanString(options.stableShadowWorkspaceKey || '', 500);
@@ -2828,6 +2985,7 @@ function createCliRuntimeEngineAdapter(options = {}) {
       }
       run = await runner(command, runArgs(prompt, cliRunCtx), {
         timeoutMs: turnTimeoutMs,
+        maxTimeoutMs: absoluteTurnTimeoutMs,
         maxOutputBytes: 64000,
         cwd: shadow && shadow.active ? shadow.cwd : requestedCwd,
         stdin: runStdin(prompt, cliRunCtx),

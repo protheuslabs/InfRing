@@ -14,6 +14,7 @@ const {
   nativeDirectMutationGrantActive,
   selectedRuntimeModelArg,
 } = require('./cli_runtime_adapter.ts');
+const { runCodexAppServerStructuredTurn } = require('./codex_app_server_transport.ts');
 
 function codexSandboxMode(ctx) {
   return nativeDirectMutationGrantActive(ctx) ? 'workspace-write' : 'read-only';
@@ -29,9 +30,10 @@ function createCodexCliEngineAdapter(options = {}) {
       available: true,
       mode: 'codex_app_server_json_rpc',
       envVar: 'INFRING_AGENT_RUNTIME_CODEX_NATIVE_TRANSPORT',
-      mappingStatus: 'live_acceptance_proven_adapter_mapping_pending',
+      mappingStatus: 'native_transport_adapter_path_available_disabled_by_default',
       evidenceRef: 'core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json',
     },
+    runNativeStructuredTurn: runCodexAppServerStructuredTurn,
     command: options.command || process.env.INFRING_CODEX_CLI_BIN || process.env.INFRING_CODEX_CLI_PATH,
     commandFallback: 'codex',
     liveEnvVar: 'INFRING_AGENT_RUNTIME_CODEX_LIVE',

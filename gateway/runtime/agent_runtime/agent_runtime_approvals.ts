@@ -49,8 +49,34 @@ function approvalResumeToken(source) {
   return cleanApprovalId(`resume_${digest}`);
 }
 
+function pendingThreadKey(row) {
+  const source = row && typeof row === 'object' ? row : {};
+  const sessionId = cleanText(source.session_id, 200);
+  if (sessionId) return `session:${sessionId}`;
+  const agentId = cleanText(source.agent_id, 160);
+  if (agentId) return `agent:${agentId}`;
+  const traceId = cleanText(source.trace_id, 200);
+  if (traceId) return `trace:${traceId}`;
+  return '';
+}
+
+function pendingProposalKey(row) {
+  const source = row && typeof row === 'object' ? row : {};
+  return stableDigest({
+    thread: pendingThreadKey(source),
+    tool_id: cleanText(source.tool_id, 120),
+    working_directory: cleanWorkingDirectory(source.working_directory),
+    proposal_arguments: source.proposal_arguments && typeof source.proposal_arguments === 'object'
+      ? source.proposal_arguments
+      : {},
+  });
+}
+
 function createAgentRuntimeApprovalStore(options = {}) {
   const root = path.resolve(options.root || process.cwd());
+  const appendApprovedEffectContext = typeof options.appendApprovedEffectContext === 'function'
+    ? options.appendApprovedEffectContext
+    : null;
   const decisionsPath = path.resolve(
     options.decisionsPath ||
       path.join(root, 'local', 'state', 'observability', 'agent_runtime', 'agent_runtime_approval_decisions.jsonl'),
@@ -95,8 +121,11 @@ function createAgentRuntimeApprovalStore(options = {}) {
     return out;
   }
 
-  function resolveAgentRuntimeArtifactPath(rawPath, workingDirectory) {
-    const baseDir = cleanWorkingDirectory(workingDirectory) || root;
+function resolveAgentRuntimeArtifactPath(rawPath, workingDirectory) {
+    let baseDir = cleanWorkingDirectory(workingDirectory) || root;
+    if (baseDir === path.resolve('/workspace') && !fs.existsSync(baseDir)) {
+      baseDir = root;
+    }
     const value = String(rawPath == null ? '' : rawPath).replace(/\\/g, '/').trim();
     if (!value) throw new Error('artifact_path_required');
     if (path.isAbsolute(value) || value.startsWith('~') || value.includes('\0')) throw new Error('artifact_path_must_be_workspace_relative');
@@ -123,22 +152,53 @@ function createAgentRuntimeApprovalStore(options = {}) {
     fs.writeFileSync(resolved.target, content, 'utf8');
     const digest = createHash('sha256').update(content).digest('hex');
     const bytes = Buffer.byteLength(content, 'utf8');
-    return {
+    const result = {
       ok: true,
       type: 'agent_runtime_approval_effect_receipt',
       approval_id: cleanApprovalId(approvalId),
       trace_id: cleanText(traceId, 200),
       tool_id: toolId,
+      agent_id: cleanText(body && body.agent_id, 160),
+      engine_id: cleanEngineId(body && body.engine_id),
+      session_id: cleanText(body && body.session_id, 200),
+      turn_id: cleanText(body && body.turn_id, 200),
       effect: 'artifact_written',
       path: resolved.relativePath,
       working_directory: resolved.workingDirectory,
       bytes,
       sha256: digest,
       mime_type: cleanText(args.mime_type || 'text/plain', 120),
+      content_preview: cleanDisplayText(content, 1200),
       result_ref: `artifact/${resolved.relativePath}`,
       receipt_ref: `receipt/agent-runtime-approval/${cleanApprovalId(approvalId)}`,
       display_text: `Created ${resolved.relativePath} (${bytes} bytes).`,
     };
+    if (appendApprovedEffectContext) {
+      try {
+        result.context_append = appendApprovedEffectContext({
+          approvalId,
+          traceId,
+          toolId,
+          agentId: result.agent_id,
+          engineId: result.engine_id,
+          sessionId: result.session_id,
+          turnId: result.turn_id,
+          path: result.path,
+          artifactRef: result.result_ref,
+          receiptRef: result.receipt_ref,
+          bytes: result.bytes,
+          sha256: result.sha256,
+          contentPreview: result.content_preview,
+          displayText: result.display_text,
+        });
+      } catch (error) {
+        result.context_append = {
+          ok: false,
+          error: cleanText(error && error.message ? error.message : error, 240),
+        };
+      }
+    }
+    return result;
   }
 
   function normalizePendingApprovalRequest(request) {
@@ -148,7 +208,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
     const traceId = cleanText(source.trace_id, 200);
     const proposalArguments = sanitizeAgentRuntimeProposalArguments(source.proposal_arguments || source.arguments);
     const explicitResumeStrategy = cleanText(source.resume_strategy, 120);
-    return {
+    const row = {
       type: 'agent_runtime_pending_approval',
       schema_version: 1,
       projection_kind: 'permission_request',
@@ -157,6 +217,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
       trace_id: traceId,
       request_id: cleanText(source.request_id, 200),
       engine_id: cleanEngineId(source.engine_id),
+      agent_id: cleanText(source.agent_id, 160),
       session_id: cleanText(source.session_id, 200),
       turn_id: cleanText(source.turn_id, 200),
       working_directory: cleanWorkingDirectory(
@@ -190,11 +251,31 @@ function createAgentRuntimeApprovalStore(options = {}) {
       source: cleanText(source.source || 'gateway.runtime.agent_runtime_approvals', 160),
       source_authority: 'gateway.runtime.agent_runtime_approvals',
     };
+    row.thread_key = pendingThreadKey(row);
+    row.proposal_key = pendingProposalKey(row);
+    return row;
   }
 
   function recordAgentRuntimePendingApproval(request) {
     const row = normalizePendingApprovalRequest(request);
     if (!row.approval_id) return null;
+    const threadKey = pendingThreadKey(row);
+    if (threadKey) {
+      for (const existing of pendingApprovals.values()) {
+        if (!existing || pendingThreadKey(existing) !== threadKey) continue;
+        const projected = projectPendingApprovalRow(existing);
+        return {
+          ...projected,
+          coalesced_with_existing_pending_approval: true,
+          coalesced_reason: pendingProposalKey(existing) === pendingProposalKey(row)
+            ? 'duplicate_permission_request'
+            : 'thread_already_has_pending_permission_request',
+          requested_approval_id: row.approval_id,
+          active_approval_id: cleanApprovalId(existing.approval_id),
+          queue_policy: 'single_pending_permission_per_thread',
+        };
+      }
+    }
     pendingApprovals.set(row.approval_id, row);
     if (pendingApprovals.size > 200) {
       const firstKey = pendingApprovals.keys().next().value;
@@ -213,6 +294,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
       turn_status: row.turn_status,
       pause_reason: row.pause_reason,
       approval_route: `/api/shell-socket/approvals/${encodeURIComponent(row.approval_id)}/decision`,
+      queue_policy: 'single_pending_permission_per_thread',
     };
   }
 
@@ -231,6 +313,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
       trace_id: cleanText(source.trace_id, 200),
       request_id: cleanText(source.request_id, 200),
       engine_id: cleanEngineId(source.engine_id),
+      agent_id: cleanText(source.agent_id, 160),
       session_id: cleanText(source.session_id, 200),
       turn_id: cleanText(source.turn_id, 200),
       working_directory: cleanWorkingDirectory(source.working_directory),
@@ -251,6 +334,8 @@ function createAgentRuntimeApprovalStore(options = {}) {
       created_at: cleanText(source.created_at, 80),
       source: cleanText(source.source || 'gateway.runtime.agent_runtime_approvals', 160),
       source_authority: 'gateway.runtime.agent_runtime_approvals',
+      thread_key: cleanText(source.thread_key || pendingThreadKey(source), 260),
+      queue_policy: 'single_pending_permission_per_thread',
       proposal_arguments_ref: `approval-pending/${cleanApprovalId(source.approval_id)}/proposal-arguments`,
       proposal_arguments_preview: argumentPreview,
       approval_route: `/api/shell-socket/approvals/${encodeURIComponent(cleanApprovalId(source.approval_id))}/decision`,
@@ -292,8 +377,10 @@ function createAgentRuntimeApprovalStore(options = {}) {
         body && (body.proposal_arguments || body.arguments)
           ? (body.proposal_arguments || body.arguments)
           : pending && pending.proposal_arguments,
+      agent_id: cleanText((body && body.agent_id) || (pending && pending.agent_id), 160),
       engine_id: cleanEngineId((body && body.engine_id) || (pending && pending.engine_id)),
       session_id: cleanText((body && body.session_id) || (pending && pending.session_id), 200),
+      turn_id: cleanText((body && body.turn_id) || (pending && pending.turn_id), 200),
       tool_call_ref: cleanText((body && body.tool_call_ref) || (pending && pending.tool_call_ref), 240),
       working_directory: cleanWorkingDirectory(
         (body && (
@@ -354,18 +441,32 @@ function createAgentRuntimeApprovalStore(options = {}) {
       ...decisionReceiptBase,
       receipt_hash: stableDigest(decisionReceiptBase),
     };
+    const effectDisplayText = cleanDisplayText(executionResult && executionResult.display_text, 1000);
+    const effectError = cleanText(executionResult && executionResult.error, 240);
+    const decisionDisplayText = decision === 'deny'
+      ? `Permission denied for ${cleanText(decisionBody && decisionBody.tool_id, 120) || 'tool call'}.`
+      : executionResult && executionResult.ok
+        ? effectDisplayText || `Permission approved and ${cleanText(decisionBody && decisionBody.tool_id, 120) || 'tool call'} executed.`
+        : executionResult && executionResult.ok === false
+          ? `Permission approved, but the approved effect failed${effectError ? `: ${effectError}` : '.'}`
+          : `Permission approved for ${cleanText(decisionBody && decisionBody.tool_id, 120) || 'tool call'}; the agent can retry with the grant.`;
     const row = {
       type: 'approval_decision_ack',
       projection_kind: 'permission_decision',
       projection_schema_version: 1,
       ok: true,
+      status: decision === 'deny' ? 'denied' : executionResult && executionResult.ok === false ? 'failed_with_reason' : 'completed',
       trace_id: traceId,
       approval_id: id,
       resume_token: resumeToken,
       decision,
+      display_text: decisionDisplayText,
+      output_text: decisionDisplayText,
+      text: decisionDisplayText,
       tool_id: cleanText(decisionBody && decisionBody.tool_id, 120),
       tool_call_ref: cleanText(decisionBody && decisionBody.tool_call_ref, 240),
       engine_id: cleanEngineId(decisionBody && decisionBody.engine_id),
+      agent_id: cleanText(decisionBody && decisionBody.agent_id, 160),
       session_id: cleanText(decisionBody && decisionBody.session_id, 200),
       working_directory: cleanWorkingDirectory(decisionBody && decisionBody.working_directory),
       gatekeeper_kind: cleanText((body && body.gatekeeper_kind) || (pending && pending.gatekeeper_kind) || 'user', 80) || 'user',
@@ -377,6 +478,14 @@ function createAgentRuntimeApprovalStore(options = {}) {
       resume_action: resumeAction,
       resumed: decision !== 'deny',
       durable_effect_executed: !!(executionResult && executionResult.ok),
+      approved_effect_executed: !!(executionResult && executionResult.ok),
+      approved_effect_path: cleanText(executionResult && executionResult.path, 600),
+      approved_effect_artifact_ref: cleanText(executionResult && executionResult.result_ref, 600),
+      approved_effect_result_ref: cleanText(executionResult && executionResult.result_ref, 600),
+      approved_effect_receipt_ref: cleanText(executionResult && executionResult.receipt_ref, 600),
+      approved_effect_display_text: effectDisplayText,
+      approved_effect_bytes: executionResult && executionResult.ok ? Number(executionResult.bytes) || 0 : 0,
+      approved_effect_sha256: cleanText(executionResult && executionResult.sha256, 80),
       execution_result: executionResult,
       decision_receipt_ref: decisionReceipt.receipt_ref,
       decision_receipt: decisionReceipt,
@@ -408,7 +517,12 @@ function createAgentRuntimeApprovalStore(options = {}) {
     for (const [approvalId, row] of Array.from(approvalDecisions.entries())) {
       if (!row || typeof row !== 'object') continue;
       const decision = cleanText(row.decision, 80);
-      if (decision !== 'allow_once' && decision !== 'always_allow_tool_call') continue;
+      const resumeStrategy = cleanText(row.resume_strategy, 120);
+      const effectAlreadyExecuted = row.durable_effect_executed === true || row.approved_effect_executed === true;
+      const allowOnceGrantsNextTurn = decision === 'allow_once' &&
+        resumeStrategy === 'grant_then_retry_next_turn' &&
+        !effectAlreadyExecuted;
+      if (decision !== 'always_allow_tool_call' && !allowOnceGrantsNextTurn) continue;
       const toolId = cleanText(row.tool_id, 120);
       if (!toolId) continue;
       const rowSession = cleanText(row.session_id, 200);
@@ -428,6 +542,7 @@ function createAgentRuntimeApprovalStore(options = {}) {
 
   return {
     sanitizeAgentRuntimeProposalArguments,
+    executeAgentRuntimeApprovedProposal,
     recordAgentRuntimePendingApproval,
     agentRuntimePendingApprovalsProjection,
     agentRuntimeApprovalDecisionProjection,

@@ -1,182 +1,120 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Todo App</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mad Lib Maker</title>
   <style>
+    :root { color-scheme: light; --ink:#1f2937; --muted:#64748b; --line:#d7dee8; --paper:#fffdf7; --accent:#0f766e; --accent-dark:#115e59; --bg:#eef4f8; --warn:#b45309; }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f4f7fb;
-      color: #1f2937;
-      display: grid;
-      place-items: center;
-      padding: 24px;
-    }
-    main {
-      width: min(100%, 520px);
-      background: #ffffff;
-      border: 1px solid #dbe3ef;
-      border-radius: 8px;
-      box-shadow: 0 18px 40px rgba(31, 41, 55, 0.12);
-      padding: 24px;
-    }
-    h1 { margin: 0 0 18px; font-size: 28px; }
-    form { display: flex; gap: 10px; }
-    input {
-      flex: 1;
-      min-width: 0;
-      border: 1px solid #c8d3e0;
-      border-radius: 6px;
-      padding: 12px;
-      font-size: 16px;
-    }
-    button {
-      border: 0;
-      border-radius: 6px;
-      background: #2563eb;
-      color: white;
-      padding: 0 14px;
-      font-size: 15px;
-      cursor: pointer;
-    }
-    button:hover { background: #1d4ed8; }
-    .filters { display: flex; gap: 8px; margin: 18px 0; }
-    .filters button {
-      background: #e8eef7;
-      color: #263244;
-      padding: 8px 10px;
-    }
-    .filters button.active { background: #2563eb; color: #fff; }
-    ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-    li {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      border: 1px solid #e1e8f0;
-      border-radius: 6px;
-      padding: 10px;
-      background: #fbfdff;
-    }
-    li.done span { color: #6b7280; text-decoration: line-through; }
-    li span { flex: 1; overflow-wrap: anywhere; }
-    li button { background: #ef4444; padding: 7px 9px; }
-    li button:hover { background: #dc2626; }
-    footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-top: 18px;
-      color: #536173;
-      font-size: 14px;
-    }
-    footer button { background: transparent; color: #2563eb; padding: 0; }
-    footer button:hover { background: transparent; color: #1d4ed8; }
+    body { margin: 0; min-height: 100vh; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: linear-gradient(180deg, #eef4f8 0%, #f8fafc 100%); color: var(--ink); }
+    main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0; }
+    .app { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 20px; align-items: start; }
+    header { margin-bottom: 22px; display: flex; gap: 16px; align-items: center; }
+    .mark { width: 58px; height: 58px; border: 2px solid #243044; border-radius: 8px; background: var(--paper); box-shadow: 5px 5px 0 #fdba74; display: grid; place-items: center; flex: 0 0 auto; }
+    .mark svg { width: 38px; height: 38px; }
+    h1 { margin: 0; font-size: clamp(2rem, 6vw, 4.6rem); line-height: .92; letter-spacing: 0; }
+    .tagline { margin: 8px 0 0; color: var(--muted); font-size: 1rem; }
+    .panel, .story { border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.88); box-shadow: 0 18px 50px rgba(31,41,55,.08); }
+    .panel { padding: 18px; }
+    form { display: grid; gap: 12px; }
+    label { display: grid; gap: 6px; font-weight: 700; font-size: .92rem; }
+    input { width: 100%; border: 1px solid #cbd5e1; border-radius: 7px; padding: 11px 12px; font: inherit; color: var(--ink); background: #fff; outline: none; }
+    input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(15,118,110,.16); }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+    button { border: 0; border-radius: 7px; padding: 11px 12px; font: inherit; font-weight: 800; cursor: pointer; min-height: 44px; }
+    .primary { background: var(--accent); color: white; }
+    .primary:hover { background: var(--accent-dark); }
+    .secondary { background: #e2e8f0; color: #243044; }
+    .secondary:hover { background: #cbd5e1; }
+    .copy { margin-top: 12px; width: 100%; background: #fef3c7; color: #78350f; }
+    .story { min-height: 520px; padding: 28px; position: relative; overflow: hidden; }
+    .story:before { content: ""; position: absolute; inset: 0; background: linear-gradient(#e7edf5 1px, transparent 1px); background-size: 100% 34px; opacity: .65; pointer-events: none; }
+    .story-inner { position: relative; background: var(--paper); border: 1px solid #eadfca; border-radius: 8px; padding: 24px; min-height: 456px; box-shadow: 0 12px 30px rgba(31,41,55,.08); }
+    h2 { margin: 0 0 14px; font-size: 1.45rem; }
+    #result { font-size: clamp(1.1rem, 2vw, 1.45rem); line-height: 1.65; }
+    .blank { color: var(--warn); font-weight: 900; border-bottom: 2px solid #f59e0b; }
+    .empty { color: var(--muted); }
+    @media (max-width: 760px) { main { width: min(100% - 24px, 560px); padding: 22px 0; } .app { grid-template-columns: 1fr; } header { align-items: flex-start; } .story { min-height: auto; padding: 16px; } .story-inner { min-height: 260px; padding: 18px; } }
   </style>
 </head>
 <body>
   <main>
-    <h1>Todos</h1>
-    <form id="todo-form">
-      <input id="todo-input" type="text" placeholder="Add a task" autocomplete="off" />
-      <button type="submit">Add</button>
-    </form>
-    <div class="filters" aria-label="Todo filters">
-      <button type="button" class="active" data-filter="all">All</button>
-      <button type="button" data-filter="active">Active</button>
-      <button type="button" data-filter="done">Done</button>
-    </div>
-    <ul id="todo-list"></ul>
-    <footer>
-      <span id="count">0 tasks left</span>
-      <button type="button" id="clear-done">Clear done</button>
-    </footer>
+    <header>
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M16 10h28l8 8v36H16V10Z" fill="#fffdf7" stroke="#1f2937" stroke-width="4" stroke-linejoin="round"/>
+          <path d="M43 11v10h10" stroke="#1f2937" stroke-width="4" stroke-linejoin="round"/>
+          <path d="M23 28h24M23 38h18M23 48h24" stroke="#0f766e" stroke-width="4" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Mad Lib Maker</h1>
+        <p class="tagline">Fill the blanks, generate a ridiculous story, then remix it.</p>
+      </div>
+    </header>
+
+    <section class="app" aria-label="Mad Lib app">
+      <div class="panel">
+        <form id="madLibForm">
+          <label>Adjective <input name="adjective" placeholder="sparkly" autocomplete="off"></label>
+          <label>Noun <input name="noun" placeholder="backpack" autocomplete="off"></label>
+          <label>Verb ending in -ing <input name="verb" placeholder="dancing" autocomplete="off"></label>
+          <label>Place <input name="place" placeholder="moon base" autocomplete="off"></label>
+          <label>Animal <input name="animal" placeholder="llama" autocomplete="off"></label>
+          <label>Food <input name="food" placeholder="tacos" autocomplete="off"></label>
+          <div class="actions">
+            <button class="primary" type="submit">Generate</button>
+            <button class="secondary" type="button" id="randomize">Surprise Me</button>
+          </div>
+          <button class="secondary" type="reset">Reset</button>
+        </form>
+      </div>
+
+      <article class="story" aria-live="polite">
+        <div class="story-inner">
+          <h2>Your Story</h2>
+          <p id="result" class="empty">Your mad lib will appear here.</p>
+          <button class="copy" id="copyStory" type="button">Copy Story</button>
+        </div>
+      </article>
+    </section>
   </main>
+
   <script>
-    const form = document.querySelector('#todo-form');
-    const input = document.querySelector('#todo-input');
-    const list = document.querySelector('#todo-list');
-    const count = document.querySelector('#count');
-    const clearDone = document.querySelector('#clear-done');
-    const filterButtons = document.querySelectorAll('[data-filter]');
+    const form = document.querySelector('#madLibForm');
+    const result = document.querySelector('#result');
+    const randomize = document.querySelector('#randomize');
+    const copyStory = document.querySelector('#copyStory');
+    const words = {
+      adjective: ['wobbly', 'glittery', 'suspicious', 'tiny', 'heroic'],
+      noun: ['sandwich', 'spaceship', 'accordion', 'umbrella', 'robot'],
+      verb: ['juggling', 'sneezing', 'moonwalking', 'whispering', 'zooming'],
+      place: ['library', 'volcano', 'treehouse', 'arcade', 'museum'],
+      animal: ['penguin', 'otter', 'hamster', 'giraffe', 'alpaca'],
+      food: ['pancakes', 'pickles', 'spaghetti', 'waffles', 'dumplings']
+    };
 
-    let todos = JSON.parse(localStorage.getItem('todos') || '[]');
-    let filter = 'all';
+    function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
+    function values() { return Object.fromEntries(new FormData(form).entries()); }
+    function word(text) { return `<span class="blank">${text || '_____'}</span>`; }
 
-    function save() {
-      localStorage.setItem('todos', JSON.stringify(todos));
+    function generate() {
+      const v = values();
+      result.className = '';
+      result.innerHTML = `Yesterday, I packed my ${word(v.adjective)} ${word(v.noun)} and went ${word(v.verb)} through the ${word(v.place)}. Suddenly, a ${word(v.animal)} appeared, demanded ${word(v.food)}, and declared me mayor of snack time.`;
     }
 
-    function render() {
-      list.innerHTML = '';
-      const visible = todos.filter(todo => {
-        if (filter === 'active') return !todo.done;
-        if (filter === 'done') return todo.done;
-        return true;
-      });
-
-      for (const todo of visible) {
-        const item = document.createElement('li');
-        item.className = todo.done ? 'done' : '';
-
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.checked = todo.done;
-        checkbox.addEventListener('change', () => {
-          todo.done = checkbox.checked;
-          save();
-          render();
-        });
-
-        const text = document.createElement('span');
-        text.textContent = todo.text;
-
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.textContent = 'Delete';
-        remove.addEventListener('click', () => {
-          todos = todos.filter(item => item.id !== todo.id);
-          save();
-          render();
-        });
-
-        item.append(checkbox, text, remove);
-        list.append(item);
-      }
-
-      const activeCount = todos.filter(todo => !todo.done).length;
-      count.textContent = `${activeCount} ${activeCount === 1 ? 'task' : 'tasks'} left`;
-    }
-
-    form.addEventListener('submit', event => {
-      event.preventDefault();
-      const text = input.value.trim();
-      if (!text) return;
-      todos.push({ id: crypto.randomUUID(), text, done: false });
-      input.value = '';
-      save();
-      render();
+    form.addEventListener('submit', (event) => { event.preventDefault(); generate(); });
+    form.addEventListener('reset', () => { setTimeout(() => { result.className = 'empty'; result.textContent = 'Your mad lib will appear here.'; }, 0); });
+    randomize.addEventListener('click', () => { for (const field of form.elements) { if (field.name && words[field.name]) field.value = pick(words[field.name]); } generate(); });
+    copyStory.addEventListener('click', async () => {
+      const text = result.textContent.trim();
+      if (!text || result.classList.contains('empty')) return;
+      await navigator.clipboard.writeText(text);
+      copyStory.textContent = 'Copied';
+      setTimeout(() => { copyStory.textContent = 'Copy Story'; }, 1100);
     });
-
-    filterButtons.forEach(button => {
-      button.addEventListener('click', () => {
-        filter = button.dataset.filter;
-        filterButtons.forEach(item => item.classList.toggle('active', item === button));
-        render();
-      });
-    });
-
-    clearDone.addEventListener('click', () => {
-      todos = todos.filter(todo => !todo.done);
-      save();
-      render();
-    });
-
-    render();
   </script>
 </body>
 </html>

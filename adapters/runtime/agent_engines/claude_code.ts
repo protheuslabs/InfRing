@@ -9,6 +9,7 @@ const {
   nativeDirectMutationGrantActive,
   selectedRuntimeModelArg,
 } = require('./cli_runtime_adapter.ts');
+const { runClaudeStreamJsonStructuredTurn } = require('./claude_stream_json_transport.ts');
 
 function createClaudeCodeEngineAdapter(options = {}) {
   return createCliRuntimeEngineAdapter({
@@ -20,9 +21,10 @@ function createClaudeCodeEngineAdapter(options = {}) {
       available: true,
       mode: 'claude_stream_json',
       envVar: 'INFRING_AGENT_RUNTIME_CLAUDE_CODE_NATIVE_TRANSPORT',
-      mappingStatus: 'live_acceptance_proven_adapter_mapping_pending',
+      mappingStatus: 'native_transport_adapter_path_available_disabled_by_default',
       evidenceRef: 'core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json',
     },
+    runNativeStructuredTurn: runClaudeStreamJsonStructuredTurn,
     commandFallback: 'claude',
     liveEnvVar: 'INFRING_AGENT_RUNTIME_CLAUDE_CODE_LIVE',
     downloadActionRef: 'agent_runtime_download/claude_code',
@@ -60,11 +62,14 @@ function createClaudeCodeEngineAdapter(options = {}) {
 
 function claudePermissionArgs(ctx) {
   const mutationGrant = nativeDirectMutationGrantActive(ctx);
-  return [
+  const args = [
     '--permission-mode',
     mutationGrant ? 'acceptEdits' : 'default',
-    ...(mutationGrant ? ['--allowedTools', 'Read,Write,Edit,Bash'] : []),
   ];
+  if (mutationGrant) {
+    args.push('--allowedTools', 'Read,Write,Edit,Bash');
+  }
+  return args;
 }
 
 module.exports = {

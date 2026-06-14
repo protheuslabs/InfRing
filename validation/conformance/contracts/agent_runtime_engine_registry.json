@@ -622,7 +622,7 @@
           ],
           "candidate_api": "claude --print --input-format stream-json --output-format stream-json",
           "evidence": "Claude Code accepted a disposable stream-json input probe and returned the expected marker through the live acceptance probe.",
-          "next_action": "Map full AgentRuntimeStructuredTurn context, activity, approval, and output projections onto Claude stream-json before replacing bounded CLI-arg compatibility transport.",
+          "next_action": "Replay the Agent Runtime live-work eval through the Claude stream-json adapter path before replacing bounded CLI-arg compatibility transport.",
           "candidate_mapping_probe_ref": "core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json",
           "live_acceptance_probe_ref": "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json"
         }

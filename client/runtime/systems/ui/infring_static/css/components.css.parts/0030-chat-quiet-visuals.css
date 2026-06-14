@@ -1,0 +1,51 @@
+/*
+ * Quiet chat visuals: no fairy light/glow and no message bubble shadows.
+ *
+ * Settings switch contract:
+ *   body.dataset.chatQuietVisuals = 'on'  -> quiet visuals enabled
+ *   body.dataset.chatQuietVisuals = 'off' -> restore animated/glow visuals
+ *
+ * Default is enabled when the attribute is absent.
+ */
+body:not([data-chat-quiet-visuals='off']) .chat-loading-fairy-core,
+body:not([data-chat-quiet-visuals='off']) .chat-loading-fairy-ring,
+body:not([data-chat-quiet-visuals='off']) .chat-grid-overlay,
+body:not([data-chat-quiet-visuals='off']) .chat-reflection-overlay,
+body:not([data-chat-quiet-visuals='off']) .chat-agent-overlay,
+body:not([data-chat-quiet-visuals='off']) .chat-pointer-orb,
+body:not([data-chat-quiet-visuals='off']) .chat-pointer-ripple,
+body:not([data-chat-quiet-visuals='off']) .chat-pointer-trail-dot,
+body:not([data-chat-quiet-visuals='off']) .chat-pointer-trail-segment {
+  display: none !important;
+  opacity: 0 !important;
+  animation: none !important;
+  box-shadow: none !important;
+}
+
+body:not([data-chat-quiet-visuals='off']) .chat-loading-fairy-avatar,
+body:not([data-chat-quiet-visuals='off']) .chat-loading-fairy-avatar::before,
+body:not([data-chat-quiet-visuals='off']) .chat-loading-fairy-avatar::after,
+body:not([data-chat-quiet-visuals='off']) .chat-loading-fairy-avatar.agent-working-pulse,
+body:not([data-chat-quiet-visuals='off']) .chat-loading-fairy-avatar.agent-working-pulse::before,
+body:not([data-chat-quiet-visuals='off']) .chat-loading-fairy-avatar.agent-working-pulse::after {
+  --agent-pulse-glow: 0px;
+  --agent-pulse-glow-mid: 0px;
+  --agent-pulse-glow-end: 0px;
+  animation: none !important;
+  box-shadow: none !important;
+}
+
+body:not([data-chat-quiet-visuals='off']) .message .message-bubble,
+body:not([data-chat-quiet-visuals='off']) .message .message-bubble::before,
+body:not([data-chat-quiet-visuals='off']) .message .message-bubble::after,
+body:not([data-chat-quiet-visuals='off']) .message-bubble.message-bubble-thinking,
+body:not([data-chat-quiet-visuals='off']) .message-bubble.message-bubble-thinking::before,
+body:not([data-chat-quiet-visuals='off']) .message-bubble.message-bubble-thinking::after,
+body:not([data-chat-quiet-visuals='off'])[data-theme='dark'] .message.user .message-bubble,
+body:not([data-chat-quiet-visuals='off'])[data-theme='dark'] .message.agent .message-bubble,
+body:not([data-chat-quiet-visuals='off'])[data-theme='dark'] .message.system .message-bubble,
+body:not([data-chat-quiet-visuals='off']):not([data-theme='dark']) .message.user .message-bubble,
+body:not([data-chat-quiet-visuals='off']):not([data-theme='dark']) .message.agent .message-bubble,
+body:not([data-chat-quiet-visuals='off']):not([data-theme='dark']) .message.system .message-bubble {
+  box-shadow: none !important;
+}

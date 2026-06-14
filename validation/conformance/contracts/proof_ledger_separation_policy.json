@@ -42,6 +42,8 @@
     "validation/agent_runtime/task_harness/agent_runtime_task_harness_contract.json",
     "validation/agent_runtime/proof_summaries/README.md",
     "tests/tooling/scripts/ci/agent_runtime_proof_summary_guard.ts",
+    "validation/conformance/contracts/agent_runtime_graduation_baseline_contract.json",
+    "tests/tooling/scripts/ci/agent_runtime_secondary_promotion_plan_guard.ts",
     "docs/workspace/native_coding_useful_work_eval_v1.md",
     "docs/workspace/coding_workflow_eval_results.md",
     "validation/evals/fixtures/native_coding_useful_work_eval_v1.json"

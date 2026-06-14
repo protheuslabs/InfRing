@@ -9,6 +9,11 @@
 
 'use strict';
 
+const {
+  resolveAgentRuntimeEngineId,
+  withCanonicalAgentRuntimeEngineId,
+} = require('./agent_runtime_engine_identity.ts');
+
 function cleanText(value, maxLen = 240) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen);
 }
@@ -17,15 +22,34 @@ function requestedTurnRouteTimeoutMs(body) {
   const budget = body && body.capability_budget && typeof body.capability_budget === 'object'
     ? body.capability_budget
     : {};
-  const seconds = Number(budget.max_turn_seconds || body && body.max_turn_seconds || 0);
+  const seconds = Number(
+    budget.max_absolute_turn_seconds ||
+    body && body.max_absolute_turn_seconds ||
+    budget.max_turn_seconds ||
+    body && body.max_turn_seconds ||
+    0
+  );
   const boundedSeconds = Number.isFinite(seconds) && seconds > 0
-    ? Math.max(1, Math.min(seconds, 300))
-    : 180;
+    ? Math.max(1, Math.min(seconds, 3600))
+    : 1800;
   return Math.round(boundedSeconds * 1000);
 }
 
+function shouldStreamLiveActivityEvent(event) {
+  if (!event || typeof event !== 'object') return false;
+  if (event.display_in_thinking_bubble === false || event.thinking_bubble_visible === false) return false;
+  const kind = cleanText(event.activity_kind || event.kind || event.type, 80).toLowerCase();
+  const provider = cleanText(event.provider_event_type || event.event_type || '', 160).toLowerCase();
+  const text = cleanText(event.display_text || event.text || event.summary || '', 500).toLowerCase();
+  if (/^(context\\.prepare|context\\.loaded|engine\\.health|session\\.start|turn\\.launch|turn\\.complete|assistant\\.draft)$/.test(provider)) return false;
+  if (/^(started|completed|activity)$/.test(kind) && (
+    /preparing .* conversation context|loaded \\d+ prior context rows|checking .* availability|starting .* session|launching .* bounded context pack|completed the turn|final answer is shown/.test(text)
+  )) return false;
+  return true;
+}
+
 function turnRouteTimeoutPayload(traceId, body, activityEvents = []) {
-  const engineId = cleanText(body && body.engine_id || body && body.engineId || 'agent_runtime', 120);
+  const engineId = resolveAgentRuntimeEngineId(body, { defaultEngineId: 'agent_runtime' });
   const timeoutMs = requestedTurnRouteTimeoutMs(body);
   const timeoutSeconds = Math.max(1, Math.round(timeoutMs / 1000));
   const text = `${engineId} did not finish within ${timeoutSeconds}s. Gateway returned a bounded route timeout before the client disconnected.`;
@@ -112,6 +136,9 @@ function createAgentRuntimeTurnRouteHandler(options = {}) {
   const createNativeOrchestrationClient = options.createNativeOrchestrationClient;
   const readJsonBody = options.readJsonBody;
   const sendJson = options.sendJson;
+  const loadAgentRuntimeSelection = typeof options.loadAgentRuntimeSelection === 'function'
+    ? options.loadAgentRuntimeSelection
+    : null;
   if (!turnProjectionStore || typeof turnProjectionStore.agentRuntimeTurnProjection !== 'function') {
     throw new Error('agent_runtime_turn_route_projection_store_missing');
   }
@@ -140,7 +167,10 @@ function createAgentRuntimeTurnRouteHandler(options = {}) {
     if (!req || !res || !isAgentRuntimeTurnRoute(pathname)) return false;
 
     if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/turn/stream' || pathname === '/api/agent-runtime/turn/stream')) {
-      const body = await readJsonBody(req, 65536);
+      const body = withCanonicalAgentRuntimeEngineId(await readJsonBody(req, 65536), {
+        loadSelection: loadAgentRuntimeSelection,
+        defaultEngineId: 'infring_native',
+      });
       const routeActivityEvents = [];
       res.writeHead(200, {
         'content-type': 'application/x-ndjson; charset=utf-8',
@@ -157,7 +187,9 @@ function createAgentRuntimeTurnRouteHandler(options = {}) {
         nativeOrchestrationClient: createNativeOrchestrationClient(flags),
         onActivity: (event) => {
           routeActivityEvents.push(event);
-          writeEvent({ type: 'activity', trace_id: traceId, event });
+          if (shouldStreamLiveActivityEvent(event)) {
+            writeEvent({ type: 'activity', trace_id: traceId, event });
+          }
         },
       }), traceId, body, routeActivityEvents).catch((error) => ({
         ok: false,
@@ -172,7 +204,10 @@ function createAgentRuntimeTurnRouteHandler(options = {}) {
     }
 
     if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/turn' || pathname === '/api/agent-runtime/turn')) {
-      const body = await readJsonBody(req, 65536);
+      const body = withCanonicalAgentRuntimeEngineId(await readJsonBody(req, 65536), {
+        loadSelection: loadAgentRuntimeSelection,
+        defaultEngineId: 'infring_native',
+      });
       const routeActivityEvents = [];
       const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
       let responded = false;
@@ -208,14 +243,20 @@ function createAgentRuntimeTurnRouteHandler(options = {}) {
     }
 
     if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/steer' || pathname === '/api/agent-runtime/steer')) {
-      const body = await readJsonBody(req, 65536).catch(() => ({}));
+      const body = withCanonicalAgentRuntimeEngineId(await readJsonBody(req, 65536).catch(() => ({})), {
+        loadSelection: loadAgentRuntimeSelection,
+        defaultEngineId: 'infring_native',
+      });
       const payload = steer(traceId, body);
       sendJson(res, payload.status_code || (payload.ok === false ? 400 : 200), payload);
       return true;
     }
 
     if (req.method === 'POST' && (pathname === '/api/shell-socket/agent-runtime/context-pack/preview' || pathname === '/api/agent-runtime/context-pack/preview')) {
-      const body = await readJsonBody(req, 65536).catch(() => ({}));
+      const body = withCanonicalAgentRuntimeEngineId(await readJsonBody(req, 65536).catch(() => ({})), {
+        loadSelection: loadAgentRuntimeSelection,
+        defaultEngineId: 'infring_native',
+      });
       const payload = await contextPreviewProjectionStore.agentRuntimeContextPackPreviewProjection(traceId, body).catch((error) => ({
         ok: false,
         status_code: 502,

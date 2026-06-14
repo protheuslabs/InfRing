@@ -247,6 +247,9 @@
     },
     markAgentMessageComplete(msg) {
       if (!msg || msg.role !== 'agent') return;
+      if (typeof this.normalizeMessageThoughtTools === 'function') {
+        try { this.normalizeMessageThoughtTools(msg, { commit: true }); } catch (_) {}
+      }
       msg._finish_bounce = true;
       setTimeout(function() {
         try { msg._finish_bounce = false; } catch(_) {}

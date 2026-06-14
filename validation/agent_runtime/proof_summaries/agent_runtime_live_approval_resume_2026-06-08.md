@@ -21,20 +21,20 @@
 - Failed: 0
 - Registry coverage: pass
 - Red gaps: 0
-- Yellow gaps: 1
+- Yellow gaps: 2
 
 ## Known gap
 
-Codex and Claude Code both pass the practical usability loop in deterministic replay: approval pause, bounded approval projection, decision receipt, transcript persistence, context reload, artifact effect, and activity trace.
+Codex and Claude Code both pass the practical usability loop: approval pause, bounded approval projection, decision receipt, transcript persistence, context reload, artifact effect, activity trace, and visible failure/error projection.
 
-Codex now has live typed app-server transport acceptance for `thread/start` + `turn/start`. Claude Code remains `practical_with_gaps`, not daily-driver clean, because `upstream_native_transport_probe` is still pending for Claude stream-json.
+Both engines are daily-driver candidates in the Agent Runtime scorecard.
 
-Codex and Claude Code now both have dry-run candidate mappings ready, with Codex promoted one step further:
+Transport accounting is intentionally conservative:
 
-- Codex: app-server schema generation plus accepted live `thread/start` + `turn/start` typed transport.
-- Claude Code: `stream-json` input/output plus an `AgentRuntimeStructuredTurn`-derived candidate stream without prompt compatibility enabled.
+- Codex: app-server schema generation identified a candidate `thread/start` + `turn/start` surface, but live submission remains disabled by default.
+- Claude Code: `stream-json` input/output has a candidate mapping and passed live InfRing-mediated work through the adapter path, but the dedicated upstream live acceptance probe remains disabled by default.
 
-Claude live acceptance remains unproven and disabled by default.
+Do not count candidate native transport surfaces as accepted upstream live typed-transport proof until the disposable live acceptance probes submit and pass.
 
 ## Accounting rule
 

@@ -91,6 +91,14 @@
       "forbidden_shortcut": "External runtime converting blocked writes into final text without an approval opportunity."
     },
     {
+      "dimension_id": "turn_steering_contract",
+      "title": "Active turn steering contract",
+      "required_for_primary_external_engines": true,
+      "parity_question": "Can a user steer an active external-runtime turn through Gateway without creating duplicate user bubbles, losing the steering text, or giving Shell runtime authority?",
+      "infRing_boundary": "Gateway owns steering admission and resume/follow-up semantics; Shell only renders the user steer row and submits the steering projection.",
+      "forbidden_shortcut": "Shell treating active-turn steering as a normal chat send or reconstructing runtime steering behavior locally."
+    },
+    {
       "dimension_id": "artifact_proposal_apply",
       "title": "Artifact proposal and apply",
       "required_for_primary_external_engines": true,
@@ -177,7 +185,10 @@
           "status": "preserved",
           "evidence_ref": "core/local/artifacts/agent_runtime_permission_pause_resume_normalization_guard_current.json",
           "risk": "Codex-style CLI final answers with embedded InfRing artifact proposals now normalize into Gateway permission_required pause/resume with bounded pending arguments and approval receipts, but provider-live UI proof should remain covered when quota-safe.",
-          "next_action": "Keep the permission pause/resume normalization guard in coordination gates and extend with live Codex blocked-write smoke when quota-safe."
+          "next_action": "Keep the permission pause/resume normalization guard in coordination gates and extend with live Codex blocked-write smoke when quota-safe.",
+          "supplemental_evidence_refs": [
+            "core/local/artifacts/agent_runtime_rendered_permission_steering_contract_guard_current.json"
+          ]
         },
         "artifact_proposal_apply": {
           "status": "preserved",
@@ -208,6 +219,12 @@
           "evidence_ref": "core/local/artifacts/agent_runtime_attachment_context_bridge_guard_current.json",
           "risk": "Large pasted text is Gateway-materialized as refs for Codex, but live UI reload proof should still watch for visual-only attachment regressions.",
           "next_action": "Keep the public-route attachment bridge guard in coordination gates and extend it to real live Codex turns when quota-safe."
+        },
+        "turn_steering_contract": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_rendered_permission_steering_contract_guard_current.json",
+          "risk": "Rendered Shell projection contract proves active-turn steering enters Gateway, preserves user text, avoids duplicate user bubbles, and keeps permission pauses open; provider-live adapters may still need native live-steering upgrades beyond next-turn fallback.",
+          "next_action": "Keep rendered permission/steering contract in coordination gates and extend with live Codex/Claude steering smoke when auth/quota-safe."
         }
       }
     },
@@ -256,7 +273,10 @@
           "status": "preserved",
           "evidence_ref": "core/local/artifacts/agent_runtime_permission_pause_resume_normalization_guard_current.json",
           "risk": "Claude-style CLI final answers with embedded InfRing artifact proposals now normalize into Gateway permission_required pause/resume with bounded pending arguments and approval receipts, but provider-live UI proof should remain covered when auth/quota-safe.",
-          "next_action": "Keep the permission pause/resume normalization guard in coordination gates and extend with live Claude blocked-write smoke when auth/quota-safe."
+          "next_action": "Keep the permission pause/resume normalization guard in coordination gates and extend with live Claude blocked-write smoke when auth/quota-safe.",
+          "supplemental_evidence_refs": [
+            "core/local/artifacts/agent_runtime_rendered_permission_steering_contract_guard_current.json"
+          ]
         },
         "artifact_proposal_apply": {
           "status": "preserved",
@@ -287,6 +307,12 @@
           "evidence_ref": "core/local/artifacts/agent_runtime_attachment_context_bridge_guard_current.json",
           "risk": "Large pasted text is Gateway-materialized as refs for Claude, but live UI reload proof should still watch for visual-only attachment regressions.",
           "next_action": "Keep the public-route attachment bridge guard in coordination gates and extend it to real live Claude turns when auth/quota-safe."
+        },
+        "turn_steering_contract": {
+          "status": "preserved",
+          "evidence_ref": "core/local/artifacts/agent_runtime_rendered_permission_steering_contract_guard_current.json",
+          "risk": "Rendered Shell projection contract proves active-turn steering enters Gateway, preserves user text, avoids duplicate user bubbles, and keeps permission pauses open; provider-live adapters may still need native live-steering upgrades beyond next-turn fallback.",
+          "next_action": "Keep rendered permission/steering contract in coordination gates and extend with live Codex/Claude steering smoke when auth/quota-safe."
         }
       }
     }
@@ -342,7 +368,7 @@
     "next_action": "Map AgentRuntimeStructuredTurn onto native transport adapter paths for Codex and Claude behind an explicit disabled-by-default migration flag."
   },
   "native_structured_transport_acceptance": {
-    "status": "live_acceptance_proven_adapter_mapping_pending",
+    "status": "codex_and_claude_adapter_paths_available_disabled_by_default",
     "evidence_ref": "core/local/artifacts/agent_runtime_native_transport_probe_current.json",
     "scorecard_ref": "core/local/artifacts/agent_runtime_engine_scorecard_current.json",
     "engines": [
@@ -354,15 +380,18 @@
     "proves": [
       "codex_app_server_accepts_typed_initialize_thread_and_turn_sequence",
       "claude_stream_json_accepts_typed_input_and_returns_structured_events",
+      "codex_cli_has_disabled_by_default_native_transport_adapter_path",
       "transport_migration_guard_no_longer_warns_on_codex_cli_or_claude_code",
       "scorecard_promotes_codex_cli_and_claude_code_to_daily_driver_candidate"
     ],
     "does_not_prove": [
       "adapter_dispatch_uses_native_structured_transport_by_default",
+      "codex_native_transport_live_work_replay_passes",
+      "claude_code_native_transport_live_work_replay_passes",
       "full_context_activity_approval_and_output_mapping_over_native_transport",
       "secondary_engines_have_native_transport"
     ],
-    "next_action": "Build a disabled-by-default native transport adapter path for one golden engine, replay the live-work eval through it, then repeat for the second golden engine."
+    "next_action": "Replay the live-work eval through Codex and Claude native transports with INFRING_AGENT_RUNTIME_CODEX_NATIVE_TRANSPORT=1 and INFRING_AGENT_RUNTIME_CLAUDE_CODE_NATIVE_TRANSPORT=1, then promote only after compact proof artifacts show context, activity, approval, and output parity."
   },
   "authority_rules": {
     "shell_renders_parity_projection_only": true,

@@ -1,6 +1,6 @@
 # Kernel Sentinel System Understanding Worksheet
 
-- generated_at: 2026-06-11T06:48:55.276Z
+- generated_at: 2026-06-14T06:58:27.016Z
 - cadence: every_kernel_sentinel_auto_run
 - method: soul_then_runtime_then_structure_then_syntax
 - ready_to_zoom_down: false

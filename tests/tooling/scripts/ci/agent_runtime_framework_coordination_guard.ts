@@ -36,6 +36,11 @@ const GATES = [
     coverage_scope: 'primary_external_cli_final_answer_proposal_pause_resume',
   },
   {
+    id: 'rendered_permission_steering_contract',
+    script: 'tests/tooling/scripts/ci/agent_runtime_rendered_permission_steering_contract_guard.ts',
+    coverage_scope: 'shell_projection_only_permission_pause_and_user_steering_contract',
+  },
+  {
     id: 'artifact_proposal_apply',
     script: 'tests/tooling/scripts/ci/agent_runtime_artifact_proposal_apply_guard.ts',
     coverage_scope: 'primary_external_cli_create_edit_proposal_approval_apply',
@@ -176,6 +181,36 @@ const GATES = [
     coverage_scope: 'codex_cli_native_transport_candidate_mapping',
   },
   {
+    id: 'opencode_sdk_mapping_probe',
+    script: 'tests/tooling/scripts/ci/agent_runtime_opencode_sdk_mapping_probe.ts',
+    coverage_scope: 'opencode_native_transport_candidate_mapping',
+  },
+  {
+    id: 'opencode_sdk_live_acceptance_probe',
+    script: 'tests/tooling/scripts/ci/agent_runtime_opencode_sdk_live_acceptance_probe.ts',
+    coverage_scope: 'opencode_native_transport_live_acceptance_disabled_by_default',
+  },
+  {
+    id: 'hermes_agent_mapping_probe',
+    script: 'tests/tooling/scripts/ci/agent_runtime_hermes_agent_mapping_probe.ts',
+    coverage_scope: 'hermes_agent_native_transport_candidate_mapping',
+  },
+  {
+    id: 'hermes_agent_live_acceptance_probe',
+    script: 'tests/tooling/scripts/ci/agent_runtime_hermes_agent_live_acceptance_probe.ts',
+    coverage_scope: 'hermes_agent_native_transport_live_acceptance_disabled_by_default',
+  },
+  {
+    id: 'grok_code_mapping_probe',
+    script: 'tests/tooling/scripts/ci/agent_runtime_grok_code_mapping_probe.ts',
+    coverage_scope: 'grok_code_native_transport_candidate_mapping',
+  },
+  {
+    id: 'grok_code_live_acceptance_probe',
+    script: 'tests/tooling/scripts/ci/agent_runtime_grok_code_live_acceptance_probe.ts',
+    coverage_scope: 'grok_code_native_transport_live_acceptance_disabled_by_default',
+  },
+  {
     id: 'codex_app_server_live_acceptance_probe',
     script: 'tests/tooling/scripts/ci/agent_runtime_codex_app_server_live_acceptance_probe.ts',
     coverage_scope: 'codex_cli_native_transport_live_acceptance_disabled_by_default',
@@ -191,6 +226,16 @@ const GATES = [
     coverage_scope: 'primary_external_provider_live_smoke_opt_in_scope',
   },
   {
+    id: 'openclaw_live_adapter_readiness',
+    script: 'tests/tooling/scripts/ci/agent_runtime_openclaw_live_adapter_readiness_guard.ts',
+    coverage_scope: 'secondary_openclaw_live_adapter_readiness_diagnostic',
+  },
+  {
+    id: 'secondary_live_adapter_readiness',
+    script: 'tests/tooling/scripts/ci/agent_runtime_secondary_live_adapter_readiness_guard.ts',
+    coverage_scope: 'secondary_runtime_opt_in_live_adapter_readiness_diagnostic',
+  },
+  {
     id: 'transport_migration_pressure',
     script: 'tests/tooling/scripts/ci/agent_runtime_transport_migration_pressure_guard.ts',
     coverage_scope: 'engine_registry_transport_policy',
@@ -204,6 +249,41 @@ const GATES = [
     id: 'engine_scorecard',
     script: 'tests/tooling/scripts/ci/agent_runtime_engine_scorecard.ts',
     coverage_scope: 'engine_registry_scorecard',
+  },
+  {
+    id: 'graduation_baseline_contract',
+    script: 'tests/tooling/scripts/ci/agent_runtime_graduation_baseline_contract_guard.ts',
+    coverage_scope: 'agent_runtime_graduation_baseline_policy',
+  },
+  {
+    id: 'golden_pair_promotion',
+    script: 'tests/tooling/scripts/ci/agent_runtime_golden_pair_promotion_guard.ts',
+    coverage_scope: 'codex_claude_practical_loop_with_gated_native_transport',
+  },
+  {
+    id: 'promotion_sprawl',
+    script: 'tests/tooling/scripts/ci/agent_runtime_promotion_sprawl_guard.ts',
+    coverage_scope: 'external_runtime_daily_driver_promotion_scope',
+  },
+  {
+    id: 'golden_pair_primitive_parity',
+    script: 'tests/tooling/scripts/ci/agent_runtime_golden_pair_primitive_parity_guard.ts',
+    coverage_scope: 'codex_claude_interchangeable_runtime_primitives',
+  },
+  {
+    id: 'secondary_engine_gap_matrix',
+    script: 'tests/tooling/scripts/ci/agent_runtime_secondary_engine_gap_matrix_guard.ts',
+    coverage_scope: 'future_runtime_golden_pair_graduation_map',
+  },
+  {
+    id: 'graduation_next_actions',
+    script: 'tests/tooling/scripts/ci/agent_runtime_graduation_next_actions_guard.ts',
+    coverage_scope: 'future_runtime_graduation_action_queue',
+  },
+  {
+    id: 'secondary_promotion_plan',
+    script: 'tests/tooling/scripts/ci/agent_runtime_secondary_promotion_plan_guard.ts',
+    coverage_scope: 'future_runtime_ordered_promotion_plan',
   },
   {
     id: 'proof_summary_accounting',

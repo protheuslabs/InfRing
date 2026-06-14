@@ -134,6 +134,8 @@ The proof artifacts should be summaries with refs, not raw noise dumps.
 
 The framework feature-parity ledger is the checkpoint's accounting surface for external runtimes. It should mark each golden-path capability as `preserved`, `partial`, or `gap`, with evidence refs and next actions. A runtime may be selectable while still having partial/gap rows, but it must not be called reliable until the required rows are preserved.
 
+Secondary runtime promotion plans are the checkpoint's operator queue for non-golden engines. They may rank Grok Code, OpenCode, OpenClaw, Hermes Agent, or another secondary runtime by nearest safe next step, but they do not count as promotion evidence. They only answer: "what should an operator do next before spending live usage, installing dependencies, or gathering Gateway-mediated proof?"
+
 ## Non-goals for this checkpoint
 
 The next version should not try to do everything.
@@ -226,6 +228,8 @@ The next version fails if:
 ## Promotion rule
 
 Do not promote another engine to first-class until Codex and Claude Code pass the core harness reliably.
+
+Do not treat a secondary runtime promotion plan as promotion. It is guidance for the next evidence-gathering step only.
 
 Do not widen the universal tool surface until the small proposal-oriented surface is boringly safe.
 

@@ -136,10 +136,13 @@
 }
 
 .message-inline-thoughts {
+  --message-inline-thought-accent: color-mix(in srgb, var(--text-dim) 90%, transparent);
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 0 0 10px;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
   color: var(--text);
   font: inherit;
 }
@@ -147,6 +150,12 @@
 .message-inline-thought {
   display: block;
   color: inherit;
+}
+
+.message-inline-thought-expanded {
+  margin: 0 0 12px;
+  padding: 0 0 10px;
+  box-shadow: inset 0 -0.5px 0 var(--message-inline-thought-accent);
 }
 
 .message-inline-thought-toggle {
@@ -170,7 +179,7 @@
 
 .message-inline-thought-label,
 .message-inline-thought-chevron {
-  color: color-mix(in srgb, var(--text-dim) 90%, transparent);
+  color: var(--message-inline-thought-accent);
 }
 
 .message-inline-thought-chevron {
@@ -205,12 +214,68 @@
   flex-direction: column;
   gap: 3px;
   width: 100%;
-  max-width: min(460px, 88vw);
+  max-width: 100%;
+}
+
+.message-inline-thought-body .thinking-trace-file-group,
+.message-bubble.message-bubble-thinking .thinking-trace-file-group,
+.tool-card-body .thinking-trace-file-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+}
+
+.message-inline-thought-body .thinking-trace-file-group > summary,
+.message-bubble.message-bubble-thinking .thinking-trace-file-group > summary,
+.tool-card-body .thinking-trace-file-group > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.message-inline-thought-body .thinking-trace-file-group > summary::-webkit-details-marker,
+.message-bubble.message-bubble-thinking .thinking-trace-file-group > summary::-webkit-details-marker,
+.tool-card-body .thinking-trace-file-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.message-inline-thought-body .thinking-trace-file-group[open] .thinking-trace-chevron,
+.message-bubble.message-bubble-thinking .thinking-trace-file-group[open] .thinking-trace-chevron,
+.tool-card-body .thinking-trace-file-group[open] .thinking-trace-chevron {
+  transform: rotate(90deg);
+}
+
+.message-inline-thought-body .thinking-trace-chevron,
+.message-bubble.message-bubble-thinking .thinking-trace-chevron,
+.tool-card-body .thinking-trace-chevron {
+  flex: 0 0 auto;
+  color: inherit;
+  font-size: 0.9em;
+  line-height: 1.45;
+  opacity: 0.74;
+  transition: transform 0.14s var(--ease-smooth);
+}
+
+.message-inline-thought-body .thinking-trace-file-children,
+.message-bubble.message-bubble-thinking .thinking-trace-file-children,
+.tool-card-body .thinking-trace-file-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: calc(1.45em + 6px);
+}
+
+.message-inline-thought-body .thinking-trace-child-row,
+.message-bubble.message-bubble-thinking .thinking-trace-child-row,
+.tool-card-body .thinking-trace-child-row {
+  opacity: 0.86;
 }
 
 .message-inline-thought-body .thinking-trace-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   font-size: inherit;
   line-height: inherit;
@@ -234,7 +299,7 @@
   width: 1.45em;
   min-width: 1.45em;
   height: 1.45em;
-  color: currentColor;
+  color: inherit;
   background: none;
   border-radius: 0;
   font-size: 0.94em;
@@ -259,22 +324,33 @@
   color: inherit;
   font: inherit;
   line-height: inherit;
-  background: transparent;
-  border: 0;
-  padding: 0;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.message-inline-thought-pre code,
+.message-inline-thought-body pre,
+.message-inline-thought-body code {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: inherit;
+  font: inherit;
 }
 
 .message.system .message-bubble {
   --message-tail-fill-color: color-mix(in srgb, var(--surface2) 90%, transparent);
-  --message-tail-border-color: color-mix(in srgb, var(--border) 92%, transparent);
+  --message-tail-border-color: var(--message-bubble-border-color);
   background: color-mix(in srgb, var(--surface2) 90%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
+  border: 1px solid var(--message-bubble-border-color);
   border-radius: 22px;
   padding: 10px 14px;
   font-size: 14.5px;
   line-height: 1.78;
-  width: var(--message-bubble-readable-width);
-  max-width: var(--message-bubble-readable-width);
+  width: 90%;
+  max-width: 90%;
   display: inline-block;
   margin: 0;
   box-sizing: border-box;
@@ -282,21 +358,40 @@
 }
 .message-bubble.message-bubble-thinking {
   --thinking-bubble-cadence: 4s;
+  --thinking-bubble-fluctuation-limit: 5px;
 }
 
 .message.system {
   max-width: 100%;
 }
 .message.thinking .message-bubble.message-bubble-thinking {
-  animation: thinking-bubble-scale-pulse var(--thinking-bubble-cadence) ease-in-out infinite;
-  transform-origin: left center;
-  will-change: transform, opacity;
+  position: relative;
+  animation: none;
 }
 
-@keyframes thinking-bubble-scale-pulse {
-  0% { transform: scaleX(1) scaleY(0.97); opacity: 0.94; }
-  50% { transform: scaleX(1) scaleY(1.03); opacity: 0.86; }
-  100% { transform: scaleX(1) scaleY(0.97); opacity: 0.94; }
+.message.thinking .message-bubble.message-bubble-thinking::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 1px solid var(--message-bubble-border-color);
+  animation: thinking-bubble-flat-pulse var(--thinking-bubble-cadence) ease-in-out infinite;
+}
+
+@keyframes thinking-bubble-flat-pulse {
+  0% {
+    inset: 0;
+    opacity: 0.22;
+  }
+  50% {
+    inset: calc(-1 * var(--thinking-bubble-fluctuation-limit));
+    opacity: 0.38;
+  }
+  100% {
+    inset: 0;
+    opacity: 0.22;
+  }
 }
 
 .message-bubble.message-error {
@@ -320,14 +415,14 @@
 }
 
 .message-bubble.message-bubble-thinking {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  padding: 4px 0;
+  background: var(--bg);
+  border: 1px solid var(--message-bubble-border-color);
+  box-shadow: var(--shadow-sm);
+  padding: 10px 14px;
   overflow: visible;
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 4px;
 }
 
@@ -350,7 +445,7 @@
   border-radius: 999px;
   box-sizing: border-box;
   background: var(--message-tail-fill-color);
-  border: 1px solid color-mix(in srgb, var(--message-tail-border-color) 92%, transparent);
+  border: 1px solid var(--message-bubble-border-color);
   opacity: 0;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--message-tail-border-color) 24%, transparent);
   width: var(--dot-size, 6px);
@@ -490,10 +585,14 @@ body[data-theme='dark'] .message-bubble.message-bubble-thinking .thinking-inline
   letter-spacing: 0.01em;
 }
 
+.message.agent .message-bubble.message-bubble-thinking,
+.message.system .message-bubble.message-bubble-thinking,
 .message-bubble.message-bubble-thinking {
-  --thinking-bubble-fluctuation-limit: 18px;
   box-sizing: border-box;
-  max-inline-size: min(var(--message-bubble-readable-width), calc(100vw - 48px));
+  width: 90%;
+  max-width: 90%;
+  inline-size: 90%;
+  max-inline-size: 90%;
 }
 
 .message-bubble.message-bubble-thinking .thinking-inline-text,
@@ -518,13 +617,13 @@ body[data-theme='dark'] .message-bubble.message-bubble-thinking .thinking-inline
   flex-direction: column;
   gap: 3px;
   width: 100%;
-  max-width: min(460px, 88vw);
+  max-width: 100%;
 }
 
 .message-bubble.message-bubble-thinking .thinking-trace-row,
 .tool-card-body .thinking-trace-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   font-size: inherit;
   line-height: 1.45;
@@ -552,7 +651,7 @@ body[data-theme='dark'] .message-bubble.message-bubble-thinking .thinking-inline
   width: 1.45em;
   min-width: 1.45em;
   height: 1.45em;
-  color: currentColor;
+  color: inherit;
   background: none;
   border-radius: 0;
   font-size: 0.94em;
@@ -574,19 +673,19 @@ body[data-theme='dark'] .message-bubble.message-bubble-thinking .thinking-inline
 
 .message-bubble.message-bubble-thinking .thinking-trace-row.state-error .thinking-trace-dot,
 .tool-card-body .thinking-trace-row.state-error .thinking-trace-dot {
-  color: color-mix(in srgb, var(--error) 84%, currentColor);
+  color: inherit;
   background: none;
 }
 
 .message-bubble.message-bubble-thinking .thinking-trace-row.state-blocked .thinking-trace-dot,
 .tool-card-body .thinking-trace-row.state-blocked .thinking-trace-dot {
-  color: color-mix(in srgb, var(--warning) 80%, currentColor);
+  color: inherit;
   background: none;
 }
 
 .message-bubble.message-bubble-thinking .thinking-trace-row.state-done .thinking-trace-dot,
 .tool-card-body .thinking-trace-row.state-done .thinking-trace-dot {
-  color: color-mix(in srgb, var(--success) 84%, currentColor);
+  color: inherit;
   background: none;
 }
 

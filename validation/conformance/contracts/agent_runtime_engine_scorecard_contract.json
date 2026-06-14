@@ -15,6 +15,30 @@
     "scorecard_owner": "assurance.validation",
     "runtime_evidence_owner": "gateway.runtime.agent_runtime"
   },
+  "secondary_promotion_guidance_contract": {
+    "source_artifact": "core/local/artifacts/agent_runtime_secondary_promotion_plan_guard_current.json",
+    "row_field": "secondary_promotion_guidance",
+    "summary_field": "secondary_promotion_plan",
+    "row_required_fields": [
+      "current_stage",
+      "readiness_status",
+      "recommended_next_action",
+      "promotion_effect"
+    ],
+    "promotion_effect_required_fields": [
+      "daily_driver_eligible_now",
+      "counts_as_golden_pair_equivalent",
+      "counts_as_native_intelligence_proof",
+      "rule"
+    ],
+    "guidance_only": true,
+    "must_not_affect_score": true,
+    "must_not_affect_classification": true,
+    "must_not_count_as_daily_driver": true,
+    "must_not_count_as_golden_pair_equivalent": true,
+    "must_not_count_as_native_intelligence_proof": true,
+    "rule": "The scorecard may expose secondary runtime promotion guidance for operators, but it must not convert that guidance into promotion evidence or classification authority."
+  },
   "scored_capabilities": [
     "registered",
     "adapter_contract",
@@ -23,6 +47,7 @@
     "context_continuity",
     "live_work_completion",
     "approval_pause",
+    "turn_steering_contract",
     "durable_receipts",
     "activity_trace",
     "practical_usability_loop",
@@ -40,7 +65,9 @@
     "native_transport_probe": "core/local/artifacts/agent_runtime_native_transport_probe_current.json",
     "transport_migration": "core/local/artifacts/agent_runtime_transport_migration_pressure_guard_current.json",
     "hard_failure_injection": "core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json",
-    "real_work_replay": "core/local/artifacts/agent_runtime_real_work_replay_guard_current.json"
+    "rendered_permission_steering": "core/local/artifacts/agent_runtime_rendered_permission_steering_contract_guard_current.json",
+    "real_work_replay": "core/local/artifacts/agent_runtime_real_work_replay_guard_current.json",
+    "secondary_promotion_plan": "core/local/artifacts/agent_runtime_secondary_promotion_plan_guard_current.json"
   },
   "score_policy": {
     "pass": 1,
@@ -56,6 +83,7 @@
     "score",
     "classification",
     "live_work_evidence",
+    "secondary_promotion_guidance",
     "capabilities",
     "next_actions"
   ],

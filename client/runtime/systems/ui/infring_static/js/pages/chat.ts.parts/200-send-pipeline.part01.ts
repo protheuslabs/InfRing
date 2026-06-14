@@ -161,15 +161,18 @@
         this._reconcileSendingState();
       }
       if (this.sending) {
+        var steerQueueId = this.nextPromptQueueId();
         this.messageQueue.push({
-          queue_id: this.nextPromptQueueId(),
+          queue_id: steerQueueId,
           queue_kind: 'prompt',
           queued_at: Date.now(),
           text: finalText,
           files: uploadedFiles,
           images: msgImages,
           agent_runtime_engine_id: selectedRuntimeEngineId,
-          trigger_source: sendTriggerSource
+          trigger_source: sendTriggerSource,
+          runtime_steer_direct: false,
+          silent_steer_notice: false
         });
         this.scheduleConversationPersist();
         return;
@@ -392,58 +395,17 @@
         }
         else {
           InfringToast.success(choice === 'always_allow_tool_call' ? 'Always allowed: ' + String(request.tool_id || 'tool call') : 'Permission allowed once');
-          var approveText = 'Permission approved: ' + self.permissionRequestPreview(request);
-          if (liveRow && typeof self.appendAgentRuntimeActivityToThinkingRow === 'function') {
-            self.appendAgentRuntimeActivityToThinkingRow({
-              activity_kind: 'permission_event',
-              provider_event_type: 'permission.approved',
-              status: 'completed',
-              display_text: approveText,
-              text: approveText,
-              engine_id: liveEngineId,
-              item_id: approvalId
-            }, liveEngineId);
-          }
-          if (payload && payload.execution_result && payload.execution_result.ok) {
-            if (liveRow && typeof self.appendAgentRuntimeActivityToThinkingRow === 'function') {
-              var executedText = String(payload.execution_result.display_text || payload.execution_result.path || 'Approved action completed.').trim();
-              if (payload.execution_result.path && executedText === String(payload.execution_result.path).trim()) executedText = 'Created ' + executedText + '.';
-              self.appendAgentRuntimeActivityToThinkingRow({
-                activity_kind: 'tool_call_event',
-                provider_event_type: 'permission.effect.executed',
-                status: 'completed',
-                display_text: executedText,
-                text: executedText,
-                engine_id: liveEngineId,
-                item_id: approvalId + ':effect'
-              }, liveEngineId);
-              var execEvents = Array.isArray(liveRow.agent_runtime_live_events) ? liveRow.agent_runtime_live_events.slice(-80) : [];
-              var execDurationMs = Math.max(0, Date.now() - Number(liveRow._stream_started_at || liveRow.ts || Date.now()));
-              var execTool = self.agentRuntimeActivityEventsToDecisionTool(execEvents, liveEngineId, execDurationMs);
-              self.finalizeAgentRuntimeThinkingRow(liveRow, {
-                text: executedText,
-                meta: 'runtime ' + (liveEngineId || 'agent_runtime') + ' | approval executed',
-                tools: execTool ? [execTool] : [],
-                agent_activity_events: execEvents,
-                agent_activity_event_count: execEvents.length,
-                result_ref: String(payload.execution_result.result_ref || ''),
-                receipt_ref: String(payload.execution_result.receipt_ref || ''),
-                pending_permission_request: request,
-                projection_kind: 'permission_request'
-              });
-              return payload;
-            }
-            if (typeof self.addNoticeEvent === 'function') {
-              self.addNoticeEvent({
-                notice_label: 'Approved ' + self.permissionRequestPreview(request) + '; executed approved action.',
-                notice_type: 'info',
-                ts: Date.now()
-              });
-            }
-            self.appendAgentRuntimeApprovalExecutionMessage(request, payload.execution_result);
-            return payload;
-          }
           var resume = request.resume_payload && typeof request.resume_payload === 'object' ? request.resume_payload : null;
+          var executionResult = payload && payload.execution_result && payload.execution_result.ok
+            ? payload.execution_result
+            : null;
+          if (executionResult && typeof self.addNoticeEvent === 'function') {
+            self.addNoticeEvent({
+              notice_label: 'Approved ' + self.permissionRequestPreview(request) + '; applied approved effect.',
+              notice_type: 'info',
+              ts: Date.now()
+            });
+          }
           if (resume && typeof self._sendAgentRuntimeSocketPayload === 'function') {
             var resumeAgentId = String(resume.agent_id || request.agent_id || (self.currentAgent && (self.currentAgent.id || self.currentAgent.session_id)) || '').trim();
             var resumeText = String(resume.final_text || resume.message || resume.text || '').trim();
@@ -463,17 +425,52 @@
                 self.setAgentLiveActivity(resumeAgentId, 'working', { optimistic: true, source: 'agent_runtime_permission_resume' });
               }
               setTimeout(function() {
-              self._sendAgentRuntimeSocketPayload(resumeAgentId, resumeText, resumeFiles, resumeImages, resumeEngineId, {
-                approval_id: approvalId,
-                resume_token: String(payload && payload.resume_token || request.resume_token || '').trim(),
-                approved_tool_id: String(request.tool_id || '').trim(),
-                approval_decision: choice,
-                approval_resume_action: String(payload && payload.resume_action || '').trim(),
-                decision_receipt_ref: String(payload && payload.decision_receipt_ref || '').trim(),
-                live_message_id: String(request.live_message_id || '').trim()
-              });
+                self._sendAgentRuntimeSocketPayload(resumeAgentId, resumeText, resumeFiles, resumeImages, resumeEngineId, {
+                  approval_id: approvalId,
+                  resume_token: String(payload && payload.resume_token || request.resume_token || '').trim(),
+                  approved_tool_id: String(request.tool_id || '').trim(),
+                  approval_decision: choice,
+                  approval_resume_action: String(payload && payload.resume_action || '').trim(),
+                  decision_receipt_ref: String(payload && payload.decision_receipt_ref || '').trim(),
+                  approved_effect_executed: !!executionResult,
+                  approved_effect_path: String(executionResult && executionResult.path || '').trim(),
+                  approved_effect_artifact_ref: String(executionResult && executionResult.artifact_ref || '').trim(),
+                  approved_effect_result_ref: String(executionResult && executionResult.result_ref || '').trim(),
+                  approved_effect_receipt_ref: String(executionResult && executionResult.receipt_ref || '').trim(),
+                  approved_effect_display_text: String(executionResult && executionResult.display_text || '').trim(),
+                  live_message_id: String(request.live_message_id || '').trim()
+                });
               }, 0);
+              return payload;
             }
+          }
+          if (executionResult) {
+            if (liveRow && typeof self.appendAgentRuntimeActivityToThinkingRow === 'function') {
+              var executedText = String(executionResult.display_text || executionResult.path || 'Approved action completed.').trim();
+              if (executionResult.path && executedText === String(executionResult.path).trim()) executedText = 'Created ' + executedText + '.';
+              var execEvents = Array.isArray(liveRow.agent_runtime_live_events) ? liveRow.agent_runtime_live_events.slice(-80) : [];
+              self.finalizeAgentRuntimeThinkingRow(liveRow, {
+                text: executedText,
+                meta: 'runtime ' + (liveEngineId || 'agent_runtime') + ' | approval executed',
+                tools: [],
+                agent_activity_events: execEvents,
+                agent_activity_event_count: execEvents.length,
+                result_ref: String(executionResult.result_ref || ''),
+                receipt_ref: String(executionResult.receipt_ref || ''),
+                pending_permission_request: request,
+                projection_kind: 'permission_request'
+              });
+              return payload;
+            }
+            if (typeof self.addNoticeEvent === 'function') {
+              self.addNoticeEvent({
+                notice_label: 'Approved ' + self.permissionRequestPreview(request) + '; executed approved action.',
+                notice_type: 'info',
+                ts: Date.now()
+              });
+            }
+            self.appendAgentRuntimeApprovalExecutionMessage(request, executionResult);
+            return payload;
           }
         }
         return payload;
@@ -569,6 +566,22 @@
       var row = event && typeof event === 'object' ? event : {};
       var kind = String(row.activity_kind || row.kind || row.type || '').toLowerCase();
       var providerType = String(row.provider_event_type || row.event_type || '').toLowerCase();
+      var timelineRole = String(row.timeline_role || row.role || '').toLowerCase();
+      if (
+        kind === 'user_steer' ||
+        providerType === 'steering.user_message' ||
+        timelineRole === 'user_steer'
+      ) {
+        return 'dialog';
+      }
+      if (
+        kind === 'permission_event' ||
+        kind === 'permission_request' ||
+        providerType.indexOf('permission.') === 0 ||
+        providerType.indexOf('approval.') === 0
+      ) {
+        return 'status';
+      }
       var text = String(row.display_text || row.text || row.summary || '').toLowerCase();
       var joined = kind + ' ' + providerType + ' ' + text;
       if (
@@ -621,11 +634,10 @@
       var itemIdTarget = String(event.target || event.path || event.file_path || event.filename || event.tool_name || event.name || '').trim();
       if (itemIdTarget) return itemIdTarget.slice(0, 900);
       var patterns = [
-        /^(?:Working on|Completed|Failed) command:\s*([\s\S]+)$/i,
-        /^(?:Working on|Completed|Failed) file change:\s*([\s\S]+)$/i,
-        /^(?:Working on|Completed|Failed) search:\s*([\s\S]+)$/i,
-        /^(?:Working on|Completed|Failed) tool:\s*([\s\S]+)$/i,
-        /^Reading file:\s*([\s\S]+)$/i,
+        /^(?:running|ran|failed running)\s+([\s\S]+)$/i,
+        /^(?:writing|wrote|failed writing)\s+([\s\S]+)$/i,
+        /^(?:searching|searched|failed searching)\s+([\s\S]+)$/i,
+        /^(?:reading|read|failed reading)\s+([\s\S]+)$/i,
         /^Runtime event:\s*([\s\S]+)$/i
       ];
       for (var i = 0; i < patterns.length; i += 1) {
@@ -809,8 +821,13 @@
           return String(part || '').replace(/\s+/g, ' ').trim();
         }).filter(Boolean).join('\n');
         if (!line) continue;
+        var lineKind = typeof this.agentRuntimeActivityLineKind === 'function'
+          ? String(this.agentRuntimeActivityLineKind(event) || '').trim()
+          : '';
+        if (lineKind && lineKind !== 'dialog' && lineKind !== 'status') continue;
         var lowerLine = line.toLowerCase();
         if (
+          /^(?:working on|completed|failed)\s+(?:command|file change|search|tool):/i.test(line) ||
           lowerLine.indexOf('final answer is shown in the message') >= 0 ||
           lowerLine.indexOf('assistant draft streamed') >= 0 ||
           lowerLine.indexOf('returned completed') >= 0 ||
@@ -940,10 +957,96 @@
       return tool;
     },
 
+    createAgentRuntimeSteerThinkingRow: function(engineId, agentId, steerText) {
+      var runtimeId = String(engineId || this.selectedAgentRuntimeEngineId || 'infring_native').trim() || 'infring_native';
+      var text = String(steerText || '').trim();
+      var now = Date.now();
+      var steerEvent = {
+        activity_kind: 'user_steer',
+        provider_event_type: 'steering.user_message',
+        timeline_role: 'user_steer',
+        status: 'completed',
+        display_text: text ? ('User steer: ' + text) : 'User steer received.',
+        text: text ? ('User steer: ' + text) : 'User steer received.',
+        engine_id: runtimeId,
+        item_id: 'steer-' + now
+      };
+      var traceLine = typeof this.agentRuntimeActivityEventToTraceLine === 'function'
+        ? this.agentRuntimeActivityEventToTraceLine(steerEvent, runtimeId)
+        : null;
+      var row = {
+        id: ++msgId,
+        role: 'agent',
+        text: 'thinking',
+        thinking_status: 'thinking',
+        meta: 'Agent runtime: ' + runtimeId + ' | steering',
+        thinking: true,
+        streaming: true,
+        tools: [],
+        ts: now,
+        _stream_started_at: now,
+        _stream_updated_at: now,
+        agent_id: String(agentId || '').trim(),
+        agent_name: this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '',
+        agent_runtime_engine_id: runtimeId,
+        agent_runtime_steer_pending: true,
+        agent_runtime_steer_text: text,
+        agent_runtime_live_events: [steerEvent],
+        agent_runtime_live_trace_rows: traceLine ? [traceLine] : []
+      };
+      this.messages.push(row);
+      this.scrollToBottom();
+      this.scheduleConversationPersist();
+      return row;
+    },
+
+    agentRuntimeAggregateLiveThinkingEvents: function(engineId, preferredRow) {
+      var runtimeId = String(engineId || '').trim();
+      var rows = Array.isArray(this.messages) ? this.messages : [];
+      var out = [];
+      var seen = Object.create(null);
+      for (var i = 0; i < rows.length; i += 1) {
+        var row = rows[i];
+        if (!row || typeof row !== 'object') continue;
+        if (runtimeId && String(row.agent_runtime_engine_id || '') !== runtimeId) continue;
+        if (!row.thinking && row !== preferredRow) continue;
+        var events = Array.isArray(row.agent_runtime_live_events) && row.agent_runtime_live_events.length
+          ? row.agent_runtime_live_events
+          : (Array.isArray(row.agent_activity_events) ? row.agent_activity_events : []);
+        for (var j = 0; j < events.length; j += 1) {
+          var event = events[j] && typeof events[j] === 'object' ? events[j] : null;
+          if (!event) continue;
+          var key = [
+            event.item_id || event.sequence_no || '',
+            event.provider_event_type || event.event_type || '',
+            event.activity_kind || event.kind || '',
+            event.status || '',
+            event.display_text || event.text || event.summary || ''
+          ].join('|');
+          if (seen[key]) continue;
+          seen[key] = true;
+          out.push(event);
+        }
+      }
+      return out.slice(-80);
+    },
+
+    removeAgentRuntimePeerThinkingRows: function(target, engineId) {
+      var runtimeId = String(engineId || (target && target.agent_runtime_engine_id) || '').trim();
+      var targetId = String(target && target.id || '').trim();
+      if (!runtimeId || !targetId || !Array.isArray(this.messages)) return;
+      this.messages = this.messages.filter(function(row) {
+        if (!row || String(row.id || '') === targetId) return true;
+        if (!row.thinking) return true;
+        return String(row.agent_runtime_engine_id || '') !== runtimeId;
+      });
+    },
+
     appendAgentRuntimeActivityToThinkingRow: function(event, engineId) {
       if (typeof this.agentRuntimeActivityVisibleInThinkingBubble === 'function' && !this.agentRuntimeActivityVisibleInThinkingBubble(event)) return;
       var rows = Array.isArray(this.messages) ? this.messages : [];
       var target = null;
+      var eventRow = event && typeof event === 'object' ? event : {};
       for (var i = rows.length - 1; i >= 0; i -= 1) {
         var row = rows[i];
         if (!row || !row.thinking) continue;
@@ -1024,6 +1127,7 @@
       target.agent_activity_event_count = Number(data.agent_activity_event_count || 0) || target.agent_activity_events.length;
       target.result_ref = String(data.result_ref || '').slice(0, 240);
       target.receipt_ref = String(data.receipt_ref || '').slice(0, 240);
+      target.agent_runtime_steer_pending = false;
       target.isHtml = false;
       target._typingVisual = false;
       target.pending_permission_request = data.pending_permission_request || null;
@@ -1031,6 +1135,7 @@
       target.projection_schema_version = data.projection_schema_version || 1;
       target._stream_updated_at = Date.now();
       this.markAgentMessageComplete(target);
+      this.removeAgentRuntimePeerThinkingRows(target, target.agent_runtime_engine_id);
       if (typeof this.syncActiveChatMessages === 'function') this.syncActiveChatMessages();
       if (typeof this.scheduleMessageRenderWindowUpdate === 'function') this.scheduleMessageRenderWindowUpdate();
       this.scheduleConversationPersist();
@@ -1102,17 +1207,6 @@
         thinkingMessage.agent_name = this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '';
         thinkingMessage._stream_updated_at = Date.now();
         if (!Number.isFinite(Number(thinkingMessage._stream_started_at))) thinkingMessage._stream_started_at = startedAt;
-        if (typeof this.appendAgentRuntimeActivityToThinkingRow === 'function') {
-          this.appendAgentRuntimeActivityToThinkingRow({
-            activity_kind: 'permission_event',
-            provider_event_type: 'permission.resume',
-            status: 'running',
-            display_text: 'Resuming agent turn after approval.',
-            text: 'Resuming agent turn after approval.',
-            engine_id: engineId,
-            item_id: approvalResume && approvalResume.approval_id || 'approval-resume'
-          }, engineId);
-        }
       } else {
         thinkingMessage = {
           id: ++msgId,
@@ -1133,6 +1227,7 @@
       }
       this.scrollToBottom();
       this.scheduleConversationPersist();
+      var drainQueueAfterRuntimeTurn = true;
 
       try {
         var contextRows = [];
@@ -1177,6 +1272,78 @@
           });
         }
         contextRows = contextRows.slice(-24);
+        var selectedProviderForRuntime = String((this.currentAgent && (this.currentAgent.model_provider || this.currentAgent.provider || this.currentAgent.selected_provider)) || '').slice(0, 120);
+        var selectedModelForRuntime = String((this.currentAgent && (this.currentAgent.model_name || this.currentAgent.runtime_model || this.currentAgent.selected_model || this.currentAgent.model)) || '').slice(0, 240);
+        var selectedRuntimeModelForRuntime = String((this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').slice(0, 240);
+        var modelProviderContext = {
+          source_authority: 'shell_agent_runtime_model_projection',
+          selected_runtime_engine_id: engineId,
+          secrets_included: false
+        };
+        if (engineId === 'infring_native') {
+          modelProviderContext.source_authority = 'shell_selected_model_projection';
+          modelProviderContext.provider = selectedProviderForRuntime;
+          modelProviderContext.model = selectedModelForRuntime;
+          modelProviderContext.runtime_model = selectedRuntimeModelForRuntime;
+        } else {
+          var runtimeEngineRowForModel = typeof this.activeRuntimeEngineRow === 'function' ? this.activeRuntimeEngineRow() : null;
+          if (!runtimeEngineRowForModel || String(runtimeEngineRowForModel.engine_id || '').trim() !== engineId) {
+            var runtimeRowsForModel = Array.isArray(this.runtimeEngineRows) ? this.runtimeEngineRows : [];
+            for (var rtm = 0; rtm < runtimeRowsForModel.length; rtm += 1) {
+              if (String(runtimeRowsForModel[rtm] && runtimeRowsForModel[rtm].engine_id || '').trim() === engineId) {
+                runtimeEngineRowForModel = runtimeRowsForModel[rtm];
+                break;
+              }
+            }
+          }
+          var runtimeMenuForModel = runtimeEngineRowForModel && runtimeEngineRowForModel.available_models && typeof runtimeEngineRowForModel.available_models === 'object'
+            ? runtimeEngineRowForModel.available_models
+            : runtimeEngineRowForModel && runtimeEngineRowForModel.model_menu && typeof runtimeEngineRowForModel.model_menu === 'object'
+            ? runtimeEngineRowForModel.model_menu
+            : null;
+          var runtimeModelRowsForModel = runtimeMenuForModel && Array.isArray(runtimeMenuForModel.rows)
+            ? runtimeMenuForModel.rows
+            : runtimeMenuForModel && Array.isArray(runtimeMenuForModel.model_rows)
+            ? runtimeMenuForModel.model_rows
+            : [];
+          var runtimeModelCandidateForModel = String(selectedRuntimeModelForRuntime || selectedModelForRuntime || '').trim().toLowerCase();
+          var matchedRuntimeModelForModel = null;
+          if (runtimeMenuForModel && (runtimeMenuForModel.framework_native_models || runtimeMenuForModel.source === 'framework_native') && runtimeModelCandidateForModel) {
+            for (var rmfm = 0; rmfm < runtimeModelRowsForModel.length && !matchedRuntimeModelForModel; rmfm += 1) {
+              var runtimeModelRowForModel = runtimeModelRowsForModel[rmfm] || {};
+              var runtimeModelIdsForModel = [
+                runtimeModelRowForModel.id,
+                runtimeModelRowForModel.qualified_model_ref,
+                runtimeModelRowForModel.model,
+                runtimeModelRowForModel.model_name,
+                runtimeModelRowForModel.adapter_model_arg,
+                runtimeModelRowForModel.display_name
+              ];
+              for (var rmid = 0; rmid < runtimeModelIdsForModel.length; rmid += 1) {
+                if (String(runtimeModelIdsForModel[rmid] || '').trim().toLowerCase() === runtimeModelCandidateForModel) {
+                  matchedRuntimeModelForModel = runtimeModelRowForModel;
+                  break;
+                }
+              }
+            }
+          }
+          if (matchedRuntimeModelForModel) {
+            modelProviderContext.source_authority = 'shell_agent_runtime_framework_model_projection';
+            modelProviderContext.provider = String(matchedRuntimeModelForModel.provider || selectedProviderForRuntime || '').slice(0, 120);
+            modelProviderContext.model = String(matchedRuntimeModelForModel.adapter_model_arg || matchedRuntimeModelForModel.model || matchedRuntimeModelForModel.model_name || matchedRuntimeModelForModel.id || '').slice(0, 240);
+            modelProviderContext.runtime_model = modelProviderContext.model;
+            modelProviderContext.runtime_model_source = 'framework_native';
+          } else if (runtimeMenuForModel && (runtimeMenuForModel.inherit_active_llm_when_unconfigured || runtimeMenuForModel.credential_inheritance_allowed || runtimeMenuForModel.source === 'inherited_infring')) {
+            modelProviderContext.source_authority = 'shell_agent_runtime_inherited_model_projection';
+            modelProviderContext.provider = selectedProviderForRuntime;
+            modelProviderContext.model = selectedModelForRuntime;
+            modelProviderContext.runtime_model = selectedRuntimeModelForRuntime;
+            modelProviderContext.runtime_model_source = 'inherited_infring_llm';
+          } else {
+            modelProviderContext.runtime_model_source = 'framework_default';
+            modelProviderContext.framework_default = true;
+          }
+        }
         var turnRequest = {
           engine_id: engineId,
           agent_id: targetAgentId,
@@ -1186,14 +1353,7 @@
           turn_trigger_source: String(opts.trigger_source || 'composer').slice(0, 80),
           cwd: typeof this.activeWorkspacePath === 'function' ? this.activeWorkspacePath() : '',
           active_workspace: typeof this.activeWorkspaceTurnContextProjection === 'function' ? this.activeWorkspaceTurnContextProjection() : null,
-      model_provider_context: {
-        source_authority: 'shell_selected_model_projection',
-        provider: String((this.currentAgent && (this.currentAgent.model_provider || this.currentAgent.provider || this.currentAgent.selected_provider)) || '').slice(0, 120),
-        model: String((this.currentAgent && (this.currentAgent.model_name || this.currentAgent.runtime_model || this.currentAgent.selected_model || this.currentAgent.model)) || '').slice(0, 240),
-        runtime_model: String((this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').slice(0, 240),
-        selected_runtime_engine_id: engineId,
-        secrets_included: false
-      },
+          model_provider_context: modelProviderContext,
           attachments: Array.isArray(uploadedFiles) ? uploadedFiles.slice(0, 12) : [],
           permission_policy: this.agentRuntimePermissionPolicyProjection(),
           approval_resume: approvalResume ? {
@@ -1203,6 +1363,12 @@
             approval_decision: String(approvalResume.approval_decision || '').slice(0, 80),
             approval_resume_action: String(approvalResume.approval_resume_action || '').slice(0, 160),
             decision_receipt_ref: String(approvalResume.decision_receipt_ref || '').slice(0, 240),
+            approved_effect_executed: approvalResume.approved_effect_executed === true,
+            approved_effect_path: String(approvalResume.approved_effect_path || '').slice(0, 600),
+            approved_effect_artifact_ref: String(approvalResume.approved_effect_artifact_ref || '').slice(0, 600),
+            approved_effect_result_ref: String(approvalResume.approved_effect_result_ref || '').slice(0, 600),
+            approved_effect_receipt_ref: String(approvalResume.approved_effect_receipt_ref || '').slice(0, 600),
+            approved_effect_display_text: String(approvalResume.approved_effect_display_text || '').slice(0, 1000),
             source_authority: 'shell_permission_resume_projection'
           } : null,
           context_projection: {
@@ -1220,6 +1386,10 @@
         }).catch(function() {
           return InfringAPI.post('/api/shell-socket/agent-runtime/turn', turnRequest);
         });
+        var latestRuntimeThinkingMessage = this.findAgentRuntimeLiveThinkingRow
+          ? this.findAgentRuntimeLiveThinkingRow(engineId)
+          : null;
+        if (latestRuntimeThinkingMessage) thinkingMessage = latestRuntimeThinkingMessage;
         var projectedPendingPermissionRequest = res && res.pending_permission_request
           ? res.pending_permission_request
           : (res && res.permission_request ? res.permission_request : null);
@@ -1229,10 +1399,16 @@
           pendingPermissionRequest.projection_schema_version = 1;
           var pendingRuntimeDurationMs = Math.max(0, Date.now() - startedAt);
           var pendingRuntimeDuration = this.formatResponseDuration(pendingRuntimeDurationMs);
-          var pendingResponseActivityEvents = Array.isArray(res && res.agent_activity_events) ? res.agent_activity_events : [];
+          var pendingResponseActivityEvents = Array.isArray(res && res.agent_activity_events)
+            ? res.agent_activity_events
+            : (Array.isArray(res && res.activity_events) ? res.activity_events : []);
           var pendingFinalActivityEvents = pendingResponseActivityEvents.length ? pendingResponseActivityEvents : streamedActivityEvents;
           var pendingLiveEvents = Array.isArray(thinkingMessage.agent_runtime_live_events) ? thinkingMessage.agent_runtime_live_events.slice(-80) : [];
           if (pendingLiveEvents.length) pendingFinalActivityEvents = pendingLiveEvents;
+          var pendingAggregatedEvents = typeof this.agentRuntimeAggregateLiveThinkingEvents === 'function'
+            ? this.agentRuntimeAggregateLiveThinkingEvents(engineId, thinkingMessage)
+            : [];
+          if (pendingAggregatedEvents.length) pendingFinalActivityEvents = pendingAggregatedEvents;
           var pendingDialogExtra = typeof this.agentRuntimePermissionRequestToDecisionDialog === 'function'
             ? this.agentRuntimePermissionRequestToDecisionDialog(pendingPermissionRequest)
             : '';
@@ -1242,6 +1418,17 @@
             pendingRuntimeDurationMs,
             pendingDialogExtra
           );
+          var pendingLiveTraceRows = Array.isArray(thinkingMessage.agent_runtime_live_trace_rows)
+            ? thinkingMessage.agent_runtime_live_trace_rows.slice(-80)
+            : [];
+          if (pendingDecisionTool && pendingLiveTraceRows.length) {
+            pendingDecisionTool.agent_runtime_trace_rows = typeof this.normalizeThoughtTraceRows === 'function'
+              ? this.normalizeThoughtTraceRows(
+                pendingLiveTraceRows.concat(Array.isArray(pendingDecisionTool.agent_runtime_trace_rows) ? pendingDecisionTool.agent_runtime_trace_rows : []),
+                pendingDecisionTool.agent_decision_dialog_text || pendingDecisionTool.display_text || ''
+              )
+              : pendingLiveTraceRows.concat(Array.isArray(pendingDecisionTool.agent_runtime_trace_rows) ? pendingDecisionTool.agent_runtime_trace_rows : []);
+          }
           var pendingToolId = String(pendingPermissionRequest.tool_id || pendingPermissionRequest.capability || 'tool call').trim();
           var pendingMeta = 'runtime ' + engineId + ' | permission required';
           if (pendingRuntimeDuration) pendingMeta += ' | ' + pendingRuntimeDuration;
@@ -1302,6 +1489,7 @@
           this.scheduleConversationPersist();
           if (typeof this.syncActiveChatMessages === 'function') this.syncActiveChatMessages();
           if (typeof this.scheduleMessageRenderWindowUpdate === 'function') this.scheduleMessageRenderWindowUpdate();
+          drainQueueAfterRuntimeTurn = false;
           return;
         }
         var runtimePayloadText = String((res && (res.display_text || res.output_text || res.text || res.response || res.output_preview)) || '').trim();
@@ -1312,11 +1500,29 @@
         if (res && res.status) runtimeMeta += ' | ' + String(res.status);
         if (runtimeDuration) runtimeMeta += ' | ' + runtimeDuration;
         if (res && res.result_ref) runtimeMeta += ' | result';
-        var responseActivityEvents = Array.isArray(res && res.agent_activity_events) ? res.agent_activity_events : [];
+        var responseActivityEvents = Array.isArray(res && res.agent_activity_events)
+          ? res.agent_activity_events
+          : (Array.isArray(res && res.activity_events) ? res.activity_events : []);
         var finalActivityEvents = responseActivityEvents.length ? responseActivityEvents : streamedActivityEvents;
         var accumulatedLiveEvents = Array.isArray(thinkingMessage.agent_runtime_live_events) ? thinkingMessage.agent_runtime_live_events.slice(-80) : [];
         if (accumulatedLiveEvents.length) finalActivityEvents = accumulatedLiveEvents;
+        var aggregatedLiveEvents = typeof this.agentRuntimeAggregateLiveThinkingEvents === 'function'
+          ? this.agentRuntimeAggregateLiveThinkingEvents(engineId, thinkingMessage)
+          : [];
+        if (aggregatedLiveEvents.length) finalActivityEvents = aggregatedLiveEvents;
         var runtimeDecisionTool = this.agentRuntimeActivityEventsToDecisionTool(finalActivityEvents, engineId, runtimeDurationMs);
+        var responseTraceRows = res && res.activity_trace && Array.isArray(res.activity_trace.rows) ? res.activity_trace.rows : [];
+        var finalLiveTraceRows = Array.isArray(thinkingMessage.agent_runtime_live_trace_rows)
+          ? thinkingMessage.agent_runtime_live_trace_rows.slice(-80)
+          : [];
+        if (runtimeDecisionTool && (responseTraceRows.length || finalLiveTraceRows.length)) {
+          runtimeDecisionTool.agent_runtime_trace_rows = typeof this.normalizeThoughtTraceRows === 'function'
+            ? this.normalizeThoughtTraceRows(
+              finalLiveTraceRows.concat(responseTraceRows).concat(Array.isArray(runtimeDecisionTool.agent_runtime_trace_rows) ? runtimeDecisionTool.agent_runtime_trace_rows : []),
+              runtimeDecisionTool.agent_decision_dialog_text || runtimeDecisionTool.display_text || ''
+            )
+            : finalLiveTraceRows.concat(responseTraceRows).concat(Array.isArray(runtimeDecisionTool.agent_runtime_trace_rows) ? runtimeDecisionTool.agent_runtime_trace_rows : []);
+        }
         var runtimeActivityTools = runtimeDecisionTool ? [runtimeDecisionTool] : [];
         if (runtimeActivityTools.length && (res && (res.receipt_ref || res.result_ref))) {
           runtimeActivityTools = runtimeActivityTools.map(function(row) {
@@ -1405,6 +1611,17 @@
         this.tokenCount = 0;
         this._clearTypingTimeout();
         this.setAgentLiveActivity(targetAgentId, 'idle', { optimistic: true, source: 'agent_runtime_socket' });
+        if (
+          drainQueueAfterRuntimeTurn &&
+          Array.isArray(this.messageQueue) &&
+          this.messageQueue.length &&
+          typeof this._processQueue === 'function'
+        ) {
+          var selfRuntimeQueueDrain = this;
+          this.$nextTick(function() {
+            if (!selfRuntimeQueueDrain.sending) selfRuntimeQueueDrain._processQueue();
+          });
+        }
       }
     },
 

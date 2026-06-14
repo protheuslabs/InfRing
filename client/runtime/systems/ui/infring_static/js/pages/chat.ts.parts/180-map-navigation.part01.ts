@@ -65,7 +65,7 @@
       this.suppressMapPreview = false;
       this.selectedMessageDomId = domId;
       this.mapStepIndex = idx;
-      this.setHoveredMessage(msg, idx);
+      this.setHoveredMessage(msg, idx, { direct: false });
       if (typeof this.showDashboardPopup !== 'function') return;
       this.showDashboardPopup('chat-map-item:' + domId, this.messageMapPopupTitle(msg), ev, {
         source: this.chatMapPopupSource(),
@@ -103,7 +103,7 @@
       }
     },
 
-    setHoveredMessage: function(msg, idx) {
+    setHoveredMessage: function(msg, idx, options) {
       if (this._hoverClearTimer) {
         clearTimeout(this._hoverClearTimer);
         this._hoverClearTimer = 0;
@@ -115,7 +115,11 @@
       }
       var domId = this.messageDomId(msg, idx);
       this.hoveredMessageDomId = domId;
-      this.directHoveredMessageDomId = domId;
+      if (options && options.direct) {
+        this.directHoveredMessageDomId = domId;
+      } else {
+        this.directHoveredMessageDomId = '';
+      }
     },
 
     clearHoveredMessage: function() {

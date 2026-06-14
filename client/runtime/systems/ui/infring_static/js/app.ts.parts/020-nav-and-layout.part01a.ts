@@ -397,11 +397,16 @@ function app() {
     uiBackgroundTemplate: (() => {
       var service = infringTaskbarDockService();
       if (service && typeof service.readDisplayBackground === 'function') return service.readDisplayBackground();
-      var mode = 'light-wood';
+      var mode = 'default-grid';
       try {
+        var migrationKey = 'infring-ui-background-template-default-grid-migrated';
         var rawDisplaySettings = localStorage.getItem('infring-display-settings') || '';
         var displaySettings = rawDisplaySettings ? JSON.parse(rawDisplaySettings) : {};
         mode = String(displaySettings && displaySettings.background ? displaySettings.background : mode);
+        if (mode === 'light-wood' && localStorage.getItem(migrationKey) !== '1') {
+          mode = 'default-grid';
+          localStorage.setItem(migrationKey, '1');
+        }
         if (mode === 'sand') {
           mode = 'light-wood';
           displaySettings = displaySettings && typeof displaySettings === 'object' ? displaySettings : {};
@@ -414,8 +419,8 @@ function app() {
           localStorage.setItem('infring-display-settings', JSON.stringify(displaySettings));
         }
       } catch (_) {}
-      if (mode === 'unsplash-paper') mode = 'light-wood';
-      if (mode !== 'default-grid' && mode !== 'light-wood' && mode !== 'sand') mode = 'light-wood';
+      if (mode === 'unsplash-paper') mode = 'default-grid';
+      if (mode !== 'default-grid' && mode !== 'light-wood' && mode !== 'sand') mode = 'default-grid';
       try {
         document.documentElement.setAttribute('data-ui-background-template', mode);
       } catch (_) {}

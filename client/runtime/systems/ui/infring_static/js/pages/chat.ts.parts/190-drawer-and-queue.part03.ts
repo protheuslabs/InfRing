@@ -129,6 +129,251 @@
       return Math.max(0, seconds);
     },
 
+    normalizeThoughtLineText: function(value) {
+      return String(value == null ? '' : value)
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .map(function(part) { return String(part || '').replace(/\s+/g, ' ').trim(); })
+        .filter(function(part) {
+          if (!part) return false;
+          return !/^(?:working on|completed|failed|running|ran)\s+(?:command|file change|search|tool):?/i.test(part);
+        })
+        .join('\n')
+        .trim();
+    },
+
+    mergeThoughtDialogText: function() {
+      var lines = [];
+      var seen = Object.create(null);
+      for (var i = 0; i < arguments.length; i += 1) {
+        var value = this.normalizeThoughtLineText(arguments[i]);
+        if (!value) continue;
+        value.split('\n').forEach(function(part) {
+          var line = String(part || '').replace(/\s+/g, ' ').trim();
+          if (!line) return;
+          var key = line.toLowerCase();
+          if (seen[key]) return;
+          seen[key] = true;
+          lines.push(line);
+        });
+      }
+      return lines.join('\n');
+    },
+
+    normalizeThoughtTraceRows: function(traceRows, dialogText) {
+      var rows = Array.isArray(traceRows) ? traceRows : [];
+      var out = [];
+      var seen = Object.create(null);
+      function addTraceRow(row, fallbackId) {
+        var item = row && typeof row === 'object' ? row : {};
+        var text = String(item.text || item.title || item.display_text || item.summary || '').replace(/\r\n/g, '\n').trim();
+        if (!text) return;
+        text.split('\n').forEach(function(part) {
+          var line = String(part || '').replace(/\s+/g, ' ').trim();
+          if (!line) return;
+          var kind = String(item.line_kind || item.activity_kind || item.kind || '').trim() || 'dialog';
+          var kindSource = (kind + ' ' + line).toLowerCase();
+          if (/file|edit|patch|diff|write|create/.test(kindSource)) kind = 'write';
+          else if (/read|search|grep|rg|find|list|scan|inspect|check/.test(kindSource)) kind = 'read';
+          else if (/command|exec|shell|bash|tool|function/.test(kindSource)) kind = 'tool';
+          var key = (kind + '|' + line).toLowerCase();
+          if (seen[key]) return;
+          seen[key] = true;
+          out.push({
+            id: String(item.id || item.activity_key || (kind + '-' + fallbackId + '-' + out.length)).slice(0, 180),
+            text: line,
+            line_kind: kind,
+            state: String(item.state || item.status || 'done').trim() || 'done',
+            shimmer: false
+          });
+        });
+      }
+      for (var i = 0; i < rows.length && out.length < 80; i += 1) addTraceRow(rows[i], i);
+      var dialog = this.normalizeThoughtLineText(dialogText);
+      if (dialog) {
+        dialog.split('\n').forEach(function(part, idx) {
+          var line = String(part || '').replace(/\s+/g, ' ').trim();
+          if (!line || out.length >= 80) return;
+          var key = ('dialog|' + line).toLowerCase();
+          var looseKey = line.toLowerCase();
+          var hasLooseMatch = out.some(function(row) {
+            return String(row && row.text || '').replace(/\s+/g, ' ').trim().toLowerCase() === looseKey;
+          });
+          if (seen[key] || hasLooseMatch) return;
+          seen[key] = true;
+          out.push({
+            id: 'dialog-' + idx + '-' + looseKey.slice(0, 80).replace(/[^a-z0-9]+/g, '-'),
+            text: line,
+            line_kind: 'dialog',
+            state: 'done',
+            shimmer: false
+          });
+        });
+      }
+      return out.slice(-80);
+    },
+
+    thoughtTraceFileActionVerb: function(kind) {
+      return String(kind || '') === 'write' ? 'Edited' : 'Read';
+    },
+
+    extractThoughtTraceFileLabel: function(text, kind) {
+      var value = String(text || '').replace(/\r\n/g, '\n').trim();
+      if (!value) return '';
+      var quoted = value.match(/`([^`\n]+)`/);
+      if (quoted && quoted[1]) return quoted[1].trim();
+      var colon = value.match(/(?:file|path|changed|edited|wrote|written|created|updated|read|reading)\s*:?\s+(.+)$/i);
+      if (colon && colon[1]) return colon[1].trim();
+      var stripped = value.replace(/^(?:working on|completed|finished|failed|started|running|ran)\s+/i, '');
+      stripped = stripped.replace(/^(?:read|reading|edit|edited|editing|write|wrote|writing|created|creating|updated|updating)\s+(?:file\s+|files\s+)?/i, '');
+      stripped = stripped.replace(/^(?:file change|file)\s*:?\s*/i, '');
+      stripped = stripped.trim();
+      if (!stripped || stripped === value) return value;
+      return stripped;
+    },
+
+    compactThoughtTraceRows: function(traceRows) {
+      var rows = Array.isArray(traceRows) ? traceRows : [];
+      var compacted = [];
+      var group = null;
+      var self = this;
+      function flush() {
+        if (!group) return;
+        var count = group.children.length;
+        var verb = typeof self.thoughtTraceFileActionVerb === 'function'
+          ? self.thoughtTraceFileActionVerb(group.line_kind)
+          : (String(group.line_kind || '') === 'write' ? 'Edited' : 'Read');
+        compacted.push({
+          id: group.id,
+          text: verb + ' ' + count + ' ' + (count === 1 ? 'file' : 'files'),
+          line_kind: group.line_kind,
+          state: group.state,
+          status: group.status,
+          shimmer: false,
+          children: group.children
+        });
+        group = null;
+      }
+      for (var i = 0; i < rows.length; i += 1) {
+        var item = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        var kind = String(item.line_kind || '').trim();
+        if (kind !== 'read' && kind !== 'write') {
+          flush();
+          compacted.push(item);
+          continue;
+        }
+        var label = typeof this.extractThoughtTraceFileLabel === 'function'
+          ? this.extractThoughtTraceFileLabel(item.text, kind)
+          : String(item.text || '').trim();
+        var verb = typeof this.thoughtTraceFileActionVerb === 'function'
+          ? this.thoughtTraceFileActionVerb(kind)
+          : (kind === 'write' ? 'Edited' : 'Read');
+        var child = {
+          id: String(item.id || (kind + '-file-' + i)).slice(0, 180) + '-detail',
+          text: verb + ' ' + label,
+          line_kind: kind,
+          state: item.state || 'done',
+          status: item.status || item.state || 'done',
+          shimmer: false
+        };
+        if (!group || group.line_kind !== kind || group.state !== item.state) {
+          flush();
+          group = {
+            id: 'file-group-' + kind + '-' + String(item.id || i).slice(0, 140),
+            line_kind: kind,
+            state: item.state || 'done',
+            status: item.status || item.state || 'done',
+            children: []
+          };
+        }
+        group.children.push(child);
+      }
+      flush();
+      return compacted;
+    },
+
+    normalizeMessageThoughtTools: function(msg, options) {
+      if (!msg || !Array.isArray(msg.tools)) return [];
+      var opts = options && typeof options === 'object' ? options : {};
+      var tools = msg.tools;
+      var nonThought = [];
+      var thoughtRows = [];
+      var runtimeThought = null;
+      var genericSeen = Object.create(null);
+      for (var i = 0; i < tools.length; i += 1) {
+        var tool = tools[i];
+        if (!tool || typeof tool !== 'object') continue;
+        if (!this.isThoughtTool(tool)) {
+          nonThought.push(tool);
+          continue;
+        }
+        var isRuntimeThought = !!(tool.agent_decision_dialog || tool.agent_runtime_decision_dialog || tool.agent_runtime_activity_trace);
+        if (isRuntimeThought) {
+          if (!runtimeThought) {
+            runtimeThought = Object.assign({}, tool);
+            runtimeThought.agent_decision_dialog = true;
+            runtimeThought.agent_runtime_decision_dialog = true;
+            runtimeThought.agent_runtime_activity_trace = true;
+          } else {
+            runtimeThought.duration_ms = Math.max(Number(runtimeThought.duration_ms || 0) || 0, Number(tool.duration_ms || tool.elapsed_ms || 0) || 0);
+            runtimeThought.expanded = !!(runtimeThought.expanded || tool.expanded);
+            runtimeThought.agent_decision_dialog_text = this.mergeThoughtDialogText(
+              runtimeThought.agent_decision_dialog_text,
+              runtimeThought.input,
+              runtimeThought.input_preview,
+              runtimeThought.result_preview,
+              runtimeThought.display_text,
+              tool.agent_decision_dialog_text,
+              tool.input,
+              tool.input_preview,
+              tool.result_preview,
+              tool.display_text
+            );
+            runtimeThought.agent_runtime_trace_rows = this.normalizeThoughtTraceRows(
+              (Array.isArray(runtimeThought.agent_runtime_trace_rows) ? runtimeThought.agent_runtime_trace_rows : []).concat(Array.isArray(tool.agent_runtime_trace_rows) ? tool.agent_runtime_trace_rows : []),
+              runtimeThought.agent_decision_dialog_text
+            );
+          }
+          continue;
+        }
+        var genericText = this.mergeThoughtDialogText(tool.input, tool.input_preview, tool.result_preview, tool.display_text, tool.summary);
+        var genericKey = (genericText || String(tool.id || tool.name || i)).toLowerCase();
+        if (genericSeen[genericKey]) continue;
+        genericSeen[genericKey] = true;
+        thoughtRows.push(tool);
+      }
+      if (runtimeThought) {
+        var runtimeDialog = this.mergeThoughtDialogText(
+          runtimeThought.agent_decision_dialog_text,
+          runtimeThought.input,
+          runtimeThought.input_preview,
+          runtimeThought.result_preview,
+          runtimeThought.display_text
+        );
+        runtimeThought.agent_decision_dialog_text = runtimeDialog;
+        runtimeThought.input = runtimeDialog;
+        runtimeThought.input_preview = runtimeDialog;
+        runtimeThought.result_preview = runtimeDialog;
+        runtimeThought.display_text = runtimeDialog;
+        runtimeThought.summary = 'Agent decision dialog';
+        runtimeThought.agent_runtime_trace_rows = this.normalizeThoughtTraceRows(runtimeThought.agent_runtime_trace_rows, runtimeDialog);
+        thoughtRows.unshift(runtimeThought);
+      }
+      if (opts.commit === true) msg.tools = thoughtRows.concat(nonThought);
+      return thoughtRows;
+    },
+
+    messageThoughtTools: function(msg) {
+      return this.normalizeMessageThoughtTools(msg);
+    },
+
+    messageNonThoughtTools: function(msg) {
+      var tools = Array.isArray(msg && msg.tools) ? msg.tools : [];
+      return tools.filter(function(tool) {
+        return !this.isThoughtTool(tool);
+      }, this);
+    },
+
     thoughtToolLabel: function(tool) {
       if (tool && (tool.agent_decision_dialog || tool.agent_runtime_decision_dialog || tool.agent_runtime_activity_trace)) {
         var seconds = this.thoughtToolDurationSeconds(tool);
@@ -253,19 +498,53 @@
           row.display_text ||
           ''
         ).trim();
-        if (dialog) {
-          sections.push({
-            id: 'agent-decision-dialog',
-            label: 'Agent decision dialog',
-            text: this.formatToolOutputForClipboard(dialog) || dialog,
-            trace_rows: traceRows
-          });
-        } else if (traceRows.length) {
+        var normalizedTraceRows = this.normalizeThoughtTraceRows(traceRows, dialog);
+        var projectedTraceRows = typeof this.compactThoughtTraceRows === 'function'
+          ? this.compactThoughtTraceRows(normalizedTraceRows)
+          : normalizedTraceRows;
+        if (projectedTraceRows.length) {
           sections.push({
             id: 'agent-decision-dialog',
             label: 'Agent decision dialog',
             text: '',
-            trace_rows: traceRows
+            trace_rows: projectedTraceRows
+          });
+        } else if (dialog) {
+          sections.push({
+            id: 'agent-decision-dialog',
+            label: 'Agent decision dialog',
+            text: dialog
+          });
+        }
+        return sections;
+      }
+      if (this.isThoughtTool(row)) {
+        var thoughtDialog = this.mergeThoughtDialogText(
+          row.agent_decision_dialog_text,
+          row.input,
+          row.input_preview,
+          row.result,
+          row.result_preview,
+          row.output_preview,
+          row.display_text,
+          row.summary
+        );
+        var thoughtTraceRows = this.normalizeThoughtTraceRows(row.agent_runtime_trace_rows, thoughtDialog);
+        var projectedThoughtTraceRows = typeof this.compactThoughtTraceRows === 'function'
+          ? this.compactThoughtTraceRows(thoughtTraceRows)
+          : thoughtTraceRows;
+        if (projectedThoughtTraceRows.length) {
+          sections.push({
+            id: 'thought-dialog',
+            label: 'Thought dialog',
+            text: '',
+            trace_rows: projectedThoughtTraceRows
+          });
+        } else if (thoughtDialog) {
+          sections.push({
+            id: 'thought-dialog',
+            label: 'Thought dialog',
+            text: thoughtDialog
           });
         }
         return sections;
@@ -455,9 +734,32 @@
         this._sendTerminalPayload(next.command);
         return;
       }
+      var queueKind = String(next && next.queue_kind || '').trim();
       var nextText = String(next && next.text ? next.text : '');
       var nextFiles = Array.isArray(next && next.files) ? next.files : [];
       var nextImages = Array.isArray(next && next.images) ? next.images : [];
+      if (queueKind === 'agent_runtime_steer_followup') {
+        var steerAgent = this.ensureValidCurrentAgent({ clear_when_missing: true });
+        var steerAgentId = String((next && next.agent_id) || (steerAgent && steerAgent.id) || (this.currentAgent && this.currentAgent.id) || '').trim();
+        if (!steerAgentId) {
+          var selfSteer = this;
+          this.$nextTick(function() { selfSteer._processQueue(); });
+          return;
+        }
+        this._sendPayload(
+          nextText || 'Continue with the queued user steering instruction.',
+          nextFiles,
+          [],
+          {
+            from_queue: true,
+            queue_id: next && next.queue_id ? String(next.queue_id) : '',
+            agent_id: steerAgentId,
+            agent_runtime_engine_id: String((next && next.agent_runtime_engine_id) || this.selectedAgentRuntimeEngineId || 'infring_native'),
+            trigger_source: 'steer_followup'
+          }
+        );
+        return;
+      }
       if (!nextText.trim() && !nextFiles.length) {
         var self = this;
         this.$nextTick(function() { self._processQueue(); });

@@ -8,6 +8,10 @@
 
 'use strict';
 
+const {
+  resolveAgentRuntimeEngineId,
+} = require('./agent_runtime_engine_identity.ts');
+
 function cleanText(value, maxLen = 240) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen);
 }
@@ -508,9 +512,10 @@ function createAgentRuntimeCommandCatalogStore(options = {}) {
     };
 
   function selectedEngineId(body) {
-    return cleanEngineId(body && (body.engine_id || body.engineId)) ||
-      cleanEngineId(loadSelection() && loadSelection().engine_id) ||
-      'infring_native';
+    return resolveAgentRuntimeEngineId(body, {
+      loadSelection,
+      defaultEngineId: 'infring_native',
+    });
   }
 
   function agentRuntimeCommandCatalogProjection(traceId, body = {}) {

@@ -1,9 +1,3 @@
-// Canonical Shell source-of-truth: assembled runtime chat surface.
-// Decomposition debt lives under ./chat.ts.parts/** and must not count as additive production source.
-// Infring Chat Page — Agent chat with markdown + streaming
-'use strict';
-
-
 // Infring Chat Page — Agent chat with markdown + streaming
 'use strict';
 
@@ -49,6 +43,8 @@ function chatPage() {
     _agentRuntimeSlashCommandProjectionAt: 0,
     _agentRuntimeSlashCommandProjectionEngineId: '',
     _agentRuntimeSlashCommandProjectionLoading: false,
+    slashCommandFeedback: null,
+    _slashCommandFeedbackTimer: 0,
     attachments: [],
     pasteToMarkdownEnabled: true,
     pasteToMarkdownCharThreshold: 2000,
@@ -512,7 +508,6 @@ function chatPage() {
         description: 'Warm, approachable, and collaborative.',
         system_suffix: 'Vibe directive: keep the tone warm, approachable, and encouraging while staying concise.',
       },
-
       {
         id: 'direct',
         name: 'Direct',
@@ -1031,7 +1026,6 @@ function chatPage() {
       } catch (_) {}
     },
 
-
     hydrateInputHistoryFromCache: function(explicitMode, explicitAgentId) {
       var mode = this.inputHistoryMode(explicitMode);
       var rows = this.inputHistoryEntries(mode);
@@ -1073,7 +1067,6 @@ function chatPage() {
       var mode = this.inputHistoryMode(explicitMode);
       return mode === 'terminal' ? this.terminalInputHistory : this.chatInputHistory;
     },
-
 
 
     resetInputHistoryNavigation: function(explicitMode) {
@@ -1287,7 +1280,6 @@ function chatPage() {
     selectedFreshInitModelSuggestion: function() {
       var selected = String(this.freshInitModelSelection || '').trim();
       var rows = Array.isArray(this.freshInitModelSuggestions) ? this.freshInitModelSuggestions : [];
-
       for (var i = 0; i < rows.length; i += 1) {
         if (this.normalizeFreshInitModelRef(rows[i]) === selected) return rows[i];
       }
@@ -1552,14 +1544,12 @@ function chatPage() {
           if (!runtimeModelLabel && availableModels.default_selection_policy && typeof availableModels.default_selection_policy === 'object') {
             runtimeModelLabel = String(availableModels.default_selection_policy.current_model || '').trim();
           }
-          if (!runtimeModelLabel) {
-            runtimeModelLabel = String((runtimeEngineRow && (runtimeEngineRow.display_name || runtimeEngineRow.engine_id)) || runtimeEngineId || 'Agent runtime').trim();
-          }
+          if (!runtimeModelLabel) runtimeModelLabel = String(runtimeEngineRow.display_name || runtimeEngineId || 'Agent runtime').trim();
           var compactRuntimeModel = this.truncateModelLabel(runtimeModelLabel);
           if (compactRuntimeModel) return compactRuntimeModel.length > 24 ? compactRuntimeModel.substring(0, 22) + '\u2026' : compactRuntimeModel;
         }
         if (availableModels && !(availableModels.inherit_active_llm_when_unconfigured || availableModels.credential_inheritance_allowed || availableModels.source === 'inherited_infring')) {
-          var runtimeLabel = String((runtimeEngineRow && (runtimeEngineRow.display_name || runtimeEngineRow.engine_id)) || runtimeEngineId || 'Agent runtime').trim();
+          var runtimeLabel = String(runtimeEngineRow && (runtimeEngineRow.display_name || runtimeEngineRow.engine_id) || runtimeEngineId || 'Agent runtime').trim();
           var compactRuntimeLabel = this.truncateModelLabel(runtimeLabel);
           if (compactRuntimeLabel) return compactRuntimeLabel.length > 24 ? compactRuntimeLabel.substring(0, 22) + '\u2026' : compactRuntimeLabel;
         }
@@ -1612,7 +1602,7 @@ function chatPage() {
       : engineRow && engineRow.model_menu && typeof engineRow.model_menu === 'object'
       ? engineRow.model_menu
       : null;
-    if (!menu || menu.show_in_llm_menu === false) return list;
+    if (!menu || menu.show_in_llm_menu === false) return [];
     var sanitize = typeof this.sanitizeModelCatalogRows === 'function'
       ? this.sanitizeModelCatalogRows.bind(this)
       : function(value) { return Array.isArray(value) ? value : []; };
@@ -2285,7 +2275,6 @@ function chatPage() {
     },
     setModelDownloadProgress: function(key, value) {
       if (!key) return;
-
       if (!this.modelDownloadProgress) this.modelDownloadProgress = {};
       var raw = Number(value);
       if (!Number.isFinite(raw)) raw = 0;
@@ -2904,7 +2893,6 @@ function chatPage() {
     },
 
     scheduleConversationPersist() {
-
       var self = this;
       if (this._persistTimer) clearTimeout(this._persistTimer);
       this._persistTimer = setTimeout(function() {
@@ -3605,7 +3593,6 @@ function chatPage() {
         }
         this.$nextTick(() => this.scrollToBottomImmediate());
         return true;
-
       } catch {
         return false;
       }
@@ -4190,7 +4177,6 @@ function chatPage() {
         if (parrotsSample) continue;
         if (isGeneric(raw) && contextKeywords.length) {
           var loweredRaw = String(raw || '').toLowerCase();
-
 // Layer ownership: client/runtime/systems/ui (dashboard static UX surface only; no runtime authority).
           var hasContextOverlap = contextKeywords.some(function(keyword) {
             return loweredRaw.indexOf(keyword) >= 0;
@@ -4516,18 +4502,22 @@ function chatPage() {
             priority: 'steer',
           });
           this.appendUserChatMessage(text, images, { deferPersist: true });
-          this.messages.push({
-            id: ++msgId,
-            role: 'system',
-            is_notice: true,
-            notice_type: 'info',
-            notice_label: steerAck && steerAck.live_injected ? 'Steer injected into active runtime turn.' : 'Steer queued for next runtime turn.',
-            text: steerAck && steerAck.live_injected ? 'Steer injected into active runtime turn.' : 'Steer queued for next runtime turn.',
-            meta: '',
-            tools: [],
-            system_origin: 'prompt_queue:agent_runtime_steer',
-            ts: Date.now(),
-          });
+          if (steerAck && steerAck.live_injected && steerAck.steering_activity_row && typeof this.appendAgentRuntimeActivityToThinkingRow === 'function') {
+            this.appendAgentRuntimeActivityToThinkingRow(steerAck.steering_activity_row, selectedRuntimeEngineId);
+          } else {
+            this.messageQueue.unshift({
+              queue_id: id + ':agent_runtime_steer_followup',
+              queue_kind: 'agent_runtime_steer_followup',
+              text: 'Continue with the queued user steering instruction.',
+              files: [],
+              images: [],
+              agent_id: runtimeAgent.id,
+              agent_runtime_engine_id: selectedRuntimeEngineId,
+              steering_id: steerAck && steerAck.steering_id ? String(steerAck.steering_id) : '',
+              defer_user_append: true,
+              queued_at: Date.now()
+            });
+          }
           this.scrollToBottom();
           this.scheduleConversationPersist();
           return;
@@ -4631,14 +4621,14 @@ function chatPage() {
       var text = String(suggestion == null ? '' : suggestion).trim();
       if (!text) return;
       this.inputText = text;
-      this.showSlashMenu = false;
-      this.showModelPicker = false;
-      this.showAttachMenu = false;
       this._pendingPromptSuggestionSend = {
         source: 'prompt_suggestion',
         text_preview: text.slice(0, 240),
         created_at: Date.now()
       };
+      this.showSlashMenu = false;
+      this.showModelPicker = false;
+      this.showAttachMenu = false;
       try {
         await this.sendMessage();
       } finally {
@@ -4678,7 +4668,6 @@ function chatPage() {
       chip.classList.add('is-expanded');
       chip.classList.add('is-resizing');
       chip._resizeBlurTimer = setTimeout(function() {
-
 // FILE_SIZE_EXCEPTION: reason=chat pointer fx split continuity owner=jay expires=2026-06-30
 // Layer ownership: client/runtime/systems/ui (dashboard static UX surface only; no runtime authority).
         try {
@@ -5270,7 +5259,6 @@ function chatPage() {
       try { window.removeEventListener('blur', this._pointerTrailMouseUpHandler, true); } catch(_) {}
       this._pointerTrailMouseUpHandler = null;
     },
-
 // Layer ownership: client/runtime/systems/ui (dashboard static UX surface only; no runtime authority).
 
     spawnPointerTrail(container, x, y, opts) {
@@ -5455,7 +5443,6 @@ function chatPage() {
         if (!Number.isFinite(hueGain)) hueGain = 8;
         hueShift += (progress * hueGain);
         this.spawnPointerTrailSegment(host, sx0, sy0, sx1, sy1, {
-
 // FILE_SIZE_EXCEPTION: reason=chat pointer fx split continuity owner=jay expires=2026-06-30
           thickness: thickness,
           opacity: alpha,
@@ -5841,7 +5828,6 @@ function chatPage() {
     },
     clearAgentTrailFx(container) {
       var host = this.resolveFairyHost(container || this._agentTrailHost || null);
-
       if (!host) return;
       var nodes = host.querySelectorAll('.chat-pointer-agent');
       for (var i = 0; i < nodes.length; i++) {
@@ -6091,12 +6077,14 @@ function chatPage() {
     },
     markAgentMessageComplete(msg) {
       if (!msg || msg.role !== 'agent') return;
+      if (typeof this.normalizeMessageThoughtTools === 'function') {
+        try { this.normalizeMessageThoughtTools(msg, { commit: true }); } catch (_) {}
+      }
       msg._finish_bounce = true;
       setTimeout(function() {
         try { msg._finish_bounce = false; } catch(_) {}
       }, 300);
     },
-
     fetchModelContextWindows(force) {
       var now = Date.now();
       if (!force && this._contextModelsFetchedAt && (now - this._contextModelsFetchedAt) < 300000) {
@@ -6626,7 +6614,6 @@ function chatPage() {
         var runtimeCache = window.__infringChatCache && typeof window.__infringChatCache === 'object'
           ? this.sanitizeConversationCacheForPersistence(window.__infringChatCache)
           : {};
-
       this.loadModelNoticeCache();
       this.loadModelUsageCache();
       this.loadInputHistoryCache();
@@ -6728,7 +6715,6 @@ function chatPage() {
           self._chatVisibilitySessionRefreshHandler = null;
         }
       });
-
         this.conversationCache = this.sanitizeConversationCacheForPersistence(Object.assign({}, persistedCache, runtimeCache));
         try { delete window.__infringChatCache; } catch (_) { window.__infringChatCache = {}; }
       }
@@ -7283,7 +7269,6 @@ function chatPage() {
           x += (dx / dist) * maxStep;
           y += (dy / dist) * maxStep;
         }
-
       } else {
         x = targetX;
         y = targetY;
@@ -7943,7 +7928,6 @@ function chatPage() {
       var map = this._contextWindowByModel || {};
       var candidates = [];
       if (modelId) {
-
         candidates.push(modelId);
         if (modelId.indexOf('/') >= 0) {
           candidates.push(modelId.split('/').slice(-1)[0]);
@@ -8274,7 +8258,6 @@ function chatPage() {
       void options;
       return false;
     },
-
     // Fetch dynamic slash commands from server
     fetchCommands: function() {
       var self = this;
@@ -8382,9 +8365,24 @@ function chatPage() {
         client_surface: 'dashboard',
         source: 'slash_command_menu'
       };
+      if (typeof this.publishSlashCommandFeedback === 'function') {
+        this.publishSlashCommandFeedback(command, {
+          status: 'pending',
+          notice_type: 'info',
+          text: 'Sending command intent to Gateway.'
+        });
+      }
       try {
         var res = await InfringAPI.post('/api/shell-socket/agent-runtime/commands/execute', payload);
         var text = String(res && (res.display_text || res.message || res.status || '') || '').trim();
+        if (typeof this.publishSlashCommandFeedback === 'function') {
+          this.publishSlashCommandFeedback(command, {
+            status: String(res && (res.terminal_outcome || res.status) || 'completed'),
+            notice_type: res && res.status === 'manual_action_required' ? 'warning' : 'info',
+            text: text || 'Gateway accepted the runtime command intent.',
+            persist: !!(res && res.status === 'manual_action_required')
+          });
+        }
         if (text) {
           this.messages.push({
             id: ++msgId,
@@ -8404,6 +8402,14 @@ function chatPage() {
         return res;
       } catch (error) {
         var message = String(error && error.message ? error.message : error || 'runtime_command_failed').trim();
+        if (typeof this.publishSlashCommandFeedback === 'function') {
+          this.publishSlashCommandFeedback(command, {
+            status: 'failed',
+            notice_type: 'error',
+            text: message,
+            persist: true
+          });
+        }
         if (typeof this.emitCommandFailureNotice === 'function') {
           this.emitCommandFailureNotice(command.cmd || payload.display_command, message, ['/help']);
         }
@@ -9290,7 +9296,6 @@ function chatPage() {
 
     async executeSlashCommand(cmd, cmdArgs, commandRow) {
       this.showSlashMenu = false;
-
 // Layer ownership: client/runtime/systems/ui (dashboard static UX surface only; no runtime authority).
       this.inputText = '';
       var self = this;
@@ -9304,6 +9309,13 @@ function chatPage() {
         typeof this.executeAgentRuntimeSlashCommand === 'function'
       ) {
         return this.executeAgentRuntimeSlashCommand(selectedSlashRow, cmdArgs);
+      }
+      if (typeof this.publishSlashCommandFeedback === 'function') {
+        this.publishSlashCommandFeedback(selectedSlashRow || { cmd: cmd }, {
+          status: 'accepted',
+          notice_type: 'info',
+          text: String(selectedSlashRow && (selectedSlashRow.desc || selectedSlashRow.title || selectedSlashRow.operational_label) || 'Command accepted.').trim()
+        });
       }
       switch (cmd) {
         case '/help':
@@ -9394,7 +9406,6 @@ function chatPage() {
              'Normal response mode.'), meta: '', tools: [], system_origin: 'slash:think' });
           self.scrollToBottom();
           break;
-
         case '/context':
           // Visual-only update for context ring; no chat message noise.
           if (self.currentAgent && InfringAPI.isWsConnected()) {
@@ -10252,7 +10263,6 @@ function chatPage() {
       var chatStore = window.InfringChatStore;
       if (chatStore && typeof chatStore.bumpRenderWindowVersion === 'function') chatStore.bumpRenderWindowVersion();
     },
-
     runSlashApiKeyDiscovery: async function(cmdArgs) {
       if (!cmdArgs || !String(cmdArgs).trim()) {
         this.messages.push({
@@ -10328,7 +10338,6 @@ function chatPage() {
       ).trim() || 'infring';
       return exportChatMarkdown(this.messages, assistantName);
     },
-
     isFreshInitTemplateSelected(templateDef) {
       if (!templateDef) return false;
       var key = String(templateDef.name || '').trim();
@@ -10944,7 +10953,6 @@ function chatPage() {
       if (chatRows.length > maxEntries) chatRows = chatRows.slice(chatRows.length - maxEntries);
       if (terminalRows.length > maxEntries) terminalRows = terminalRows.slice(terminalRows.length - maxEntries);
 
-
       this.chatInputHistory = chatRows;
       this.terminalInputHistory = terminalRows;
       this.hydrateInputHistoryFromCache('chat', fallbackAgentId);
@@ -11032,7 +11040,6 @@ function chatPage() {
             self.recomputeContextEstimate();
             self.recoverEmptySessionRender(agentId, data || null);
           }
-
         }
       } catch(e) {
         if (!loadStillCurrent()) return;
@@ -11691,7 +11698,6 @@ function chatPage() {
             var phaseThoughtText = String(data && data.detail ? data.detail : '').trim();
             var phasePercent = Number(
               data && data.progress_percent != null
-
                 ? data.progress_percent
                 : (data && data.percent != null ? data.percent : NaN)
             );
@@ -11801,7 +11807,6 @@ function chatPage() {
 	          this._resetTypingTimeout();
 	          this.scrollToBottom();
 	          break;
-
         case 'text_delta':
           this.setAgentLiveActivity(this.currentAgent && this.currentAgent.id, 'typing');
           var last = this.messages.length ? this.messages[this.messages.length - 1] : null;
@@ -12372,7 +12377,6 @@ function chatPage() {
           }).then(function(recovered) {
             if (recovered) return;
             self2.pushSystemMessage({
-
               text: errorText,
               meta: '',
               tools: [],
@@ -12779,7 +12783,6 @@ function chatPage() {
       return compact;
     },
 
-
     thinkingDisplayText: function(msg) {
       var rawThought = String(msg && msg._thoughtText ? msg._thoughtText : '').trim();
       if (!rawThought) return '';
@@ -12883,7 +12886,6 @@ function chatPage() {
       if (status) return status;
       return 'Thinking';
     },
-
     messageGroupRole: function(msg) {
       if (!msg) return '';
       if (msg.terminal) return 'terminal';
@@ -13354,7 +13356,6 @@ function chatPage() {
         if (compact.length > maxLen) return compact.slice(0, maxLen - 3) + '...';
         return compact;
       };
-
       var parts = msg.tools.map(function(tool) {
         if (!tool) return '';
         var name = self.toolDisplayName(tool);
@@ -13849,7 +13850,6 @@ function chatPage() {
       if (typeof this.syncActiveChatMessages === 'function') this.syncActiveChatMessages();
       this.scheduleConversationPersist();
       return duplicate;
-
     },
 
     normalizeNoticeAction: function(action) {
@@ -14264,7 +14264,6 @@ function chatPage() {
         if (this.isMessageDayCollapsed(list[i])) continue;
         fallbackIndexes.push(i);
         if (!searchQuery || !this.messageMatchesSearchQuery || this.messageMatchesSearchQuery(list[i], searchQuery)) visibleIndexes.push(i);
-
       }
       if (!visibleIndexes.length) visibleIndexes = fallbackIndexes;
       if (!visibleIndexes.length) return;
@@ -14332,7 +14331,7 @@ function chatPage() {
       this.suppressMapPreview = false;
       this.selectedMessageDomId = domId;
       this.mapStepIndex = idx;
-      this.setHoveredMessage(msg, idx);
+      this.setHoveredMessage(msg, idx, { direct: false });
       if (typeof this.showDashboardPopup !== 'function') return;
       this.showDashboardPopup('chat-map-item:' + domId, this.messageMapPopupTitle(msg), ev, {
         source: this.chatMapPopupSource(),
@@ -14370,7 +14369,7 @@ function chatPage() {
       }
     },
 
-    setHoveredMessage: function(msg, idx) {
+    setHoveredMessage: function(msg, idx, options) {
       if (this._hoverClearTimer) {
         clearTimeout(this._hoverClearTimer);
         this._hoverClearTimer = 0;
@@ -14382,7 +14381,11 @@ function chatPage() {
       }
       var domId = this.messageDomId(msg, idx);
       this.hoveredMessageDomId = domId;
-      this.directHoveredMessageDomId = domId;
+      if (options && options.direct) {
+        this.directHoveredMessageDomId = domId;
+      } else {
+        this.directHoveredMessageDomId = '';
+      }
     },
 
     clearHoveredMessage: function() {
@@ -14762,7 +14765,6 @@ function chatPage() {
           if (typeof store.setActiveAgentId === 'function') store.setActiveAgentId(agentId);
           else store.activeAgentId = agentId;
           if (typeof store.refreshAgents === 'function') {
-
             await store.refreshAgents({ force: true });
           }
         }
@@ -15069,726 +15071,6 @@ function chatPage() {
           var fallbackParts = String(this.drawerNewFallbackValue || '').trim().split('/');
           var fallbackProvider = fallbackParts.length > 1 ? fallbackParts[0] : this.agentDrawer.model_provider;
           var fallbackModel = fallbackParts.length > 1 ? fallbackParts.slice(1).join('/') : fallbackParts[0];
-
-    isBlockedTool: function(tool) {
-      if (!tool) return false;
-      if (tool.blocked === true) return true;
-      var txt = String(this.toolRawResultTextIfLoaded(tool) || this.toolProjectionPreviewText(tool) || '').toLowerCase();
-      if (String(tool.status || '').toLowerCase() === 'blocked') return true;
-      if (!tool.is_error) return false;
-      return (
-        txt.indexOf('blocked') >= 0 ||
-        txt.indexOf('policy') >= 0 ||
-        txt.indexOf('denied') >= 0 ||
-        txt.indexOf('not allowed') >= 0 ||
-        txt.indexOf('forbidden') >= 0 ||
-        txt.indexOf('approval') >= 0 ||
-        txt.indexOf('permission') >= 0 ||
-        txt.indexOf('fail-closed') >= 0
-      );
-    },
-
-    isToolSuccessful: function(tool) {
-      if (!tool) return false;
-      if (tool.running) return false;
-      if (this.isBlockedTool(tool)) return false;
-      if (tool.is_error) return false;
-      return true;
-    },
-
-  isThoughtTool: function(tool) {
-    var row = tool && typeof tool === 'object' ? tool : null;
-    if (!row) return false;
-    var name = String(row.name || '').toLowerCase();
-    return !!(
-      name === 'thought_process' ||
-      row.agent_decision_dialog ||
-      row.agent_runtime_decision_dialog ||
-      row.agent_runtime_activity_trace ||
-      row.projection_kind === 'decision_dialog'
-    );
-  },
-
-    toolNameKey: function(tool) {
-      if (!tool) return '';
-      return String(tool.name || '')
-        .trim()
-        .toLowerCase()
-        .replace(/[\s-]+/g, '_');
-    },
-
-    toolInputPayload: function(tool) {
-      if (!tool || typeof tool !== 'object') return null;
-      var raw = String(tool._detail_loaded ? (tool.input || tool.input_preview || '') : (tool.input_preview || '')).trim();
-      if (!raw) return null;
-      if (raw.indexOf('<function=') >= 0 && raw.indexOf('{') >= 0) {
-        raw = raw.slice(raw.indexOf('{')).trim();
-      }
-      if (!(raw.charAt(0) === '{' || raw.charAt(0) === '[')) return null;
-      try {
-        var parsed = JSON.parse(raw);
-        return parsed && typeof parsed === 'object' ? parsed : null;
-      } catch (_) {
-        return null;
-      }
-    },
-
-    toolPayloadCount: function(payload, keys) {
-      if (!payload || typeof payload !== 'object') return 0;
-      var list = Array.isArray(keys) ? keys : [];
-      for (var i = 0; i < list.length; i++) {
-        var key = list[i];
-        if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
-        var value = payload[key];
-        if (Array.isArray(value)) return value.length;
-        if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.round(value));
-        if (typeof value === 'string' && value.trim()) return 1;
-      }
-      return 0;
-    },
-
-    prettifyToolLabel: function(value) {
-      var raw = String(value || '').trim();
-      if (!raw) return 'tool';
-      var normalized = raw
-        .replace(/[_-]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!normalized) return 'tool';
-      return normalized
-        .split(' ')
-        .map(function(token) {
-          return token ? token.charAt(0).toUpperCase() + token.slice(1) : token;
-        })
-        .join(' ');
-    },
-
-    toolActionName: function(tool) {
-      var payload = this.toolInputPayload(tool);
-      if (!payload || typeof payload !== 'object') return '';
-      return String(
-        payload.action ||
-        payload.method ||
-        payload.operation ||
-        payload.op ||
-        ''
-      ).trim();
-    },
-
-    toolDisplayName: function(tool) {
-      if (!tool) return 'tool';
-      if (this.isThoughtTool(tool)) return 'thought';
-      var key = this.toolNameKey(tool);
-      var actionName = this.toolActionName(tool);
-      switch (key) {
-        case 'web_search':
-        case 'search_web':
-        case 'search':
-        case 'web_query':
-        case 'batch_query':
-          return 'Web search';
-        case 'web_fetch':
-        case 'browse':
-        case 'web_conduit_fetch':
-          return 'Web fetch';
-        case 'file_read':
-        case 'read_file':
-        case 'file':
-          return 'File read';
-        case 'folder_export':
-        case 'list_folder':
-        case 'folder_tree':
-        case 'folder':
-          return 'Folder export';
-        case 'terminal_exec':
-        case 'run_terminal':
-        case 'terminal':
-        case 'shell_exec':
-          return 'Terminal command';
-        case 'spawn_subagents':
-        case 'spawn_swarm':
-        case 'agent_spawn':
-        case 'sessions_spawn':
-          return 'Swarm spawn';
-        case 'memory_semantic_query':
-          return 'Memory query';
-        case 'cron_schedule':
-          return 'Schedule task';
-        case 'cron_run':
-          return 'Run scheduled task';
-        case 'cron_list':
-          return 'List schedules';
-        case 'session_rollback_last_turn':
-          return 'Undo last turn';
-        case 'slack':
-          return actionName ? ('Slack ' + this.prettifyToolLabel(actionName)) : 'Slack';
-        case 'gmail':
-          return actionName ? ('Gmail ' + this.prettifyToolLabel(actionName)) : 'Gmail';
-        case 'github':
-          return actionName ? ('GitHub ' + this.prettifyToolLabel(actionName)) : 'GitHub';
-        case 'notion':
-          return actionName ? ('Notion ' + this.prettifyToolLabel(actionName)) : 'Notion';
-        default:
-          return this.prettifyToolLabel(String(tool.name || 'tool'));
-      }
-    },
-
-    toolThinkingActionLabel: function(tool) {
-      if (!tool) return '';
-      if (this.isThoughtTool(tool)) return 'Thinking';
-      var key = this.toolNameKey(tool);
-      var payload = this.toolInputPayload(tool);
-      switch (key) {
-        case 'web_search':
-        case 'search_web':
-        case 'search':
-        case 'web_query':
-          return 'Searching internet';
-        case 'web_fetch':
-        case 'browse':
-        case 'web_conduit_fetch':
-          return 'Reading web pages';
-        case 'file_read':
-        case 'read_file':
-        case 'file':
-          var fileCount = this.toolPayloadCount(payload, ['paths', 'files', 'file_paths', 'targets', 'path', 'file']);
-          if (fileCount > 1) return 'Scanning ' + fileCount + ' files';
-          if (fileCount === 1) return 'Scanning 1 file';
-          return 'Scanning files';
-        case 'folder_export':
-        case 'list_folder':
-        case 'folder_tree':
-        case 'folder':
-          var folderCount = this.toolPayloadCount(payload, ['folders', 'paths', 'targets', 'path', 'folder']);
-          if (folderCount > 1) return 'Scanning ' + folderCount + ' folders';
-          if (folderCount === 1) return 'Scanning 1 folder';
-          return 'Scanning folders';
-        case 'terminal_exec':
-        case 'run_terminal':
-        case 'terminal':
-        case 'shell_exec':
-          return 'Running terminal command';
-        case 'spawn_subagents':
-        case 'spawn_swarm':
-        case 'agent_spawn':
-        case 'sessions_spawn':
-          var spawnCount = this.toolPayloadCount(payload, ['count', 'agent_count', 'num_agents', 'agents']);
-          if (spawnCount > 0) return 'Summoning ' + spawnCount + ' agents';
-          return 'Summoning agents';
-        case 'memory_semantic_query':
-          return 'Searching memory';
-        case 'cron_schedule':
-          return 'Scheduling follow-up work';
-        case 'cron_run':
-          return 'Running scheduled work';
-        case 'cron_list':
-          return 'Checking schedules';
-        case 'session_rollback_last_turn':
-          return 'Rewinding the last turn';
-        default:
-          return 'Running ' + this.toolDisplayName(tool);
-      }
-    },
-
-    ensureStreamingToolCard: function(msg, toolName, toolInput, options) {
-      if (!msg || typeof msg !== 'object') return null;
-      if (!Array.isArray(msg.tools)) msg.tools = [];
-      var name = String(toolName || '').trim();
-      if (!name) name = 'tool';
-      var opts = options && typeof options === 'object' ? options : {};
-      var identity = typeof this.toolAttemptIdentity === 'function'
-        ? this.toolAttemptIdentity({ name: name, attempt_id: opts.attempt_id || '', attempt_sequence: opts.attempt_sequence || (msg.tools.length + 1), tool_attempt_receipt: opts.tool_attempt_receipt || null }, msg.tools.length, 'stream-tool')
-        : { id: name + '-' + Date.now(), attempt_id: '', attempt_sequence: (msg.tools.length + 1), identity_key: name.toLowerCase() };
-      var markRunning = opts.running !== false;
-      var allowCreate = opts.no_create !== true;
-      for (var i = msg.tools.length - 1; i >= 0; i--) {
-        var card = msg.tools[i];
-        if (!card) continue;
-        var matchesIdentity = String(card.identity_key || '').trim() && String(card.identity_key || '').trim() === String(identity.identity_key || '').trim();
-        if (!matchesIdentity && String(card.name || '') !== name) continue;
-        if (markRunning && card.running) {
-          if (typeof toolInput === 'string') card.input_preview = toolInput;
-          if (identity.id) card.id = identity.id;
-          if (identity.attempt_id) card.attempt_id = identity.attempt_id; if (identity.attempt_sequence) card.attempt_sequence = identity.attempt_sequence; if (identity.identity_key) card.identity_key = identity.identity_key;
-          return card;
-        }
-        if (!markRunning && card.running) {
-          if (typeof toolInput === 'string') card.input_preview = toolInput;
-          if (identity.id) card.id = identity.id;
-          if (identity.attempt_id) card.attempt_id = identity.attempt_id; if (identity.attempt_sequence) card.attempt_sequence = identity.attempt_sequence; if (identity.identity_key) card.identity_key = identity.identity_key;
-          card.running = false;
-          return card;
-        }
-      }
-      if (!allowCreate) return null;
-      var created = { id: identity.id, name: name, running: markRunning, expanded: false, input_preview: typeof toolInput === 'string' ? toolInput : '', result_preview: '', is_error: false, attempt_id: identity.attempt_id, attempt_sequence: identity.attempt_sequence, identity_key: identity.identity_key };
-      msg.tools.push(created);
-      return created;
-    },
-
-    currentToolDialogLabel: function(msg) {
-      if (!msg || !Array.isArray(msg.tools) || !msg.tools.length) return '';
-      for (var i = msg.tools.length - 1; i >= 0; i--) {
-        var tool = msg.tools[i];
-        if (!tool || this.isThoughtTool(tool) || !tool.running) continue;
-        if (tool.agent_runtime_live_activity || tool.agent_activity_event) {
-          var liveLabel = String(tool.display_text || tool.summary || tool.result_preview || tool.output_preview || tool.name || '').trim();
-          if (liveLabel) return liveLabel.split('\n')[0].replace(/\s+/g, ' ').slice(0, 220);
-        }
-        return this.toolThinkingActionLabel(tool);
-      }
-      return '';
-    },
-
-    hasRunningActionableTools: function(msg) {
-      if (!msg || !Array.isArray(msg.tools) || !msg.tools.length) return false;
-      return msg.tools.some(function(tool) { return !!(tool && !this.isThoughtTool(tool) && tool.running); }, this);
-    },
-
-    clearTransientThinkingRows: function(options) {
-      var opts = options && typeof options === 'object' ? options : {}, force = opts.force === true;
-      var preserveRunningTools = !force && opts.preserve_running_tools !== false;
-      var pendingAgentId = !force && opts.preserve_pending_ws !== false && this._pendingWsRequest && this._pendingWsRequest.agent_id ? String(this._pendingWsRequest.agent_id || '').trim() : '';
-      var rows = Array.isArray(this.messages) ? this.messages : []; if (!rows.length) return 0;
-      var kept = [], now = Date.now(), keptPending = false;
-      for (var i = 0; i < rows.length; i++) {
-        var row = rows[i];
-        if (!row || (!row.thinking && !row.streaming)) { kept.push(row); continue; }
-        var rowAgentId = String(row.agent_id || '').trim();
-        var keep = (preserveRunningTools && this.hasRunningActionableTools(row)) || (!!pendingAgentId && (!rowAgentId || rowAgentId === pendingAgentId));
-        if (!keep) continue;
-        if (pendingAgentId && (!rowAgentId || rowAgentId === pendingAgentId)) keptPending = true;
-        row.thinking = true; row.streaming = true; row._stream_updated_at = now;
-        if (!Number.isFinite(Number(row._stream_started_at))) row._stream_started_at = now;
-        if (!String(row.thinking_status || '').trim()) {
-          var label = typeof this.currentToolDialogLabel === 'function' ? String(this.currentToolDialogLabel(row) || '').trim() : '';
-          if (label) row.thinking_status = label;
-        }
-        kept.push(row);
-      }
-      if (typeof this.replaceActiveChatMessages === 'function') this.replaceActiveChatMessages(kept);
-      else this.messages = kept;
-      if (!force && pendingAgentId && !keptPending && typeof this.ensureLiveThinkingRow === 'function') {
-        var restored = this.ensureLiveThinkingRow({ agent_id: pendingAgentId, agent_name: this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '' });
-        if (restored) {
-          restored.thinking = true; restored.streaming = true; restored._stream_updated_at = now;
-          if (!Number.isFinite(Number(restored._stream_started_at))) restored._stream_started_at = now;
-        }
-      }
-      return Math.max(0, rows.length - this.messages.length);
-    },
-
-    thoughtToolDurationSeconds: function(tool) {
-      if (!tool || typeof tool !== 'object') return 0;
-      var ms = Number(tool.duration_ms || tool.durationMs || tool.elapsed_ms || 0);
-      if (!Number.isFinite(ms) || ms < 0) ms = 0;
-      var seconds = Math.round(ms / 1000);
-      if (ms > 0 && seconds < 1) seconds = 1;
-      return Math.max(0, seconds);
-    },
-
-    thoughtToolLabel: function(tool) {
-      if (tool && (tool.agent_decision_dialog || tool.agent_runtime_decision_dialog || tool.agent_runtime_activity_trace)) {
-        var seconds = this.thoughtToolDurationSeconds(tool);
-        var hours = Math.floor(seconds / 3600);
-        var minutes = Math.floor((seconds % 3600) / 60);
-        var remaining = seconds % 60;
-        var parts = [];
-        if (hours > 0) parts.push(hours + 'h');
-        if (hours > 0 || minutes > 0) parts.push(minutes + 'm');
-        parts.push(remaining + 's');
-        return 'Worked for ' + parts.join(' ');
-      }
-      return 'Thought for ' + this.thoughtToolDurationSeconds(tool) + ' seconds';
-    },
-
-    toolRawResultTextIfLoaded: function(tool) {
-      var row = tool && typeof tool === 'object' ? tool : {};
-      if (!row._detail_loaded || row.result == null) return '';
-      if (typeof row.result === 'string') return row.result;
-      try {
-        return JSON.stringify(row.result);
-      } catch (_) {
-        return '';
-      }
-    },
-
-    toolProjectionPreviewText: function(tool) {
-      var row = tool && typeof tool === 'object' ? tool : {};
-      var raw = this.toolRawResultTextIfLoaded(row);
-      if (raw) return raw;
-      return String(row.summary || row.result_preview || row.output_preview || row.display_text || row.status || '').trim();
-    },
-
-    toolStatusText: function(tool) {
-      if (!tool) return '';
-      if (tool.running) return 'running...';
-      if (tool._detail_loading) return 'loading detail...';
-      if (tool.agent_runtime_activity_trace) return '';
-      if (this.isThoughtTool(tool)) return 'thought';
-      if (this.isBlockedTool(tool)) return 'blocked';
-      if (tool.is_error) return 'error';
-      var loadedResult = this.toolRawResultTextIfLoaded(tool);
-      if (loadedResult) {
-        return loadedResult.length > 500 ? Math.round(loadedResult.length / 1024) + 'KB' : 'done';
-      }
-      return 'done';
-    },
-
-    // Mark chat-rendered error messages for styling
-    isErrorMessage: function(msg) {
-      if (!msg || !msg.text) return false;
-      if (String(msg.role || '').toLowerCase() !== 'system') return false;
-      var t = String(msg.text).trim().toLowerCase();
-      return t.startsWith('error:');
-    },
-
-    messageHasTools: function(msg) {
-      return !!(msg && Array.isArray(msg.tools) && msg.tools.length);
-    },
-
-    allToolsCollapsed: function(msg) {
-      if (!this.messageHasTools(msg)) return true;
-      return !msg.tools.some(function(tool) {
-        return !!(tool && tool.expanded);
-      });
-    },
-
-    toggleMessageTools: function(msg) {
-      if (!this.messageHasTools(msg)) return;
-      var expand = this.allToolsCollapsed(msg);
-      msg.tools.forEach(function(tool) {
-        if (tool) tool.expanded = expand;
-      });
-      this.scheduleConversationPersist();
-    },
-
-    formatToolOutputForClipboard: function(text) {
-      var raw = String(text == null ? '' : text);
-      var trimmed = raw.trim();
-      if (!trimmed) return '';
-      if (trimmed.charAt(0) === '{' || trimmed.charAt(0) === '[') {
-        try {
-          return '```json\n' + JSON.stringify(JSON.parse(trimmed), null, 2) + '\n```';
-        } catch (_) {}
-      }
-      return raw;
-    },
-
-    truncateToolOutputPreview: function(text) {
-      var raw = String(text == null ? '' : text).trim();
-      if (!raw) return '';
-      var allLines = raw.split('\n');
-      var maxLines = Number(this.toolPreviewMaxLines || 0);
-      if (!Number.isFinite(maxLines) || maxLines < 1) maxLines = 2;
-      var maxChars = Number(this.toolPreviewMaxChars || 0);
-      if (!Number.isFinite(maxChars) || maxChars < 24) maxChars = 100;
-      var preview = allLines.slice(0, maxLines).join('\n');
-      if (preview.length > maxChars) return preview.slice(0, maxChars).trimEnd() + '…';
-      return allLines.length > maxLines ? preview.trimEnd() + '…' : preview;
-    },
-
-    toolProjectionSections: function(tool) {
-      var row = tool && typeof tool === 'object' ? tool : {};
-      var sections = [];
-      if (row._detail_loading) {
-        sections.push({ id: 'loading', label: 'Detail', text: 'Loading detail…' });
-        return sections;
-      }
-      if (row._detail_error) {
-        sections.push({ id: 'error', label: 'Detail', text: String(row._detail_error || 'Unable to load detail right now.') });
-        return sections;
-      }
-      if (row.agent_decision_dialog || row.agent_runtime_decision_dialog || row.agent_runtime_activity_trace) {
-        var dialog = String(
-          row.agent_decision_dialog_text ||
-          row.input ||
-          row.input_preview ||
-          row.result ||
-          row.result_preview ||
-          row.summary ||
-          row.display_text ||
-          ''
-        ).trim();
-        if (dialog) {
-          sections.push({
-            id: 'agent-decision-dialog',
-            label: 'Agent decision dialog',
-            text: this.formatToolOutputForClipboard(dialog) || dialog
-          });
-        }
-        return sections;
-      }
-      var summary = String(row.summary || row.display_text || '').trim();
-      if (summary) sections.push({ id: 'summary', label: 'Summary', text: summary });
-      var input = String(row._detail_loaded ? (row.input || row.input_preview || '') : (row.input_preview || '')).trim();
-      if (input) sections.push({ id: 'input', label: 'Input', text: this.formatToolOutputForClipboard(input) || input });
-      var result = String(this.toolProjectionPreviewText(row) || '').trim();
-      if (result) sections.push({ id: 'result', label: 'Result', text: this.formatToolOutputForClipboard(result) || result });
-      if (!sections.length && this.shellDetailRefForTool(row)) {
-        sections.push({ id: 'detail-ref', label: 'Detail', text: 'Open the tool to load detail from the gateway.' });
-      }
-      return sections;
-    },
-
-    messageCopyMarkdown: function(msg) {
-      var row = msg && typeof msg === 'object' ? msg : {};
-      var parts = [];
-      var label = typeof this.messageActorLabel === 'function'
-        ? String(this.messageActorLabel(row) || '').trim()
-        : String(row.role || 'Message').trim();
-      var stamp = typeof this.messageTimestampLabel === 'function' ? String(this.messageTimestampLabel(row) || '').trim() : '';
-      if (label) parts.push('**' + label + '**');
-      if (stamp) parts.push('_' + stamp + '_');
-
-      var text = '';
-      if (typeof this.extractMessageVisibleText === 'function') {
-        text = String(this.extractMessageVisibleText(row) || '').trim();
-      }
-      if (!text && typeof this.messageVisiblePreviewText === 'function') {
-        text = String(this.messageVisiblePreviewText(row) || '').trim();
-      }
-      if (!text) text = String(row.text || '').trim();
-      if (text) parts.push(text);
-
-      if (row.notice_label) {
-        var notice = String(row.notice_label || '').trim();
-        if (notice) parts.push('Notice: ' + notice);
-      }
-
-      var toolLines = [];
-      var tools = Array.isArray(row.tools) ? row.tools : [];
-      for (var i = 0; i < tools.length; i += 1) {
-        var tool = tools[i] || {};
-        var toolName = this.toolDisplayName(tool);
-        var status = String(tool.status || '').trim();
-        var rendered = this.formatToolOutputForClipboard(this.toolProjectionPreviewText(tool) || '');
-        var preview = rendered ? this.truncateToolOutputPreview(rendered) : '';
-        var line = '- ' + toolName;
-        if (status) line += ' (' + status + ')';
-        if (preview) line += ': ' + preview;
-        toolLines.push(line);
-      }
-      if (toolLines.length) {
-        parts.push('');
-        parts.push('Tools:');
-        for (var j = 0; j < toolLines.length; j += 1) parts.push(toolLines[j]);
-      }
-
-      if (row.file_output && row.file_output.path) parts.push('', 'File: `' + String(row.file_output.path).trim() + '`');
-      if (row.folder_output && row.folder_output.path) parts.push('', 'Folder: `' + String(row.folder_output.path).trim() + '`');
-
-      return parts.filter(function(part, idx, arr) {
-        if (part !== '') return true;
-        return idx > 0 && arr[idx - 1] !== '';
-      }).join('\n').trim();
-    },
-
-    // Copy message text to clipboard as markdown
-    copyMessage: function(msg) {
-      if (!msg || msg._copying) return;
-      var text = this.messageCopyMarkdown(msg);
-      if (!text || !navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
-        InfringToast.error('Copy failed.');
-        return;
-      }
-      msg._copying = true;
-      navigator.clipboard.writeText(text).then(function() {
-        msg._copying = false;
-        msg._copied = true;
-        setTimeout(function() { msg._copied = false; }, 1500);
-      }).catch(function() {
-        msg._copying = false;
-        InfringToast.error('Copy failed.');
-      });
-    },
-
-    prefersReducedMotion: function() {
-      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-      try {
-        return !!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      } catch (_) {
-        return false;
-      }
-    },
-
-    captureComposerSendMorph: function(textInput) {
-      if (this.prefersReducedMotion() || this.terminalMode || this.showFreshArchetypeTiles) return null;
-      if (typeof document === 'undefined') return null;
-      var shell = document.querySelector('.input-row .composer-shell');
-      var input = document.getElementById('msg-input');
-      if (!shell || !input) return null;
-      var text = String(textInput == null ? '' : textInput).trim();
-      if (!text) return null;
-      var rect = input.getBoundingClientRect();
-      if (!(rect.width > 80 && rect.height > 24)) return null;
-      var ghost = document.createElement('div');
-      ghost.className = 'composer-send-morph-ghost';
-      ghost.textContent = text.length > 260 ? (text.slice(0, 257) + '...') : text;
-      ghost.style.left = rect.left + 'px';
-      ghost.style.top = rect.top + 'px';
-      ghost.style.width = rect.width + 'px';
-      ghost.style.minHeight = rect.height + 'px';
-      document.body.appendChild(ghost);
-      shell.classList.add('composer-shell-send-morph');
-      return { shell: shell, ghost: ghost };
-    },
-
-    clearComposerSendMorph: function(snapshot) {
-      if (!snapshot || typeof snapshot !== 'object') return;
-      if (snapshot.shell && snapshot.shell.classList) snapshot.shell.classList.remove('composer-shell-send-morph');
-      if (snapshot.ghost && snapshot.ghost.parentNode) snapshot.ghost.parentNode.removeChild(snapshot.ghost);
-    },
-
-    playComposerSendMorphToMessage: function(snapshot, messageId) {
-      if (!snapshot || !snapshot.ghost) return;
-      if (this.prefersReducedMotion()) {
-        snapshot.ghost.style.opacity = '0.56';
-        setTimeout(this.clearComposerSendMorph.bind(this, snapshot), 240);
-        return;
-      }
-      var row = document.getElementById('chat-msg-' + String(messageId || '').trim());
-      var bubble = row ? row.querySelector('.message-bubble') : null;
-      if (!bubble) {
-        this.clearComposerSendMorph(snapshot);
-        return;
-      }
-      var rect = bubble.getBoundingClientRect();
-      if (!(rect.width > 24 && rect.height > 20)) {
-        this.clearComposerSendMorph(snapshot);
-        return;
-      }
-      var ghost = snapshot.ghost;
-      var self = this;
-      ghost.classList.add('in-flight');
-      var finish = function() { self.clearComposerSendMorph(snapshot); };
-      ghost.addEventListener('transitionend', finish, { once: true });
-      requestAnimationFrame(function() {
-        ghost.style.left = rect.left + 'px';
-        ghost.style.top = rect.top + 'px';
-        ghost.style.width = rect.width + 'px';
-        ghost.style.minHeight = rect.height + 'px';
-        ghost.style.opacity = '0.2';
-      });
-      setTimeout(finish, 760);
-    },
-
-    appendUserChatMessage: function(finalText, msgImages, options) {
-      var opts = options && typeof options === 'object' ? options : {};
-      var text = String(finalText == null ? '' : finalText);
-      var images = Array.isArray(msgImages) ? msgImages : [];
-      if (!String(text || '').trim() && !images.length) return;
-      var msg = {
-        id: ++msgId,
-        role: 'user',
-        text: text,
-        meta: '',
-        tools: [],
-        images: images,
-        ts: Number.isFinite(Number(opts.ts)) ? Number(opts.ts) : Date.now()
-      };
-      this.messages.push(msg);
-      this._stickToBottom = true;
-      this.scrollToBottom({ force: true, stabilize: true });
-      localStorage.setItem('of-first-msg', 'true');
-      this.promptSuggestions = [];
-      if (!opts.deferPersist) this.scheduleConversationPersist();
-      return msg;
-    },
-
-    // Process queued messages after current response completes
-    _processQueue: function() {
-      if (!this.messageQueue.length || this.sending || this._inflightFailoverInProgress) return;
-      var next = this.messageQueue.shift();
-      if (next && next.terminal) {
-        this._sendTerminalPayload(next.command);
-        return;
-      }
-      var nextText = String(next && next.text ? next.text : '');
-      var nextFiles = Array.isArray(next && next.files) ? next.files : [];
-      var nextImages = Array.isArray(next && next.images) ? next.images : [];
-      if (!nextText.trim() && !nextFiles.length) {
-        var self = this;
-        this.$nextTick(function() { self._processQueue(); });
-        return;
-      }
-      this.appendUserChatMessage(nextText, nextImages, { deferPersist: true });
-      this.scheduleConversationPersist();
-      this._sendPayload(nextText, nextFiles, nextImages, {
-        from_queue: true,
-        queue_id: next && next.queue_id ? String(next.queue_id) : '',
-        agent_runtime_engine_id: String((next && next.agent_runtime_engine_id) || this.selectedAgentRuntimeEngineId || 'infring_native')
-      });
-    },
-
-    _terminalPromptLine: function(cwd, command) {
-      var path = String(cwd || this.terminalPromptPath || '/workspace');
-      var cmd = String(command || '').trim();
-      if (!cmd) return path + ' %';
-      return path + ' % ' + cmd;
-    },
-
-    _appendTerminalMessage: function(entry) {
-      var payload = entry || {};
-      var text = String(payload.text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/^\s+|\s+$/g, '');
-      var now = Date.now();
-      var ts = Number.isFinite(Number(payload.ts)) ? Number(payload.ts) : now;
-      var role = payload.role ? String(payload.role) : 'terminal';
-      var terminalSource = payload.terminal_source ? String(payload.terminal_source).toLowerCase() : '';
-      if (terminalSource !== 'user' && terminalSource !== 'agent' && terminalSource !== 'system') {
-        terminalSource = role === 'user' ? 'user' : 'system';
-      }
-      var cwd = payload.cwd ? String(payload.cwd) : this.terminalPromptPath;
-      var meta = payload.meta == null ? '' : String(payload.meta);
-      var tools = Array.isArray(payload.tools) ? payload.tools : [];
-      var shouldAppendToLast = payload.append_to_last === true;
-      var agentId = payload.agent_id ? String(payload.agent_id) : '';
-      var agentName = payload.agent_name ? String(payload.agent_name) : '';
-      if (terminalSource === 'agent') {
-        if (!agentId && this.currentAgent && this.currentAgent.id) agentId = String(this.currentAgent.id);
-        if (!agentName && this.currentAgent && this.currentAgent.name) agentName = String(this.currentAgent.name);
-      }
-
-      var rows = this.ensureActiveChatMessagesArray();
-      var last = rows.length ? rows[rows.length - 1] : null;
-      if (shouldAppendToLast && last && !last.thinking && last.terminal) {
-        if (text) {
-          if (last.text && !/\n$/.test(last.text)) last.text += '\n';
-          last.text += text.replace(/^[\r\n]+/, '');
-        }
-        if (meta) last.meta = meta;
-        if (cwd) {
-          last.cwd = cwd;
-          this.terminalCwd = cwd;
-        }
-        if (terminalSource) last.terminal_source = terminalSource;
-        if (agentId) last.agent_id = agentId;
-        if (agentName) last.agent_name = agentName;
-        last.ts = ts;
-        if (!Array.isArray(last.tools)) last.tools = [];
-        if (tools.length) last.tools = last.tools.concat(tools);
-        if (typeof this.syncActiveChatMessages === 'function') this.syncActiveChatMessages();
-        return last;
-      }
-
-      var msg = {
-        id: ++msgId,
-        role: role,
-        text: text,
-        meta: meta,
-        tools: tools,
-        ts: ts,
-        terminal: true,
-        terminal_source: terminalSource || 'system',
-        cwd: cwd
-      };
-      if (agentId) msg.agent_id = agentId;
-      if (agentName) msg.agent_name = agentName;
-      this.appendActiveChatMessage(msg);
-      if (cwd) this.terminalCwd = cwd;
-      return msg;
-    },
-
           if (!Array.isArray(this.agentDrawer._fallbacks)) this.agentDrawer._fallbacks = [];
           this.agentDrawer._fallbacks.push({ provider: fallbackProvider, model: fallbackModel });
           appendedFallback = true;
@@ -16052,7 +15334,1123 @@ function chatPage() {
         if (removed && removed.length) this.agentDrawer._fallbacks.splice(idx, 0, removed[0]);
       }
     },
+    isBlockedTool: function(tool) {
+      if (!tool) return false;
+      if (tool.blocked === true) return true;
+      var txt = String(this.toolRawResultTextIfLoaded(tool) || this.toolProjectionPreviewText(tool) || '').toLowerCase();
+      if (String(tool.status || '').toLowerCase() === 'blocked') return true;
+      if (!tool.is_error) return false;
+      return (
+        txt.indexOf('blocked') >= 0 ||
+        txt.indexOf('policy') >= 0 ||
+        txt.indexOf('denied') >= 0 ||
+        txt.indexOf('not allowed') >= 0 ||
+        txt.indexOf('forbidden') >= 0 ||
+        txt.indexOf('approval') >= 0 ||
+        txt.indexOf('permission') >= 0 ||
+        txt.indexOf('fail-closed') >= 0
+      );
+    },
 
+    isToolSuccessful: function(tool) {
+      if (!tool) return false;
+      if (tool.running) return false;
+      if (this.isBlockedTool(tool)) return false;
+      if (tool.is_error) return false;
+      return true;
+    },
+
+    isThoughtTool: function(tool) {
+      var row = tool && typeof tool === 'object' ? tool : null;
+      if (!row) return false;
+      var name = String(row.name || '').toLowerCase();
+      return !!(
+        name === 'thought_process' ||
+        row.agent_decision_dialog ||
+        row.agent_runtime_decision_dialog ||
+        row.agent_runtime_activity_trace ||
+        row.projection_kind === 'decision_dialog'
+      );
+    },
+
+    toolNameKey: function(tool) {
+      if (!tool) return '';
+      return String(tool.name || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_');
+    },
+
+    toolInputPayload: function(tool) {
+      if (!tool || typeof tool !== 'object') return null;
+      var raw = String(tool._detail_loaded ? (tool.input || tool.input_preview || '') : (tool.input_preview || '')).trim();
+      if (!raw) return null;
+      if (raw.indexOf('<function=') >= 0 && raw.indexOf('{') >= 0) {
+        raw = raw.slice(raw.indexOf('{')).trim();
+      }
+      if (!(raw.charAt(0) === '{' || raw.charAt(0) === '[')) return null;
+      try {
+        var parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+      } catch (_) {
+        return null;
+      }
+    },
+
+    toolPayloadCount: function(payload, keys) {
+      if (!payload || typeof payload !== 'object') return 0;
+      var list = Array.isArray(keys) ? keys : [];
+      for (var i = 0; i < list.length; i++) {
+        var key = list[i];
+        if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+        var value = payload[key];
+        if (Array.isArray(value)) return value.length;
+        if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.round(value));
+        if (typeof value === 'string' && value.trim()) return 1;
+      }
+      return 0;
+    },
+
+    prettifyToolLabel: function(value) {
+      var raw = String(value || '').trim();
+      if (!raw) return 'tool';
+      var normalized = raw
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!normalized) return 'tool';
+      return normalized
+        .split(' ')
+        .map(function(token) {
+          return token ? token.charAt(0).toUpperCase() + token.slice(1) : token;
+        })
+        .join(' ');
+    },
+
+    toolActionName: function(tool) {
+      var payload = this.toolInputPayload(tool);
+      if (!payload || typeof payload !== 'object') return '';
+      return String(
+        payload.action ||
+        payload.method ||
+        payload.operation ||
+        payload.op ||
+        ''
+      ).trim();
+    },
+
+    toolDisplayName: function(tool) {
+      if (!tool) return 'tool';
+      if (this.isThoughtTool(tool)) return 'thought';
+      var key = this.toolNameKey(tool);
+      var actionName = this.toolActionName(tool);
+      switch (key) {
+        case 'web_search':
+        case 'search_web':
+        case 'search':
+        case 'web_query':
+        case 'batch_query':
+          return 'Web search';
+        case 'web_fetch':
+        case 'browse':
+        case 'web_conduit_fetch':
+          return 'Web fetch';
+        case 'file_read':
+        case 'read_file':
+        case 'file':
+          return 'File read';
+        case 'folder_export':
+        case 'list_folder':
+        case 'folder_tree':
+        case 'folder':
+          return 'Folder export';
+        case 'terminal_exec':
+        case 'run_terminal':
+        case 'terminal':
+        case 'shell_exec':
+          return 'Terminal command';
+        case 'spawn_subagents':
+        case 'spawn_swarm':
+        case 'agent_spawn':
+        case 'sessions_spawn':
+          return 'Swarm spawn';
+        case 'memory_semantic_query':
+          return 'Memory query';
+        case 'cron_schedule':
+          return 'Schedule task';
+        case 'cron_run':
+          return 'Run scheduled task';
+        case 'cron_list':
+          return 'List schedules';
+        case 'session_rollback_last_turn':
+          return 'Undo last turn';
+        case 'slack':
+          return actionName ? ('Slack ' + this.prettifyToolLabel(actionName)) : 'Slack';
+        case 'gmail':
+          return actionName ? ('Gmail ' + this.prettifyToolLabel(actionName)) : 'Gmail';
+        case 'github':
+          return actionName ? ('GitHub ' + this.prettifyToolLabel(actionName)) : 'GitHub';
+        case 'notion':
+          return actionName ? ('Notion ' + this.prettifyToolLabel(actionName)) : 'Notion';
+        default:
+          return this.prettifyToolLabel(String(tool.name || 'tool'));
+      }
+    },
+
+    toolThinkingActionLabel: function(tool) {
+      if (!tool) return '';
+      if (this.isThoughtTool(tool)) return 'Thinking';
+      var key = this.toolNameKey(tool);
+      var payload = this.toolInputPayload(tool);
+      switch (key) {
+        case 'web_search':
+        case 'search_web':
+        case 'search':
+        case 'web_query':
+          return 'Searching internet';
+        case 'web_fetch':
+        case 'browse':
+        case 'web_conduit_fetch':
+          return 'Reading web pages';
+        case 'file_read':
+        case 'read_file':
+        case 'file':
+          var fileCount = this.toolPayloadCount(payload, ['paths', 'files', 'file_paths', 'targets', 'path', 'file']);
+          if (fileCount > 1) return 'Scanning ' + fileCount + ' files';
+          if (fileCount === 1) return 'Scanning 1 file';
+          return 'Scanning files';
+        case 'folder_export':
+        case 'list_folder':
+        case 'folder_tree':
+        case 'folder':
+          var folderCount = this.toolPayloadCount(payload, ['folders', 'paths', 'targets', 'path', 'folder']);
+          if (folderCount > 1) return 'Scanning ' + folderCount + ' folders';
+          if (folderCount === 1) return 'Scanning 1 folder';
+          return 'Scanning folders';
+        case 'terminal_exec':
+        case 'run_terminal':
+        case 'terminal':
+        case 'shell_exec':
+          return 'Running terminal command';
+        case 'spawn_subagents':
+        case 'spawn_swarm':
+        case 'agent_spawn':
+        case 'sessions_spawn':
+          var spawnCount = this.toolPayloadCount(payload, ['count', 'agent_count', 'num_agents', 'agents']);
+          if (spawnCount > 0) return 'Summoning ' + spawnCount + ' agents';
+          return 'Summoning agents';
+        case 'memory_semantic_query':
+          return 'Searching memory';
+        case 'cron_schedule':
+          return 'Scheduling follow-up work';
+        case 'cron_run':
+          return 'Running scheduled work';
+        case 'cron_list':
+          return 'Checking schedules';
+        case 'session_rollback_last_turn':
+          return 'Rewinding the last turn';
+        default:
+          return 'Running ' + this.toolDisplayName(tool);
+      }
+    },
+
+    ensureStreamingToolCard: function(msg, toolName, toolInput, options) {
+      if (!msg || typeof msg !== 'object') return null;
+      if (!Array.isArray(msg.tools)) msg.tools = [];
+      var name = String(toolName || '').trim();
+      if (!name) name = 'tool';
+      var opts = options && typeof options === 'object' ? options : {};
+      var identity = typeof this.toolAttemptIdentity === 'function'
+        ? this.toolAttemptIdentity({ name: name, attempt_id: opts.attempt_id || '', attempt_sequence: opts.attempt_sequence || (msg.tools.length + 1), tool_attempt_receipt: opts.tool_attempt_receipt || null }, msg.tools.length, 'stream-tool')
+        : { id: name + '-' + Date.now(), attempt_id: '', attempt_sequence: (msg.tools.length + 1), identity_key: name.toLowerCase() };
+      var markRunning = opts.running !== false;
+      var allowCreate = opts.no_create !== true;
+      for (var i = msg.tools.length - 1; i >= 0; i--) {
+        var card = msg.tools[i];
+        if (!card) continue;
+        var matchesIdentity = String(card.identity_key || '').trim() && String(card.identity_key || '').trim() === String(identity.identity_key || '').trim();
+        if (!matchesIdentity && String(card.name || '') !== name) continue;
+        if (markRunning && card.running) {
+          if (typeof toolInput === 'string') card.input_preview = toolInput;
+          if (identity.id) card.id = identity.id;
+          if (identity.attempt_id) card.attempt_id = identity.attempt_id; if (identity.attempt_sequence) card.attempt_sequence = identity.attempt_sequence; if (identity.identity_key) card.identity_key = identity.identity_key;
+          return card;
+        }
+        if (!markRunning && card.running) {
+          if (typeof toolInput === 'string') card.input_preview = toolInput;
+          if (identity.id) card.id = identity.id;
+          if (identity.attempt_id) card.attempt_id = identity.attempt_id; if (identity.attempt_sequence) card.attempt_sequence = identity.attempt_sequence; if (identity.identity_key) card.identity_key = identity.identity_key;
+          card.running = false;
+          return card;
+        }
+      }
+      if (!allowCreate) return null;
+      var created = { id: identity.id, name: name, running: markRunning, expanded: false, input_preview: typeof toolInput === 'string' ? toolInput : '', result_preview: '', is_error: false, attempt_id: identity.attempt_id, attempt_sequence: identity.attempt_sequence, identity_key: identity.identity_key };
+      msg.tools.push(created);
+      return created;
+    },
+
+    currentToolDialogLabel: function(msg) {
+      if (!msg || !Array.isArray(msg.tools) || !msg.tools.length) return '';
+      for (var i = msg.tools.length - 1; i >= 0; i--) {
+        var tool = msg.tools[i];
+        if (!tool || this.isThoughtTool(tool) || !tool.running) continue;
+        if (tool.agent_runtime_live_activity || tool.agent_activity_event) {
+          var liveLabel = String(tool.display_text || tool.summary || tool.result_preview || tool.output_preview || tool.name || '').trim();
+          if (liveLabel) return liveLabel.split('\n')[0].replace(/\s+/g, ' ').slice(0, 220);
+        }
+        return this.toolThinkingActionLabel(tool);
+      }
+      return '';
+    },
+
+    hasRunningActionableTools: function(msg) {
+      if (!msg || !Array.isArray(msg.tools) || !msg.tools.length) return false;
+      return msg.tools.some(function(tool) { return !!(tool && !this.isThoughtTool(tool) && tool.running); }, this);
+    },
+    clearTransientThinkingRows: function(options) {
+      var opts = options && typeof options === 'object' ? options : {}, force = opts.force === true;
+      var preserveRunningTools = !force && opts.preserve_running_tools !== false;
+      var pendingAgentId = !force && opts.preserve_pending_ws !== false && this._pendingWsRequest && this._pendingWsRequest.agent_id ? String(this._pendingWsRequest.agent_id || '').trim() : '';
+      var rows = Array.isArray(this.messages) ? this.messages : []; if (!rows.length) return 0;
+      var kept = [], now = Date.now(), keptPending = false;
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        if (!row || (!row.thinking && !row.streaming)) { kept.push(row); continue; }
+        var rowAgentId = String(row.agent_id || '').trim();
+        var keep = (preserveRunningTools && this.hasRunningActionableTools(row)) || (!!pendingAgentId && (!rowAgentId || rowAgentId === pendingAgentId));
+        if (!keep) {
+          var materialized = typeof this.materializeTransientThinkingRow === 'function'
+            ? this.materializeTransientThinkingRow(row, opts)
+            : null;
+          if (materialized) kept.push(materialized);
+          continue;
+        }
+        if (pendingAgentId && (!rowAgentId || rowAgentId === pendingAgentId)) keptPending = true;
+        row.thinking = true; row.streaming = true; row._stream_updated_at = now;
+        if (!Number.isFinite(Number(row._stream_started_at))) row._stream_started_at = now;
+        if (!String(row.thinking_status || '').trim()) {
+          var label = typeof this.currentToolDialogLabel === 'function' ? String(this.currentToolDialogLabel(row) || '').trim() : '';
+          if (label) row.thinking_status = label;
+        }
+        kept.push(row);
+      }
+      if (typeof this.replaceActiveChatMessages === 'function') this.replaceActiveChatMessages(kept);
+      else this.messages = kept;
+      if (!force && pendingAgentId && !keptPending && typeof this.ensureLiveThinkingRow === 'function') {
+        var restored = this.ensureLiveThinkingRow({ agent_id: pendingAgentId, agent_name: this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '' });
+        if (restored) {
+          restored.thinking = true; restored.streaming = true; restored._stream_updated_at = now;
+          if (!Number.isFinite(Number(restored._stream_started_at))) restored._stream_started_at = now;
+        }
+      }
+      return Math.max(0, rows.length - this.messages.length);
+    },
+
+    isMaterializableThinkingText: function(text) {
+      var value = String(text == null ? '' : text).replace(/\r\n/g, '\n').trim();
+      if (!value) return false;
+      var lower = value.replace(/\s+/g, ' ').toLowerCase();
+      if (!lower) return false;
+      if (lower === 'thinking' || lower === 'thinking...' || lower === 'thinking…') return false;
+      var blocked = [
+        'analyzing next step',
+        'preparing response',
+        'waiting for response',
+        'preparing codex cli with infring conversation context',
+        'preparing claude code with infring conversation context',
+        'preparing grok code with infring conversation context',
+        'loaded prior context rows',
+        'checking codex cli availability',
+        'checking claude code availability',
+        'checking grok code availability',
+        'starting codex cli session',
+        'starting claude code session',
+        'starting grok code session',
+        'launching codex cli turn',
+        'launching claude code turn',
+        'launching grok code turn',
+        'assistant draft streamed',
+        'final answer is shown in the message',
+        'returned completed'
+      ];
+      for (var i = 0; i < blocked.length; i += 1) {
+        if (lower.indexOf(blocked[i]) >= 0) return false;
+      }
+      return true;
+    },
+
+    materializeTransientThinkingRow: function(row, options) {
+      var msg = row && typeof row === 'object' ? row : null;
+      if (!msg) return null;
+      var lines = [];
+      var seen = {};
+      var self = this;
+      function addLine(value) {
+        var raw = String(value == null ? '' : value).replace(/\r\n/g, '\n').trim();
+        if (!raw) return;
+        raw.split('\n').forEach(function(part) {
+          var text = String(part || '').replace(/\s+/g, ' ').trim();
+          if (!text || (typeof self.isMaterializableThinkingText === 'function' && !self.isMaterializableThinkingText(text))) return;
+          var key = text.toLowerCase();
+          if (seen[key]) return;
+          seen[key] = true;
+          lines.push(text);
+        });
+      }
+      var traceRows = Array.isArray(msg.agent_runtime_live_trace_rows) ? msg.agent_runtime_live_trace_rows : [];
+      for (var i = 0; i < traceRows.length; i += 1) {
+        var trace = traceRows[i] && typeof traceRows[i] === 'object' ? traceRows[i] : {};
+        addLine(trace.text || trace.display_text || trace.summary || '');
+      }
+      addLine(msg._thoughtText || msg.thought_text || msg.thoughtText || '');
+      addLine(msg._cleanText || '');
+      addLine(msg.text || '');
+      addLine(msg.thinking_status || '');
+      var tools = Array.isArray(msg.tools) ? msg.tools.slice(0, 24) : [];
+      if (!lines.length && !tools.length) return null;
+      var materialized = Object.assign({}, msg, {
+        thinking: false,
+        streaming: false,
+        thoughtStreaming: false,
+        text: lines.join('\n').slice(0, 12000),
+        tools: tools.map(function(tool) {
+          return tool && typeof tool === 'object' ? Object.assign({}, tool, { running: false }) : tool;
+        }),
+        meta: String(msg.meta || '').trim(),
+        ts: Number.isFinite(Number(msg.ts)) ? Number(msg.ts) : Date.now()
+      });
+      delete materialized._typingVisual;
+      delete materialized._streamRawText;
+      delete materialized._stream_started_at;
+      delete materialized._stream_updated_at;
+      if (typeof this.markAgentMessageComplete === 'function') {
+        try { this.markAgentMessageComplete(materialized); } catch (_) {}
+      }
+      return materialized;
+    },
+
+    thoughtToolDurationSeconds: function(tool) {
+      if (!tool || typeof tool !== 'object') return 0;
+      var ms = Number(tool.duration_ms || tool.durationMs || tool.elapsed_ms || 0);
+      if (!Number.isFinite(ms) || ms < 0) ms = 0;
+      var seconds = Math.round(ms / 1000);
+      if (ms > 0 && seconds < 1) seconds = 1;
+      return Math.max(0, seconds);
+    },
+
+    normalizeThoughtLineText: function(value) {
+      return String(value == null ? '' : value)
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .map(function(part) { return String(part || '').replace(/\s+/g, ' ').trim(); })
+        .filter(function(part) {
+          if (!part) return false;
+          return !/^(?:working on|completed|failed|running|ran)\s+(?:command|file change|search|tool):?/i.test(part);
+        })
+        .join('\n')
+        .trim();
+    },
+
+    mergeThoughtDialogText: function() {
+      var lines = [];
+      var seen = Object.create(null);
+      for (var i = 0; i < arguments.length; i += 1) {
+        var value = this.normalizeThoughtLineText(arguments[i]);
+        if (!value) continue;
+        value.split('\n').forEach(function(part) {
+          var line = String(part || '').replace(/\s+/g, ' ').trim();
+          if (!line) return;
+          var key = line.toLowerCase();
+          if (seen[key]) return;
+          seen[key] = true;
+          lines.push(line);
+        });
+      }
+      return lines.join('\n');
+    },
+
+    normalizeThoughtTraceRows: function(traceRows, dialogText) {
+      var rows = Array.isArray(traceRows) ? traceRows : [];
+      var out = [];
+      var seen = Object.create(null);
+      function addTraceRow(row, fallbackId) {
+        var item = row && typeof row === 'object' ? row : {};
+        var text = String(item.text || item.title || item.display_text || item.summary || '').replace(/\r\n/g, '\n').trim();
+        if (!text) return;
+        text.split('\n').forEach(function(part) {
+          var line = String(part || '').replace(/\s+/g, ' ').trim();
+          if (!line) return;
+          var kind = String(item.line_kind || item.activity_kind || item.kind || '').trim() || 'dialog';
+          var kindSource = (kind + ' ' + line).toLowerCase();
+          if (/file|edit|patch|diff|write|create/.test(kindSource)) kind = 'write';
+          else if (/read|search|grep|rg|find|list|scan|inspect|check/.test(kindSource)) kind = 'read';
+          else if (/command|exec|shell|bash|tool|function/.test(kindSource)) kind = 'tool';
+          var key = (kind + '|' + line).toLowerCase();
+          if (seen[key]) return;
+          seen[key] = true;
+          out.push({
+            id: String(item.id || item.activity_key || (kind + '-' + fallbackId + '-' + out.length)).slice(0, 180),
+            text: line,
+            line_kind: kind,
+            state: String(item.state || item.status || 'done').trim() || 'done',
+            shimmer: false
+          });
+        });
+      }
+      for (var i = 0; i < rows.length && out.length < 80; i += 1) addTraceRow(rows[i], i);
+      var dialog = this.normalizeThoughtLineText(dialogText);
+      if (dialog) {
+        dialog.split('\n').forEach(function(part, idx) {
+          var line = String(part || '').replace(/\s+/g, ' ').trim();
+          if (!line || out.length >= 80) return;
+          var key = ('dialog|' + line).toLowerCase();
+          var looseKey = line.toLowerCase();
+          var hasLooseMatch = out.some(function(row) {
+            return String(row && row.text || '').replace(/\s+/g, ' ').trim().toLowerCase() === looseKey;
+          });
+          if (seen[key] || hasLooseMatch) return;
+          seen[key] = true;
+          out.push({
+            id: 'dialog-' + idx + '-' + looseKey.slice(0, 80).replace(/[^a-z0-9]+/g, '-'),
+            text: line,
+            line_kind: 'dialog',
+            state: 'done',
+            shimmer: false
+          });
+        });
+      }
+      return out.slice(-80);
+    },
+
+    thoughtTraceFileActionVerb: function(kind) {
+      return String(kind || '') === 'write' ? 'Edited' : 'Read';
+    },
+
+    extractThoughtTraceFileLabel: function(text, kind) {
+      var value = String(text || '').replace(/\r\n/g, '\n').trim();
+      if (!value) return '';
+      var quoted = value.match(/`([^`\n]+)`/);
+      if (quoted && quoted[1]) return quoted[1].trim();
+      var colon = value.match(/(?:file|path|changed|edited|wrote|written|created|updated|read|reading)\s*:?\s+(.+)$/i);
+      if (colon && colon[1]) return colon[1].trim();
+      var stripped = value.replace(/^(?:working on|completed|finished|failed|started|running|ran)\s+/i, '');
+      stripped = stripped.replace(/^(?:read|reading|edit|edited|editing|write|wrote|writing|created|creating|updated|updating)\s+(?:file\s+|files\s+)?/i, '');
+      stripped = stripped.replace(/^(?:file change|file)\s*:?\s*/i, '');
+      stripped = stripped.trim();
+      if (!stripped || stripped === value) return value;
+      return stripped;
+    },
+
+    compactThoughtTraceRows: function(traceRows) {
+      var rows = Array.isArray(traceRows) ? traceRows : [];
+      var compacted = [];
+      var group = null;
+      var self = this;
+      function flush() {
+        if (!group) return;
+        var count = group.children.length;
+        var verb = typeof self.thoughtTraceFileActionVerb === 'function'
+          ? self.thoughtTraceFileActionVerb(group.line_kind)
+          : (String(group.line_kind || '') === 'write' ? 'Edited' : 'Read');
+        compacted.push({
+          id: group.id,
+          text: verb + ' ' + count + ' ' + (count === 1 ? 'file' : 'files'),
+          line_kind: group.line_kind,
+          state: group.state,
+          status: group.status,
+          shimmer: false,
+          children: group.children
+        });
+        group = null;
+      }
+      for (var i = 0; i < rows.length; i += 1) {
+        var item = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        var kind = String(item.line_kind || '').trim();
+        if (kind !== 'read' && kind !== 'write') {
+          flush();
+          compacted.push(item);
+          continue;
+        }
+        var label = typeof this.extractThoughtTraceFileLabel === 'function'
+          ? this.extractThoughtTraceFileLabel(item.text, kind)
+          : String(item.text || '').trim();
+        var verb = typeof this.thoughtTraceFileActionVerb === 'function'
+          ? this.thoughtTraceFileActionVerb(kind)
+          : (kind === 'write' ? 'Edited' : 'Read');
+        var child = {
+          id: String(item.id || (kind + '-file-' + i)).slice(0, 180) + '-detail',
+          text: verb + ' ' + label,
+          line_kind: kind,
+          state: item.state || 'done',
+          status: item.status || item.state || 'done',
+          shimmer: false
+        };
+        if (!group || group.line_kind !== kind || group.state !== item.state) {
+          flush();
+          group = {
+            id: 'file-group-' + kind + '-' + String(item.id || i).slice(0, 140),
+            line_kind: kind,
+            state: item.state || 'done',
+            status: item.status || item.state || 'done',
+            children: []
+          };
+        }
+        group.children.push(child);
+      }
+      flush();
+      return compacted;
+    },
+
+    normalizeMessageThoughtTools: function(msg, options) {
+      if (!msg || !Array.isArray(msg.tools)) return [];
+      var opts = options && typeof options === 'object' ? options : {};
+      var tools = msg.tools;
+      var nonThought = [];
+      var thoughtRows = [];
+      var runtimeThought = null;
+      var genericSeen = Object.create(null);
+      for (var i = 0; i < tools.length; i += 1) {
+        var tool = tools[i];
+        if (!tool || typeof tool !== 'object') continue;
+        if (!this.isThoughtTool(tool)) {
+          nonThought.push(tool);
+          continue;
+        }
+        var isRuntimeThought = !!(tool.agent_decision_dialog || tool.agent_runtime_decision_dialog || tool.agent_runtime_activity_trace);
+        if (isRuntimeThought) {
+          if (!runtimeThought) {
+            runtimeThought = Object.assign({}, tool);
+            runtimeThought.agent_decision_dialog = true;
+            runtimeThought.agent_runtime_decision_dialog = true;
+            runtimeThought.agent_runtime_activity_trace = true;
+          } else {
+            runtimeThought.duration_ms = Math.max(Number(runtimeThought.duration_ms || 0) || 0, Number(tool.duration_ms || tool.elapsed_ms || 0) || 0);
+            runtimeThought.expanded = !!(runtimeThought.expanded || tool.expanded);
+            runtimeThought.agent_decision_dialog_text = this.mergeThoughtDialogText(
+              runtimeThought.agent_decision_dialog_text,
+              runtimeThought.input,
+              runtimeThought.input_preview,
+              runtimeThought.result_preview,
+              runtimeThought.display_text,
+              tool.agent_decision_dialog_text,
+              tool.input,
+              tool.input_preview,
+              tool.result_preview,
+              tool.display_text
+            );
+            runtimeThought.agent_runtime_trace_rows = this.normalizeThoughtTraceRows(
+              (Array.isArray(runtimeThought.agent_runtime_trace_rows) ? runtimeThought.agent_runtime_trace_rows : []).concat(Array.isArray(tool.agent_runtime_trace_rows) ? tool.agent_runtime_trace_rows : []),
+              runtimeThought.agent_decision_dialog_text
+            );
+          }
+          continue;
+        }
+        var genericText = this.mergeThoughtDialogText(tool.input, tool.input_preview, tool.result_preview, tool.display_text, tool.summary);
+        var genericKey = (genericText || String(tool.id || tool.name || i)).toLowerCase();
+        if (genericSeen[genericKey]) continue;
+        genericSeen[genericKey] = true;
+        thoughtRows.push(tool);
+      }
+      if (runtimeThought) {
+        var runtimeDialog = this.mergeThoughtDialogText(
+          runtimeThought.agent_decision_dialog_text,
+          runtimeThought.input,
+          runtimeThought.input_preview,
+          runtimeThought.result_preview,
+          runtimeThought.display_text
+        );
+        runtimeThought.agent_decision_dialog_text = runtimeDialog;
+        runtimeThought.input = runtimeDialog;
+        runtimeThought.input_preview = runtimeDialog;
+        runtimeThought.result_preview = runtimeDialog;
+        runtimeThought.display_text = runtimeDialog;
+        runtimeThought.summary = 'Agent decision dialog';
+        runtimeThought.agent_runtime_trace_rows = this.normalizeThoughtTraceRows(runtimeThought.agent_runtime_trace_rows, runtimeDialog);
+        thoughtRows.unshift(runtimeThought);
+      }
+      if (opts.commit === true) msg.tools = thoughtRows.concat(nonThought);
+      return thoughtRows;
+    },
+
+    messageThoughtTools: function(msg) {
+      return this.normalizeMessageThoughtTools(msg);
+    },
+
+    messageNonThoughtTools: function(msg) {
+      var tools = Array.isArray(msg && msg.tools) ? msg.tools : [];
+      return tools.filter(function(tool) {
+        return !this.isThoughtTool(tool);
+      }, this);
+    },
+
+    thoughtToolLabel: function(tool) {
+      if (tool && (tool.agent_decision_dialog || tool.agent_runtime_decision_dialog || tool.agent_runtime_activity_trace)) {
+        var seconds = this.thoughtToolDurationSeconds(tool);
+        var hours = Math.floor(seconds / 3600);
+        var minutes = Math.floor((seconds % 3600) / 60);
+        var remaining = seconds % 60;
+        var parts = [];
+        if (hours > 0) parts.push(hours + 'h');
+        if (hours > 0 || minutes > 0) parts.push(minutes + 'm');
+        parts.push(remaining + 's');
+        return 'Worked for ' + parts.join(' ');
+      }
+      return 'Thought for ' + this.thoughtToolDurationSeconds(tool) + ' seconds';
+    },
+
+    toolRawResultTextIfLoaded: function(tool) {
+      var row = tool && typeof tool === 'object' ? tool : {};
+      if (!row._detail_loaded || row.result == null) return '';
+      if (typeof row.result === 'string') return row.result;
+      try {
+        return JSON.stringify(row.result);
+      } catch (_) {
+        return '';
+      }
+    },
+
+    toolProjectionPreviewText: function(tool) {
+      var row = tool && typeof tool === 'object' ? tool : {};
+      var raw = this.toolRawResultTextIfLoaded(row);
+      if (raw) return raw;
+      return String(row.summary || row.result_preview || row.output_preview || row.display_text || row.status || '').trim();
+    },
+
+    toolStatusText: function(tool) {
+      if (!tool) return '';
+      if (tool.running) return 'running...';
+      if (tool._detail_loading) return 'loading detail...';
+      if (tool.agent_runtime_activity_trace) return '';
+      if (this.isThoughtTool(tool)) return 'thought';
+      if (this.isBlockedTool(tool)) return 'blocked';
+      if (tool.is_error) return 'error';
+      var loadedResult = this.toolRawResultTextIfLoaded(tool);
+      if (loadedResult) {
+        return loadedResult.length > 500 ? Math.round(loadedResult.length / 1024) + 'KB' : 'done';
+      }
+      return 'done';
+    },
+
+    // Mark chat-rendered error messages for styling
+    isErrorMessage: function(msg) {
+      if (!msg || !msg.text) return false;
+      if (String(msg.role || '').toLowerCase() !== 'system') return false;
+      var t = String(msg.text).trim().toLowerCase();
+      return t.startsWith('error:');
+    },
+
+    messageHasTools: function(msg) {
+      return !!(msg && Array.isArray(msg.tools) && msg.tools.length);
+    },
+
+    allToolsCollapsed: function(msg) {
+      if (!this.messageHasTools(msg)) return true;
+      return !msg.tools.some(function(tool) {
+        return !!(tool && tool.expanded);
+      });
+    },
+
+    toggleMessageTools: function(msg) {
+      if (!this.messageHasTools(msg)) return;
+      var expand = this.allToolsCollapsed(msg);
+      msg.tools.forEach(function(tool) {
+        if (tool) tool.expanded = expand;
+      });
+      this.scheduleConversationPersist();
+    },
+
+    formatToolOutputForClipboard: function(text) {
+      var raw = String(text == null ? '' : text);
+      var trimmed = raw.trim();
+      if (!trimmed) return '';
+      if (trimmed.charAt(0) === '{' || trimmed.charAt(0) === '[') {
+        try {
+          return '```json\n' + JSON.stringify(JSON.parse(trimmed), null, 2) + '\n```';
+        } catch (_) {}
+      }
+      return raw;
+    },
+
+    truncateToolOutputPreview: function(text) {
+      var raw = String(text == null ? '' : text).trim();
+      if (!raw) return '';
+      var allLines = raw.split('\n');
+      var maxLines = Number(this.toolPreviewMaxLines || 0);
+      if (!Number.isFinite(maxLines) || maxLines < 1) maxLines = 2;
+      var maxChars = Number(this.toolPreviewMaxChars || 0);
+      if (!Number.isFinite(maxChars) || maxChars < 24) maxChars = 100;
+      var preview = allLines.slice(0, maxLines).join('\n');
+      if (preview.length > maxChars) return preview.slice(0, maxChars).trimEnd() + '…';
+      return allLines.length > maxLines ? preview.trimEnd() + '…' : preview;
+    },
+
+    toolProjectionSections: function(tool) {
+      var row = tool && typeof tool === 'object' ? tool : {};
+      var sections = [];
+      if (row._detail_loading) {
+        sections.push({ id: 'loading', label: 'Detail', text: 'Loading detail…' });
+        return sections;
+      }
+      if (row._detail_error) {
+        sections.push({ id: 'error', label: 'Detail', text: String(row._detail_error || 'Unable to load detail right now.') });
+        return sections;
+      }
+      if (row.agent_decision_dialog || row.agent_runtime_decision_dialog || row.agent_runtime_activity_trace) {
+        var traceRows = Array.isArray(row.agent_runtime_trace_rows) ? row.agent_runtime_trace_rows : [];
+        var dialog = String(
+          row.agent_decision_dialog_text ||
+          row.input ||
+          row.input_preview ||
+          row.result ||
+          row.result_preview ||
+          row.summary ||
+          row.display_text ||
+          ''
+        ).trim();
+        var normalizedTraceRows = this.normalizeThoughtTraceRows(traceRows, dialog);
+        var projectedTraceRows = typeof this.compactThoughtTraceRows === 'function'
+          ? this.compactThoughtTraceRows(normalizedTraceRows)
+          : normalizedTraceRows;
+        if (projectedTraceRows.length) {
+          sections.push({
+            id: 'agent-decision-dialog',
+            label: 'Agent decision dialog',
+            text: '',
+            trace_rows: projectedTraceRows
+          });
+        } else if (dialog) {
+          sections.push({
+            id: 'agent-decision-dialog',
+            label: 'Agent decision dialog',
+            text: dialog
+          });
+        }
+        return sections;
+      }
+      if (this.isThoughtTool(row)) {
+        var thoughtDialog = this.mergeThoughtDialogText(
+          row.agent_decision_dialog_text,
+          row.input,
+          row.input_preview,
+          row.result,
+          row.result_preview,
+          row.output_preview,
+          row.display_text,
+          row.summary
+        );
+        var thoughtTraceRows = this.normalizeThoughtTraceRows(row.agent_runtime_trace_rows, thoughtDialog);
+        var projectedThoughtTraceRows = typeof this.compactThoughtTraceRows === 'function'
+          ? this.compactThoughtTraceRows(thoughtTraceRows)
+          : thoughtTraceRows;
+        if (projectedThoughtTraceRows.length) {
+          sections.push({
+            id: 'thought-dialog',
+            label: 'Thought dialog',
+            text: '',
+            trace_rows: projectedThoughtTraceRows
+          });
+        } else if (thoughtDialog) {
+          sections.push({
+            id: 'thought-dialog',
+            label: 'Thought dialog',
+            text: thoughtDialog
+          });
+        }
+        return sections;
+      }
+      var summary = String(row.summary || row.display_text || '').trim();
+      if (summary) sections.push({ id: 'summary', label: 'Summary', text: summary });
+      var input = String(row._detail_loaded ? (row.input || row.input_preview || '') : (row.input_preview || '')).trim();
+      if (input) sections.push({ id: 'input', label: 'Input', text: this.formatToolOutputForClipboard(input) || input });
+      var result = String(this.toolProjectionPreviewText(row) || '').trim();
+      if (result) sections.push({ id: 'result', label: 'Result', text: this.formatToolOutputForClipboard(result) || result });
+      if (!sections.length && this.shellDetailRefForTool(row)) {
+        sections.push({ id: 'detail-ref', label: 'Detail', text: 'Open the tool to load detail from the gateway.' });
+      }
+      return sections;
+    },
+
+    messageCopyMarkdown: function(msg) {
+      var row = msg && typeof msg === 'object' ? msg : {};
+      var parts = [];
+      var label = typeof this.messageActorLabel === 'function'
+        ? String(this.messageActorLabel(row) || '').trim()
+        : String(row.role || 'Message').trim();
+      var stamp = typeof this.messageTimestampLabel === 'function' ? String(this.messageTimestampLabel(row) || '').trim() : '';
+      if (label) parts.push('**' + label + '**');
+      if (stamp) parts.push('_' + stamp + '_');
+
+      var text = '';
+      if (typeof this.extractMessageVisibleText === 'function') {
+        text = String(this.extractMessageVisibleText(row) || '').trim();
+      }
+      if (!text && typeof this.messageVisiblePreviewText === 'function') {
+        text = String(this.messageVisiblePreviewText(row) || '').trim();
+      }
+      if (!text) text = String(row.text || '').trim();
+      if (text) parts.push(text);
+
+      if (row.notice_label) {
+        var notice = String(row.notice_label || '').trim();
+        if (notice) parts.push('Notice: ' + notice);
+      }
+
+      var toolLines = [];
+      var tools = Array.isArray(row.tools) ? row.tools : [];
+      for (var i = 0; i < tools.length; i += 1) {
+        var tool = tools[i] || {};
+        var toolName = this.toolDisplayName(tool);
+        var status = String(tool.status || '').trim();
+        var rendered = this.formatToolOutputForClipboard(this.toolProjectionPreviewText(tool) || '');
+        var preview = rendered ? this.truncateToolOutputPreview(rendered) : '';
+        var line = '- ' + toolName;
+        if (status) line += ' (' + status + ')';
+        if (preview) line += ': ' + preview;
+        toolLines.push(line);
+      }
+      if (toolLines.length) {
+        parts.push('');
+        parts.push('Tools:');
+        for (var j = 0; j < toolLines.length; j += 1) parts.push(toolLines[j]);
+      }
+
+      if (row.file_output && row.file_output.path) parts.push('', 'File: `' + String(row.file_output.path).trim() + '`');
+      if (row.folder_output && row.folder_output.path) parts.push('', 'Folder: `' + String(row.folder_output.path).trim() + '`');
+
+      return parts.filter(function(part, idx, arr) {
+        if (part !== '') return true;
+        return idx > 0 && arr[idx - 1] !== '';
+      }).join('\n').trim();
+    },
+
+    // Copy message text to clipboard as markdown
+    copyMessage: function(msg) {
+      if (!msg || msg._copying) return;
+      var text = this.messageCopyMarkdown(msg);
+      if (!text || !navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+        InfringToast.error('Copy failed.');
+        return;
+      }
+      msg._copying = true;
+      navigator.clipboard.writeText(text).then(function() {
+        msg._copying = false;
+        msg._copied = true;
+        setTimeout(function() { msg._copied = false; }, 1500);
+      }).catch(function() {
+        msg._copying = false;
+        InfringToast.error('Copy failed.');
+      });
+    },
+
+    prefersReducedMotion: function() {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+      try {
+        return !!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      } catch (_) {
+        return false;
+      }
+    },
+
+    captureComposerSendMorph: function(textInput) {
+      if (this.prefersReducedMotion() || this.terminalMode || this.showFreshArchetypeTiles) return null;
+      if (typeof document === 'undefined') return null;
+      var shell = document.querySelector('.input-row .composer-shell');
+      var input = document.getElementById('msg-input');
+      if (!shell || !input) return null;
+      var text = String(textInput == null ? '' : textInput).trim();
+      if (!text) return null;
+      var rect = input.getBoundingClientRect();
+      if (!(rect.width > 80 && rect.height > 24)) return null;
+      var ghost = document.createElement('div');
+      ghost.className = 'composer-send-morph-ghost';
+      ghost.textContent = text.length > 260 ? (text.slice(0, 257) + '...') : text;
+      ghost.style.left = rect.left + 'px';
+      ghost.style.top = rect.top + 'px';
+      ghost.style.width = rect.width + 'px';
+      ghost.style.minHeight = rect.height + 'px';
+      document.body.appendChild(ghost);
+      shell.classList.add('composer-shell-send-morph');
+      return { shell: shell, ghost: ghost };
+    },
+
+    clearComposerSendMorph: function(snapshot) {
+      if (!snapshot || typeof snapshot !== 'object') return;
+      if (snapshot.shell && snapshot.shell.classList) snapshot.shell.classList.remove('composer-shell-send-morph');
+      if (snapshot.ghost && snapshot.ghost.parentNode) snapshot.ghost.parentNode.removeChild(snapshot.ghost);
+    },
+
+    playComposerSendMorphToMessage: function(snapshot, messageId) {
+      if (!snapshot || !snapshot.ghost) return;
+      if (this.prefersReducedMotion()) {
+        snapshot.ghost.style.opacity = '0.56';
+        setTimeout(this.clearComposerSendMorph.bind(this, snapshot), 240);
+        return;
+      }
+      var row = document.getElementById('chat-msg-' + String(messageId || '').trim());
+      var bubble = row ? row.querySelector('.message-bubble') : null;
+      if (!bubble) {
+        this.clearComposerSendMorph(snapshot);
+        return;
+      }
+      var rect = bubble.getBoundingClientRect();
+      if (!(rect.width > 24 && rect.height > 20)) {
+        this.clearComposerSendMorph(snapshot);
+        return;
+      }
+      var ghost = snapshot.ghost;
+      var self = this;
+      ghost.classList.add('in-flight');
+      var finish = function() { self.clearComposerSendMorph(snapshot); };
+      ghost.addEventListener('transitionend', finish, { once: true });
+      requestAnimationFrame(function() {
+        ghost.style.left = rect.left + 'px';
+        ghost.style.top = rect.top + 'px';
+        ghost.style.width = rect.width + 'px';
+        ghost.style.minHeight = rect.height + 'px';
+        ghost.style.opacity = '0.2';
+      });
+      setTimeout(finish, 760);
+    },
+
+    appendUserChatMessage: function(finalText, msgImages, options) {
+      var opts = options && typeof options === 'object' ? options : {};
+      var text = String(finalText == null ? '' : finalText);
+      var images = Array.isArray(msgImages) ? msgImages : [];
+      if (!String(text || '').trim() && !images.length) return;
+      var msg = {
+        id: ++msgId,
+        role: 'user',
+        text: text,
+        meta: '',
+        tools: [],
+        images: images,
+        ts: Number.isFinite(Number(opts.ts)) ? Number(opts.ts) : Date.now()
+      };
+      this.messages.push(msg);
+      this._stickToBottom = true;
+      this.scrollToBottom({ force: true, stabilize: true });
+      localStorage.setItem('of-first-msg', 'true');
+      this.promptSuggestions = [];
+      if (!opts.deferPersist) this.scheduleConversationPersist();
+      return msg;
+    },
+
+    // Process queued messages after current response completes
+    _processQueue: function() {
+      if (!this.messageQueue.length || this.sending || this._inflightFailoverInProgress) return;
+      var next = this.messageQueue.shift();
+      if (next && next.terminal) {
+        this._sendTerminalPayload(next.command);
+        return;
+      }
+      var queueKind = String(next && next.queue_kind || '').trim();
+      var nextText = String(next && next.text ? next.text : '');
+      var nextFiles = Array.isArray(next && next.files) ? next.files : [];
+      var nextImages = Array.isArray(next && next.images) ? next.images : [];
+      if (queueKind === 'agent_runtime_steer_followup') {
+        var steerAgent = this.ensureValidCurrentAgent({ clear_when_missing: true });
+        var steerAgentId = String((next && next.agent_id) || (steerAgent && steerAgent.id) || (this.currentAgent && this.currentAgent.id) || '').trim();
+        if (!steerAgentId) {
+          var selfSteer = this;
+          this.$nextTick(function() { selfSteer._processQueue(); });
+          return;
+        }
+        this._sendPayload(
+          nextText || 'Continue with the queued user steering instruction.',
+          nextFiles,
+          [],
+          {
+            from_queue: true,
+            queue_id: next && next.queue_id ? String(next.queue_id) : '',
+            agent_id: steerAgentId,
+            agent_runtime_engine_id: String((next && next.agent_runtime_engine_id) || this.selectedAgentRuntimeEngineId || 'infring_native'),
+            trigger_source: 'steer_followup'
+          }
+        );
+        return;
+      }
+      if (!nextText.trim() && !nextFiles.length) {
+        var self = this;
+        this.$nextTick(function() { self._processQueue(); });
+        return;
+      }
+      this.appendUserChatMessage(nextText, nextImages, { deferPersist: true });
+      this.scheduleConversationPersist();
+      this._sendPayload(nextText, nextFiles, nextImages, {
+        from_queue: true,
+        queue_id: next && next.queue_id ? String(next.queue_id) : '',
+        agent_runtime_engine_id: String((next && next.agent_runtime_engine_id) || this.selectedAgentRuntimeEngineId || 'infring_native')
+      });
+    },
+
+    _terminalPromptLine: function(cwd, command) {
+      var path = String(cwd || this.terminalPromptPath || '/workspace');
+      var cmd = String(command || '').trim();
+      if (!cmd) return path + ' %';
+      return path + ' % ' + cmd;
+    },
+
+    _appendTerminalMessage: function(entry) {
+      var payload = entry || {};
+      var text = String(payload.text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/^\s+|\s+$/g, '');
+      var now = Date.now();
+      var ts = Number.isFinite(Number(payload.ts)) ? Number(payload.ts) : now;
+      var role = payload.role ? String(payload.role) : 'terminal';
+      var terminalSource = payload.terminal_source ? String(payload.terminal_source).toLowerCase() : '';
+      if (terminalSource !== 'user' && terminalSource !== 'agent' && terminalSource !== 'system') {
+        terminalSource = role === 'user' ? 'user' : 'system';
+      }
+      var cwd = payload.cwd ? String(payload.cwd) : this.terminalPromptPath;
+      var meta = payload.meta == null ? '' : String(payload.meta);
+      var tools = Array.isArray(payload.tools) ? payload.tools : [];
+      var shouldAppendToLast = payload.append_to_last === true;
+      var agentId = payload.agent_id ? String(payload.agent_id) : '';
+      var agentName = payload.agent_name ? String(payload.agent_name) : '';
+      if (terminalSource === 'agent') {
+        if (!agentId && this.currentAgent && this.currentAgent.id) agentId = String(this.currentAgent.id);
+        if (!agentName && this.currentAgent && this.currentAgent.name) agentName = String(this.currentAgent.name);
+      }
+
+      var rows = this.ensureActiveChatMessagesArray();
+      var last = rows.length ? rows[rows.length - 1] : null;
+      if (shouldAppendToLast && last && !last.thinking && last.terminal) {
+        if (text) {
+          if (last.text && !/\n$/.test(last.text)) last.text += '\n';
+          last.text += text.replace(/^[\r\n]+/, '');
+        }
+        if (meta) last.meta = meta;
+        if (cwd) {
+          last.cwd = cwd;
+          this.terminalCwd = cwd;
+        }
+        if (terminalSource) last.terminal_source = terminalSource;
+        if (agentId) last.agent_id = agentId;
+        if (agentName) last.agent_name = agentName;
+        last.ts = ts;
+        if (!Array.isArray(last.tools)) last.tools = [];
+        if (tools.length) last.tools = last.tools.concat(tools);
+        if (typeof this.syncActiveChatMessages === 'function') this.syncActiveChatMessages();
+        return last;
+      }
+
+      var msg = {
+        id: ++msgId,
+        role: role,
+        text: text,
+        meta: meta,
+        tools: tools,
+        ts: ts,
+        terminal: true,
+        terminal_source: terminalSource || 'system',
+        cwd: cwd
+      };
+      if (agentId) msg.agent_id = agentId;
+      if (agentName) msg.agent_name = agentName;
+      this.appendActiveChatMessage(msg);
+      if (cwd) this.terminalCwd = cwd;
+      return msg;
+    },
     runSlashAlerts: async function() {
       try {
         var alertsPayload = await this.fetchProactiveTelemetryAlerts(false);
@@ -16349,7 +16747,6 @@ function chatPage() {
         this.emitCommandFailureNotice('/opt', error, ['/status', '/continuity']);
       }
     },
-
     pushSystemMessage: function(entry) {
       var payload = entry && typeof entry === 'object' ? entry : { text: entry };
       var rawText = String(payload && payload.text ? payload.text : '');
@@ -16696,10 +17093,75 @@ function chatPage() {
       return rows.slice(-4);
     },
 
+    publishSlashCommandFeedback: function(command, options) {
+      var row = command && typeof command === 'object' ? command : {};
+      var opts = options && typeof options === 'object' ? options : {};
+      var cmd = String(row.cmd || row.display_command || opts.display_command || '').trim();
+      var title = String(opts.title || row.title || row.label || cmd || 'Slash command').replace(/\s+/g, ' ').trim();
+      var status = String(opts.status || row.operational_state || 'completed').replace(/\s+/g, ' ').trim();
+      var text = String(
+        opts.text ||
+        opts.display_text ||
+        row.operational_detail ||
+        row.desc ||
+        row.description ||
+        row.operational_label ||
+        status ||
+        'Command accepted.'
+      ).replace(/\s+/g, ' ').trim();
+      if (text.length > 260) text = text.slice(0, 257) + '...';
+      var noticeType = String(opts.notice_type || '').trim();
+      if (!noticeType) {
+        noticeType = /failed|error|denied/i.test(status) ? 'error' : (/manual|warning|required/i.test(status) ? 'warning' : 'info');
+      }
+      if (this._slashCommandFeedbackTimer) {
+        clearTimeout(this._slashCommandFeedbackTimer);
+        this._slashCommandFeedbackTimer = 0;
+      }
+      this.slashCommandFeedback = {
+        id: 'slash-command-feedback-' + Date.now(),
+        type: 'slash_command_feedback_projection',
+        command: cmd,
+        title: title,
+        text: text,
+        status: status,
+        notice_type: noticeType,
+        created_at: Date.now(),
+        source_authority: row.source === 'agent_runtime_command_catalog'
+          ? 'gateway.agent_runtime_command_catalog'
+          : 'client.runtime.slash_command_projection'
+      };
+      var shouldPersist = opts.persist === true || /manual|required|failed|error|denied/i.test(status);
+      if (!shouldPersist) {
+        var self = this;
+        this._slashCommandFeedbackTimer = setTimeout(function() {
+          if (self.slashCommandFeedback && self.slashCommandFeedback.id) self.slashCommandFeedback = null;
+          self._slashCommandFeedbackTimer = 0;
+        }, 12000);
+      }
+      return this.slashCommandFeedback;
+    },
+
+    dismissSlashCommandFeedback: function() {
+      if (this._slashCommandFeedbackTimer) {
+        clearTimeout(this._slashCommandFeedbackTimer);
+        this._slashCommandFeedbackTimer = 0;
+      }
+      this.slashCommandFeedback = null;
+    },
+
     emitCommandFailureNotice: function(command, error, fallbackCommands) {
       var cmd = String(command || '').trim() || '/status';
       var message = String(error && error.message ? error.message : error || 'command_failed').trim();
       if (message.length > 220) message = message.slice(0, 217) + '...';
+      if (typeof this.publishSlashCommandFeedback === 'function') {
+        this.publishSlashCommandFeedback({ cmd: cmd, title: 'Command ' + cmd + ' failed' }, {
+          status: 'failed',
+          notice_type: 'error',
+          text: message,
+          persist: true
+        });
+      }
       var fallbacks = Array.isArray(fallbackCommands) ? fallbackCommands : [];
       var fallbackText = fallbacks
         .map(function(row) { return '`' + String(row || '').trim() + '`'; })
@@ -16832,7 +17294,6 @@ function chatPage() {
       addSection('InfRing native / commands', localRows, 'infring_native_slash');
       return sections;
     },
-
     toolAttemptIdentity: function(tool, idx, prefix) {
       var row = tool && typeof tool === 'object' ? tool : {};
       var receipt = row.tool_attempt_receipt && typeof row.tool_attempt_receipt === 'object'
@@ -17295,7 +17756,6 @@ function chatPage() {
       return out;
     },
 
-
     async ensureSystemTerminalSession() {
       var existing = String(this.systemTerminalSessionId || '').trim();
       if (existing) return existing;
@@ -17339,7 +17799,6 @@ function chatPage() {
       }
     },
 
-
     async sendTerminalMessage() {
       if (this.showFreshArchetypeTiles) {
         InfringToast.info('Launch agent initialization before running terminal commands.');
@@ -17381,9 +17840,7 @@ function chatPage() {
       var sendTrigger = this._pendingPromptSuggestionSend && typeof this._pendingPromptSuggestionSend === 'object'
         ? this._pendingPromptSuggestionSend
         : null;
-      var sendTriggerSource = sendTrigger && sendTrigger.source
-        ? String(sendTrigger.source).slice(0, 80)
-        : 'composer';
+      var sendTriggerSource = sendTrigger ? 'prompt_suggestion' : 'composer';
       if (this.terminalMode) {
         await this.sendTerminalMessage();
         return;
@@ -17735,58 +18192,17 @@ function chatPage() {
         }
         else {
           InfringToast.success(choice === 'always_allow_tool_call' ? 'Always allowed: ' + String(request.tool_id || 'tool call') : 'Permission allowed once');
-          var approveText = 'Permission approved: ' + self.permissionRequestPreview(request);
-          if (liveRow && typeof self.appendAgentRuntimeActivityToThinkingRow === 'function') {
-            self.appendAgentRuntimeActivityToThinkingRow({
-              activity_kind: 'permission_event',
-              provider_event_type: 'permission.approved',
-              status: 'completed',
-              display_text: approveText,
-              text: approveText,
-              engine_id: liveEngineId,
-              item_id: approvalId
-            }, liveEngineId);
-          }
-          if (payload && payload.execution_result && payload.execution_result.ok) {
-            if (liveRow && typeof self.appendAgentRuntimeActivityToThinkingRow === 'function') {
-              var executedText = String(payload.execution_result.display_text || payload.execution_result.path || 'Approved action completed.').trim();
-              if (payload.execution_result.path && executedText === String(payload.execution_result.path).trim()) executedText = 'Created ' + executedText + '.';
-              self.appendAgentRuntimeActivityToThinkingRow({
-                activity_kind: 'tool_call_event',
-                provider_event_type: 'permission.effect.executed',
-                status: 'completed',
-                display_text: executedText,
-                text: executedText,
-                engine_id: liveEngineId,
-                item_id: approvalId + ':effect'
-              }, liveEngineId);
-              var execEvents = Array.isArray(liveRow.agent_runtime_live_events) ? liveRow.agent_runtime_live_events.slice(-80) : [];
-              var execDurationMs = Math.max(0, Date.now() - Number(liveRow._stream_started_at || liveRow.ts || Date.now()));
-              var execTool = self.agentRuntimeActivityEventsToDecisionTool(execEvents, liveEngineId, execDurationMs);
-              self.finalizeAgentRuntimeThinkingRow(liveRow, {
-                text: executedText,
-                meta: 'runtime ' + (liveEngineId || 'agent_runtime') + ' | approval executed',
-                tools: execTool ? [execTool] : [],
-                agent_activity_events: execEvents,
-                agent_activity_event_count: execEvents.length,
-                result_ref: String(payload.execution_result.result_ref || ''),
-                receipt_ref: String(payload.execution_result.receipt_ref || ''),
-                pending_permission_request: request,
-                projection_kind: 'permission_request'
-              });
-              return payload;
-            }
-            if (typeof self.addNoticeEvent === 'function') {
-              self.addNoticeEvent({
-                notice_label: 'Approved ' + self.permissionRequestPreview(request) + '; executed approved action.',
-                notice_type: 'info',
-                ts: Date.now()
-              });
-            }
-            self.appendAgentRuntimeApprovalExecutionMessage(request, payload.execution_result);
-            return payload;
-          }
           var resume = request.resume_payload && typeof request.resume_payload === 'object' ? request.resume_payload : null;
+          var executionResult = payload && payload.execution_result && payload.execution_result.ok
+            ? payload.execution_result
+            : null;
+          if (executionResult && typeof self.addNoticeEvent === 'function') {
+            self.addNoticeEvent({
+              notice_label: 'Approved ' + self.permissionRequestPreview(request) + '; applied approved effect.',
+              notice_type: 'info',
+              ts: Date.now()
+            });
+          }
           if (resume && typeof self._sendAgentRuntimeSocketPayload === 'function') {
             var resumeAgentId = String(resume.agent_id || request.agent_id || (self.currentAgent && (self.currentAgent.id || self.currentAgent.session_id)) || '').trim();
             var resumeText = String(resume.final_text || resume.message || resume.text || '').trim();
@@ -17806,17 +18222,52 @@ function chatPage() {
                 self.setAgentLiveActivity(resumeAgentId, 'working', { optimistic: true, source: 'agent_runtime_permission_resume' });
               }
               setTimeout(function() {
-              self._sendAgentRuntimeSocketPayload(resumeAgentId, resumeText, resumeFiles, resumeImages, resumeEngineId, {
-                approval_id: approvalId,
-                resume_token: String(payload && payload.resume_token || request.resume_token || '').trim(),
-                approved_tool_id: String(request.tool_id || '').trim(),
-                approval_decision: choice,
-                approval_resume_action: String(payload && payload.resume_action || '').trim(),
-                decision_receipt_ref: String(payload && payload.decision_receipt_ref || '').trim(),
-                live_message_id: String(request.live_message_id || '').trim()
-              });
+                self._sendAgentRuntimeSocketPayload(resumeAgentId, resumeText, resumeFiles, resumeImages, resumeEngineId, {
+                  approval_id: approvalId,
+                  resume_token: String(payload && payload.resume_token || request.resume_token || '').trim(),
+                  approved_tool_id: String(request.tool_id || '').trim(),
+                  approval_decision: choice,
+                  approval_resume_action: String(payload && payload.resume_action || '').trim(),
+                  decision_receipt_ref: String(payload && payload.decision_receipt_ref || '').trim(),
+                  approved_effect_executed: !!executionResult,
+                  approved_effect_path: String(executionResult && executionResult.path || '').trim(),
+                  approved_effect_artifact_ref: String(executionResult && executionResult.artifact_ref || '').trim(),
+                  approved_effect_result_ref: String(executionResult && executionResult.result_ref || '').trim(),
+                  approved_effect_receipt_ref: String(executionResult && executionResult.receipt_ref || '').trim(),
+                  approved_effect_display_text: String(executionResult && executionResult.display_text || '').trim(),
+                  live_message_id: String(request.live_message_id || '').trim()
+                });
               }, 0);
+              return payload;
             }
+          }
+          if (executionResult) {
+            if (liveRow && typeof self.appendAgentRuntimeActivityToThinkingRow === 'function') {
+              var executedText = String(executionResult.display_text || executionResult.path || 'Approved action completed.').trim();
+              if (executionResult.path && executedText === String(executionResult.path).trim()) executedText = 'Created ' + executedText + '.';
+              var execEvents = Array.isArray(liveRow.agent_runtime_live_events) ? liveRow.agent_runtime_live_events.slice(-80) : [];
+              self.finalizeAgentRuntimeThinkingRow(liveRow, {
+                text: executedText,
+                meta: 'runtime ' + (liveEngineId || 'agent_runtime') + ' | approval executed',
+                tools: [],
+                agent_activity_events: execEvents,
+                agent_activity_event_count: execEvents.length,
+                result_ref: String(executionResult.result_ref || ''),
+                receipt_ref: String(executionResult.receipt_ref || ''),
+                pending_permission_request: request,
+                projection_kind: 'permission_request'
+              });
+              return payload;
+            }
+            if (typeof self.addNoticeEvent === 'function') {
+              self.addNoticeEvent({
+                notice_label: 'Approved ' + self.permissionRequestPreview(request) + '; executed approved action.',
+                notice_type: 'info',
+                ts: Date.now()
+              });
+            }
+            self.appendAgentRuntimeApprovalExecutionMessage(request, executionResult);
+            return payload;
           }
         }
         return payload;
@@ -17862,6 +18313,7 @@ function chatPage() {
       var out = [];
       for (var i = 0; i < rows.length && out.length < 40; i += 1) {
         var event = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        if (typeof this.agentRuntimeActivityVisibleInThinkingBubble === 'function' && !this.agentRuntimeActivityVisibleInThinkingBubble(event)) continue;
         var kind = String(event.activity_kind || event.kind || '').trim();
         var text = String(event.display_text || event.text || event.summary || '').replace(/\r\n/g, '\n').trim();
         var providerType = String(event.provider_event_type || event.event_type || '').trim();
@@ -17911,7 +18363,24 @@ function chatPage() {
       var row = event && typeof event === 'object' ? event : {};
       var kind = String(row.activity_kind || row.kind || row.type || '').toLowerCase();
       var providerType = String(row.provider_event_type || row.event_type || '').toLowerCase();
-      var joined = kind + ' ' + providerType;
+      var timelineRole = String(row.timeline_role || row.role || '').toLowerCase();
+      if (
+        kind === 'user_steer' ||
+        providerType === 'steering.user_message' ||
+        timelineRole === 'user_steer'
+      ) {
+        return 'dialog';
+      }
+      if (
+        kind === 'permission_event' ||
+        kind === 'permission_request' ||
+        providerType.indexOf('permission.') === 0 ||
+        providerType.indexOf('approval.') === 0
+      ) {
+        return 'status';
+      }
+      var text = String(row.display_text || row.text || row.summary || '').toLowerCase();
+      var joined = kind + ' ' + providerType + ' ' + text;
       if (
         joined.indexOf('decision') >= 0 ||
         joined.indexOf('reasoning') >= 0 ||
@@ -17922,14 +18391,31 @@ function chatPage() {
         return 'dialog';
       }
       if (
-        joined.indexOf('command') >= 0 ||
-        joined.indexOf('exec') >= 0 ||
-        joined.indexOf('shell') >= 0 ||
         joined.indexOf('file') >= 0 ||
         joined.indexOf('patch') >= 0 ||
         joined.indexOf('write') >= 0 ||
-        joined.indexOf('tool') >= 0 ||
+        joined.indexOf('edit') >= 0 ||
+        joined.indexOf('diff') >= 0 ||
+        /\b(apply_patch|tee|touch|mkdir|rm|mv|cp)\b/.test(joined) ||
+        />\s*[^&|;]+/.test(joined)
+      ) {
+        return 'write';
+      }
+      if (
         joined.indexOf('search') >= 0 ||
+        joined.indexOf('grep') >= 0 ||
+        joined.indexOf('find') >= 0 ||
+        joined.indexOf('read') >= 0 ||
+        joined.indexOf('open') >= 0 ||
+        /\b(rg|grep|sed|cat|ls|find|pwd|head|tail|wc)\b/.test(joined)
+      ) {
+        return 'read';
+      }
+      if (
+        joined.indexOf('command') >= 0 ||
+        joined.indexOf('exec') >= 0 ||
+        joined.indexOf('shell') >= 0 ||
+        joined.indexOf('tool') >= 0 ||
         joined.indexOf('permission') >= 0 ||
         joined.indexOf('approval') >= 0 ||
         joined.indexOf('error') >= 0
@@ -17937,6 +18423,51 @@ function chatPage() {
         return 'tool';
       }
       return 'status';
+    },
+
+    agentRuntimeActivityTraceTarget: function(row, text) {
+      var event = row && typeof row === 'object' ? row : {};
+      var rawText = String(text || event.display_text || event.text || event.summary || '').replace(/\r\n/g, '\n').trim();
+      var itemIdTarget = String(event.target || event.path || event.file_path || event.filename || event.tool_name || event.name || '').trim();
+      if (itemIdTarget) return itemIdTarget.slice(0, 900);
+      var patterns = [
+        /^(?:running|ran|failed running)\s+([\s\S]+)$/i,
+        /^(?:writing|wrote|failed writing)\s+([\s\S]+)$/i,
+        /^(?:searching|searched|failed searching)\s+([\s\S]+)$/i,
+        /^(?:reading|read|failed reading)\s+([\s\S]+)$/i,
+        /^Runtime event:\s*([\s\S]+)$/i
+      ];
+      for (var i = 0; i < patterns.length; i += 1) {
+        var match = rawText.match(patterns[i]);
+        if (match && match[1]) return String(match[1]).replace(/\s+/g, ' ').trim().slice(0, 900);
+      }
+      return rawText.split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 900);
+    },
+
+    agentRuntimeActivityTraceKey: function(row, lineKind, target) {
+      var event = row && typeof row === 'object' ? row : {};
+      var itemId = String(event.item_id || event.itemId || event.tool_call_ref || '').trim();
+      if (itemId) return 'item|' + itemId.slice(0, 180);
+      var normalizedTarget = String(target || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (normalizedTarget) return [lineKind || 'activity', normalizedTarget].join('|').slice(0, 240);
+      return '';
+    },
+
+    agentRuntimeActivityTraceText: function(row, lineKind, state, target) {
+      var event = row && typeof row === 'object' ? row : {};
+      var cleanTarget = String(target || '').replace(/\s+/g, ' ').trim();
+      var done = state === 'done';
+      var error = state === 'error';
+      if (lineKind === 'write') {
+        return (error ? 'failed writing ' : done ? 'wrote ' : 'writing ') + (cleanTarget || 'file');
+      }
+      if (lineKind === 'read') {
+        return (error ? 'failed reading ' : done ? 'read ' : 'reading ') + (cleanTarget || 'workspace');
+      }
+      if (lineKind === 'tool') {
+        return (error ? 'failed running ' : done ? 'ran ' : 'running ') + (cleanTarget || 'tool call');
+      }
+      return String(event.display_text || event.text || event.summary || cleanTarget || '').replace(/\r\n/g, '\n').trim();
     },
 
     agentRuntimeActivityEventToTraceLine: function(event, engineId) {
@@ -17947,20 +18478,39 @@ function chatPage() {
       if (!text) return null;
       var status = String(row.status || '').trim();
       var kind = this.agentRuntimeActivityLineKind(row);
+      var state = status === 'failed' || status === 'error'
+        ? 'error'
+        : status === 'paused_pending_approval'
+          ? 'blocked'
+          : status === 'running' || status === 'started' || status === 'activity'
+            ? 'running'
+            : 'done';
+      var target = this.agentRuntimeActivityTraceTarget(row, text);
+      var displayText = this.agentRuntimeActivityTraceText(row, kind, state, target);
+      var normalizedDisplayText = String(displayText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (
+        kind === 'status' &&
+        (
+          normalizedDisplayText.indexOf('final answer is shown in the message') >= 0 ||
+          normalizedDisplayText.indexOf('assistant draft streamed') >= 0 ||
+          normalizedDisplayText.indexOf('returned completed') >= 0 ||
+          normalizedDisplayText.indexOf('completed the turn') >= 0 ||
+          normalizedDisplayText.indexOf('finished its turn') >= 0
+        )
+      ) {
+        return null;
+      }
+      var activityKey = this.agentRuntimeActivityTraceKey(row, kind, target);
       return {
-        id: String(row.item_id || row.sequence_no || (kind + '-' + Date.now() + '-' + Math.random())).slice(0, 180),
-        text: text.split('\n').map(function(part) {
+        id: String(activityKey || row.item_id || row.sequence_no || (kind + '-' + Date.now() + '-' + Math.random())).slice(0, 180),
+        text: String(displayText || text).split('\n').map(function(part) {
           return String(part || '').replace(/\s+/g, ' ').trim();
         }).filter(Boolean).join('\n').slice(0, 1400),
         line_kind: kind,
-        state: status === 'failed' || status === 'error'
-          ? 'error'
-          : status === 'paused_pending_approval'
-            ? 'blocked'
-            : status === 'running' || status === 'started' || status === 'activity'
-              ? 'running'
-              : 'done',
+        state: state,
         status: status,
+        activity_key: activityKey,
+        activity_target: target,
         engine_id: String(row.engine_id || engineId || '').trim(),
         ts: Date.now()
       };
@@ -17972,6 +18522,24 @@ function chatPage() {
       var lastTrace = traceRows.length ? traceRows[traceRows.length - 1] : null;
       var nextText = String(traceLine.text || '').trim();
       var nextKind = String(traceLine.line_kind || 'status');
+      var nextKey = String(traceLine.activity_key || '').trim();
+      var nextTarget = String(traceLine.activity_target || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if ((nextKey || nextTarget) && nextKind !== 'dialog') {
+        for (var i = traceRows.length - 1; i >= 0; i -= 1) {
+          var rowKey = String(traceRows[i].activity_key || '').trim();
+          var rowKind = String(traceRows[i].line_kind || 'status');
+          var rowTarget = String(traceRows[i].activity_target || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if (
+            rowKey === nextKey ||
+            (nextTarget && rowTarget === nextTarget && rowKind === nextKind)
+          ) {
+            traceRows[i] = Object.assign({}, traceRows[i], traceLine, { id: traceRows[i].id || traceLine.id });
+            target.agent_runtime_live_trace_rows = traceRows.slice(-48);
+            if (typeof this.scheduleThinkingBubbleSizeStabilization === 'function') this.scheduleThinkingBubbleSizeStabilization(target);
+            return true;
+          }
+        }
+      }
       if (
         lastTrace &&
         String(lastTrace.line_kind || '') === nextKind &&
@@ -17997,6 +18565,7 @@ function chatPage() {
         traceRows.push(traceLine);
       }
       target.agent_runtime_live_trace_rows = traceRows.slice(-48);
+      if (typeof this.scheduleThinkingBubbleSizeStabilization === 'function') this.scheduleThinkingBubbleSizeStabilization(target);
       return true;
     },
 
@@ -18039,6 +18608,7 @@ function chatPage() {
       var seen = Object.create(null);
       for (var i = 0; i < rows.length && lines.length < 160; i += 1) {
         var event = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        if (typeof this.agentRuntimeActivityVisibleInThinkingBubble === 'function' && !this.agentRuntimeActivityVisibleInThinkingBubble(event)) continue;
         var text = String(event.display_text || event.text || event.summary || '').replace(/\r\n/g, '\n').trim();
         var providerType = String(event.provider_event_type || event.event_type || '').trim();
         if (!text && providerType) text = this.agentRuntimeProviderEventLabel(providerType);
@@ -18048,11 +18618,18 @@ function chatPage() {
           return String(part || '').replace(/\s+/g, ' ').trim();
         }).filter(Boolean).join('\n');
         if (!line) continue;
+        var lineKind = typeof this.agentRuntimeActivityLineKind === 'function'
+          ? String(this.agentRuntimeActivityLineKind(event) || '').trim()
+          : '';
+        if (lineKind && lineKind !== 'dialog' && lineKind !== 'status') continue;
         var lowerLine = line.toLowerCase();
         if (
+          /^(?:working on|completed|failed)\s+(?:command|file change|search|tool):/i.test(line) ||
           lowerLine.indexOf('final answer is shown in the message') >= 0 ||
           lowerLine.indexOf('assistant draft streamed') >= 0 ||
-          lowerLine.indexOf('returned completed') >= 0
+          lowerLine.indexOf('returned completed') >= 0 ||
+          lowerLine.indexOf('completed the turn') >= 0 ||
+          lowerLine.indexOf('finished its turn') >= 0
         ) {
           continue;
         }
@@ -18065,6 +18642,18 @@ function chatPage() {
         lines.push(line);
       }
       return lines.join('\n');
+    },
+
+    agentRuntimeActivityEventsToTraceRows: function(events, engineId) {
+      var rows = Array.isArray(events) ? events : [];
+      var target = { agent_runtime_live_trace_rows: [] };
+      for (var i = 0; i < rows.length; i += 1) {
+        var event = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
+        if (typeof this.agentRuntimeActivityVisibleInThinkingBubble === 'function' && !this.agentRuntimeActivityVisibleInThinkingBubble(event)) continue;
+        var traceLine = this.agentRuntimeActivityEventToTraceLine(event, engineId);
+        if (traceLine && traceLine.text) this.appendActivityTraceLineToMessage(target, traceLine);
+      }
+      return Array.isArray(target.agent_runtime_live_trace_rows) ? target.agent_runtime_live_trace_rows.slice(-48) : [];
     },
 
     agentRuntimePermissionRequestToDecisionDialog: function(request) {
@@ -18090,11 +18679,51 @@ function chatPage() {
       return lines.join('\n');
     },
 
+    agentRuntimeActivityVisibleInThinkingBubble: function(event) {
+      var row = event && typeof event === 'object' ? event : {};
+      if (row.display_in_thinking_bubble === false || row.thinking_bubble_visible === false) return false;
+      var providerType = String(row.provider_event_type || row.event_type || row.type || '').toLowerCase();
+      var kind = String(row.activity_kind || row.kind || row.type || '').toLowerCase();
+      var text = String(row.display_text || row.text || row.summary || '').toLowerCase();
+      var joined = providerType + ' ' + kind + ' ' + text;
+      if (/decision|reasoning|thought|plan|permission|approval|error|failed/.test(joined)) return true;
+      if (/command|exec|shell|bash|tool|mcp|function|file|edit|patch|diff|write|search|grep|find/.test(joined)) return true;
+      if (
+        providerType === 'external_cli.launch' ||
+        providerType.indexOf('context.') >= 0 ||
+        providerType.indexOf('availability') >= 0 ||
+        providerType.indexOf('health') >= 0 ||
+        providerType.indexOf('session.') >= 0 ||
+        providerType.indexOf('prepare') >= 0 ||
+        providerType.indexOf('launch') >= 0 ||
+        providerType.indexOf('thread.started') >= 0 ||
+        providerType.indexOf('turn.started') >= 0 ||
+        providerType.indexOf('turn.completed') >= 0
+      ) {
+        return false;
+      }
+      if (
+        /^preparing\b/.test(text) ||
+        /^loaded \d+ prior context row/.test(text) ||
+        /^checking .* availability/.test(text) ||
+        /^starting .* session/.test(text) ||
+        /^launching .* turn with bounded context pack/.test(text) ||
+        /^launching .* cli\b/.test(text) ||
+        /^runtime thread started/.test(text) ||
+        /^runtime turn started/.test(text) ||
+        /^runtime completed the turn/.test(text)
+      ) {
+        return false;
+      }
+      return true;
+    },
+
     agentRuntimeActivityEventsToDecisionTool: function(events, engineId, durationMs, extraDialog) {
       var dialog = this.agentRuntimeActivityEventsToDecisionDialog(events);
+      var traceRows = this.agentRuntimeActivityEventsToTraceRows(events, engineId);
       var extra = String(extraDialog || '').trim();
       if (extra && dialog.indexOf(extra) < 0) dialog = dialog ? (dialog + '\n\n' + extra) : extra;
-      if (!dialog) return null;
+      if (!dialog && !traceRows.length) return null;
       var tool = typeof this.makeThoughtToolCard === 'function'
         ? this.makeThoughtToolCard(dialog, durationMs)
         : {
@@ -18113,6 +18742,7 @@ function chatPage() {
       tool.projection_kind = 'decision_dialog';
       tool.projection_schema_version = 1;
       tool.agent_decision_dialog_text = dialog;
+      tool.agent_runtime_trace_rows = traceRows;
       tool.agent_runtime_engine_id = String(engineId || '').trim();
       tool.status = 'completed';
       tool.input = dialog;
@@ -18125,11 +18755,17 @@ function chatPage() {
     },
 
     appendAgentRuntimeActivityToThinkingRow: function(event, engineId) {
+      if (typeof this.agentRuntimeActivityVisibleInThinkingBubble === 'function' && !this.agentRuntimeActivityVisibleInThinkingBubble(event)) return;
       var rows = Array.isArray(this.messages) ? this.messages : [];
       var target = null;
+      var eventRow = event && typeof event === 'object' ? event : {};
+      var isSteeringEvent = String(eventRow.activity_kind || '').toLowerCase() === 'user_steer' ||
+        String(eventRow.provider_event_type || eventRow.event_type || '').toLowerCase() === 'steering.user_message' ||
+        String(eventRow.timeline_role || '').toLowerCase() === 'user_steer';
       for (var i = rows.length - 1; i >= 0; i -= 1) {
         var row = rows[i];
         if (!row || !row.thinking) continue;
+        if (row.agent_runtime_steer_pending && !isSteeringEvent) continue;
         if (String(row.agent_runtime_engine_id || '') !== String(engineId || '')) continue;
         target = row;
         break;
@@ -18188,6 +18824,7 @@ function chatPage() {
       for (var i = rows.length - 1; i >= 0; i -= 1) {
         var row = rows[i];
         if (!row || !row.thinking) continue;
+        if (!targetId && row.agent_runtime_steer_pending) continue;
         if (targetId && String(row.id || '') === targetId) return row;
         if (!targetId && (!runtimeId || String(row.agent_runtime_engine_id || '') === runtimeId)) return row;
       }
@@ -18285,17 +18922,6 @@ function chatPage() {
         thinkingMessage.agent_name = this.currentAgent && this.currentAgent.name ? String(this.currentAgent.name) : '';
         thinkingMessage._stream_updated_at = Date.now();
         if (!Number.isFinite(Number(thinkingMessage._stream_started_at))) thinkingMessage._stream_started_at = startedAt;
-        if (typeof this.appendAgentRuntimeActivityToThinkingRow === 'function') {
-          this.appendAgentRuntimeActivityToThinkingRow({
-            activity_kind: 'permission_event',
-            provider_event_type: 'permission.resume',
-            status: 'running',
-            display_text: 'Resuming agent turn after approval.',
-            text: 'Resuming agent turn after approval.',
-            engine_id: engineId,
-            item_id: approvalResume && approvalResume.approval_id || 'approval-resume'
-          }, engineId);
-        }
       } else {
         thinkingMessage = {
           id: ++msgId,
@@ -18360,6 +18986,78 @@ function chatPage() {
           });
         }
         contextRows = contextRows.slice(-24);
+        var selectedProviderForRuntime = String((this.currentAgent && (this.currentAgent.model_provider || this.currentAgent.provider || this.currentAgent.selected_provider)) || '').slice(0, 120);
+        var selectedModelForRuntime = String((this.currentAgent && (this.currentAgent.model_name || this.currentAgent.runtime_model || this.currentAgent.selected_model || this.currentAgent.model)) || '').slice(0, 240);
+        var selectedRuntimeModelForRuntime = String((this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').slice(0, 240);
+        var modelProviderContext = {
+          source_authority: 'shell_agent_runtime_model_projection',
+          selected_runtime_engine_id: engineId,
+          secrets_included: false
+        };
+        if (engineId === 'infring_native') {
+          modelProviderContext.source_authority = 'shell_selected_model_projection';
+          modelProviderContext.provider = selectedProviderForRuntime;
+          modelProviderContext.model = selectedModelForRuntime;
+          modelProviderContext.runtime_model = selectedRuntimeModelForRuntime;
+        } else {
+          var runtimeEngineRowForModel = typeof this.activeRuntimeEngineRow === 'function' ? this.activeRuntimeEngineRow() : null;
+          if (!runtimeEngineRowForModel || String(runtimeEngineRowForModel.engine_id || '').trim() !== engineId) {
+            var runtimeRowsForModel = Array.isArray(this.runtimeEngineRows) ? this.runtimeEngineRows : [];
+            for (var rtm = 0; rtm < runtimeRowsForModel.length; rtm += 1) {
+              if (String(runtimeRowsForModel[rtm] && runtimeRowsForModel[rtm].engine_id || '').trim() === engineId) {
+                runtimeEngineRowForModel = runtimeRowsForModel[rtm];
+                break;
+              }
+            }
+          }
+          var runtimeMenuForModel = runtimeEngineRowForModel && runtimeEngineRowForModel.available_models && typeof runtimeEngineRowForModel.available_models === 'object'
+            ? runtimeEngineRowForModel.available_models
+            : runtimeEngineRowForModel && runtimeEngineRowForModel.model_menu && typeof runtimeEngineRowForModel.model_menu === 'object'
+            ? runtimeEngineRowForModel.model_menu
+            : null;
+          var runtimeModelRowsForModel = runtimeMenuForModel && Array.isArray(runtimeMenuForModel.rows)
+            ? runtimeMenuForModel.rows
+            : runtimeMenuForModel && Array.isArray(runtimeMenuForModel.model_rows)
+            ? runtimeMenuForModel.model_rows
+            : [];
+          var runtimeModelCandidateForModel = String(selectedRuntimeModelForRuntime || selectedModelForRuntime || '').trim().toLowerCase();
+          var matchedRuntimeModelForModel = null;
+          if (runtimeMenuForModel && (runtimeMenuForModel.framework_native_models || runtimeMenuForModel.source === 'framework_native') && runtimeModelCandidateForModel) {
+            for (var rmfm = 0; rmfm < runtimeModelRowsForModel.length && !matchedRuntimeModelForModel; rmfm += 1) {
+              var runtimeModelRowForModel = runtimeModelRowsForModel[rmfm] || {};
+              var runtimeModelIdsForModel = [
+                runtimeModelRowForModel.id,
+                runtimeModelRowForModel.qualified_model_ref,
+                runtimeModelRowForModel.model,
+                runtimeModelRowForModel.model_name,
+                runtimeModelRowForModel.adapter_model_arg,
+                runtimeModelRowForModel.display_name
+              ];
+              for (var rmid = 0; rmid < runtimeModelIdsForModel.length; rmid += 1) {
+                if (String(runtimeModelIdsForModel[rmid] || '').trim().toLowerCase() === runtimeModelCandidateForModel) {
+                  matchedRuntimeModelForModel = runtimeModelRowForModel;
+                  break;
+                }
+              }
+            }
+          }
+          if (matchedRuntimeModelForModel) {
+            modelProviderContext.source_authority = 'shell_agent_runtime_framework_model_projection';
+            modelProviderContext.provider = String(matchedRuntimeModelForModel.provider || selectedProviderForRuntime || '').slice(0, 120);
+            modelProviderContext.model = String(matchedRuntimeModelForModel.adapter_model_arg || matchedRuntimeModelForModel.model || matchedRuntimeModelForModel.model_name || matchedRuntimeModelForModel.id || '').slice(0, 240);
+            modelProviderContext.runtime_model = modelProviderContext.model;
+            modelProviderContext.runtime_model_source = 'framework_native';
+          } else if (runtimeMenuForModel && (runtimeMenuForModel.inherit_active_llm_when_unconfigured || runtimeMenuForModel.credential_inheritance_allowed || runtimeMenuForModel.source === 'inherited_infring')) {
+            modelProviderContext.source_authority = 'shell_agent_runtime_inherited_model_projection';
+            modelProviderContext.provider = selectedProviderForRuntime;
+            modelProviderContext.model = selectedModelForRuntime;
+            modelProviderContext.runtime_model = selectedRuntimeModelForRuntime;
+            modelProviderContext.runtime_model_source = 'inherited_infring_llm';
+          } else {
+            modelProviderContext.runtime_model_source = 'framework_default';
+            modelProviderContext.framework_default = true;
+          }
+        }
         var turnRequest = {
           engine_id: engineId,
           agent_id: targetAgentId,
@@ -18369,14 +19067,7 @@ function chatPage() {
           turn_trigger_source: String(opts.trigger_source || 'composer').slice(0, 80),
           cwd: typeof this.activeWorkspacePath === 'function' ? this.activeWorkspacePath() : '',
           active_workspace: typeof this.activeWorkspaceTurnContextProjection === 'function' ? this.activeWorkspaceTurnContextProjection() : null,
-      model_provider_context: {
-        source_authority: 'shell_selected_model_projection',
-        provider: String((this.currentAgent && (this.currentAgent.model_provider || this.currentAgent.provider || this.currentAgent.selected_provider)) || '').slice(0, 120),
-        model: String((this.currentAgent && (this.currentAgent.model_name || this.currentAgent.runtime_model || this.currentAgent.selected_model || this.currentAgent.model)) || '').slice(0, 240),
-        runtime_model: String((this.currentAgent && (this.currentAgent.runtime_model || this.currentAgent.model_name)) || '').slice(0, 240),
-        selected_runtime_engine_id: engineId,
-        secrets_included: false
-      },
+          model_provider_context: modelProviderContext,
           attachments: Array.isArray(uploadedFiles) ? uploadedFiles.slice(0, 12) : [],
           permission_policy: this.agentRuntimePermissionPolicyProjection(),
           approval_resume: approvalResume ? {
@@ -18386,6 +19077,12 @@ function chatPage() {
             approval_decision: String(approvalResume.approval_decision || '').slice(0, 80),
             approval_resume_action: String(approvalResume.approval_resume_action || '').slice(0, 160),
             decision_receipt_ref: String(approvalResume.decision_receipt_ref || '').slice(0, 240),
+            approved_effect_executed: approvalResume.approved_effect_executed === true,
+            approved_effect_path: String(approvalResume.approved_effect_path || '').slice(0, 600),
+            approved_effect_artifact_ref: String(approvalResume.approved_effect_artifact_ref || '').slice(0, 600),
+            approved_effect_result_ref: String(approvalResume.approved_effect_result_ref || '').slice(0, 600),
+            approved_effect_receipt_ref: String(approvalResume.approved_effect_receipt_ref || '').slice(0, 600),
+            approved_effect_display_text: String(approvalResume.approved_effect_display_text || '').slice(0, 1000),
             source_authority: 'shell_permission_resume_projection'
           } : null,
           context_projection: {
@@ -18425,6 +19122,17 @@ function chatPage() {
             pendingRuntimeDurationMs,
             pendingDialogExtra
           );
+          var pendingLiveTraceRows = Array.isArray(thinkingMessage.agent_runtime_live_trace_rows)
+            ? thinkingMessage.agent_runtime_live_trace_rows.slice(-80)
+            : [];
+          if (pendingDecisionTool && pendingLiveTraceRows.length) {
+            pendingDecisionTool.agent_runtime_trace_rows = typeof this.normalizeThoughtTraceRows === 'function'
+              ? this.normalizeThoughtTraceRows(
+                pendingLiveTraceRows.concat(Array.isArray(pendingDecisionTool.agent_runtime_trace_rows) ? pendingDecisionTool.agent_runtime_trace_rows : []),
+                pendingDecisionTool.agent_decision_dialog_text || pendingDecisionTool.display_text || ''
+              )
+              : pendingLiveTraceRows.concat(Array.isArray(pendingDecisionTool.agent_runtime_trace_rows) ? pendingDecisionTool.agent_runtime_trace_rows : []);
+          }
           var pendingToolId = String(pendingPermissionRequest.tool_id || pendingPermissionRequest.capability || 'tool call').trim();
           var pendingMeta = 'runtime ' + engineId + ' | permission required';
           if (pendingRuntimeDuration) pendingMeta += ' | ' + pendingRuntimeDuration;
@@ -18500,6 +19208,18 @@ function chatPage() {
         var accumulatedLiveEvents = Array.isArray(thinkingMessage.agent_runtime_live_events) ? thinkingMessage.agent_runtime_live_events.slice(-80) : [];
         if (accumulatedLiveEvents.length) finalActivityEvents = accumulatedLiveEvents;
         var runtimeDecisionTool = this.agentRuntimeActivityEventsToDecisionTool(finalActivityEvents, engineId, runtimeDurationMs);
+        var responseTraceRows = res && res.activity_trace && Array.isArray(res.activity_trace.rows) ? res.activity_trace.rows : [];
+        var finalLiveTraceRows = Array.isArray(thinkingMessage.agent_runtime_live_trace_rows)
+          ? thinkingMessage.agent_runtime_live_trace_rows.slice(-80)
+          : [];
+        if (runtimeDecisionTool && (responseTraceRows.length || finalLiveTraceRows.length)) {
+          runtimeDecisionTool.agent_runtime_trace_rows = typeof this.normalizeThoughtTraceRows === 'function'
+            ? this.normalizeThoughtTraceRows(
+              finalLiveTraceRows.concat(responseTraceRows).concat(Array.isArray(runtimeDecisionTool.agent_runtime_trace_rows) ? runtimeDecisionTool.agent_runtime_trace_rows : []),
+              runtimeDecisionTool.agent_decision_dialog_text || runtimeDecisionTool.display_text || ''
+            )
+            : finalLiveTraceRows.concat(responseTraceRows).concat(Array.isArray(runtimeDecisionTool.agent_runtime_trace_rows) ? runtimeDecisionTool.agent_runtime_trace_rows : []);
+        }
         var runtimeActivityTools = runtimeDecisionTool ? [runtimeDecisionTool] : [];
         if (runtimeActivityTools.length && (res && (res.receipt_ref || res.result_ref))) {
           runtimeActivityTools = runtimeActivityTools.map(function(row) {
@@ -18878,7 +19598,6 @@ function chatPage() {
           lowerHttpError.indexOf('this operation was aborted') >= 0 ||
           lowerHttpError.indexOf('operation was aborted') >= 0;
         if (isAbortError) {
-
 // Layer ownership: client/runtime/systems/ui (dashboard static UX surface only; no runtime authority).
           this._inflightPayload = null;
           this.refreshPromptSuggestions(true, 'post-http-abort');
@@ -18973,7 +19692,6 @@ function chatPage() {
           this._inflightPayload = null;
         } else {
           return;
-
         }
       }
       if (handedOffToRecovery) return;
@@ -19560,7 +20278,6 @@ function chatPage() {
         if (row.thinking && row.text) {
           var pendingThought = String(row.text || '').replace(/^\*+|\*+$/g, '').trim();
           if (pendingThought && pendingThought.toLowerCase() !== 'thinking...') appendThought(pendingThought);
-
         }
         streamedTools = streamedTools.concat(Array.isArray(row.tools) ? row.tools : []);
       }
@@ -19817,7 +20534,6 @@ function chatPage() {
       var _ = [thoughtText, tools];
       return '';
     },
-
     resolveMessageToolRows: function(msg) {
       if (!msg || !Array.isArray(msg.tools)) return [];
       return msg.tools.filter(function(tool) {
@@ -20082,8 +20798,8 @@ function chatPage() {
         // Prevent duplicate waiting/workflow status lines.
         return '';
       }
-      if (this._pendingWsRequest && this._pendingWsRequest.agent_id) return 'Waiting for runtime response...';
-      return 'Analyzing next step...';
+      if (this._pendingWsRequest && this._pendingWsRequest.agent_id) return 'Thinking';
+      return 'Thinking';
     },
 
     thinkingTraceSummary: function(msg) {
@@ -20104,9 +20820,73 @@ function chatPage() {
     thinkingBubbleTraceRows: function(msg) {
       if (!msg || !msg.thinking) return [];
       var sourceRows = Array.isArray(msg.agent_runtime_live_trace_rows) ? msg.agent_runtime_live_trace_rows : [];
-      var out = [];
+      var rawRows = [];
       var seen = Object.create(null);
-      for (var i = 0; i < sourceRows.length && out.length < 48; i += 1) {
+      var fileActionVerb = function(kind) {
+        return String(kind || '') === 'write' ? 'Edited' : 'Read';
+      };
+      var extractFileTraceLabel = function(text, kind) {
+        var value = String(text || '').replace(/\r\n/g, '\n').trim();
+        if (!value) return '';
+        var quoted = value.match(/`([^`\n]+)`/);
+        if (quoted && quoted[1]) return quoted[1].trim();
+        var colon = value.match(/(?:file|path|changed|edited|wrote|written|created|updated|read|reading)\s*:?\s+(.+)$/i);
+        if (colon && colon[1]) return colon[1].trim();
+        var stripped = value.replace(/^(?:working on|completed|finished|failed|started|running|ran)\s+/i, '');
+        stripped = stripped.replace(/^(?:read|reading|edit|edited|editing|write|wrote|writing|created|creating|updated|updating)\s+(?:file\s+|files\s+)?/i, '');
+        stripped = stripped.replace(/^(?:file change|file)\s*:?\s*/i, '');
+        stripped = stripped.trim();
+        if (!stripped || stripped === value) return value;
+        return stripped;
+      };
+      var compactFileTraceRows = function(rows) {
+        var compacted = [];
+        var group = null;
+        var flush = function() {
+          if (!group) return;
+          var count = group.children.length;
+          var verb = fileActionVerb(group.line_kind);
+          compacted.push({
+            id: group.id,
+            text: verb + ' ' + count + ' ' + (count === 1 ? 'file' : 'files'),
+            line_kind: group.line_kind,
+            state: group.state,
+            shimmer: false,
+            children: group.children
+          });
+          group = null;
+        };
+        for (var ri = 0; ri < rows.length; ri += 1) {
+          var item = rows[ri];
+          var kind = String(item && item.line_kind || '').trim();
+          if (kind !== 'read' && kind !== 'write') {
+            flush();
+            compacted.push(item);
+            continue;
+          }
+          var label = extractFileTraceLabel(item.text, kind);
+          var child = {
+            id: String(item.id || (kind + '-file-' + ri)).slice(0, 180) + '-detail',
+            text: fileActionVerb(kind) + ' ' + label,
+            line_kind: kind,
+            state: item.state || 'done',
+            shimmer: false
+          };
+          if (!group || group.line_kind !== kind || group.state !== item.state) {
+            flush();
+            group = {
+              id: 'file-group-' + kind + '-' + String(item.id || ri).slice(0, 140),
+              line_kind: kind,
+              state: item.state || 'done',
+              children: []
+            };
+          }
+          group.children.push(child);
+        }
+        flush();
+        return compacted;
+      };
+      for (var i = 0; i < sourceRows.length && rawRows.length < 48; i += 1) {
         var row = sourceRows[i] && typeof sourceRows[i] === 'object' ? sourceRows[i] : {};
         var text = String(row.text || row.display_text || row.summary || '').replace(/\r\n/g, '\n').trim();
         if (!text) continue;
@@ -20115,7 +20895,7 @@ function chatPage() {
         var key = (lineKind + '|' + text).toLowerCase();
         if (seen[key]) continue;
         seen[key] = true;
-        out.push({
+        rawRows.push({
           id: String(row.id || (lineKind + '-' + i)).slice(0, 180),
           text: text,
           line_kind: lineKind,
@@ -20123,6 +20903,9 @@ function chatPage() {
           shimmer: false
         });
       }
+      var out = typeof this.compactThoughtTraceRows === 'function'
+        ? this.compactThoughtTraceRows(rawRows)
+        : compactFileTraceRows(rawRows);
       var latestShimmerIdx = -1;
       for (var j = out.length - 1; j >= 0; j -= 1) {
         if (out[j].line_kind !== 'dialog') {
@@ -20132,6 +20915,54 @@ function chatPage() {
       }
       if (latestShimmerIdx >= 0) out[latestShimmerIdx].shimmer = true;
       return out;
+    },
+
+    thinkingBubbleSizeStyle: function(msg) {
+      void msg;
+      return '';
+    },
+
+    scheduleThinkingBubbleSizeStabilization: function(msg) {
+      if (!msg || !msg.thinking || typeof document === 'undefined') return;
+      var self = this;
+      var run = function() {
+        try {
+          self.stabilizeThinkingBubbleSize(msg);
+        } catch (_) {}
+      };
+      if (typeof this.$nextTick === 'function') this.$nextTick(run);
+      else setTimeout(run, 0);
+    },
+
+    stabilizeThinkingBubbleSize: function(msg) {
+      if (!msg || !msg.thinking || typeof document === 'undefined') return;
+      var id = String(msg.id || '').trim();
+      if (!id) return;
+      var selectorId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id.replace(/"/g, '\\"');
+      var bubble = document.querySelector('[data-thinking-bubble-id="' + selectorId + '"]');
+      if (!bubble) return;
+      var previousInline = bubble.style.inlineSize;
+      var previousMaxInline = bubble.style.maxInlineSize;
+      bubble.style.inlineSize = 'fit-content';
+      bubble.style.maxInlineSize = 'min(var(--message-bubble-readable-width), calc(100vw - 48px))';
+      var rect = bubble.getBoundingClientRect ? bubble.getBoundingClientRect() : null;
+      var naturalWidth = rect && Number.isFinite(Number(rect.width)) ? Number(rect.width) : 0;
+      bubble.style.inlineSize = previousInline;
+      bubble.style.maxInlineSize = previousMaxInline;
+      if (!Number.isFinite(naturalWidth) || naturalWidth <= 0) return;
+      var previous = Number(msg._thinking_bubble_width_px || 0);
+      var tolerance = Number(msg._thinking_bubble_width_tolerance_px || 18);
+      if (!Number.isFinite(tolerance) || tolerance < 4) tolerance = 18;
+      if (!Number.isFinite(previous) || previous <= 0) {
+        msg._thinking_bubble_width_px = Math.round(naturalWidth);
+        return;
+      }
+      var delta = naturalWidth - previous;
+      if (Math.abs(delta) <= tolerance) {
+        msg._thinking_bubble_width_px = Math.round(naturalWidth);
+        return;
+      }
+      msg._thinking_bubble_width_px = Math.round(previous + (delta > 0 ? tolerance : -tolerance));
     },
 
     thinkingWorkflowStatusLine: function(msg) {
@@ -20424,7 +21255,6 @@ function chatPage() {
         if (typeof InfringToast !== 'undefined') InfringToast.error('Failed to fork message: ' + (e && e.message ? e.message : 'unknown error'));
       }
     },
-
     messageCanReportIssueFromMeta: function(msg) {
       var service = typeof this.messageMetadataService === 'function' ? this.messageMetadataService() : null;
       if (service && typeof service.canReportIssue === 'function') {
@@ -20452,7 +21282,6 @@ function chatPage() {
         if (typeof InfringToast !== 'undefined') InfringToast.error('Failed to queue eval review: ' + String(e && e.message ? e.message : 'unknown error'));
       }
     },
-
     deriveUserFacingFromThought: function(thoughtText) {
       var thought = String(thoughtText || '').replace(/\s+/g, ' ').trim();
       if (!thought) return '';
@@ -20964,7 +21793,6 @@ function runPinToLatestOnOpenJob(page, container, options) {
         stable = 1;
       } else {
         stable = 0;
-
       }
       lastTop = top;
       lastHeight = height;

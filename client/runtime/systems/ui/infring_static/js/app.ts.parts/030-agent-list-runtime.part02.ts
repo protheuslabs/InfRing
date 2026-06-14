@@ -110,11 +110,11 @@
       var service = this.taskbarDockService ? this.taskbarDockService() : infringTaskbarDockService();
       if (service && typeof service.normalizeBackgroundTemplate === 'function') return service.normalizeBackgroundTemplate(modeRaw);
       var mode = String(modeRaw || '').trim().toLowerCase();
-      if (mode === 'unsplash-paper') return 'light-wood';
+      if (mode === 'unsplash-paper') return 'default-grid';
       if (mode === 'default-grid') return 'default-grid';
       if (mode === 'light-wood') return 'light-wood';
       if (mode === 'sand') return 'sand';
-      return 'sand';
+      return 'default-grid';
     },
     applyUiBackgroundTemplate(modeRaw, persistRaw) {
       var mode = this.uiBackgroundTemplateNormalized(modeRaw);

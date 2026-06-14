@@ -276,20 +276,6 @@
       var files = Array.isArray(item && item.files) ? item.files : [];
       var images = Array.isArray(item && item.images) ? item.images : [];
       if (!text) return;
-      this.messages.push({
-        id: ++msgId,
-        role: 'system',
-        is_notice: true,
-        notice_type: 'info',
-        notice_label: 'Steer injected into active workflow.',
-        text: 'Steer injected into active workflow.',
-        meta: '',
-        tools: [],
-        system_origin: 'prompt_queue:steer',
-        ts: Date.now(),
-      });
-      this.scrollToBottom();
-      this.scheduleConversationPersist();
 
       if (!this.sending) {
         var liveAgent = this.ensureValidCurrentAgent({ clear_when_missing: true });
@@ -312,6 +298,11 @@
       if (usesAgentRuntimeSocket) {
         var runtimeAgent = this.ensureValidCurrentAgent({ clear_when_missing: true });
         if (!runtimeAgent || !runtimeAgent.id) return;
+        var steerUserMessage = this.appendUserChatMessage(text, images, { deferPersist: true });
+        var steerThinkingRow = typeof this.createAgentRuntimeSteerThinkingRow === 'function'
+          ? this.createAgentRuntimeSteerThinkingRow(selectedRuntimeEngineId, runtimeAgent.id, text)
+          : null;
+        this.scheduleConversationPersist();
         try {
           var steerAck = await InfringAPI.post('/api/shell-socket/agent-runtime/steer', {
             engine_id: selectedRuntimeEngineId,
@@ -321,20 +312,31 @@
             attachments: files,
             mode: 'auto',
             priority: 'steer',
+            live_message_id: String(steerThinkingRow && steerThinkingRow.id || ''),
+            user_message_id: String(steerUserMessage && steerUserMessage.id || ''),
           });
-          this.appendUserChatMessage(text, images, { deferPersist: true });
-          this.messages.push({
-            id: ++msgId,
-            role: 'system',
-            is_notice: true,
-            notice_type: 'info',
-            notice_label: steerAck && steerAck.live_injected ? 'Steer injected into active runtime turn.' : 'Steer queued for next runtime turn.',
-            text: steerAck && steerAck.live_injected ? 'Steer injected into active runtime turn.' : 'Steer queued for next runtime turn.',
-            meta: '',
-            tools: [],
-            system_origin: 'prompt_queue:agent_runtime_steer',
-            ts: Date.now(),
-          });
+          if (steerAck && steerAck.live_injected && steerAck.steering_activity_row && typeof this.appendAgentRuntimeActivityToThinkingRow === 'function') {
+            this.appendAgentRuntimeActivityToThinkingRow(steerAck.steering_activity_row, selectedRuntimeEngineId);
+          } else {
+            this.messageQueue.unshift({
+              queue_id: id + ':agent_runtime_steer_followup',
+              queue_kind: 'agent_runtime_steer_followup',
+              text: text,
+              files: [],
+              images: [],
+              agent_id: runtimeAgent.id,
+              agent_runtime_engine_id: selectedRuntimeEngineId,
+              steering_id: steerAck && steerAck.steering_id ? String(steerAck.steering_id) : '',
+              defer_user_append: true,
+              queued_at: Date.now()
+            });
+            if (!this.sending && typeof this._processQueue === 'function') {
+              var selfSteerQueueDrain = this;
+              this.$nextTick(function() {
+                if (!selfSteerQueueDrain.sending) selfSteerQueueDrain._processQueue();
+              });
+            }
+          }
           this.scrollToBottom();
           this.scheduleConversationPersist();
           return;
@@ -344,7 +346,7 @@
       var wsPayload = { type: 'message', content: text, steer: true, priority: 'steer' };
       if (files.length) wsPayload.attachments = files;
       if (InfringAPI.wsSend(wsPayload)) {
-        this.appendUserChatMessage(text, images, { deferPersist: true });
+        if (!steerUserMessage) this.appendUserChatMessage(text, images, { deferPersist: true });
         this.scheduleConversationPersist();
         return;
       }
@@ -359,7 +361,7 @@
             steer: true,
             priority: 'steer',
           });
-          this.appendUserChatMessage(text, images, { deferPersist: true });
+          if (!steerUserMessage) this.appendUserChatMessage(text, images, { deferPersist: true });
           this.scheduleConversationPersist();
           return;
         } catch(_) {}

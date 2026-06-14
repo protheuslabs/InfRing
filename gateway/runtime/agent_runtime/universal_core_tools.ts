@@ -27,6 +27,17 @@ const DEFAULT_ALLOWED_READ_TOOL_IDS = Object.freeze([
   'artifact.read',
 ]);
 
+const DEFAULT_READ_POLICY = Object.freeze({
+  workspace_read: 'allowed_by_default',
+  conversation_context_read: 'allowed_by_default',
+  approval_receipt_read: 'allowed_by_default',
+  artifact_ref_read: 'allowed_by_default',
+  bounded_memory_projection_read: 'allowed_by_default',
+  outside_workspace_read: 'approval_required',
+  secret_like_read: 'denied_or_explicit_approval_required',
+  large_read: 'bounded_ref_or_summary_required',
+});
+
 const APPROVAL_REQUIRED_TOOL_IDS = Object.freeze([
   'memory.write_propose',
   'artifact.create_propose',
@@ -141,6 +152,7 @@ function normalizePermissionPolicy(policy = {}) {
     gatekeeper_kind: cleanString(source.gatekeeper_kind || 'user', 80) || 'user',
     future_gatekeeper_kinds: ['user', 'system_policy', 'agent_supervisor'],
     default_allow_read_tools: true,
+    default_read_policy: DEFAULT_READ_POLICY,
     revoked_default_read_tools: cleanToolIdList(source.revoked_default_read_tools),
     always_allowed_tool_calls: cleanToolIdList(source.always_allowed_tool_calls),
     decision_scope: 'tool_call',
@@ -212,6 +224,8 @@ function renderUniversalToolGrantPromptSection(grants) {
     '- You may write one of these proposal JSON objects when needed. Do not claim the proposal executed.',
     '- The host app validates proposals. Durable effects happen only after approval and emit receipts.',
     '- Read-only proposals may be default-allowed unless revoked; mutating proposals require an approval gate.',
+    '- Default-allowed reads cover active workspace files, conversation projections, approval receipts, artifact refs, and bounded memory projections.',
+    '- Reads outside the active workspace, secret-like files, credential stores, or large raw dumps require policy elevation or bounded refs/summaries.',
     '- For file creation or file editing, prefer artifact.create_propose and include arguments.path, arguments.mime_type, and arguments.content. Do not use permission.request when you already know the exact file payload.',
     '- Use permission.request only when you need a permission grant but cannot yet provide a concrete artifact or memory proposal payload.',
     '- If your native runtime reports missing approval for a mutating action, include the blocked action and permission reason clearly so the host app can ask the user/admin gatekeeper.',
@@ -259,6 +273,7 @@ function normalizeUniversalToolProposal(value, grants) {
 module.exports = {
   UNIVERSAL_CORE_TOOL_IDS,
   DEFAULT_ALLOWED_READ_TOOL_IDS,
+  DEFAULT_READ_POLICY,
   APPROVAL_REQUIRED_TOOL_IDS,
   UNIVERSAL_CORE_TOOL_SCOPE_CONTRACT,
   TOOL_DEFINITIONS,

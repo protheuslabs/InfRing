@@ -1,0 +1,172 @@
+{
+  "type": "agent_runtime_live_proof_summary",
+  "version": 1,
+  "owner": "validation.agent_runtime",
+  "generated_at": "2026-06-14T03:04:58.641Z",
+  "source_commit_observed": "16268a33ce33",
+  "proof_accounting": {
+    "classification": "substrate_platform_proof",
+    "not_native_intelligence_proof": true,
+    "rule": "Golden-pair Agent Runtime proof shows InfRing can govern Codex and Claude Code through Gateway. It does not prove native InfRing workflow intelligence."
+  },
+  "scope": {
+    "mode": "infring",
+    "live": true,
+    "task_ids": [
+      "golden_pair_live_work_refresh",
+      "permission_pause_resume",
+      "active_turn_steering_contract"
+    ],
+    "framework_ids": [
+      "codex_cli",
+      "claude_code"
+    ],
+    "gateway_url": "http://127.0.0.1:4173",
+    "raw_artifacts_local_only": true
+  },
+  "source_artifacts": {
+    "live_work_eval": "core/local/artifacts/agent_runtime_live_work_eval_current.json",
+    "engine_scorecard": "core/local/artifacts/agent_runtime_engine_scorecard_current.json",
+    "golden_pair_promotion_guard": "core/local/artifacts/agent_runtime_golden_pair_promotion_guard_current.json",
+    "golden_pair_primitive_parity_guard": "core/local/artifacts/agent_runtime_golden_pair_primitive_parity_guard_current.json",
+    "rendered_permission_steering_guard": "core/local/artifacts/agent_runtime_rendered_permission_steering_contract_guard_current.json",
+    "framework_feature_parity_guard": "core/local/artifacts/agent_runtime_framework_feature_parity_guard_current.json",
+    "graduation_baseline_guard": "core/local/artifacts/agent_runtime_graduation_baseline_contract_guard_current.json",
+    "native_transport_probe": "core/local/artifacts/agent_runtime_native_transport_probe_current.json",
+    "codex_app_server_mapping_probe": "core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json",
+    "codex_app_server_live_acceptance_probe": "core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json",
+    "claude_stream_json_mapping_probe": "core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json",
+    "claude_stream_json_live_acceptance_probe": "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json"
+  },
+  "summary": {
+    "planned": 0,
+    "completed": 2,
+    "failed": 0,
+    "focused_registry_engines": 2,
+    "catalog_only_engines": 6,
+    "registry_coverage_ok": true,
+    "promotion_scope": "golden_external_pair",
+    "gap_summary": {
+      "total": 2,
+      "red": 0,
+      "yellow": 2,
+      "white": 0
+    },
+    "engine_scorecard_summary": {
+      "golden_pair": [
+        {
+          "engine_id": "claude_code",
+          "display_name": "Claude Code",
+          "classification": "daily_driver_candidate",
+          "score": 1,
+          "practical_usability_loop": "pass",
+          "turn_steering_contract": "pass",
+          "pending_exit_criteria": []
+        },
+        {
+          "engine_id": "codex_cli",
+          "display_name": "Codex",
+          "classification": "daily_driver_candidate",
+          "score": 1,
+          "practical_usability_loop": "pass",
+          "turn_steering_contract": "pass",
+          "pending_exit_criteria": []
+        }
+      ],
+      "source_artifact_ref": "core/local/artifacts/agent_runtime_engine_scorecard_current.json"
+    },
+    "native_transport_probe_summary": {
+      "bounded_envelope_engine_count": 5,
+      "native_transport_available_count": 2,
+      "pending_probe_count": 3,
+      "pending_engines": [
+        "grok_code",
+        "opencode",
+        "hermes_agent"
+      ],
+      "pending_exit_criteria": [
+        "upstream_native_transport_probe"
+      ],
+      "source_artifact_ref": "core/local/artifacts/agent_runtime_native_transport_probe_current.json"
+    },
+    "claude_stream_json_transport_summary": {
+      "mapping_probe_status": "candidate_mapping_ready",
+      "live_acceptance_probe_status": "live_probe_disabled_with_prior_live_work",
+      "typed_turn_api_available": false,
+      "adapter_live_work_status": "live_work_ok",
+      "source_artifact_refs": [
+        "core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json",
+        "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json"
+      ],
+      "next_action": "Keep Claude stream-json as a gated adapter-native path; enable live upstream acceptance only with an explicit disposable probe."
+    },
+    "codex_app_server_transport_summary": {
+      "mapping_probe_status": "candidate_mapping_ready",
+      "live_acceptance_probe_status": "live_probe_disabled_with_candidate_surface",
+      "typed_turn_api_available": false,
+      "candidate_method_surface_identified": true,
+      "source_artifact_refs": [
+        "core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json",
+        "core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json"
+      ],
+      "next_action": "Keep Codex app-server typed transport separate from practical CLI-mediated substrate proof until a disposable live acceptance probe passes."
+    }
+  },
+  "results": [
+    {
+      "framework_id": "claude_code",
+      "display_name": "Claude Code",
+      "task_id": "golden_pair_live_work_permission_steering_refresh",
+      "status": "completed",
+      "projection_status": "permission_required",
+      "approval_pause": true,
+      "approval_decision_ok": true,
+      "approval_resume_forwarded": true,
+      "post_approval_resume_failure": false,
+      "expected_artifacts_ok": true,
+      "semantic_signals": "pass",
+      "approval_flow": "pass",
+      "artifact_effect": "pass",
+      "context_continuity": "pass",
+      "parity": "pass"
+    },
+    {
+      "framework_id": "codex_cli",
+      "display_name": "Codex",
+      "task_id": "golden_pair_live_work_permission_steering_refresh",
+      "status": "completed",
+      "projection_status": "permission_required",
+      "approval_pause": true,
+      "approval_decision_ok": true,
+      "approval_resume_forwarded": true,
+      "post_approval_resume_failure": false,
+      "expected_artifacts_ok": true,
+      "semantic_signals": "pass",
+      "approval_flow": "pass",
+      "artifact_effect": "pass",
+      "context_continuity": "pass",
+      "parity": "pass"
+    }
+  ],
+  "known_gaps": [
+    {
+      "severity": "yellow",
+      "framework_id": "golden_pair",
+      "kind": "upstream_live_typed_acceptance_gated",
+      "summary": "Codex and Claude Code pass live InfRing-mediated work, approval pause, approved effect, scorecard, golden-pair primitive parity, and rendered active steering contract, but upstream typed-transport acceptance remains gated.",
+      "next_action": "Run disposable upstream native transport acceptance probes before claiming native typed transport is accepted by either framework."
+    },
+    {
+      "severity": "yellow",
+      "framework_id": "secondary_engines",
+      "kind": "secondary_runtime_live_selectable_gap",
+      "summary": "OpenCode remains live-selectable but outside this golden-pair proof; catalog-only and planned engines remain future support surfaces.",
+      "next_action": "Keep Codex and Claude as the primary support lane while using secondary engines only for controlled gap discovery."
+    }
+  ],
+  "limits": [
+    "This is Agent Runtime substrate/platform proof, not native InfRing intelligence proof.",
+    "This summary covers Codex and Claude Code as the primary external golden pair, not every registered engine.",
+    "Raw local artifacts are intentionally not copied into this summary."
+  ]
+}

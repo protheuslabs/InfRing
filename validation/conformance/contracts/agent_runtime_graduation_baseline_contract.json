@@ -1,0 +1,278 @@
+{
+  "type": "agent_runtime_graduation_baseline_contract",
+  "version": 1,
+  "owner": "validation.agent_runtime",
+  "layer": "gateway",
+  "status": "active",
+  "objective": "Define the reusable graduation baseline for external runtimes that want to become interchangeable daily-driver engines under InfRing.",
+  "proof_accounting": {
+    "classification": "substrate_platform_proof",
+    "not_native_intelligence_proof": true,
+    "rule": "External-engine mediated work proves InfRing can govern runtime engines through Gateway. It does not prove native InfRing intelligence."
+  },
+  "current_baseline": {
+    "native_reference_engine": "infring_native",
+    "golden_external_pair": [
+      "codex_cli",
+      "claude_code"
+    ],
+    "daily_driver_allowed_now": [
+      "infring_native",
+      "codex_cli",
+      "claude_code"
+    ]
+  },
+  "secondary_eval_samples": {
+    "context_continuity": [
+      "openclaw",
+      "opencode",
+      "grok_code",
+      "hermes_agent"
+    ],
+    "live_adapter_readiness": [
+      "openclaw",
+      "grok_code",
+      "opencode",
+      "hermes_agent"
+    ],
+    "rule": "Secondary samples may receive deterministic continuity/projection evidence without becoming promotion-eligible. Promotion still requires the full golden-pair baseline and live adapter evidence."
+  },
+  "secondary_readiness_artifacts": [
+  {
+    "id": "grok_code_live_adapter_readiness",
+    "engine_id": "grok_code",
+    "artifact_ref": "core/local/artifacts/agent_runtime_grok_code_live_adapter_readiness_guard_current.json",
+    "rule": "Diagnostic only; this artifact may refine next actions but must not count as daily-driver promotion evidence."
+  },
+  {
+    "id": "opencode_live_adapter_readiness",
+    "engine_id": "opencode",
+    "artifact_ref": "core/local/artifacts/agent_runtime_opencode_live_adapter_readiness_guard_current.json",
+    "rule": "Diagnostic only; this artifact may refine next actions but must not count as daily-driver promotion evidence."
+  },
+  {
+    "id": "hermes_agent_live_adapter_readiness",
+    "engine_id": "hermes_agent",
+    "artifact_ref": "core/local/artifacts/agent_runtime_hermes_agent_live_adapter_readiness_guard_current.json",
+    "rule": "Diagnostic only; this artifact may refine next actions but must not count as daily-driver promotion evidence."
+  },
+  {
+    "id": "openclaw_live_adapter_readiness",
+    "engine_id": "openclaw",
+      "artifact_ref": "core/local/artifacts/agent_runtime_openclaw_live_adapter_readiness_guard_current.json",
+      "rule": "Diagnostic only; this artifact may refine next actions but must not count as daily-driver promotion evidence.",
+      "runtime_requirement_remediation": {
+        "applies_when_status": "runtime_requirement_missing",
+        "required_runtime": "node>=22.19.0",
+        "operator_action_required": true,
+        "commands": [
+          {
+            "platforms": [
+              "darwin",
+              "linux"
+            ],
+            "tool": "volta",
+            "command": "volta install node@22.19.0",
+            "note": "Preferred when Volta is already installed because it avoids changing global system Node unexpectedly."
+          },
+          {
+            "platforms": [
+              "darwin",
+              "linux"
+            ],
+            "tool": "nvm",
+            "command": "nvm install 22.19.0 && nvm use 22.19.0",
+            "note": "Use when this shell/session is managed by nvm."
+          },
+          {
+            "platforms": [
+              "win32"
+            ],
+            "tool": "fnm",
+            "command": "fnm install 22.19.0 && fnm use 22.19.0",
+            "note": "Windows-friendly Node version manager option."
+          }
+        ],
+        "after_runtime_ready": [
+          "Start the OpenClaw Gateway/socket service from the detected reference checkout or configured command.",
+          "Rerun agent_runtime_openclaw_live_adapter_readiness_guard.",
+          "Only then run live Gateway-mediated adapter evidence."
+        ]
+      }
+    }
+  ],
+  "secondary_promotion_plan_artifact": {
+    "id": "secondary_runtime_ordered_promotion_plan",
+    "artifact_ref": "core/local/artifacts/agent_runtime_secondary_promotion_plan_guard_current.json",
+    "guard_ref": "tests/tooling/scripts/ci/agent_runtime_secondary_promotion_plan_guard.ts",
+    "command_ref": "ops:agent-runtime:secondary-promotion-plan:guard",
+    "allowed_stages": [
+      "needs_gateway_mediated_live_adapter_evidence",
+      "ready_for_operator_opt_in_native_probe",
+      "setup_reference_runtime_first",
+      "install_sdk_dependency_first",
+      "install_or_configure_runtime_first",
+      "restore_provider_auth_or_usage_first",
+      "fix_native_mapping_probe_first",
+      "repair_live_probe_artifact_first",
+      "generate_or_repair_readiness_artifacts_first"
+    ],
+    "rule": "Secondary runtimes must expose a compact ordered promotion plan before operators spend live usage, install dependencies, or treat readiness as promotion.",
+    "promotion_effect": {
+      "changes_daily_driver_eligibility": false,
+      "counts_as_golden_pair_equivalent": false,
+      "counts_as_native_intelligence_proof": false
+    }
+  },
+  "graduation_rule": {
+    "summary": "A non-baseline runtime cannot be promoted as reliable, production-ready, baseline-covered, golden-pair-equivalent, or daily-driver-candidate until it proves the same practical primitives as the Codex/Claude golden pair.",
+    "blocked_status_values": [
+      "daily_driver_candidate",
+      "golden_pair_equivalent",
+      "baseline_covered",
+      "reliable",
+      "promoted",
+      "production_ready"
+    ],
+    "blocked_classifications": [
+      "daily_driver_candidate",
+      "golden_pair_equivalent",
+      "baseline_covered",
+      "reliable",
+      "promoted",
+      "production_ready"
+    ],
+    "minimum_daily_driver_score": 0.9,
+    "required_primitive_score": 1
+  },
+  "baseline_primitives": [
+    {
+      "id": "registered",
+      "severity": "yellow",
+      "description": "Runtime has a registry row and stable canonical engine id."
+    },
+    {
+      "id": "adapter_contract",
+      "severity": "yellow",
+      "description": "Runtime declares an adapter implementation path behind Gateway."
+    },
+    {
+      "id": "discovery_metadata",
+      "severity": "yellow",
+      "description": "Runtime exposes bounded availability/install/status metadata."
+    },
+    {
+      "id": "model_catalog_metadata",
+      "severity": "yellow",
+      "description": "Runtime exposes model/provider catalog metadata without Shell-owned inference."
+    },
+    {
+      "id": "context_continuity",
+      "severity": "red",
+      "description": "Runtime receives enough InfRing context to preserve multi-turn continuity."
+    },
+    {
+      "id": "live_adapter_evidence",
+      "severity": "red",
+      "description": "Runtime has live InfRing-mediated adapter evidence, not only native CLI or fixture proof."
+    },
+    {
+      "id": "live_work_completion",
+      "severity": "red",
+      "description": "Runtime can complete useful live work through the Agent Runtime route."
+    },
+    {
+      "id": "real_work_replay",
+      "severity": "yellow",
+      "description": "Runtime participates in reusable real-work replay evidence."
+    },
+    {
+      "id": "practical_usability_loop",
+      "severity": "red",
+      "description": "Runtime proves approval pause, bounded projection, receipt, transcript persistence, context reload, artifact effect, and activity trace."
+    },
+    {
+      "id": "approval_pause",
+      "severity": "red",
+      "description": "Runtime maps mutation attempts into Gateway-owned approval pause instead of silent failure."
+    },
+    {
+      "id": "turn_steering_contract",
+      "severity": "red",
+      "description": "Runtime preserves active user steering through Gateway without duplicate chat bubbles, lost steering text, or Shell-owned runtime authority."
+    },
+    {
+      "id": "durable_receipts",
+      "severity": "red",
+      "description": "Runtime returns durable receipts for approved effects and user decisions."
+    },
+    {
+      "id": "activity_trace",
+      "severity": "red",
+      "description": "Runtime emits bounded user-facing activity/decision trace projections."
+    },
+    {
+      "id": "structured_transport",
+      "severity": "yellow",
+      "description": "Runtime has structured transport evidence or an explicit bounded-envelope compatibility posture."
+    },
+    {
+      "id": "transport_migration",
+      "severity": "yellow",
+      "description": "Runtime has a declared migration path away from prompt-text compatibility where possible."
+    },
+    {
+      "id": "error_projection",
+      "severity": "red",
+      "description": "Runtime surfaces quota, auth, rate-limit, network, and missing-runtime failures as visible chat outcomes."
+    }
+  ],
+  "upstream_primitive_artifacts": [
+    {
+      "id": "context_continuity",
+      "artifact_ref": "core/local/artifacts/agent_runtime_context_continuity_eval_current.json"
+    },
+    {
+      "id": "context_switch_continuity",
+      "artifact_ref": "core/local/artifacts/agent_runtime_context_switch_continuity_guard_current.json"
+    },
+    {
+      "id": "transcript_reload_persistence",
+      "artifact_ref": "core/local/artifacts/agent_runtime_transcript_reload_persistence_guard_current.json"
+    },
+    {
+      "id": "activity_decision_trace_persistence",
+      "artifact_ref": "core/local/artifacts/agent_runtime_activity_decision_trace_persistence_guard_current.json"
+    },
+    {
+      "id": "turn_steering_contract",
+      "artifact_ref": "core/local/artifacts/agent_runtime_rendered_permission_steering_contract_guard_current.json"
+    },
+    {
+      "id": "model_projection_truth",
+      "artifact_ref": "core/local/artifacts/agent_runtime_model_projection_truth_guard_current.json"
+    },
+    {
+      "id": "command_execution",
+      "artifact_ref": "core/local/artifacts/agent_runtime_command_execution_guard_current.json"
+    },
+    {
+      "id": "hard_failure_projection",
+      "artifact_ref": "core/local/artifacts/agent_runtime_hard_failure_projection_guard_current.json"
+    },
+    {
+      "id": "working_directory_control",
+      "artifact_ref": "core/local/artifacts/agent_runtime_working_directory_control_guard_current.json"
+    },
+    {
+      "id": "native_transport_probe",
+      "artifact_ref": "core/local/artifacts/agent_runtime_native_transport_probe_current.json"
+    }
+  ],
+  "forbidden_shortcuts": [
+    "Promoting a runtime from native CLI success without InfRing-mediated Gateway proof.",
+    "Counting external-engine mediated work as native InfRing intelligence proof.",
+    "Adding Shell-owned inference to compensate for missing adapter/runtime primitives.",
+    "Treating a candidate native transport surface as upstream live typed acceptance without a disposable live acceptance probe."
+  ]
+}

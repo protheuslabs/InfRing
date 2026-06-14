@@ -13,6 +13,9 @@ const path = require('node:path');
 const { normalizeAgentRuntimeTurnInput: defaultNormalizeAgentRuntimeTurnInput } = require('../agent_runtime_input_normalizer.ts');
 const { buildUniversalToolGrants: defaultBuildUniversalToolGrants } = require('./universal_core_tools.ts');
 const { buildAgentRuntimeStructuredTurn: defaultBuildAgentRuntimeStructuredTurn } = require('./agent_runtime_structured_transport.ts');
+const {
+  resolveAgentRuntimeEngineId,
+} = require('./agent_runtime_engine_identity.ts');
 
 const DEFAULT_CONTEXT_FANOUT_TARGET = 7;
 const AGENT_RUNTIME_FALLBACK_CONTEXT_ROW_LIMIT = 24;
@@ -91,9 +94,9 @@ function firstActivityText(source, keys, maxLen = 500) {
 
 function activityStatusPrefix(status) {
   const cleaned = cleanText(status, 80).toLowerCase();
-  if (/complete|done|success/.test(cleaned)) return 'Completed';
-  if (/fail|error/.test(cleaned)) return 'Failed';
-  return 'Working on';
+  if (/complete|done|success/.test(cleaned)) return 'done';
+  if (/fail|error/.test(cleaned)) return 'failed';
+  return 'running';
 }
 
 function compactRawProviderActivityText(raw, event = {}) {
@@ -123,14 +126,16 @@ function compactRawProviderActivityText(raw, event = {}) {
     firstActivityText(args, ['command', 'cmd', 'shell_command', 'argv', 'args'], 800) ||
     firstActivityText(row, ['command', 'cmd', 'shell_command', 'argv', 'args'], 800);
   if (command || /command|exec|shell/.test(itemType || providerType)) {
-    return command ? `${prefix} command: ${command}` : `${prefix} a shell command.`;
+    const target = command || 'shell command';
+    return prefix === 'failed' ? `failed running ${target}` : prefix === 'done' ? `ran ${target}` : `running ${target}`;
   }
   const pathTarget = firstActivityText(item, ['path', 'file', 'filename', 'file_path', 'target_path', 'target', 'uri'], 500) ||
     firstActivityText(input, ['path', 'file', 'filename', 'file_path', 'target_path', 'target', 'uri'], 500) ||
     firstActivityText(args, ['path', 'file', 'filename', 'file_path', 'target_path', 'target', 'uri'], 500) ||
     firstActivityText(row, ['path', 'file', 'filename', 'file_path', 'target_path', 'target', 'uri'], 500);
   if (pathTarget || /file|edit|patch|change|write/.test(itemType || providerType)) {
-    return pathTarget ? `${prefix} file change: ${pathTarget}` : `${prefix} a file change.`;
+    const target = pathTarget || 'file';
+    return prefix === 'failed' ? `failed writing ${target}` : prefix === 'done' ? `wrote ${target}` : `writing ${target}`;
   }
   const tool = firstActivityText(item, ['tool_id', 'tool', 'name', 'function'], 300) ||
     firstActivityText(toolObj, ['tool_id', 'name', 'function'], 300) ||
@@ -138,14 +143,16 @@ function compactRawProviderActivityText(raw, event = {}) {
     firstActivityText(args, ['tool_id', 'tool', 'name', 'function'], 300) ||
     firstActivityText(row, ['tool_id', 'tool', 'name', 'function'], 300);
   if (tool || /tool|function/.test(itemType || providerType)) {
-    return tool ? `${prefix} tool: ${tool}` : `${prefix} a tool call.`;
+    const target = tool || 'tool call';
+    return prefix === 'failed' ? `failed running ${target}` : prefix === 'done' ? `ran ${target}` : `running ${target}`;
   }
   const query = firstActivityText(item, ['query', 'pattern', 'search'], 500) ||
     firstActivityText(input, ['query', 'pattern', 'search'], 500) ||
     firstActivityText(args, ['query', 'pattern', 'search'], 500) ||
     firstActivityText(row, ['query', 'pattern', 'search'], 500);
   if (query || /search|grep|rg/.test(itemType || providerType)) {
-    return query ? `${prefix} search: ${query}` : `${prefix} a workspace search.`;
+    const target = query || 'workspace search';
+    return prefix === 'failed' ? `failed searching ${target}` : prefix === 'done' ? `searched ${target}` : `searching ${target}`;
   }
   const provider = providerType.toLowerCase();
   if (provider.includes('thread.started')) return 'Runtime thread started.';
@@ -162,6 +169,23 @@ function shouldDisplayActivityInThinkingBubble(event, displayText, providerEvent
   const kind = cleanText(row.activity_kind || row.kind || row.type, 80).toLowerCase();
   const text = cleanDisplayText(displayText || row.display_text || row.text || row.summary || '', 1000).toLowerCase();
   const joined = `${provider} ${kind} ${text}`;
+  if (
+    kind === 'assistant_delta' ||
+    kind === 'completed' ||
+    provider === 'end' ||
+    provider.includes('turn.completed') ||
+    /completed the turn|final answer is shown in the message|assistant draft streamed/.test(text)
+  ) {
+    return false;
+  }
+  if (
+    joined.includes('/.claude/plugins/cache/') ||
+    joined.includes('\\.claude\\plugins\\cache\\') ||
+    joined.includes('claude-plugins-official') ||
+    joined.includes('rust-analyzer-lsp@claude-plugins-official')
+  ) {
+    return false;
+  }
   if (/decision|reasoning|thought|plan|permission|approval|error|failed/.test(joined)) return true;
   if (/command|exec|shell|bash|tool|mcp|function|file|edit|patch|diff|write|search|grep|find/.test(joined)) return true;
   if (
@@ -194,6 +218,16 @@ function shouldDisplayActivityInThinkingBubble(event, displayText, providerEvent
   return true;
 }
 
+function isProgressOnlyActivity(event) {
+  const row = event && typeof event === 'object' ? event : {};
+  const provider = cleanText(row.provider_event_type || row.event_type || row.type, 160).toLowerCase();
+  const kind = cleanText(row.activity_kind || row.kind || row.type, 80).toLowerCase();
+  return row.progress_only === true ||
+    row.persist_in_activity_trace === false ||
+    provider === 'external_cli.process_alive' ||
+    kind === 'runtime_progress';
+}
+
 function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
   const event = row && typeof row === 'object' ? row : {};
   const rawActivity = parseRawProviderActivityText(event.display_text || event.text || event.summary || '');
@@ -217,6 +251,13 @@ function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
     text: displayText,
     display_text: displayText,
     display_in_thinking_bubble: shouldDisplayActivityInThinkingBubble(event, displayText, providerEventType),
+    persist_in_activity_trace: event.persist_in_activity_trace !== false,
+    progress_only: event.progress_only === true,
+    role: cleanText(event.role || '', 40),
+    timeline_role: cleanText(event.timeline_role || '', 80),
+    steering_id: cleanText(event.steering_id || '', 200),
+    user_text: cleanDisplayText(event.user_text || '', 4000),
+    user_text_preview: cleanDisplayText(event.user_text_preview || '', 1000),
     receipt_ref: cleanText(event.receipt_ref || '', 240),
     result_ref: cleanText(event.result_ref || '', 240),
     engine_id: cleanEngineId(event.engine_id || defaults.engineId),
@@ -224,6 +265,54 @@ function sanitizeAgentRuntimeActivityEvent(row, index, defaults = {}) {
     session_id: cleanText(event.session_id || defaults.sessionId, 200),
     turn_id: cleanText(event.turn_id || defaults.turnId, 200),
   };
+}
+
+function traceReplacementInfo(title) {
+  const text = cleanDisplayText(title, 1000);
+  const checks = [
+    { kind: 'run', active: /^running\s+(.+)$/i, final: /^(ran|failed running)\s+(.+)$/i },
+    { kind: 'write', active: /^writing\s+(.+)$/i, final: /^(wrote|failed writing)\s+(.+)$/i },
+    { kind: 'read', active: /^reading\s+(.+)$/i, final: /^(read|failed reading)\s+(.+)$/i },
+    { kind: 'search', active: /^searching\s+(.+)$/i, final: /^(searched|failed searching)\s+(.+)$/i },
+  ];
+  for (const check of checks) {
+    const active = text.match(check.active);
+    if (active) return { phase: 'active', key: `${check.kind}:${cleanText(active[1], 900).toLowerCase()}` };
+    const final = text.match(check.final);
+    if (final) return { phase: 'final', key: `${check.kind}:${cleanText(final[2], 900).toLowerCase()}` };
+  }
+  return null;
+}
+
+function compactActivityTraceRows(rows) {
+  const sourceRows = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  const finalKeys = new Set();
+  let hasConcreteReadRow = false;
+  for (const row of sourceRows) {
+    const info = traceReplacementInfo(row && row.title);
+    if (info && info.phase === 'final') finalKeys.add(info.key);
+    if (info && info.key.startsWith('read:') && !/^read:(read|ls|glob|grep)$/i.test(info.key)) hasConcreteReadRow = true;
+  }
+  return sourceRows
+    .filter((row) => {
+      const title = cleanDisplayText(row && row.title, 1000);
+      const lowerTitle = title.toLowerCase();
+      if (
+        /^preparing\b/.test(lowerTitle) ||
+        /^loaded \d+ prior context row/.test(lowerTitle) ||
+        /^checking .* availability/.test(lowerTitle) ||
+        /^starting .* session/.test(lowerTitle) ||
+        /^launching .* turn with bounded context pack/.test(lowerTitle) ||
+        /^launching .* cli\b/.test(lowerTitle) ||
+        /^runtime thread started/.test(lowerTitle) ||
+        /^runtime turn started/.test(lowerTitle) ||
+        /^runtime completed the turn/.test(lowerTitle)
+      ) return false;
+      if (hasConcreteReadRow && /^reading\s+(read|ls|glob|grep)$/i.test(title)) return false;
+      const info = traceReplacementInfo(row && row.title);
+      return !(info && info.phase === 'active' && finalKeys.has(info.key));
+    })
+    .map((row, index) => ({ ...row, sequence_no: index + 1 }));
 }
 
 function normalizeModelProviderContext(body, engineId) {
@@ -464,6 +553,36 @@ function buildAgentRuntimeFailureActivityTrace({ traceId, engineId, sessionId, t
       },
     ],
     summary_text: `${cleanEngine} failed with ${cleanText(errorCode || 'a classified error', 160)}.`,
+  };
+}
+
+function steeringInterventionActivityEvent(intervention, index, defaults = {}) {
+  const source = intervention && typeof intervention === 'object' ? intervention : {};
+  const text = cleanDisplayText(source.text || source.text_preview, 4000);
+  const preview = cleanDisplayText(source.text_preview || text, 1000);
+  const title = preview ? `User steered: ${preview}` : 'User steered this turn.';
+  return {
+    type: 'agent_activity_event',
+    activity_kind: 'user_steer',
+    provider_event_type: 'steering.user_message',
+    source: 'gateway_runtime_steering',
+    sequence_no: Number(index + 1) || 1,
+    item_id: cleanReceiptComponent(source.steering_id || `steer_${index + 1}`, 200),
+    status: cleanText(source.status || 'applied_to_next_turn', 80),
+    text: title,
+    display_text: title,
+    display_in_thinking_bubble: true,
+    role: 'user',
+    timeline_role: 'user_steer',
+    steering_id: cleanText(source.steering_id, 200),
+    user_text: text,
+    user_text_preview: preview,
+    created_at: cleanText(source.created_at, 80),
+    source_authority: cleanText(source.source_authority || 'gateway_agent_runtime_steer_route', 160),
+    engine_id: cleanEngineId(defaults.engineId),
+    trace_id: cleanText(defaults.traceId, 200),
+    session_id: cleanText(defaults.sessionId, 200),
+    turn_id: cleanText(defaults.turnId, 200),
   };
 }
 
@@ -770,11 +889,16 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
   const normalizeAgentRuntimeTurnInput = deps.normalizeAgentRuntimeTurnInput || defaultNormalizeAgentRuntimeTurnInput;
   const buildUniversalToolGrants = deps.buildUniversalToolGrants || defaultBuildUniversalToolGrants;
   const buildAgentRuntimeStructuredTurn = deps.buildAgentRuntimeStructuredTurn || defaultBuildAgentRuntimeStructuredTurn;
+  const loadAgentRuntimeSelection = typeof deps.loadAgentRuntimeSelection === 'function'
+    ? deps.loadAgentRuntimeSelection
+    : null;
   const noop = () => {};
 
   async function agentRuntimeTurnProjection(traceId, body, options = {}) {
-    const rawEngineId = body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id);
-    const engineId = cleanEngineId(rawEngineId || 'infring_native');
+    const engineId = resolveAgentRuntimeEngineId(body, {
+      loadSelection: loadAgentRuntimeSelection,
+      defaultEngineId: 'infring_native',
+    });
     if (!engineId) {
       return {
         ok: false,
@@ -811,10 +935,14 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       ? deps.findAgentRuntimeEngine(registry, engineId)
       : null;
     if (!engine) {
+      const displayText = `Agent runtime '${engineId}' is not registered.`;
       return {
         ok: false,
-        status_code: 404,
+        status_code: 200,
+        status: 'failed_with_reason',
         error: 'agent_runtime_engine_unknown',
+        display_text: displayText,
+        output_text: displayText,
         trace_id: traceId,
         engine_id: engineId,
       };
@@ -836,8 +964,13 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
     const streamedActivityEvents = [];
     const activityDefaults = { engineId, traceId, sessionId, turnId };
     const sanitizeActivity = deps.sanitizeAgentRuntimeActivityEvent || sanitizeAgentRuntimeActivityEvent;
+    let lastProgressActivityAtMs = Date.now();
+    let rescheduleRouteTimeout = null;
     const onActivity = (event) => {
       const normalized = sanitizeActivity(event, streamedActivityEvents.length, activityDefaults);
+      lastProgressActivityAtMs = Date.now();
+      if (typeof rescheduleRouteTimeout === 'function') rescheduleRouteTimeout();
+      if (isProgressOnlyActivity(normalized)) return;
       if (!normalized.display_text && !normalized.provider_event_type) return;
       streamedActivityEvents.push(normalized);
       if (typeof options.onActivity === 'function') options.onActivity(normalized);
@@ -966,6 +1099,12 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       approval_decision: cleanText(approvalResumeSource.approval_decision, 80),
       approval_resume_action: cleanText(approvalResumeSource.approval_resume_action, 160),
       decision_receipt_ref: cleanText(approvalResumeSource.decision_receipt_ref, 240),
+      approved_effect_executed: approvalResumeSource.approved_effect_executed === true,
+      approved_effect_path: cleanText(approvalResumeSource.approved_effect_path, 600),
+      approved_effect_artifact_ref: cleanText(approvalResumeSource.approved_effect_artifact_ref, 600),
+      approved_effect_result_ref: cleanText(approvalResumeSource.approved_effect_result_ref, 600),
+      approved_effect_receipt_ref: cleanText(approvalResumeSource.approved_effect_receipt_ref, 600),
+      approved_effect_display_text: cleanText(approvalResumeSource.approved_effect_display_text, 1000),
       source_authority: 'gateway.runtime.agent_runtime_turn_projection',
     } : null;
     if (approvalResume && (approvalResume.approval_id || approvalResume.resume_token || approvalResume.approved_tool_id)) {
@@ -1053,11 +1192,14 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
         intervention_count: steeringInterventions.length,
         interventions: steeringInterventions,
       };
-      emitSyntheticActivity(
-        'activity',
-        'steering.loaded',
-        `Loaded ${steeringInterventions.length} queued steering intervention${steeringInterventions.length === 1 ? '' : 's'} for this turn.`,
-      );
+      steeringInterventions.forEach((intervention, index) => {
+        onActivity(steeringInterventionActivityEvent(intervention, index, {
+          engineId,
+          traceId,
+          sessionId,
+          turnId,
+        }));
+      });
     }
     const turnEnvelope = attachStructuredTurnEnvelope(contextPack, {
       traceId,
@@ -1099,6 +1241,13 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
         180,
       300,
     ));
+    const requestedAbsoluteMaxTurnSeconds = Math.max(requestedMaxTurnSeconds, Math.min(
+      Number(body && body.capability_budget && body.capability_budget.max_absolute_turn_seconds) ||
+        Number(body && body.max_absolute_turn_seconds) ||
+        Number(process.env.INFRING_AGENT_RUNTIME_MAX_ABSOLUTE_TURN_SECONDS) ||
+        1800,
+      3600,
+    ));
     const turnMessage = {
       type: 'agent_runtime.turn_submit',
       trace_id: traceId,
@@ -1120,6 +1269,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
       capability_budget: {
         max_default_response_bytes: 65536,
         max_turn_seconds: requestedMaxTurnSeconds,
+        max_absolute_turn_seconds: requestedAbsoluteMaxTurnSeconds,
         shell_projection_only: true,
         context_pack_required: true,
         context_pack_fanout_target: contextFanoutTarget,
@@ -1130,12 +1280,18 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
     emitSyntheticActivity('started', 'turn.launch', `Launching ${engineId} turn with bounded context pack.`);
     const turnStartedAtMs = Date.now();
     const turnTimeoutMs = requestedMaxTurnSeconds * 1000;
+    const turnAbsoluteTimeoutMs = requestedAbsoluteMaxTurnSeconds * 1000;
     let routeTimedOut = false;
     const turnPromise = router.streamTurn(turnMessage, onActivity);
     let routeTimeoutTimer = null;
     const timeoutPromise = new Promise((resolve) => {
-      routeTimeoutTimer = setTimeout(() => {
+      const resolveTimeout = (timeoutKind) => {
+        if (routeTimedOut) return;
         routeTimedOut = true;
+        const timedOutByAbsoluteLimit = timeoutKind === 'absolute';
+        const timeoutDisplayText = timedOutByAbsoluteLimit
+          ? `${engineId} reached the ${requestedAbsoluteMaxTurnSeconds}s absolute Gateway safety limit. Gateway returned a bounded timeout projection.`
+          : `${engineId} stopped receiving runtime activity for ${requestedMaxTurnSeconds}s. Gateway returned a bounded no-progress timeout projection.`;
         resolve({
           type: 'turn.complete',
           trace_id: traceId,
@@ -1145,12 +1301,12 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
           turn_id: turnId,
           status: 'timed_out',
           error_code: 'agent_runtime_gateway_turn_timeout',
-          reason: `${engineId} did not finish within ${requestedMaxTurnSeconds}s. Gateway returned a bounded timeout projection.`,
+          reason: timeoutDisplayText,
           retryable: true,
           timed_out: true,
-          timeout_ms: turnTimeoutMs,
-          output_text: `${engineId} did not finish within ${requestedMaxTurnSeconds}s. Gateway returned a bounded timeout projection.`,
-          output_preview: `${engineId} did not finish within ${requestedMaxTurnSeconds}s. Gateway returned a bounded timeout projection.`,
+          timeout_ms: timedOutByAbsoluteLimit ? turnAbsoluteTimeoutMs : turnTimeoutMs,
+          output_text: timeoutDisplayText,
+          output_preview: timeoutDisplayText,
           activity_events: [{
             type: 'agent_activity_event',
             trace_id: traceId,
@@ -1163,14 +1319,37 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
             sequence_no: 1,
             item_id: 'gateway-turn-timeout',
             status: 'timed_out',
-            text: `${engineId} did not finish within ${requestedMaxTurnSeconds}s.`,
-            display_text: `${engineId} did not finish within ${requestedMaxTurnSeconds}s.`,
+            text: timeoutDisplayText,
+            display_text: timeoutDisplayText,
           }],
         });
-      }, turnTimeoutMs);
-      if (routeTimeoutTimer && typeof routeTimeoutTimer.unref === 'function') routeTimeoutTimer.unref();
+      };
+      rescheduleRouteTimeout = () => {
+        if (routeTimedOut) return;
+        if (routeTimeoutTimer) clearTimeout(routeTimeoutTimer);
+        const now = Date.now();
+        const idleRemainingMs = turnTimeoutMs - Math.max(0, now - lastProgressActivityAtMs);
+        const absoluteRemainingMs = turnAbsoluteTimeoutMs - Math.max(0, now - turnStartedAtMs);
+        if (absoluteRemainingMs <= 0) {
+          resolveTimeout('absolute');
+          return;
+        }
+        if (idleRemainingMs <= 0) {
+          resolveTimeout('idle');
+          return;
+        }
+        const nextWaitMs = Math.max(1, Math.min(idleRemainingMs, absoluteRemainingMs));
+        routeTimeoutTimer = setTimeout(() => {
+          const latestNow = Date.now();
+          const latestIdleRemainingMs = turnTimeoutMs - Math.max(0, latestNow - lastProgressActivityAtMs);
+          const latestAbsoluteRemainingMs = turnAbsoluteTimeoutMs - Math.max(0, latestNow - turnStartedAtMs);
+          resolveTimeout(latestAbsoluteRemainingMs <= 0 && latestAbsoluteRemainingMs <= latestIdleRemainingMs ? 'absolute' : 'idle');
+        }, nextWaitMs);
+        if (routeTimeoutTimer && typeof routeTimeoutTimer.unref === 'function') routeTimeoutTimer.unref();
+      };
+      rescheduleRouteTimeout();
     });
-    const turn = await Promise.race([turnPromise, timeoutPromise]);
+    let turn = await Promise.race([turnPromise, timeoutPromise]);
     if (!routeTimedOut && routeTimeoutTimer) clearTimeout(routeTimeoutTimer);
     if (routeTimedOut && router && typeof router.cancelTurn === 'function') {
       router.cancelTurn({
@@ -1185,6 +1364,93 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
     const workedMs = Math.max(0, Date.now() - turnStartedAtMs);
     if (!(turn && Array.isArray(turn.activity_events) && turn.activity_events.length)) {
       emitSyntheticActivity('completed', 'turn.completed', `${engineId} returned ${cleanText(turn && turn.status, 80) || 'a result'}.`);
+    }
+    const autoApprovalCandidate = turn && turn.permission_request && typeof turn.permission_request === 'object'
+      ? turn.permission_request
+      : null;
+    const autoApprovalToolId = cleanText(autoApprovalCandidate && autoApprovalCandidate.tool_id, 120);
+    const autoAllowedToolCalls = Array.isArray(permissionPolicy && permissionPolicy.always_allowed_tool_calls)
+      ? permissionPolicy.always_allowed_tool_calls.map((toolId) => cleanText(toolId, 120)).filter(Boolean)
+      : [];
+    const autoApprovalAllowed = !!(
+      autoApprovalCandidate &&
+      autoApprovalToolId &&
+      autoAllowedToolCalls.indexOf(autoApprovalToolId) >= 0 &&
+      cleanText(autoApprovalCandidate.resume_strategy || 'gateway_apply_approved_effect', 120) === 'gateway_apply_approved_effect' &&
+      deps.executeAgentRuntimeApprovedProposal
+    );
+    if (autoApprovalAllowed) {
+      const autoApprovalId = cleanApprovalId(
+        autoApprovalCandidate.approval_id ||
+        `auto_${autoApprovalToolId}_${traceId}_${turnId}`,
+      );
+      const autoExecutionBody = {
+        ...autoApprovalCandidate,
+        tool_id: autoApprovalToolId,
+        proposal_arguments: autoApprovalCandidate.proposal_arguments,
+        working_directory:
+          autoApprovalCandidate.working_directory ||
+          turnMessage.working_directory ||
+          turnMessage.cwd ||
+          turnMessage.workspace_dir,
+        engine_id: engineId,
+        agent_id: agentId,
+        session_id: sessionId,
+        turn_id: turnId,
+        tool_call_ref: autoApprovalCandidate.tool_call_ref,
+      };
+      let autoExecutionResult = null;
+      try {
+        autoExecutionResult = deps.executeAgentRuntimeApprovedProposal(traceId, autoApprovalId, autoExecutionBody);
+      } catch (error) {
+        autoExecutionResult = {
+          ok: false,
+          type: 'agent_runtime_auto_approved_effect_error',
+          approval_id: autoApprovalId,
+          trace_id: traceId,
+          tool_id: autoApprovalToolId,
+          error: cleanText(error && error.message ? error.message : error, 240),
+        };
+      }
+      const autoDisplayText = cleanDisplayText(
+        autoExecutionResult && autoExecutionResult.ok
+          ? autoExecutionResult.display_text || `Executed always-allowed ${autoApprovalToolId}.`
+          : `Always-allowed ${autoApprovalToolId} failed${autoExecutionResult && autoExecutionResult.error ? `: ${autoExecutionResult.error}` : '.'}`,
+        1200,
+      );
+      const autoActivityEvents = Array.isArray(turn && turn.activity_events) ? turn.activity_events.slice(0, 80) : [];
+      autoActivityEvents.push({
+        type: autoExecutionResult && autoExecutionResult.ok ? 'approval.auto_applied' : 'approval.auto_apply_failed',
+        activity_kind: autoExecutionResult && autoExecutionResult.ok ? 'receipt' : 'error',
+        provider_event_type: 'approval.always_allow',
+        status: autoExecutionResult && autoExecutionResult.ok ? 'done' : 'error',
+        display_text: autoDisplayText,
+        text: autoDisplayText,
+        engine_id: engineId,
+        trace_id: traceId,
+        session_id: sessionId,
+        turn_id: turnId,
+      });
+      turn = {
+        ...(turn || {}),
+        status: autoExecutionResult && autoExecutionResult.ok ? 'completed' : 'failed',
+        output_text: autoDisplayText,
+        display_text: autoDisplayText,
+        text: autoDisplayText,
+        output_preview: autoDisplayText,
+        error_code: autoExecutionResult && autoExecutionResult.ok ? '' : 'agent_runtime_auto_approved_effect_failed',
+        reason: autoExecutionResult && autoExecutionResult.ok ? '' : autoDisplayText,
+        permission_request: null,
+        approval_pause: null,
+        result_ref: cleanText(autoExecutionResult && autoExecutionResult.result_ref, 240),
+        receipt_ref: cleanText(autoExecutionResult && autoExecutionResult.receipt_ref, 240),
+        activity_events: autoActivityEvents,
+        activity_event_count: autoActivityEvents.length,
+        approved_effect_executed: !!(autoExecutionResult && autoExecutionResult.ok),
+        approved_effect_path: cleanText(autoExecutionResult && autoExecutionResult.path, 600),
+        approved_effect_result_ref: cleanText(autoExecutionResult && autoExecutionResult.result_ref, 600),
+        approved_effect_receipt_ref: cleanText(autoExecutionResult && autoExecutionResult.receipt_ref, 600),
+      };
     }
     const output = cleanDisplayText(
       turn && (turn.output_text || turn.display_text || turn.text || turn.response || turn.output_preview || turn.delta || turn.reason),
@@ -1393,7 +1659,7 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
         return true;
       })
       .slice(-80);
-    const activityTraceRows = activityEvents
+    const activityTraceRows = compactActivityTraceRows(activityEvents
       .map((event, index) => {
         const title = cleanDisplayText(
           event.display_text || event.text || event.summary || event.provider_event_type || event.activity_kind,
@@ -1402,17 +1668,23 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
         if (!title) return null;
         return {
           type: 'agent_runtime_activity_trace_row',
-          sequence_no: Number(event.sequence_no || index + 1) || index + 1,
+          sequence_no: index + 1,
+          provider_sequence_no: Number(event.sequence_no) || 0,
           activity_kind: cleanText(event.activity_kind || 'activity', 80),
           provider_event_type: cleanText(event.provider_event_type || '', 160),
           status: cleanText(event.status || '', 80),
           title,
-          display_in_thinking_bubble: event.display_in_thinking_bubble !== false,
+          display_in_thinking_bubble: shouldDisplayActivityInThinkingBubble(event, title, event.provider_event_type),
+          role: cleanText(event.role || '', 40),
+          timeline_role: cleanText(event.timeline_role || '', 80),
+          steering_id: cleanText(event.steering_id || '', 200),
+          user_text: cleanDisplayText(event.user_text || '', 4000),
+          user_text_preview: cleanDisplayText(event.user_text_preview || '', 1000),
           detail_ref: `agent-runtime-activity/${traceId}/${turnId}/${index + 1}`,
         };
       })
       .filter(Boolean)
-      .slice(-48);
+      .slice(-48));
     const workedLabel = workedLabelFromMs(workedMs);
     const activityTraceProjection = {
       type: 'agent_runtime_activity_trace_projection',

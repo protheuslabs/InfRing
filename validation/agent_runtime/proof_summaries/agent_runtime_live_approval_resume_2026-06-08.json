@@ -31,7 +31,9 @@
     "claude_stream_json_mapping_probe": "core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json",
     "claude_stream_json_live_acceptance_probe": "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json",
     "codex_app_server_mapping_probe": "core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json",
-    "codex_app_server_live_acceptance_probe": "core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json"
+    "codex_app_server_live_acceptance_probe": "core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json",
+    "golden_pair_promotion_guard": "core/local/artifacts/agent_runtime_golden_pair_promotion_guard_current.json",
+    "claude_native_live_work_eval": "core/local/artifacts/agent_runtime_live_work_eval_claude_native_probe.json"
   },
   "summary": {
     "planned": 0,
@@ -41,9 +43,9 @@
     "available_runtimes": 3,
     "registry_coverage_ok": true,
     "gap_summary": {
-      "total": 1,
+      "total": 2,
       "red": 0,
-      "yellow": 1,
+      "yellow": 2,
       "white": 0
     },
     "engine_scorecard_summary": {
@@ -51,30 +53,27 @@
         {
           "engine_id": "codex_cli",
           "display_name": "Codex",
-          "classification": "practical_with_gaps",
-          "score": 0.84,
+          "classification": "daily_driver_candidate",
+          "score": 1,
           "practical_usability_loop": "pass",
           "pending_exit_criteria": []
         },
         {
           "engine_id": "claude_code",
           "display_name": "Claude Code",
-          "classification": "practical_with_gaps",
-          "score": 0.84,
+          "classification": "daily_driver_candidate",
+          "score": 1,
           "practical_usability_loop": "pass",
-          "pending_exit_criteria": [
-            "upstream_native_transport_probe"
-          ]
+          "pending_exit_criteria": []
         }
       ],
       "source_artifact_ref": "core/local/artifacts/agent_runtime_engine_scorecard_current.json"
     },
     "native_transport_probe_summary": {
       "bounded_envelope_engine_count": 5,
-      "native_transport_available_count": 1,
-      "pending_probe_count": 4,
+      "native_transport_available_count": 2,
+      "pending_probe_count": 3,
       "pending_engines": [
-        "claude_code",
         "grok_code",
         "opencode",
         "hermes_agent"
@@ -86,23 +85,26 @@
     },
     "claude_stream_json_transport_summary": {
       "mapping_probe_status": "candidate_mapping_ready",
-      "live_acceptance_probe_status": "disabled_by_default_pending_live_acceptance",
+      "live_acceptance_probe_status": "live_probe_disabled_with_prior_live_work",
       "typed_turn_api_available": false,
+      "adapter_live_work_status": "live_work_ok",
       "source_artifact_refs": [
         "core/local/artifacts/agent_runtime_claude_stream_json_mapping_probe_current.json",
-        "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json"
+        "core/local/artifacts/agent_runtime_claude_stream_json_live_acceptance_probe_current.json",
+        "core/local/artifacts/agent_runtime_live_work_eval_claude_native_probe.json"
       ],
-      "next_action": "Run the gated live Claude stream-json acceptance probe only when explicit token/API usage is acceptable."
+      "next_action": "Keep Claude stream-json as a gated adapter-native path; enable AGENT_RUNTIME_CLAUDE_STREAM_JSON_LIVE=1 only for explicit disposable upstream live acceptance."
     },
     "codex_app_server_transport_summary": {
       "mapping_probe_status": "candidate_mapping_ready",
-      "live_acceptance_probe_status": "accepted_by_runtime",
-      "typed_turn_api_available": true,
+      "live_acceptance_probe_status": "live_probe_disabled_with_candidate_surface",
+      "typed_turn_api_available": false,
+      "candidate_method_surface_identified": true,
       "source_artifact_refs": [
         "core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json",
         "core/local/artifacts/agent_runtime_codex_app_server_live_acceptance_probe_current.json"
       ],
-      "next_action": "Use Codex app-server thread/start + turn/start as the typed transport lane for future Codex integration work."
+      "next_action": "Implement and explicitly enable disposable thread/start + turn/start live submission before claiming Codex app-server accepted-by-runtime typed transport."
     }
   },
   "results": [
@@ -161,17 +163,17 @@
   "known_gaps": [
     {
       "severity": "yellow",
-      "framework_id": "claude_code",
-      "kind": "known_framework_gap",
-      "summary": "Claude stream-json live typed transport acceptance remains pending; InfRing uses a bounded CLI context envelope until live acceptance is proven.",
-      "next_action": "Run the gated live Claude stream-json acceptance probe only when explicit token/API usage is acceptable."
+      "framework_id": "golden_pair",
+      "kind": "upstream_live_typed_acceptance_gated",
+      "summary": "Codex and Claude Code pass the practical usability loop and have candidate native transport surfaces, but live upstream typed-transport submission remains explicitly gated/disabled by default.",
+      "next_action": "Promote only after disposable live acceptance probes submit through the upstream native transports and return compact proof artifacts."
     },
     {
       "severity": "yellow",
-      "framework_id": "golden_pair",
-      "kind": "upstream_native_transport_probe_pending",
-      "summary": "Codex and Claude Code pass the practical usability loop. Codex app-server now has live typed transport acceptance proof; Claude stream-json remains disabled-by-default pending live acceptance.",
-      "next_action": "Use Codex app-server typed transport as the primary structured lane and run Claude stream-json live acceptance only when explicit runtime/token/API usage is acceptable."
+      "framework_id": "claude_code",
+      "kind": "adapter_native_live_work_proven",
+      "summary": "Claude stream-json adapter path completed live InfRing-mediated work with approval pause and approved artifact effect, but the dedicated upstream live acceptance probe remains disabled by default.",
+      "next_action": "Use the adapter path for controlled comparison while keeping the accepted typed-transport claim separate."
     }
   ],
   "limits": [

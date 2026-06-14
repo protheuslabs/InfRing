@@ -9,6 +9,10 @@
 'use strict';
 
 const { spawn } = require('node:child_process');
+const {
+  explicitAgentRuntimeEngineId,
+  selectionEngineId,
+} = require('./agent_runtime_engine_identity.ts');
 
 function cleanText(value, maxLen = 200) { return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLen); }
 function stripTerminalControls(value) {
@@ -460,6 +464,7 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
     const engines = Array.isArray(info.engines) ? info.engines : [];
     const engineAdapters = createAdapterMap({ liveDispatch: false });
     const selection = loadSelection();
+    const selectedEngineId = selectionEngineId(selection) || 'infring_native';
     const timeoutMs = agentRuntimeMenuHealthTimeoutMs();
     const rows = await Promise.all(engines.map(async (engine) => {
       const engineId = cleanEngineId(engine && engine.engine_id);
@@ -475,15 +480,22 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
           engine,
         }), engineId, timeoutMs);
       }
-      return projectAgentRuntimeEngineRow(engine, health);
+      const row = projectAgentRuntimeEngineRow(engine, health);
+      const selected = cleanEngineId(row && row.engine_id) === selectedEngineId;
+      return {
+        ...row,
+        selected,
+        active: selected,
+        selected_runtime_engine_id: selectedEngineId,
+      };
     }));
     return {
       ok: true,
       type: 'agent_runtime_engines_projection',
       trace_id: traceId,
       socket_route: '/ws/agent-runtime',
-      selected_default_engine_id: selection.engine_id || 'infring_native',
-      active_engine_id: selection.engine_id || 'infring_native',
+      selected_default_engine_id: selectedEngineId,
+      active_engine_id: selectedEngineId,
       active_engine_updated_at: selection.updated_at || '',
       engines: rows,
     };
@@ -577,7 +589,7 @@ function createAgentRuntimeEngineProjectionStore(options = {}) {
   }
 
   function agentRuntimeSelectionProjection(traceId, body) {
-    const engineId = cleanEngineId(body && (body.engine_id || body.agent_runtime_engine_id || body.runtime_engine_id));
+    const engineId = explicitAgentRuntimeEngineId(body);
     if (!engineId) return { ok: false, status_code: 400, type: 'agent_runtime_selection_projection', trace_id: traceId, error: 'engine_id_required' };
     const info = loadRegistry(root);
     const engine = findAgentRuntimeEngine(info, engineId);

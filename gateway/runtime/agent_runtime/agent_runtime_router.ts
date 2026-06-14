@@ -19,7 +19,11 @@
 const fs = require('fs');
 const path = require('path');
 const { createAgentRuntimeTraceWriter } = require('./agent_runtime_trace_writer.ts');
-const { normalizeUniversalToolProposal } = require('./universal_core_tools.ts');
+const {
+  TOOL_DEFINITIONS,
+  evaluateUniversalToolPermission,
+  normalizeUniversalToolProposal,
+} = require('./universal_core_tools.ts');
 
 const DEFAULT_REGISTRY_PATH = path.join(
   'validation',
@@ -158,12 +162,21 @@ function sanitizeUniversalProposalArguments(args, toolId) {
   return out;
 }
 
-function inferEffectiveUniversalProposalToolId(rawToolId, args) {
+function inferEffectiveUniversalProposalToolId(rawToolId, args, reason) {
   const toolId = cleanString(rawToolId || 'permission.request', 120);
   const source = args && typeof args === 'object' ? args : {};
   const action = cleanString(source.action || source.operation || source.intent || '', 120).toLowerCase();
+  const reasonText = cleanString(reason, 500).toLowerCase();
   const hasPath = Boolean(cleanString(source.path || source.file || source.filename || source.relative_path || '', 500));
   const hasContent = source.content != null || source.text != null || source.body != null;
+  if (
+    toolId === 'permission.request' &&
+    hasPath &&
+    !hasContent &&
+    (/read|inspect|open|view|list|search|find|load/.test(action) || /read|inspect|open|view|list|search|find|load/.test(reasonText))
+  ) {
+    return 'artifact.read';
+  }
   if (
     toolId === 'permission.request' &&
     hasPath &&
@@ -266,9 +279,15 @@ function normalizeGatewayEvent(event, message, fallbackType) {
     if (!proposal.ok) {
       return makeErrorEvent(message, proposal.error_code || 'universal_tool_proposal_invalid', 'Universal tool proposal was rejected by Gateway policy.');
     }
-    const toolId = inferEffectiveUniversalProposalToolId(proposal.tool_id, proposal.arguments);
-    const capability = toolId === 'artifact.create_propose'
-      ? 'propose_artifact_create'
+    const toolId = inferEffectiveUniversalProposalToolId(proposal.tool_id, proposal.arguments, proposal.reason);
+    const permission = evaluateUniversalToolPermission(
+      toolId,
+      message && message.context_pack && message.context_pack.universal_tool_grants
+        ? message.context_pack.universal_tool_grants.permission_policy
+        : {},
+    );
+    const capability = TOOL_DEFINITIONS[toolId] && TOOL_DEFINITIONS[toolId].capability
+      ? TOOL_DEFINITIONS[toolId].capability
       : cleanString(proposal.capability, 160);
     const normalizedProposal = {
       type: 'tool.proposed',
@@ -285,10 +304,10 @@ function normalizeGatewayEvent(event, message, fallbackType) {
       engine_may_execute_directly: false,
       reason: cleanString(proposal.reason, 1000),
       argument_keys: Object.keys(proposal.arguments || {}).map((key) => cleanString(key, 80)).filter(Boolean).slice(0, 24),
-      permission_status: cleanString(proposal.permission_status, 120),
-      permission_requires_user_approval: proposal.permission_requires_user_approval === true,
-      permission_decision_key: cleanString(proposal.permission_decision_key, 200),
-      permission_gatekeeper_kind: cleanString(proposal.permission_gatekeeper_kind || 'user', 80) || 'user',
+      permission_status: cleanString(permission.status || proposal.permission_status, 120),
+      permission_requires_user_approval: permission.requires_user_approval === true,
+      permission_decision_key: cleanString(permission.decision_key || proposal.permission_decision_key, 200),
+      permission_gatekeeper_kind: cleanString(permission.gatekeeper_kind || proposal.permission_gatekeeper_kind || 'user', 80) || 'user',
     };
     if (normalizedProposal.permission_requires_user_approval) {
       const approvalId = cleanString(`approval_${toolId}_${messageTraceId}_${normalizedProposal.turn_id}`, 260)

@@ -61,6 +61,27 @@ if (structuredTransportContract.universal_tools_contract !== universalToolsContr
 if (!structuredTransportContract.canonical_turn_schema?.builder_path || !exists(structuredTransportContract.canonical_turn_schema.builder_path)) {
   violations.push({ kind: 'structured_transport_builder_missing', path: structuredTransportContract.canonical_turn_schema?.builder_path || null });
 }
+if (!exists('adapters/runtime/agent_engines/codex_app_server_transport.ts')) {
+  violations.push({ kind: 'codex_native_transport_mapper_missing', path: 'adapters/runtime/agent_engines/codex_app_server_transport.ts' });
+}
+if (!exists('adapters/runtime/agent_engines/claude_stream_json_transport.ts')) {
+  violations.push({ kind: 'claude_native_transport_mapper_missing', path: 'adapters/runtime/agent_engines/claude_stream_json_transport.ts' });
+}
+const claudeStreamJsonTransportSource = exists('adapters/runtime/agent_engines/claude_stream_json_transport.ts')
+  ? fs.readFileSync(path.join(ROOT, 'adapters/runtime/agent_engines/claude_stream_json_transport.ts'), 'utf8')
+  : '';
+for (const marker of [
+  'runClaudeStreamJsonStructuredTurn',
+  '--input-format',
+  'stream-json',
+  'buildClaudeStreamJsonInput',
+  'parent_tool_use_id',
+  'parseCliActivityOutput',
+]) {
+  if (!claudeStreamJsonTransportSource.includes(marker)) {
+    violations.push({ kind: 'claude_native_transport_marker_missing', marker, path: 'adapters/runtime/agent_engines/claude_stream_json_transport.ts' });
+  }
+}
 if (structuredTransportContract.canonical_turn_schema?.builder_export !== 'buildAgentRuntimeStructuredTurn') {
   violations.push({ kind: 'structured_transport_builder_export_wrong', actual: structuredTransportContract.canonical_turn_schema?.builder_export, path: structuredTransportContractPath });
 }
@@ -566,6 +587,7 @@ for (const forbidden of ['raw_tool_result', 'trace_body', 'workflow_graph', 'ext
 const routerPath = 'gateway/runtime/agent_runtime/agent_runtime_router.ts';
 const nativePath = 'adapters/runtime/agent_engines/infring_native.ts';
 const codexPath = 'adapters/runtime/agent_engines/codex_cli.ts';
+const codexAppServerPath = 'adapters/runtime/agent_engines/codex_app_server_transport.ts';
 const cliRuntimePath = 'adapters/runtime/agent_engines/cli_runtime_adapter.ts';
 const claudePath = 'adapters/runtime/agent_engines/claude_code.ts';
 const grokPath = 'adapters/runtime/agent_engines/grok_code.ts';
@@ -593,6 +615,7 @@ const contextPackPath = 'gateway/runtime/agent_runtime/agent_runtime_context_pac
 const kernelContextMaterializerPath = 'core/layer2/memory/src/bin/agent_runtime_context_materializer.rs';
 const dashboardPath = 'adapters/runtime/infring_dashboard.ts';
 const chatSendPartPath = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/200-send-pipeline.part01.ts';
+const chatSelectionHelpersPartPath = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/030-init-selection-helpers.ts';
 const chatRuntimeSelectorPartPath = 'client/runtime/systems/ui/infring_static/js/pages/chat.ts.parts/090-init-hooks-and-shortcuts.part02.ts';
 for (const rel of [routerPath, nativePath, codexPath, tracePath]) {
   if (!exists(rel)) violations.push({ kind: 'adapter_module_missing', path: rel });
@@ -612,6 +635,7 @@ if (!exists(contextPackPath)) violations.push({ kind: 'context_pack_module_missi
 if (!exists(kernelContextMaterializerPath)) violations.push({ kind: 'kernel_context_materializer_bin_missing', path: kernelContextMaterializerPath });
 if (!exists(cliRuntimePath)) violations.push({ kind: 'cli_runtime_module_missing', path: cliRuntimePath });
 if (!exists(claudePath)) violations.push({ kind: 'claude_adapter_module_missing', path: claudePath });
+if (!exists(codexAppServerPath)) violations.push({ kind: 'codex_app_server_transport_module_missing', path: codexAppServerPath });
 if (!exists(grokPath)) violations.push({ kind: 'grok_adapter_module_missing', path: grokPath });
 if (!exists(openCodePath)) violations.push({ kind: 'opencode_adapter_module_missing', path: openCodePath });
 if (!exists(httpSocketRuntimePath)) violations.push({ kind: 'http_socket_runtime_module_missing', path: httpSocketRuntimePath });
@@ -686,8 +710,14 @@ if (exists(codexPath)) {
   const codexSource = fs.readFileSync(path.join(ROOT, codexPath), 'utf8');
   if (!codexSource.includes('createCliRuntimeEngineAdapter')) violations.push({ kind: 'codex_cli_shared_adapter_missing', path: codexPath });
   if (codexSource.includes('--ephemeral')) violations.push({ kind: 'codex_cli_ephemeral_session_forbidden', path: codexPath });
-  for (const marker of ['nativeTransport', 'codex_app_server_json_rpc', 'INFRING_AGENT_RUNTIME_CODEX_NATIVE_TRANSPORT']) {
+  for (const marker of ['nativeTransport', 'codex_app_server_json_rpc', 'INFRING_AGENT_RUNTIME_CODEX_NATIVE_TRANSPORT', 'runCodexAppServerStructuredTurn']) {
     if (!codexSource.includes(marker)) violations.push({ kind: 'codex_cli_native_transport_marker_missing', marker, path: codexPath });
+  }
+}
+if (exists(codexAppServerPath)) {
+  const codexAppServerSource = fs.readFileSync(path.join(ROOT, codexAppServerPath), 'utf8');
+  for (const marker of ['Gateway remains the', 'app-server', 'thread/start', 'turn/start', 'additionalContext', 'native_transport_adapter_path_active']) {
+    if (!codexAppServerSource.includes(marker)) violations.push({ kind: 'codex_app_server_transport_marker_missing', marker, path: codexAppServerPath });
   }
 }
 if (exists(claudePath)) {
@@ -960,6 +990,13 @@ if (exists(dashboardPath)) {
 	  for (const marker of ['failed_with_reason', 'timed_out_with_reason', 'status_code: 200']) {
 	    if (!turnProjectionCombinedSource.includes(marker)) violations.push({ kind: 'dashboard_turn_outcome_projection_marker_missing', marker, path: turnProjectionPath });
 	  }
+  const unknownEngineIndex = turnProjectionSource.indexOf("error: 'agent_runtime_engine_unknown'");
+  const unknownEngineFailureBlock = unknownEngineIndex >= 0
+    ? turnProjectionSource.slice(Math.max(0, unknownEngineIndex - 500), unknownEngineIndex + 220)
+    : '';
+  if (!unknownEngineFailureBlock.includes('status_code: 200')) {
+    violations.push({ kind: 'dashboard_unknown_runtime_failure_not_http_200_projection', path: turnProjectionPath });
+  }
 	  for (const marker of ['agentRuntimePreTurnFailureProjection', 'classifyAgentRuntimePreTurnFailureCode', 'provider_quota_or_subscription_unavailable', 'provider_auth_required']) {
 	    if (!turnProjectionCombinedSource.includes(marker)) violations.push({ kind: 'dashboard_pre_turn_failure_projection_marker_missing', marker, path: turnProjectionPath });
 	  }
@@ -987,9 +1024,29 @@ if (!exists(chatSendPartPath)) {
   if (!chatSendSource.includes('_sendAgentRuntimeSocketPayload')) violations.push({ kind: 'chat_send_runtime_socket_dispatch_missing', path: chatSendPartPath });
 	  if (!chatSendSource.includes('display_text || res.output_text')) violations.push({ kind: 'chat_send_prefers_formatted_runtime_output_missing', path: chatSendPartPath });
 	  if (!chatSendSource.includes('context_projection') || !chatSendSource.includes('rows: contextRows')) violations.push({ kind: 'chat_send_context_projection_missing', path: chatSendPartPath });
+  if (!chatSendSource.includes('var modelProviderContext = {') || !chatSendSource.includes('model_provider_context: modelProviderContext')) {
+    violations.push({ kind: 'chat_send_runtime_model_context_not_canonicalized', path: chatSendPartPath });
+  }
+  if (!chatSendSource.includes("engineId === 'infring_native'") || !chatSendSource.includes("runtime_model_source = 'framework_default'")) {
+    violations.push({ kind: 'chat_send_external_runtime_model_context_can_leak_native_llm', path: chatSendPartPath });
+  }
 	  const runtimeDispatchBody = (chatSendSource.match(/async _sendAgentRuntimeSocketPayload[\s\S]+?\n    async _sendTerminalPayload/) || [''])[0];
   if (!runtimeDispatchBody.includes('isHtml: false') || !runtimeDispatchBody.includes('_typingVisual: false')) violations.push({ kind: 'chat_send_runtime_output_not_standard_markdown_message', path: chatSendPartPath });
   if (runtimeDispatchBody.includes('_queueFinalWordTypingRender')) violations.push({ kind: 'chat_send_runtime_output_uses_typewriter_renderer', path: chatSendPartPath });
+}
+if (!exists(chatSelectionHelpersPartPath)) {
+  violations.push({ kind: 'chat_selection_helpers_part_missing', path: chatSelectionHelpersPartPath });
+} else {
+  const selectionHelpersSource = fs.readFileSync(path.join(ROOT, chatSelectionHelpersPartPath), 'utf8');
+  if (!selectionHelpersSource.includes('modelRowsForActiveRuntimeEngine: function(rows, runtimeEngineId)')) {
+    violations.push({ kind: 'chat_runtime_model_menu_filter_missing', path: chatSelectionHelpersPartPath });
+  }
+  if (!selectionHelpersSource.includes('if (!menu || menu.show_in_llm_menu === false) return [];')) {
+    violations.push({ kind: 'chat_runtime_model_menu_missing_menu_falls_back_to_native_llm', path: chatSelectionHelpersPartPath });
+  }
+  if (!selectionHelpersSource.includes("runtime_model_source: 'framework_native'") || !selectionHelpersSource.includes("runtime_model_source: 'inherited_infring_llm'")) {
+    violations.push({ kind: 'chat_runtime_model_menu_source_markers_missing', path: chatSelectionHelpersPartPath });
+  }
 }
 if (!exists(chatRuntimeSelectorPartPath)) {
   violations.push({ kind: 'chat_runtime_selector_part_missing', path: chatRuntimeSelectorPartPath });

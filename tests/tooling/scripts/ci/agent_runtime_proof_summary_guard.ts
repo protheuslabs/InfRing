@@ -9,6 +9,7 @@ const path = require('node:path');
 const ROOT = process.cwd();
 const SUMMARY_DIR = path.join(ROOT, 'validation/agent_runtime/proof_summaries');
 const OUT_JSON = path.join(ROOT, 'core/local/artifacts/agent_runtime_proof_summary_guard_current.json');
+const SECONDARY_PROMOTION_PLAN_PATH = path.join(ROOT, 'core/local/artifacts/agent_runtime_secondary_promotion_plan_guard_current.json');
 const SOURCE_DOMAIN = 'validation';
 const OWNER_DOMAIN = 'validation.agent_runtime';
 const POLICY_PATH = 'validation/conformance/contracts/proof_ledger_separation_policy.json';
@@ -52,6 +53,15 @@ function readJson(filePath, violations) {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch (error) {
     push(violations, 'proof_summary_json_invalid', path.relative(ROOT, filePath), String(error && error.message || error));
+    return null;
+  }
+}
+
+function readArtifactJson(filePath, violations) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    push(violations, 'proof_summary_auxiliary_artifact_json_invalid', rel(filePath), String(error && error.message || error));
     return null;
   }
 }
@@ -195,6 +205,7 @@ function validateSummary(filePath, summary, violations) {
   }
   if (
     claudeStreamJsonTransportSummary.live_acceptance_probe_status !== 'disabled_by_default_pending_live_acceptance' &&
+    claudeStreamJsonTransportSummary.live_acceptance_probe_status !== 'live_probe_disabled_with_prior_live_work' &&
     claudeStreamJsonTransportSummary.live_acceptance_probe_status !== 'live_probe_disabled_with_prior_acceptance' &&
     claudeStreamJsonTransportSummary.live_acceptance_probe_status !== 'accepted'
   ) {
@@ -218,11 +229,22 @@ function validateSummary(filePath, summary, violations) {
   if (codexAppServerTransportSummary.mapping_probe_status !== 'candidate_mapping_ready') {
     push(violations, 'proof_summary_codex_app_server_mapping_status_missing', relative, codexAppServerTransportSummary.mapping_probe_status);
   }
-  if (codexAppServerTransportSummary.live_acceptance_probe_status !== 'accepted_by_runtime') {
+  const codexLiveStatus = clean(codexAppServerTransportSummary.live_acceptance_probe_status, 240);
+  if (
+    codexLiveStatus !== 'accepted_by_runtime' &&
+    codexLiveStatus !== 'live_probe_disabled_with_candidate_surface' &&
+    codexLiveStatus !== 'disabled_by_default_pending_live_acceptance'
+  ) {
     push(violations, 'proof_summary_codex_app_server_live_status_missing', relative, codexAppServerTransportSummary.live_acceptance_probe_status);
   }
-  if (codexAppServerTransportSummary.typed_turn_api_available !== true) {
-    push(violations, 'proof_summary_codex_app_server_typed_transport_underclaimed', relative, `typed_turn_api_available=${codexAppServerTransportSummary.typed_turn_api_available}`);
+  const codexLiveTypedExpected = codexLiveStatus === 'accepted_by_runtime';
+  if (Boolean(codexAppServerTransportSummary.typed_turn_api_available) !== codexLiveTypedExpected) {
+    push(
+      violations,
+      'proof_summary_codex_app_server_typed_transport_overclaimed',
+      relative,
+      `live_acceptance_probe_status=${codexLiveStatus}; typed_turn_api_available=${codexAppServerTransportSummary.typed_turn_api_available}`,
+    );
   }
   if (!Array.isArray(codexAppServerTransportSummary.source_artifact_refs) ||
     !codexAppServerTransportSummary.source_artifact_refs.includes('core/local/artifacts/agent_runtime_codex_app_server_mapping_probe_current.json') ||
@@ -303,6 +325,72 @@ function validateSummary(filePath, summary, violations) {
   }
 }
 
+function validateSecondaryPromotionPlan(plan, violations) {
+  const relative = rel(SECONDARY_PROMOTION_PLAN_PATH);
+  if (!plan || typeof plan !== 'object') {
+    push(violations, 'secondary_promotion_plan_missing', relative, 'Expected compact secondary promotion plan artifact.');
+    return {
+      artifact_ref: relative,
+      ok: false,
+      planned_engine_count: 0,
+      nearest_next_step: null,
+      stages: [],
+    };
+  }
+  if (plan.ok !== true) {
+    push(violations, 'secondary_promotion_plan_not_ok', relative, `ok=${plan.ok}`);
+  }
+  if (plan.type !== 'agent_runtime_secondary_promotion_plan_guard') {
+    push(violations, 'secondary_promotion_plan_type_invalid', relative, plan.type);
+  }
+  if (plan.owner_domain !== 'validation.agent_runtime') {
+    push(violations, 'secondary_promotion_plan_owner_invalid', relative, plan.owner_domain);
+  }
+  if (plan.layer !== 'gateway') {
+    push(violations, 'secondary_promotion_plan_layer_invalid', relative, plan.layer);
+  }
+  const plans = Array.isArray(plan.plans) ? plan.plans : [];
+  if (!plans.length) {
+    push(violations, 'secondary_promotion_plan_rows_missing', relative, 'plans must name secondary runtime next steps.');
+  }
+  for (const row of plans) {
+    const engineId = clean(row && row.engine_id, 160) || 'unknown_engine';
+    const effect = row && row.promotion_effect && typeof row.promotion_effect === 'object'
+      ? row.promotion_effect
+      : {};
+    if (!clean(row && row.current_stage, 200)) {
+      push(violations, 'secondary_promotion_plan_stage_missing', relative, engineId);
+    }
+    if (!clean(row && row.recommended_next_action, 700)) {
+      push(violations, 'secondary_promotion_plan_next_action_missing', relative, engineId);
+    }
+    if (effect.daily_driver_eligible_now !== false) {
+      push(violations, 'secondary_promotion_plan_daily_driver_overclaim', relative, engineId);
+    }
+    if (effect.counts_as_golden_pair_equivalent !== false) {
+      push(violations, 'secondary_promotion_plan_golden_pair_overclaim', relative, engineId);
+    }
+    if (effect.counts_as_native_intelligence_proof !== false) {
+      push(violations, 'secondary_promotion_plan_native_proof_overclaim', relative, engineId);
+    }
+  }
+  const sourceRefs = Array.isArray(plan.source_artifact_refs) ? plan.source_artifact_refs : [];
+  for (const artifactRef of sourceRefs) {
+    const refText = clean(artifactRef, 1000);
+    if (!refText.startsWith('core/local/artifacts/') && !refText.startsWith('validation/conformance/contracts/')) {
+      push(violations, 'secondary_promotion_plan_source_ref_not_bounded', relative, refText);
+    }
+  }
+  const summary = plan.summary && typeof plan.summary === 'object' ? plan.summary : {};
+  return {
+    artifact_ref: relative,
+    ok: plan.ok === true,
+    planned_engine_count: plans.length,
+    nearest_next_step: summary.nearest_next_step || null,
+    stages: Array.isArray(summary.stages) ? summary.stages : [],
+  };
+}
+
 function main() {
   const violations = [];
   if (!fs.existsSync(path.join(SUMMARY_DIR, 'README.md'))) {
@@ -323,6 +411,10 @@ function main() {
   for (const filePath of files) {
     validateSummary(filePath, readJson(filePath, violations), violations);
   }
+  const secondaryPromotionPlanSummary = validateSecondaryPromotionPlan(
+    readArtifactJson(SECONDARY_PROMOTION_PLAN_PATH, violations),
+    violations,
+  );
   const report = {
     ok: violations.length === 0,
     type: 'agent_runtime_proof_summary_guard',
@@ -334,6 +426,7 @@ function main() {
     summary_dir: rel(SUMMARY_DIR),
     summary_count: files.length,
     checked_summaries: files.map(rel),
+    secondary_promotion_plan_summary: secondaryPromotionPlanSummary,
     violations,
   };
   ensureDir(OUT_JSON);

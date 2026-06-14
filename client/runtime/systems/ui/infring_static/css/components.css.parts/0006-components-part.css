@@ -145,6 +145,25 @@
   opacity: 0;
 }
 
+.message.meta-collapsed .message-bubble:hover > .message-stats-row,
+.message.meta-collapsed .message-bubble:focus-within > .message-stats-row,
+.message.meta-collapsed .message-bubble:hover > infring-message-meta-shell > .message-stats-row,
+.message.meta-collapsed .message-bubble:focus-within > infring-message-meta-shell > .message-stats-row {
+  opacity: 1;
+  max-height: 18px;
+  padding-top: 0;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.message.meta-collapsed.meta-reserved .message-bubble:hover > .message-stats-row > *,
+.message.meta-collapsed.meta-reserved .message-bubble:focus-within > .message-stats-row > *,
+.message.meta-collapsed.meta-reserved .message-bubble:hover > infring-message-meta-shell > .message-stats-row > *,
+.message.meta-collapsed.meta-reserved .message-bubble:focus-within > infring-message-meta-shell > .message-stats-row > * {
+  visibility: visible;
+  opacity: 1;
+}
+
 .message.user.hover-linked .message-bubble {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }

@@ -197,15 +197,20 @@ var InfringSharedShellServices = (function(existing) {
   }
 
   function normalizeBackgroundTemplate(raw) {
-    var mode = trimString(raw || 'light-wood').toLowerCase();
-    if (mode === 'unsplash-paper' || mode === 'sand') mode = 'light-wood';
-    return backgroundTemplates[mode] ? mode : 'light-wood';
+    var mode = trimString(raw || 'default-grid').toLowerCase();
+    if (mode === 'unsplash-paper') mode = 'default-grid';
+    return backgroundTemplates[mode] ? mode : 'default-grid';
   }
 
   function readDisplayBackground() {
     var raw = readJsonStorage('infring-display-settings', {});
     var settings = raw && typeof raw === 'object' ? raw : {};
-    var mode = normalizeBackgroundTemplate(settings.background || 'light-wood');
+    var migrationKey = 'infring-ui-background-template-default-grid-migrated';
+    var mode = normalizeBackgroundTemplate(settings.background || 'default-grid');
+    if (mode === 'light-wood' && storageGet(migrationKey) !== '1') {
+      mode = 'default-grid';
+      storageSet(migrationKey, '1');
+    }
     settings.background = mode;
     writeJsonStorage('infring-display-settings', settings);
     try { document.documentElement.setAttribute('data-ui-background-template', mode); } catch(_) {}

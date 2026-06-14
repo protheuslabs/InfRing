@@ -262,8 +262,8 @@
         // Prevent duplicate waiting/workflow status lines.
         return '';
       }
-      if (this._pendingWsRequest && this._pendingWsRequest.agent_id) return 'Waiting for runtime response...';
-      return 'Analyzing next step...';
+      if (this._pendingWsRequest && this._pendingWsRequest.agent_id) return 'Thinking';
+      return 'Thinking';
     },
 
     thinkingTraceSummary: function(msg) {
@@ -284,9 +284,73 @@
     thinkingBubbleTraceRows: function(msg) {
       if (!msg || !msg.thinking) return [];
       var sourceRows = Array.isArray(msg.agent_runtime_live_trace_rows) ? msg.agent_runtime_live_trace_rows : [];
-      var out = [];
+      var rawRows = [];
       var seen = Object.create(null);
-      for (var i = 0; i < sourceRows.length && out.length < 48; i += 1) {
+      var fileActionVerb = function(kind) {
+        return String(kind || '') === 'write' ? 'Edited' : 'Read';
+      };
+      var extractFileTraceLabel = function(text, kind) {
+        var value = String(text || '').replace(/\r\n/g, '\n').trim();
+        if (!value) return '';
+        var quoted = value.match(/`([^`\n]+)`/);
+        if (quoted && quoted[1]) return quoted[1].trim();
+        var colon = value.match(/(?:file|path|changed|edited|wrote|written|created|updated|read|reading)\s*:?\s+(.+)$/i);
+        if (colon && colon[1]) return colon[1].trim();
+        var stripped = value.replace(/^(?:working on|completed|finished|failed|started|running|ran)\s+/i, '');
+        stripped = stripped.replace(/^(?:read|reading|edit|edited|editing|write|wrote|writing|created|creating|updated|updating)\s+(?:file\s+|files\s+)?/i, '');
+        stripped = stripped.replace(/^(?:file change|file)\s*:?\s*/i, '');
+        stripped = stripped.trim();
+        if (!stripped || stripped === value) return value;
+        return stripped;
+      };
+      var compactFileTraceRows = function(rows) {
+        var compacted = [];
+        var group = null;
+        var flush = function() {
+          if (!group) return;
+          var count = group.children.length;
+          var verb = fileActionVerb(group.line_kind);
+          compacted.push({
+            id: group.id,
+            text: verb + ' ' + count + ' ' + (count === 1 ? 'file' : 'files'),
+            line_kind: group.line_kind,
+            state: group.state,
+            shimmer: false,
+            children: group.children
+          });
+          group = null;
+        };
+        for (var ri = 0; ri < rows.length; ri += 1) {
+          var item = rows[ri];
+          var kind = String(item && item.line_kind || '').trim();
+          if (kind !== 'read' && kind !== 'write') {
+            flush();
+            compacted.push(item);
+            continue;
+          }
+          var label = extractFileTraceLabel(item.text, kind);
+          var child = {
+            id: String(item.id || (kind + '-file-' + ri)).slice(0, 180) + '-detail',
+            text: fileActionVerb(kind) + ' ' + label,
+            line_kind: kind,
+            state: item.state || 'done',
+            shimmer: false
+          };
+          if (!group || group.line_kind !== kind || group.state !== item.state) {
+            flush();
+            group = {
+              id: 'file-group-' + kind + '-' + String(item.id || ri).slice(0, 140),
+              line_kind: kind,
+              state: item.state || 'done',
+              children: []
+            };
+          }
+          group.children.push(child);
+        }
+        flush();
+        return compacted;
+      };
+      for (var i = 0; i < sourceRows.length && rawRows.length < 48; i += 1) {
         var row = sourceRows[i] && typeof sourceRows[i] === 'object' ? sourceRows[i] : {};
         var text = String(row.text || row.display_text || row.summary || '').replace(/\r\n/g, '\n').trim();
         if (!text) continue;
@@ -295,7 +359,7 @@
         var key = (lineKind + '|' + text).toLowerCase();
         if (seen[key]) continue;
         seen[key] = true;
-        out.push({
+        rawRows.push({
           id: String(row.id || (lineKind + '-' + i)).slice(0, 180),
           text: text,
           line_kind: lineKind,
@@ -303,6 +367,9 @@
           shimmer: false
         });
       }
+      var out = typeof this.compactThoughtTraceRows === 'function'
+        ? this.compactThoughtTraceRows(rawRows)
+        : compactFileTraceRows(rawRows);
       var latestShimmerIdx = -1;
       for (var j = out.length - 1; j >= 0; j -= 1) {
         if (out[j].line_kind !== 'dialog') {
@@ -315,11 +382,8 @@
     },
 
     thinkingBubbleSizeStyle: function(msg) {
-      if (!msg || !msg.thinking) return '';
-      var width = Number(msg._thinking_bubble_width_px || 0);
-      if (!Number.isFinite(width) || width <= 0) return '';
-      width = Math.max(120, Math.min(960, Math.round(width)));
-      return 'inline-size:min(' + width + 'px, calc(100vw - 48px));max-inline-size:min(' + width + 'px, calc(100vw - 48px));';
+      void msg;
+      return '';
     },
 
     scheduleThinkingBubbleSizeStabilization: function(msg) {

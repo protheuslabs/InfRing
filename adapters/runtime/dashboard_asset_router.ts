@@ -566,7 +566,7 @@ function readPrimaryDashboardAsset(staticDir, pathname) {
   const ext = path.extname(resolved).toLowerCase();
   if (!resolved.startsWith(staticDir)) return null;
   if (!fileExists(resolved) && listSegmentPartFiles(resolved).length === 0) return null;
-  if (['.js', '.css', '.html', '.json', '.map', '.md', '.txt'].includes(ext)) return { body: rebrandDashboardText(readSegmentedText(resolved, '')), contentType: contentTypeForFile(resolved) };
+  if (['.js', '.ts', '.css', '.html', '.json', '.map', '.md', '.txt'].includes(ext)) return { body: rebrandDashboardText(readSegmentedText(resolved, '')), contentType: contentTypeForFile(resolved) };
   return { body: fs.readFileSync(resolved), contentType: contentTypeForFile(resolved) };
 }
 

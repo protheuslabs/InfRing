@@ -12,6 +12,7 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const REGISTRY_PATH = 'validation/conformance/contracts/agent_runtime_engine_registry.json';
+const GRADUATION_BASELINE_CONTRACT_PATH = 'validation/conformance/contracts/agent_runtime_graduation_baseline_contract.json';
 const outPath = 'core/local/artifacts/agent_runtime_context_continuity_eval_current.json';
 const continuityFact = 'continuity-key: brass-otter-713';
 const expectedAnswer = 'brass-otter-713';
@@ -56,11 +57,16 @@ function unique(values) {
 
 function resolveEngineScope() {
   const registry = readJson(REGISTRY_PATH);
+  const graduationContract = readJson(GRADUATION_BASELINE_CONTRACT_PATH);
   const registryEngines = unique((Array.isArray(registry.engines) ? registry.engines : []).map((row) => row && row.engine_id));
   const focus = registry.validation_focus_policy && typeof registry.validation_focus_policy === 'object'
     ? registry.validation_focus_policy
     : {};
+  const secondaryEvalSamples = graduationContract.secondary_eval_samples && typeof graduationContract.secondary_eval_samples === 'object'
+    ? graduationContract.secondary_eval_samples
+    : {};
   const activePromotionEngines = unique(focus.active_promotion_engines);
+  const contextContinuitySecondaryEngines = unique(secondaryEvalSamples.context_continuity);
   const requested = cleanString(argValue('--engines') || process.env.INFRING_AGENT_RUNTIME_CONTEXT_CONTINUITY_ENGINES || '', 2000);
   if (requested) {
     const normalized = requested.toLowerCase();
@@ -85,8 +91,13 @@ function resolveEngineScope() {
     };
   }
   return {
-    engines: activePromotionEngines.length ? activePromotionEngines : ['infring_native', 'codex_cli', 'claude_code'],
-    source: 'active_promotion_engines',
+    engines: unique([
+      ...(activePromotionEngines.length ? activePromotionEngines : ['infring_native', 'codex_cli', 'claude_code']),
+      ...contextContinuitySecondaryEngines,
+    ]),
+    source: contextContinuitySecondaryEngines.length
+      ? 'active_promotion_engines_plus_secondary_context_samples'
+      : 'active_promotion_engines',
     broad_registry_sample: false,
   };
 }

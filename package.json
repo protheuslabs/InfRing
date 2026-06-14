@@ -1264,6 +1264,12 @@
     "ops:agent-runtime:native-transport:probe": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_native_transport_probe.ts",
     "ops:agent-runtime:claude-stream-json:mapping-probe": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_claude_stream_json_mapping_probe.ts",
     "ops:agent-runtime:claude-stream-json:live-acceptance-probe": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_claude_stream_json_live_acceptance_probe.ts",
+    "ops:agent-runtime:opencode-sdk:mapping-probe": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_opencode_sdk_mapping_probe.ts",
+    "ops:agent-runtime:opencode-sdk:live-acceptance-probe": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_opencode_sdk_live_acceptance_probe.ts",
+    "ops:agent-runtime:hermes-agent:mapping-probe": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_hermes_agent_mapping_probe.ts",
+    "ops:agent-runtime:hermes-agent:live-acceptance-probe": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_hermes_agent_live_acceptance_probe.ts",
+    "ops:agent-runtime:grok-code:mapping-probe": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_grok_code_mapping_probe.ts",
+    "ops:agent-runtime:grok-code:live-acceptance-probe": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_grok_code_live_acceptance_probe.ts",
     "ops:agent-runtime:codex-app-server:mapping-probe": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_codex_app_server_mapping_probe.ts",
     "ops:agent-runtime:codex-app-server:live-acceptance-probe": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_codex_app_server_live_acceptance_probe.ts",
     "ops:agent-runtime:transport-migration-pressure:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_transport_migration_pressure_guard.ts",
@@ -1272,7 +1278,10 @@
     "ops:agent-runtime:socket-live-handler:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_live_handler_guard.ts",
     "ops:agent-runtime:socket-upgrade-transport:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_upgrade_transport_guard.ts",
     "ops:agent-runtime:socket-live-gateway:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_live_gateway_guard.ts",
-    "ops:agent-runtime:socket-disposable-gateway:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_disposable_gateway_guard.ts"
+    "ops:agent-runtime:socket-disposable-gateway:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_socket_disposable_gateway_guard.ts",
+    "ops:agent-runtime:rendered-permission-steering:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_rendered_permission_steering_contract_guard.ts --strict=1",
+    "ops:agent-runtime:secondary-live-adapter:readiness-guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_secondary_live_adapter_readiness_guard.ts",
+    "ops:agent-runtime:secondary-promotion-plan:guard": "node client/runtime/lib/ts_entrypoint.ts tests/tooling/scripts/ci/agent_runtime_secondary_promotion_plan_guard.ts"
   },
   "version": "0.4.0"
 }

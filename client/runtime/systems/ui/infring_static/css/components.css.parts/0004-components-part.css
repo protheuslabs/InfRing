@@ -477,6 +477,8 @@ body[data-theme='dark'] .chat-event-divider .chat-event-info-icon {
 
 .message-bubble {
   --message-bubble-readable-width: min(76ch, 85%);
+  --message-bubble-border-color: color-mix(in srgb, #111827 20%, transparent);
+  --message-tail-border-color: var(--message-bubble-border-color);
   padding: 14px 16px;
   border-radius: var(--radius-lg);
   font-size: 13.5px;
@@ -486,16 +488,19 @@ body[data-theme='dark'] .chat-event-divider .chat-event-info-icon {
   overflow: visible;
 }
 
+body[data-theme='dark'] .message-bubble {
+  --message-bubble-border-color: color-mix(in srgb, #ffffff 18%, transparent);
+}
+
+body:not([data-theme='dark']) .message-bubble {
+  --message-bubble-border-color: color-mix(in srgb, #111827 20%, transparent);
+}
+
 .message.user .message-bubble {
-  --user-border-top: color-mix(in srgb, var(--accent) 34%, transparent);
   --message-tail-fill-color: color-mix(in srgb, var(--user-bg) 72%, transparent);
-  /* Match effective rendered bottom/right border from unified glass override. */
-  --message-tail-border-color: color-mix(in srgb, #fff 38%, transparent);
+  --message-tail-border-color: var(--message-bubble-border-color);
   background: color-mix(in srgb, var(--user-bg) 72%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
-  border-top-color: var(--user-border-top);
-  border-bottom-color: var(--message-tail-border-color);
-  border-right-color: var(--message-tail-border-color);
+  border: 1px solid var(--message-bubble-border-color);
   border-right-style: solid;
   border-right-width: 1px;
   border-radius: 22px;
@@ -509,10 +514,9 @@ body[data-theme='dark'] .chat-event-divider .chat-event-info-icon {
 
 .chat-wrapper.chat-wrapper-archived-thread .message.user .message-bubble {
   --message-tail-fill-color: color-mix(in srgb, var(--surface2) 96%, transparent);
-  --message-tail-border-color: color-mix(in srgb, var(--border) 95%, transparent);
+  --message-tail-border-color: var(--message-bubble-border-color);
   background: color-mix(in srgb, var(--surface2) 96%, transparent);
-  border-color: color-mix(in srgb, var(--border) 95%, transparent);
-  border-top-color: color-mix(in srgb, var(--border) 95%, transparent);
+  border-color: var(--message-bubble-border-color);
   box-shadow: -6px 0 12px -14px rgba(0, 0, 0, 0.26), 6px 0 12px -14px rgba(0, 0, 0, 0.26), 0 10px 18px -18px rgba(0, 0, 0, 0.42), 0 2px 6px rgba(0, 0, 0, 0.16);
 }
 
@@ -551,9 +555,9 @@ body[data-theme='dark'] .chat-event-divider .chat-event-info-icon {
 
 .message.agent .message-bubble {
   --message-tail-fill-color: color-mix(in srgb, var(--surface2) 90%, transparent);
-  --message-tail-border-color: color-mix(in srgb, var(--border) 92%, transparent);
+  --message-tail-border-color: var(--message-bubble-border-color);
   background: color-mix(in srgb, var(--surface2) 90%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
+  border: 1px solid var(--message-bubble-border-color);
   border-radius: 22px;
   padding: 12px 16px;
   font-size: 14.5px;

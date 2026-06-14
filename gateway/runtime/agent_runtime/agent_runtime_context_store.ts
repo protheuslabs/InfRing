@@ -403,6 +403,50 @@ function appendAgentRuntimeTurnAtoms(options = {}) {
   return { ok: true, appended, atom_count: state.atoms.length, state_path: pathWritten };
 }
 
+function appendAgentRuntimeApprovedEffectAtom(options = {}) {
+  const root = options.root || process.cwd();
+  const sessionId = cleanString(options.sessionId, 200) || 'session';
+  const agentId = cleanString(options.agentId, 160) || 'default';
+  const state = loadState(root, sessionId, agentId);
+  const approvalId = safeId(options.approvalId, 'approval');
+  const traceId = cleanString(options.traceId, 200);
+  const turnId = cleanString(options.turnId, 200);
+  const engineId = cleanString(options.engineId, 120);
+  const toolId = cleanString(options.toolId, 120);
+  const artifactPath = cleanString(options.path || options.artifactPath, 600);
+  const artifactRef = cleanString(options.artifactRef || options.resultRef, 600);
+  const receiptRef = cleanString(options.receiptRef, 600);
+  const bytes = Math.max(0, Number(options.bytes) || 0);
+  const sha256 = cleanString(options.sha256, 80);
+  const contentPreview = cleanDisplayText(options.contentPreview, 900);
+  const displayText = cleanDisplayText(options.displayText, 900);
+  const text = [
+    `InfRing approval gate executed ${toolId || 'approved tool call'}.`,
+    artifactPath ? `Approved artifact path: ${artifactPath}.` : '',
+    artifactRef ? `Artifact ref: ${artifactRef}.` : '',
+    receiptRef ? `Effect receipt: ${receiptRef}.` : '',
+    bytes ? `Size: ${bytes} bytes.` : '',
+    sha256 ? `SHA-256: ${sha256}.` : '',
+    displayText ? `Result: ${displayText}` : '',
+    contentPreview ? `Content preview: ${contentPreview}` : '',
+  ].filter(Boolean).join(' ');
+  let appended = 0;
+  if (appendAtomToState(state, {
+    id: `approval:${approvalId}:effect`,
+    role: 'tool',
+    source_kind: 'tool_receipt',
+    source_ref: `approval/${approvalId}/effect/${artifactPath || artifactRef || receiptRef || 'artifact'}`,
+    source_authority: 'gateway_agent_runtime_approval_effect_context',
+    speaker_label: 'InfRing approval gate',
+    text_preview: text,
+    token_count: Math.min(estimateTokens(text), 4000),
+    lineage_refs: [traceId, turnId, approvalId, engineId, artifactRef, receiptRef].filter(Boolean),
+    task_refs: [artifactPath, artifactRef].filter(Boolean).slice(0, 12),
+  })) appended += 1;
+  const pathWritten = saveState(root, state);
+  return { ok: true, appended, atom_count: state.atoms.length, state_path: pathWritten };
+}
+
 function materializeAgentRuntimeContextPack(options = {}) {
   const root = options.root || process.cwd();
   const sessionId = cleanString(options.sessionId, 200) || 'session';
@@ -438,6 +482,7 @@ module.exports = {
   HOT_TAIL_COUNT,
   ingestAgentRuntimeContextProjection,
   appendAgentRuntimeTurnAtoms,
+  appendAgentRuntimeApprovedEffectAtom,
   materializeAgentRuntimeContextPack,
   loadAgentRuntimeContextRows,
 };

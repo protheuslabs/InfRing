@@ -14,6 +14,7 @@ const { createGatewayAgentRuntimeRouterAssembly } = require('./agent_runtime_rou
 const {
   ingestAgentRuntimeContextProjection,
   appendAgentRuntimeTurnAtoms,
+  appendAgentRuntimeApprovedEffectAtom,
   materializeAgentRuntimeContextPack,
   loadAgentRuntimeContextRows,
 } = require('./agent_runtime_context_store.ts');
@@ -127,9 +128,29 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
     sendJson,
   });
 
-  const agentRuntimeApprovalStore = createAgentRuntimeApprovalStore({ root });
+  const agentRuntimeApprovalStore = createAgentRuntimeApprovalStore({
+    root,
+    appendApprovedEffectContext: (input) => appendAgentRuntimeApprovedEffectAtom({
+      root,
+      sessionId: input && input.sessionId,
+      agentId: input && input.agentId,
+      traceId: input && input.traceId,
+      turnId: input && input.turnId,
+      engineId: input && input.engineId,
+      approvalId: input && input.approvalId,
+      toolId: input && input.toolId,
+      path: input && input.path,
+      artifactRef: input && input.artifactRef,
+      receiptRef: input && input.receiptRef,
+      bytes: input && input.bytes,
+      sha256: input && input.sha256,
+      contentPreview: input && input.contentPreview,
+      displayText: input && input.displayText,
+    }),
+  });
   const {
     sanitizeAgentRuntimeProposalArguments,
+    executeAgentRuntimeApprovedProposal,
     recordAgentRuntimePendingApproval,
     mergeAgentRuntimeApprovalPermissionPolicy,
   } = agentRuntimeApprovalStore;
@@ -214,8 +235,10 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
     buildAgentRuntimeContextPack,
     mergeAgentRuntimeApprovalPermissionPolicy,
     buildUniversalToolGrants,
+    loadAgentRuntimeSelection,
     drainAgentRuntimeSteeringInterventions,
     sanitizeAgentRuntimeProposalArguments,
+    executeAgentRuntimeApprovedProposal,
     recordAgentRuntimePendingApproval,
     recordAgentRuntimeTurnReceipts,
   });
@@ -226,6 +249,7 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
     materializeAgentRuntimeContextPack: materializeGatewayContextPack,
     buildAgentRuntimeContextPack,
     buildUniversalToolGrants,
+    loadAgentRuntimeSelection,
   });
   const {
     handleAgentRuntimeTurnRoute,
@@ -234,6 +258,7 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
     contextPreviewProjectionStore: agentRuntimeContextPreviewProjectionStore,
     steer: agentRuntimeSteerProjection,
     createNativeOrchestrationClient,
+    loadAgentRuntimeSelection,
     readJsonBody,
     sendJson,
   });
@@ -245,6 +270,7 @@ function createGatewayAgentRuntimeRouteAssembly(options = {}) {
     appendAgentRuntimeTranscriptTurn,
     selectEngine: agentRuntimeEngineProjectionStore.agentRuntimeSelectionProjection,
     steer: agentRuntimeSteerProjection,
+    loadAgentRuntimeSelection,
     createNativeOrchestrationClient,
   });
   const agentRuntimeSocketTransport = createAgentRuntimeSocketTransport({

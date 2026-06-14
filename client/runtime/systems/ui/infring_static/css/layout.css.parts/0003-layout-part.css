@@ -158,6 +158,50 @@
   overflow: visible;
 }
 
+.sidebar.drag-wall-cap-host.wall-lock-left,
+.chat-map-surface.drag-wall-cap-host.wall-lock-left {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.sidebar.drag-wall-cap-host.wall-lock-right,
+.chat-map-surface.drag-wall-cap-host.wall-lock-right {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.sidebar.drag-wall-cap-host.wall-lock-top,
+.chat-map-surface.drag-wall-cap-host.wall-lock-top {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.sidebar.drag-wall-cap-host.wall-lock-bottom,
+.chat-map-surface.drag-wall-cap-host.wall-lock-bottom {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.sidebar.drag-wall-cap-host.wall-lock-left::before {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.sidebar.drag-wall-cap-host.wall-lock-right::before {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.sidebar.drag-wall-cap-host.wall-lock-top::before {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.sidebar.drag-wall-cap-host.wall-lock-bottom::before {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
 /* Mobile overlay */
 .sidebar-overlay {
   display: none;

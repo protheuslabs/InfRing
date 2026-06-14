@@ -271,7 +271,21 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     if (converted) afterAction();
   }
   function removeAttachment(index) { call('removeAttachment', index); refresh(); }
-  function runSend() { reconcileInputFromTextarea(); call('sendMessage'); afterAction(); }
+  async function runSend() {
+    reconcileInputFromTextarea();
+    try {
+      const result = call('sendMessage');
+      if (result && typeof result.then === 'function') await result;
+    } catch (_e) {}
+    const p = cp();
+    const pageText = p && typeof p.inputText === 'string' ? p.inputText : inputText;
+    inputText = pageText;
+    if (textarea && typeof textarea.value === 'string' && textarea.value !== inputText) {
+      textarea.value = inputText;
+    }
+    if (!inputText && textarea) textarea.style.height = '';
+    await afterAction();
+  }
   function runStop() { call('stopAgent'); refresh(); }
   function toggleTerminal() { if (!state.systemThread) call('toggleTerminalMode'); afterAction(); }
   function toggleSuggestions() { call('togglePromptSuggestionsEnabled'); refresh(); }

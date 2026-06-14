@@ -9,12 +9,12 @@ type CapabilityStatus = 'pass' | 'partial' | 'not_sampled' | 'fail' | 'not_appli
 
 const ROOT = process.cwd();
 const CONTRACT_PATH = 'validation/conformance/contracts/agent_runtime_engine_scorecard_contract.json';
+const GRADUATION_BASELINE_CONTRACT_PATH = 'validation/conformance/contracts/agent_runtime_graduation_baseline_contract.json';
 const OUT_JSON = 'core/local/artifacts/agent_runtime_engine_scorecard_current.json';
 const SOURCE_DOMAIN = 'validation';
 const OWNER_DOMAIN = 'validation.agent_runtime';
 const POLICY_PATH = CONTRACT_PATH;
 const LAYER = 'gateway';
-const GOLDEN_EXTERNAL_ENGINES = new Set(['codex_cli', 'claude_code']);
 
 function readJson(rel: string, fallback: JsonObject = {}): JsonObject {
   try {
@@ -34,6 +34,12 @@ function ensureDir(rel: string) {
 
 function clean(value: any, max = 240): string {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+function cleanList(value: any, max = 120): string[] {
+  return Array.isArray(value)
+    ? value.map((item: any) => clean(item, max)).filter(Boolean)
+    : [];
 }
 
 function capability(status: CapabilityStatus, evidence: string, score?: number) {
@@ -123,17 +129,125 @@ function transportMigrationNextAction(warning: JsonObject): string {
   return 'Resolve active transport migration warning.';
 }
 
-function classify(score: number): string {
-  if (score >= 0.85) return 'daily_driver_candidate';
+function classify(score: number, minimumDailyDriverScore: number): string {
+  if (score >= minimumDailyDriverScore) return 'daily_driver_candidate';
   if (score >= 0.7) return 'practical_with_gaps';
   if (score >= 0.5) return 'integration_incomplete';
   return 'not_ready';
 }
 
-function boundedClassification(score: number, livePromotionEligible: boolean): string {
-  const raw = classify(score);
+function boundedClassification(score: number, livePromotionEligible: boolean, minimumDailyDriverScore: number): string {
+  const raw = classify(score, minimumDailyDriverScore);
   if (raw === 'daily_driver_candidate' && !livePromotionEligible) return 'practical_with_gaps';
   return raw;
+}
+
+function secondaryPromotionPlanViolations(plan: JsonObject, rows: JsonObject[]): JsonObject[] {
+  const violations: JsonObject[] = [];
+  if (plan.ok !== true) {
+    violations.push({ kind: 'secondary_promotion_plan_not_ok', detail: `ok=${clean(plan.ok, 80)}` });
+  }
+  if (plan.type !== 'agent_runtime_secondary_promotion_plan_guard') {
+    violations.push({ kind: 'secondary_promotion_plan_type_invalid', value: clean(plan.type, 160) });
+  }
+  if (!rows.length) {
+    violations.push({ kind: 'secondary_promotion_plan_rows_missing' });
+  }
+  for (const row of rows) {
+    const engineId = clean(row && row.engine_id, 120) || 'unknown_engine';
+    const effect = row && row.promotion_effect && typeof row.promotion_effect === 'object'
+      ? row.promotion_effect
+      : {};
+    if (!clean(row && row.current_stage, 200)) {
+      violations.push({ kind: 'secondary_promotion_plan_stage_missing', engine_id: engineId });
+    }
+    if (!clean(row && row.recommended_next_action, 700)) {
+      violations.push({ kind: 'secondary_promotion_plan_next_action_missing', engine_id: engineId });
+    }
+    if (effect.daily_driver_eligible_now !== false) {
+      violations.push({ kind: 'secondary_promotion_plan_daily_driver_overclaim', engine_id: engineId });
+    }
+    if (effect.counts_as_golden_pair_equivalent !== false) {
+      violations.push({ kind: 'secondary_promotion_plan_golden_pair_overclaim', engine_id: engineId });
+    }
+    if (effect.counts_as_native_intelligence_proof !== false) {
+      violations.push({ kind: 'secondary_promotion_plan_native_proof_overclaim', engine_id: engineId });
+    }
+  }
+  return violations;
+}
+
+function scorecardShapeViolations(contract: JsonObject, summary: JsonObject, rows: JsonObject[]): JsonObject[] {
+  const violations: JsonObject[] = [];
+  const requiredReportFields = Array.isArray(contract.required_report_fields)
+    ? contract.required_report_fields.map((field: any) => clean(field, 160)).filter(Boolean)
+    : [];
+  const guidanceContract = contract.secondary_promotion_guidance_contract && typeof contract.secondary_promotion_guidance_contract === 'object'
+    ? contract.secondary_promotion_guidance_contract
+    : {};
+  const guidanceRowRequiredFields = Array.isArray(guidanceContract.row_required_fields)
+    ? guidanceContract.row_required_fields.map((field: any) => clean(field, 160)).filter(Boolean)
+    : [];
+  const guidanceEffectRequiredFields = Array.isArray(guidanceContract.promotion_effect_required_fields)
+    ? guidanceContract.promotion_effect_required_fields.map((field: any) => clean(field, 160)).filter(Boolean)
+    : [];
+  for (const row of rows) {
+    const engineId = clean(row && row.engine_id, 120) || 'unknown_engine';
+    for (const field of requiredReportFields) {
+      if (!Object.prototype.hasOwnProperty.call(row, field)) {
+        violations.push({ kind: 'scorecard_required_row_field_missing', engine_id: engineId, field });
+      }
+    }
+    const guidance = row && row.secondary_promotion_guidance && typeof row.secondary_promotion_guidance === 'object'
+      ? row.secondary_promotion_guidance
+      : null;
+    if (!guidance) continue;
+    const effect = guidance.promotion_effect && typeof guidance.promotion_effect === 'object'
+      ? guidance.promotion_effect
+      : {};
+    for (const field of guidanceRowRequiredFields) {
+      if (!Object.prototype.hasOwnProperty.call(guidance, field)) {
+        violations.push({ kind: 'scorecard_secondary_guidance_row_field_missing', engine_id: engineId, field });
+      }
+    }
+    for (const field of guidanceEffectRequiredFields) {
+      if (!Object.prototype.hasOwnProperty.call(effect, field)) {
+        violations.push({ kind: 'scorecard_secondary_guidance_effect_field_missing', engine_id: engineId, field });
+      }
+    }
+    if (effect.daily_driver_eligible_now !== false) {
+      violations.push({ kind: 'scorecard_secondary_guidance_daily_driver_overclaim', engine_id: engineId });
+    }
+    if (effect.counts_as_golden_pair_equivalent !== false) {
+      violations.push({ kind: 'scorecard_secondary_guidance_golden_pair_overclaim', engine_id: engineId });
+    }
+    if (effect.counts_as_native_intelligence_proof !== false) {
+      violations.push({ kind: 'scorecard_secondary_guidance_native_proof_overclaim', engine_id: engineId });
+    }
+  }
+  const summaryField = clean(guidanceContract.summary_field || 'secondary_promotion_plan', 160);
+  if (!Object.prototype.hasOwnProperty.call(summary, summaryField)) {
+    violations.push({ kind: 'scorecard_secondary_guidance_summary_field_missing', field: summaryField });
+  }
+  if (guidanceContract.guidance_only !== true) {
+    violations.push({ kind: 'scorecard_secondary_guidance_contract_guidance_only_missing' });
+  }
+  if (guidanceContract.must_not_affect_score !== true) {
+    violations.push({ kind: 'scorecard_secondary_guidance_contract_score_boundary_missing' });
+  }
+  if (guidanceContract.must_not_affect_classification !== true) {
+    violations.push({ kind: 'scorecard_secondary_guidance_contract_classification_boundary_missing' });
+  }
+  if (guidanceContract.must_not_count_as_daily_driver !== true) {
+    violations.push({ kind: 'scorecard_secondary_guidance_contract_daily_driver_boundary_missing' });
+  }
+  if (guidanceContract.must_not_count_as_golden_pair_equivalent !== true) {
+    violations.push({ kind: 'scorecard_secondary_guidance_contract_golden_pair_boundary_missing' });
+  }
+  if (guidanceContract.must_not_count_as_native_intelligence_proof !== true) {
+    violations.push({ kind: 'scorecard_secondary_guidance_contract_native_proof_boundary_missing' });
+  }
+  return violations;
 }
 
 function nextActions(engineId: string, caps: Record<string, ReturnType<typeof capability>>): string[] {
@@ -153,6 +267,7 @@ function nextActions(engineId: string, caps: Record<string, ReturnType<typeof ca
   if (caps.real_work_replay && caps.real_work_replay.status === 'fail') out.push('Fix the cross-framework real-work replay failure for this engine.');
   if (caps.practical_usability_loop && caps.practical_usability_loop.status !== 'pass') out.push('Fix the full practical runtime loop: approval pause, bounded projection, decision receipt, transcript persistence, context reload, and activity trace.');
   if (caps.approval_pause.status !== 'pass') out.push('Verify gated tool proposal pauses and resumes through Gateway approval route.');
+  if (caps.turn_steering_contract && caps.turn_steering_contract.status !== 'pass') out.push('Verify active-turn user steering enters Gateway, preserves user text, and avoids duplicate chat bubbles.');
   if (caps.durable_receipts.status !== 'pass') out.push('Ensure terminal projections include Gateway receipt refs.');
   if (caps.activity_trace.status !== 'pass') out.push('Normalize activity into bounded user-facing trace rows.');
   if (caps.structured_transport.status !== 'pass') out.push('Attach and validate Gateway-owned structured turn payloads before adapter dispatch.');
@@ -168,6 +283,18 @@ function nextActions(engineId: string, caps: Record<string, ReturnType<typeof ca
 
 function main() {
   const contract = readJson(CONTRACT_PATH);
+  const graduationContract = readJson(GRADUATION_BASELINE_CONTRACT_PATH);
+  const graduationBaseline = graduationContract.current_baseline && typeof graduationContract.current_baseline === 'object'
+    ? graduationContract.current_baseline
+    : {};
+  const graduationRule = graduationContract.graduation_rule && typeof graduationContract.graduation_rule === 'object'
+    ? graduationContract.graduation_rule
+    : {};
+  const goldenExternalEngines = new Set(cleanList(graduationBaseline.golden_external_pair));
+  const dailyDriverAllowedEngines = new Set(cleanList(graduationBaseline.daily_driver_allowed_now));
+  const minimumDailyDriverScore = Number(graduationRule.minimum_daily_driver_score) >= 0.5
+    ? Number(graduationRule.minimum_daily_driver_score)
+    : 0.85;
   const registryPath = clean(contract.engine_registry || 'validation/conformance/contracts/agent_runtime_engine_registry.json', 300);
   const evidenceInputs = contract.evidence_inputs || {};
   const registry = readJson(registryPath);
@@ -178,6 +305,8 @@ function main() {
   const structuredTransport = readJson(clean(evidenceInputs.structured_transport || 'core/local/artifacts/agent_runtime_structured_transport_eval_current.json', 300));
   const transportMigration = readJson(clean(evidenceInputs.transport_migration || 'core/local/artifacts/agent_runtime_transport_migration_pressure_guard_current.json', 300));
   const hardFailure = readJson(clean(evidenceInputs.hard_failure_injection || 'core/local/artifacts/agent_runtime_hard_failure_injection_eval_current.json', 300));
+  const renderedPermissionSteering = readJson(clean(evidenceInputs.rendered_permission_steering || 'core/local/artifacts/agent_runtime_rendered_permission_steering_contract_guard_current.json', 300));
+  const secondaryPromotionPlan = readJson(clean(evidenceInputs.secondary_promotion_plan || 'core/local/artifacts/agent_runtime_secondary_promotion_plan_guard_current.json', 300));
   const engines = Array.isArray(registry.engines) ? registry.engines : [];
   const adapterContracts = readJson(clean(registry.private_adapter_contracts || 'validation/conformance/contracts/agent_runtime_adapter_contracts.json', 300));
   const adapterRows = Array.isArray(adapterContracts.adapters) ? adapterContracts.adapters : [];
@@ -199,6 +328,8 @@ function main() {
       .map((item: any) => clean(item, 120))
       .filter(Boolean),
   );
+  const secondaryPromotionRows = Array.isArray(secondaryPromotionPlan.plans) ? secondaryPromotionPlan.plans : [];
+  const secondaryPromotionViolations = secondaryPromotionPlanViolations(secondaryPromotionPlan, secondaryPromotionRows);
 
   const rows = engines.map((engine: JsonObject) => {
     const engineId = clean(engine.engine_id, 120);
@@ -227,6 +358,7 @@ function main() {
     const sampledLiveWork = sampledLiveWorkEngineSet.has(engineId) || Boolean(liveRow && !replayRow);
     const liveSelectable = liveSelectableEngineSet.has(engineId);
     const catalogOnly = catalogOnlyEngineSet.has(engineId);
+    const secondaryPromotionGuidance = secondaryPromotionRows.find((row: JsonObject) => clean(row && row.engine_id, 120) === engineId) || null;
     const statusText = clean(engine.status, 120);
     const plannedAdapter = statusText.includes('planned_adapter');
     const liveAdapterEvidenceOk = engineId === 'infring_native' || (sampledLiveWork && liveSelectable && liveRow && liveRow.classification !== 'expected_planned_adapter_unavailable');
@@ -240,6 +372,7 @@ function main() {
     const transportViolation = transportMigrationViolation(transportMigration, engineId);
     const transportMigrationOk = transportMigration.ok === true && !transportWarning && !transportViolation;
     const hardFailureOk = hardFailure.ok === true && hardFailure.type === 'agent_runtime_hard_failure_injection_eval';
+    const renderedSteeringOk = renderedPermissionSteering.ok === true && renderedPermissionSteering.type === 'agent_runtime_rendered_permission_steering_contract_guard';
     const external = engineId !== 'infring_native';
     const install = engine.install && typeof engine.install === 'object' ? engine.install : {};
     const caps = {
@@ -280,6 +413,12 @@ function main() {
               : 'Real-work replay has not sampled the practical user loop for this engine.',
       ),
       approval_pause: capability(liveApprovalOk ? 'pass' : liveApplies ? 'fail' : 'not_sampled', liveApplies ? 'Latest live work eval included approval pause and decision.' : 'Approval pause not sampled for this engine.'),
+      turn_steering_contract: capability(
+        renderedSteeringOk ? 'pass' : 'fail',
+        renderedSteeringOk
+          ? 'Rendered permission/steering contract proves active-turn steering enters Gateway, preserves user text, and avoids duplicate user bubbles.'
+          : 'Rendered permission/steering contract guard is missing or failing.',
+      ),
       durable_receipts: capability(liveReceiptsOk ? 'pass' : liveApplies ? 'fail' : 'partial', liveReceiptsOk ? 'Latest live work eval returned receipt refs.' : 'Receipt evidence comes from contract/conformance, not live engine sample.'),
       activity_trace: capability(liveActivityOk ? 'pass' : liveApplies ? 'fail' : 'partial', liveActivityOk ? 'Latest live work eval returned bounded activity trace.' : 'Activity trace evidence comes from contract/conformance, not live engine sample.'),
       structured_transport: capability(
@@ -319,16 +458,18 @@ function main() {
     const liveEvidenceCap = liveAdapterEvidenceOk || !external ? 1 : 0.84;
     const catalogOnlyCap = catalogOnly ? 0.84 : 1;
     const transportMigrationCap = transportWarning ? 0.84 : 1;
-    const goldenUsabilityCap = GOLDEN_EXTERNAL_ENGINES.has(engineId) && !replayUsabilityOk ? 0.69 : 1;
+    const goldenUsabilityCap = goldenExternalEngines.has(engineId) && !replayUsabilityOk ? 0.69 : 1;
     const score = Math.min(rawScore, plannedAdapterCap, liveEvidenceCap, catalogOnlyCap, transportMigrationCap, goldenUsabilityCap);
     const livePromotionEligible = liveAdapterEvidenceOk && !catalogOnly && !plannedAdapter;
+    const graduationPromotionAllowed = dailyDriverAllowedEngines.has(engineId);
+    const dailyDriverEligible = livePromotionEligible && graduationPromotionAllowed;
     return {
       engine_id: engineId,
       display_name: clean(engine.display_name || engineId, 120),
       engine_kind: clean(engine.engine_kind, 120),
       status: statusText,
       score: Number(score.toFixed(3)),
-      classification: boundedClassification(score, livePromotionEligible),
+      classification: boundedClassification(score, dailyDriverEligible, minimumDailyDriverScore),
       score_adjustments: {
         raw_score: Number(rawScore.toFixed(3)),
         planned_adapter_cap: plannedAdapterCap < 1 ? plannedAdapterCap : null,
@@ -337,6 +478,8 @@ function main() {
         transport_migration_cap: transportMigrationCap < 1 ? transportMigrationCap : null,
         golden_usability_cap: goldenUsabilityCap < 1 ? goldenUsabilityCap : null,
         live_promotion_eligible: livePromotionEligible,
+        graduation_promotion_allowed: graduationPromotionAllowed,
+        daily_driver_eligible: dailyDriverEligible,
       },
       promotion_warnings: [
         ...(transportWarning
@@ -348,6 +491,17 @@ function main() {
             }]
           : []),
       ],
+      secondary_promotion_guidance: secondaryPromotionGuidance ? {
+        current_stage: clean(secondaryPromotionGuidance.current_stage, 200),
+        readiness_status: clean(secondaryPromotionGuidance.readiness_status, 200),
+        recommended_next_action: clean(secondaryPromotionGuidance.recommended_next_action, 700),
+        promotion_effect: {
+          daily_driver_eligible_now: false,
+          counts_as_golden_pair_equivalent: false,
+          counts_as_native_intelligence_proof: false,
+          rule: 'Scorecard may render secondary promotion guidance, but it must not convert guidance into promotion classification.',
+        },
+      } : null,
       live_work_evidence: liveRow ? {
         working_directory: clean(liveRow.working_directory || liveWork.working_directory, 500),
         observed_working_directory: clean(liveRow.observed_working_directory, 500),
@@ -390,9 +544,38 @@ function main() {
     transport_migration_warning_engines: Array.from(new Set((Array.isArray(transportMigration.warnings) ? transportMigration.warnings : [])
       .map((row: JsonObject) => clean(row && row.engine_id, 120))
       .filter(Boolean))),
+    secondary_promotion_plan: {
+      ok: secondaryPromotionPlan.ok === true,
+      artifact_ref: clean(evidenceInputs.secondary_promotion_plan || 'core/local/artifacts/agent_runtime_secondary_promotion_plan_guard_current.json', 300),
+      planned_engine_count: secondaryPromotionRows.length,
+      violation_count: secondaryPromotionViolations.length,
+      nearest_next_step: secondaryPromotionPlan.summary && secondaryPromotionPlan.summary.nearest_next_step
+        ? secondaryPromotionPlan.summary.nearest_next_step
+        : null,
+      stages: secondaryPromotionPlan.summary && Array.isArray(secondaryPromotionPlan.summary.stages)
+        ? secondaryPromotionPlan.summary.stages.map((row: JsonObject) => ({
+            engine_id: clean(row && row.engine_id, 120),
+            current_stage: clean(row && row.current_stage, 200),
+            readiness_status: clean(row && row.readiness_status, 200),
+          }))
+        : [],
+      promotion_effect: {
+        changes_daily_driver_eligibility: false,
+        counts_as_golden_pair_equivalent: false,
+        counts_as_native_intelligence_proof: false,
+      },
+    },
+    graduation_baseline: {
+      contract_ref: GRADUATION_BASELINE_CONTRACT_PATH,
+      golden_external_pair: [...goldenExternalEngines],
+      daily_driver_allowed_now: [...dailyDriverAllowedEngines],
+      minimum_daily_driver_score: minimumDailyDriverScore,
+    },
   };
+  const shapeViolations = scorecardShapeViolations(contract, summary, rows);
+  const violations = [...secondaryPromotionViolations, ...shapeViolations];
   const report = {
-    ok: rows.length > 0 && rows.every((row) => row.engine_id && row.score >= 0),
+    ok: rows.length > 0 && rows.every((row) => row.engine_id && row.score >= 0) && violations.length === 0,
     type: 'agent_runtime_engine_scorecard',
     generated_at: new Date().toISOString(),
     source_domain: SOURCE_DOMAIN,
@@ -400,9 +583,11 @@ function main() {
     layer: LAYER,
     policy_path: POLICY_PATH,
     contract: CONTRACT_PATH,
+    graduation_contract: GRADUATION_BASELINE_CONTRACT_PATH,
     evidence_inputs: evidenceInputs,
     summary,
     rows,
+    violations,
   };
   ensureDir(OUT_JSON);
   fs.writeFileSync(path.join(ROOT, OUT_JSON), `${JSON.stringify(report, null, 2)}\n`);

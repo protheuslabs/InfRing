@@ -34,7 +34,8 @@
       "core/local/artifacts/runtime_proof_synthetic_canary_current.json",
       "core/local/artifacts/runtime_proof_verify_current.json",
       "core/local/artifacts/runtime_soak_scenarios_current.json",
-      "core/local/artifacts/agent_runtime_task_harness_current.json"
+      "core/local/artifacts/agent_runtime_task_harness_current.json",
+      "core/local/artifacts/agent_runtime_rendered_permission_steering_contract_guard_current.json"
     ],
     "adapter_and_orchestration": [
       "core/local/artifacts/gateway_runtime_chaos_gate_current.json",
@@ -338,7 +339,8 @@
     "local/state/kernel_sentinel/suggestions.jsonl",
     "local/state/kernel_sentinel/top_system_holes_current.json",
     "local/state/kernel_sentinel/trend_history.jsonl",
-    "validation/reports/client_archive/benchmark_matrix_run_latest.json"
+    "validation/reports/client_archive/benchmark_matrix_run_latest.json",
+    "core/local/artifacts/agent_runtime_rendered_permission_steering_contract_guard_current.json"
   ],
   "optional_artifacts": [
     "local/workspace/reports/RUNTIME_PROOF_RELEASE_GATE_RICH_CURRENT.md",
