@@ -1,0 +1,65 @@
+{
+  "id": "host_storage_pressure_policy",
+  "version": 1,
+  "owner": "validation + observability",
+  "status": "active",
+  "purpose": "Prevent host-level generated storage from silently consuming disk space during dream maintenance.",
+  "scope": "Generated caches and temporary pack/build/report outputs only; source repos, valid Git packs, user documents, model weights, and secrets are not cleanup candidates.",
+  "apply_requires": [
+    "--apply=1",
+    "--ack-host-storage-cleanup=1"
+  ],
+  "fail_if_candidate_bytes_exceeds": 0,
+  "max_delete_per_run": 200,
+  "candidate_roots": [
+    {
+      "id": "home_git_tmp_pack_leftovers",
+      "base": "$HOME/.git/objects/pack",
+      "candidate_kind": "file_prefix",
+      "name_prefix": "tmp_pack_",
+      "cleanup_strategy": "delete_matching_files",
+      "role": "abandoned-git-repack-temp-files",
+      "min_candidate_bytes": 1,
+      "apply_allowed": true
+    },
+    {
+      "id": "openclaw_external_rust_targets",
+      "base": "$HOME/.openclaw",
+      "candidate_kind": "directory_patterns",
+      "relative_patterns": [
+        "repos/*/target",
+        "assimilation-wave-*/target",
+        "*.bak-*/target"
+      ],
+      "cleanup_strategy": "delete_matching_directories",
+      "role": "generated-rust-build-cache",
+      "min_candidate_bytes": 50000000,
+      "apply_allowed": true
+    },
+    {
+      "id": "reference_openclaw_node_modules",
+      "base": "$REPO",
+      "candidate_kind": "directory_patterns",
+      "relative_patterns": [
+        "references/coding-agent-systems/openclaw/node_modules"
+      ],
+      "cleanup_strategy": "delete_matching_directories",
+      "role": "generated-reference-dependency-cache",
+      "min_candidate_bytes": 1,
+      "apply_allowed": true
+    },
+    {
+      "id": "reference_runtime_trace_reports",
+      "base": "$REPO",
+      "candidate_kind": "directory_patterns",
+      "relative_patterns": [
+        "references/coding-agent-systems/runtime_trace_harness/reports"
+      ],
+      "cleanup_strategy": "delete_matching_directories",
+      "role": "generated-runtime-trace-report-cache",
+      "min_candidate_bytes": 1,
+      "apply_allowed": true
+    }
+  ],
+  "report_path": "core/local/artifacts/host_storage_pressure_guard_current.json"
+}
