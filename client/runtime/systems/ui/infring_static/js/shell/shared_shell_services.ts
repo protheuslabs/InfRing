@@ -319,8 +319,8 @@ var InfringSharedShellServices = (function(existing) {
       source: trimString(source.source),
       title: trimString(label),
       body: trimString(source.body),
-      meta_origin: trimString(source.meta_origin || 'Taskbar'),
-      meta_time: trimString(source.meta_time),
+      meta_origin: '',
+      meta_time: '',
       unread: !!source.unread,
       left: Math.round(numericOr(point.left, 0)),
       top: Math.round(numericOr(point.top, 0)),
@@ -362,8 +362,8 @@ var InfringSharedShellServices = (function(existing) {
       compact: false,
       title: title,
       body: body,
-      meta_origin: trimString(source.meta_origin),
-      meta_time: trimString(source.meta_time),
+      meta_origin: '',
+      meta_time: '',
       unread: !!source.unread
     });
   }

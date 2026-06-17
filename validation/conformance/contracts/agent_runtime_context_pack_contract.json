@@ -135,6 +135,7 @@
     "conversation_window",
     "context_budget",
     "permission_scope",
+    "runtime_stack_declaration",
     "universal_tool_grants",
     "turn_envelope"
   ],
@@ -145,6 +146,9 @@
     "relevant_memory_is_ref_first": true,
     "context_budget_required": true,
     "permission_scope_required": true,
-    "prompt_text_adapters_must_render_from_turn_envelope_first": true
+    "prompt_text_adapters_must_render_from_turn_envelope_first": true,
+    "runtime_stack_declaration_required": true,
+    "runtime_stack_declaration_source": "Gateway attaches host substrate, active engine, authority owners, write policy, blocked-action behavior, and receipt/proposal semantics before adapter dispatch.",
+    "adapters_must_render_runtime_stack_declaration": true
   }
 }

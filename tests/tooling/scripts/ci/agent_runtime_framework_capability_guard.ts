@@ -44,6 +44,10 @@ async function main() {
   const sharedPath = 'adapters/runtime/agent_engines/cli_runtime_adapter.ts';
   const registryPath = 'validation/conformance/contracts/agent_runtime_engine_registry.json';
   const posturePath = 'adapters/runtime/agent_engines/RELIABILITY_POSTURE.md';
+  const contextPackContractPath = 'validation/conformance/contracts/agent_runtime_context_pack_contract.json';
+  const taskMatrixPath = 'validation/agent_runtime/task_harness/agentic_task_matrix.json';
+  const turnProjectionPath = 'gateway/runtime/agent_runtime/agent_runtime_turn_projection.ts';
+  const structuredTransportPath = 'gateway/runtime/agent_runtime/agent_runtime_structured_transport.ts';
   const universalContractPath = 'validation/conformance/contracts/agent_runtime_universal_tools_contract.json';
   const universalGatewayPath = 'gateway/runtime/agent_runtime/universal_core_tools.ts';
   const codex = read(codexPath);
@@ -53,6 +57,10 @@ async function main() {
   const shared = read(sharedPath);
   const posture = read(posturePath);
   const registry = JSON.parse(read(registryPath));
+  const contextPackContract = JSON.parse(read(contextPackContractPath));
+  const taskMatrix = JSON.parse(read(taskMatrixPath));
+  const turnProjection = read(turnProjectionPath);
+  const structuredTransport = read(structuredTransportPath);
   const universalContract = JSON.parse(read(universalContractPath));
   const universalGateway = read(universalGatewayPath);
   const violations = [];
@@ -114,6 +122,40 @@ async function main() {
   }
   if (!universalGateway.includes('direct_file_write_allowed: false') || !universalGateway.includes('terminal_execution_allowed: false')) {
     push(violations, 'gateway_universal_tool_scope_not_fail_closed', universalGatewayPath, 'Gateway universal tool scope must explicitly forbid direct file write and terminal execution.');
+  }
+
+  const contextPackRequiredFields = new Set(Array.isArray(contextPackContract.required_gateway_enriched_pack_fields) ? contextPackContract.required_gateway_enriched_pack_fields : []);
+  if (!contextPackRequiredFields.has('runtime_stack_declaration')) {
+    push(violations, 'runtime_stack_declaration_contract_field_missing', contextPackContractPath, 'Context pack contract must require runtime_stack_declaration in Gateway-enriched packs.');
+  }
+  const contextPackRules = contextPackContract.gateway_enriched_pack_rules || {};
+  if (contextPackRules.runtime_stack_declaration_required !== true || contextPackRules.adapters_must_render_runtime_stack_declaration !== true) {
+    push(violations, 'runtime_stack_declaration_contract_rule_missing', contextPackContractPath, 'Context pack rules must require Gateway attachment and adapter rendering of runtime_stack_declaration.');
+  }
+  if (!turnProjection.includes('function buildRuntimeStackDeclaration(') || !turnProjection.includes('pack.runtime_stack_declaration = runtimeStackDeclaration')) {
+    push(violations, 'runtime_stack_declaration_gateway_attachment_missing', turnProjectionPath, 'Gateway turn projection must build and attach runtime_stack_declaration before adapter dispatch.');
+  }
+  for (const marker of ['host_substrate', 'active_engine_id', 'permission_owner', 'durable_effect_rule', 'receipt_rule']) {
+    if (!turnProjection.includes(marker)) {
+      push(violations, 'runtime_stack_declaration_gateway_marker_missing', turnProjectionPath, 'Gateway runtime stack declaration must include ' + marker + '.');
+    }
+  }
+  if (!shared.includes('function renderRuntimeStackDeclarationPromptSection(') || !shared.includes('Runtime stack declaration:')) {
+    push(violations, 'runtime_stack_declaration_adapter_prompt_missing', sharedPath, 'Shared CLI adapter must render runtime_stack_declaration in the bounded prompt-text compatibility preamble.');
+  }
+  if (!structuredTransport.includes('runtime_stack_declaration')) {
+    push(violations, 'runtime_stack_declaration_structured_transport_missing', structuredTransportPath, 'Structured transport projection must carry runtime_stack_declaration for post-prompt-text runtimes.');
+  }
+  const runtimeStackTask = Array.isArray(taskMatrix.tasks) ? taskMatrix.tasks.find((task) => task && task.id === 'runtime_stack_layer_awareness') : null;
+  if (!runtimeStackTask) {
+    push(violations, 'runtime_stack_layer_awareness_task_missing', taskMatrixPath, 'Agent runtime task matrix must include runtime_stack_layer_awareness.');
+  } else {
+    const passSignals = new Set(Array.isArray(runtimeStackTask.pass_signals) ? runtimeStackTask.pass_signals : []);
+    for (const signal of ['InfRing', 'host substrate', 'active engine', 'permission', 'approval', 'receipt', 'proposal']) {
+      if (!passSignals.has(signal)) {
+        push(violations, 'runtime_stack_layer_awareness_pass_signal_missing', taskMatrixPath, 'runtime_stack_layer_awareness must require pass signal ' + signal + '.');
+      }
+    }
   }
 
   if (!codex.includes("'--skip-git-repo-check'") && !codex.includes('"--skip-git-repo-check"')) {

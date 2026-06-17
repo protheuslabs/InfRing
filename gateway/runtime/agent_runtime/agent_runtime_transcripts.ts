@@ -53,16 +53,36 @@ function transcriptActivityTraceRows(activityTrace) {
   return rows.map((row, index) => {
     const title = cleanDisplayText(row && (row.title || row.display_text || row.text), 1400);
     if (!title) return null;
+    const lineKind = cleanText(row && row.line_kind, 80) || activityLineKindFromTraceRow(row);
+    const state = activityStateFromTraceRow(row);
+    const children = Array.isArray(row && row.children)
+      ? row.children.map((child, childIndex) => {
+          const childTitle = cleanDisplayText(child && (child.title || child.display_text || child.text), 1400);
+          if (!childTitle) return null;
+          return {
+            id: cleanText(child && (child.detail_ref || child.item_id || child.sequence_no || `activity-${index + 1}-${childIndex + 1}`), 180),
+            text: childTitle,
+            line_kind: cleanText(child && child.line_kind, 80) || activityLineKindFromTraceRow(child),
+            state: activityStateFromTraceRow(child),
+            status: cleanText(child && child.status, 80),
+            activity_key: cleanText(child && (child.detail_ref || child.item_id || ''), 240),
+            activity_target: cleanText(child && (child.activity_target || child.target || child.path || ''), 900),
+            engine_id: cleanEngineId(activityTrace && activityTrace.engine_id),
+            ts: Date.now(),
+          };
+        }).filter(Boolean).slice(0, 40)
+      : [];
     return {
       id: cleanText(row && (row.detail_ref || row.item_id || row.sequence_no || `activity-${index + 1}`), 180),
       text: title,
-      line_kind: activityLineKindFromTraceRow(row),
-      state: activityStateFromTraceRow(row),
+      line_kind: lineKind,
+      state,
       status: cleanText(row && row.status, 80),
       activity_key: cleanText(row && (row.detail_ref || row.item_id || ''), 240),
-      activity_target: cleanText(row && (row.target || row.path || ''), 900),
+      activity_target: cleanText(row && (row.activity_target || row.target || row.path || ''), 900),
       engine_id: cleanEngineId(activityTrace && activityTrace.engine_id),
       ts: Date.now(),
+      children,
     };
   }).filter(Boolean).slice(-48);
 }

@@ -8,6 +8,7 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
   let hoveredIdx = -1;
   let renderWindowVersion = 0;
   let inlineThoughtExpanded = {};
+  let inlineThoughtExpandedVersion = 0;
   let unsub;
   let unsubRenderWindow;
 
@@ -93,7 +94,8 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     ).slice(0, 120);
     return messageKey + ':' + rowKey;
   }
-  function inlineThoughtIsExpanded(msg, tool, idx) {
+  function inlineThoughtIsExpanded(msg, tool, idx, version) {
+    void version;
     var key = inlineThoughtKey(msg, tool, idx);
     if (key && Object.prototype.hasOwnProperty.call(inlineThoughtExpanded, key)) {
       return !!inlineThoughtExpanded[key];
@@ -105,6 +107,16 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     var next = !inlineThoughtIsExpanded(msg, tool, idx);
     if (tool && typeof tool === 'object') tool.expanded = next;
     if (key) inlineThoughtExpanded = Object.assign({}, inlineThoughtExpanded, { [key]: next });
+    inlineThoughtExpandedVersion += 1;
+    messages = messages;
+  }
+  function syncInlineThoughtDetails(event, msg, tool, idx) {
+    var key = inlineThoughtKey(msg, tool, idx);
+    var target = event && event.currentTarget;
+    var next = !!(target && target.open);
+    if (tool && typeof tool === 'object') tool.expanded = next;
+    if (key) inlineThoughtExpanded = Object.assign({}, inlineThoughtExpanded, { [key]: next });
+    inlineThoughtExpandedVersion += 1;
     messages = messages;
   }
   function inlineThoughtRenderKey(msg, tool, idx) {
@@ -322,59 +334,60 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
             {#if shouldRenderContent(msg, idx, renderWindowVersion) && thoughtTools(msg).length}
               <div class="message-inline-thoughts">
                 {#each thoughtTools(msg) as tool, thoughtIdx (inlineThoughtRenderKey(msg, tool, thoughtIdx))}
-                  <section class={"message-inline-thought" + (inlineThoughtIsExpanded(msg, tool, thoughtIdx) ? ' message-inline-thought-expanded' : '')}>
-                    <button
-                      type="button"
+                  <details
+                    class={"message-inline-thought" + (inlineThoughtIsExpanded(msg, tool, thoughtIdx, inlineThoughtExpandedVersion) ? ' message-inline-thought-expanded' : '')}
+                    open={inlineThoughtIsExpanded(msg, tool, thoughtIdx, inlineThoughtExpandedVersion)}
+                    on:toggle={(event) => syncInlineThoughtDetails(event, msg, tool, thoughtIdx)}
+                  >
+                    <summary
                       class="message-inline-thought-toggle"
-                      aria-expanded={inlineThoughtIsExpanded(msg, tool, thoughtIdx) ? 'true' : 'false'}
-                      on:click|preventDefault|stopPropagation={() => toggleInlineThought(msg, tool, thoughtIdx)}
+                      aria-expanded={inlineThoughtIsExpanded(msg, tool, thoughtIdx, inlineThoughtExpandedVersion) ? 'true' : 'false'}
+                      on:click|stopPropagation
                     >
                       <span class="message-inline-thought-label">{callStr('thoughtToolLabel', tool)}</span>
-                      <span class="message-inline-thought-chevron" aria-hidden="true">{inlineThoughtIsExpanded(msg, tool, thoughtIdx) ? '▾' : '▸'}</span>
-                    </button>
-                    {#if inlineThoughtIsExpanded(msg, tool, thoughtIdx)}
-                      <div class="message-inline-thought-body">
-                        {#each callArr('toolProjectionSections', tool) as section (section.id)}
-                          {#if section.trace_rows && section.trace_rows.length}
-                            <div class="thinking-trace-list message-inline-thought-trace">
-                              {#each section.trace_rows as row (row.id)}
-                                {#if row.children && row.children.length}
-                                  <details class="thinking-trace-file-group">
-                                    <summary class={"thinking-trace-row message-inline-thought-line state-" + String(row.state || 'done') + " line-" + String(row.line_kind || 'status')}>
-                                      <span class="thinking-trace-dot" aria-hidden="true"></span>
-                                      <span
-                                        class={row.shimmer ? 'thinking-inline-subtext thinking-shimmer-text' : 'thinking-inline-subtext'}
-                                        data-shimmer-text={row.shimmer ? row.text : ''}
-                                      >{row.text}</span>
-                                      <span class="thinking-trace-chevron" aria-hidden="true">▸</span>
-                                    </summary>
-                                    <div class="thinking-trace-file-children">
-                                      {#each row.children as child (child.id)}
-                                        <div class={"thinking-trace-row thinking-trace-child-row message-inline-thought-line state-" + String(child.state || 'done') + " line-" + String(child.line_kind || row.line_kind || 'status')}>
-                                          <span class="thinking-trace-dot" aria-hidden="true"></span>
-                                          <span class="thinking-inline-subtext">{child.text}</span>
-                                        </div>
-                                      {/each}
-                                    </div>
-                                  </details>
-                                {:else}
-                                  <div class={"thinking-trace-row message-inline-thought-line state-" + String(row.state || 'done') + " line-" + String(row.line_kind || 'status')}>
+                      <span class="message-inline-thought-chevron" aria-hidden="true">{inlineThoughtIsExpanded(msg, tool, thoughtIdx, inlineThoughtExpandedVersion) ? '▾' : '▸'}</span>
+                    </summary>
+                    <div class="message-inline-thought-body">
+                      {#each callArr('toolProjectionSections', tool) as section (section.id)}
+                        {#if section.trace_rows && section.trace_rows.length}
+                          <div class="thinking-trace-list message-inline-thought-trace">
+                            {#each section.trace_rows as row (row.id)}
+                              {#if row.children && row.children.length}
+                                <details class="thinking-trace-file-group">
+                                  <summary class={"thinking-trace-row message-inline-thought-line state-" + String(row.state || 'done') + " line-" + String(row.line_kind || 'status')}>
                                     <span class="thinking-trace-dot" aria-hidden="true"></span>
                                     <span
                                       class={row.shimmer ? 'thinking-inline-subtext thinking-shimmer-text' : 'thinking-inline-subtext'}
                                       data-shimmer-text={row.shimmer ? row.text : ''}
                                     >{row.text}</span>
+                                    <span class="thinking-trace-chevron" aria-hidden="true">▸</span>
+                                  </summary>
+                                  <div class="thinking-trace-file-children">
+                                    {#each row.children as child (child.id)}
+                                      <div class={"thinking-trace-row thinking-trace-child-row message-inline-thought-line state-" + String(child.state || 'done') + " line-" + String(child.line_kind || row.line_kind || 'status')}>
+                                        <span class="thinking-trace-dot" aria-hidden="true"></span>
+                                        <span class="thinking-inline-subtext">{child.text}</span>
+                                      </div>
+                                    {/each}
                                   </div>
-                                {/if}
-                              {/each}
-                            </div>
-                          {:else}
-                            <pre class="message-inline-thought-pre">{section.text}</pre>
-                          {/if}
-                        {/each}
-                      </div>
-                    {/if}
-                  </section>
+                                </details>
+                              {:else}
+                                <div class={"thinking-trace-row message-inline-thought-line state-" + String(row.state || 'done') + " line-" + String(row.line_kind || 'status')}>
+                                  <span class="thinking-trace-dot" aria-hidden="true"></span>
+                                  <span
+                                    class={row.shimmer ? 'thinking-inline-subtext thinking-shimmer-text' : 'thinking-inline-subtext'}
+                                    data-shimmer-text={row.shimmer ? row.text : ''}
+                                  >{row.text}</span>
+                                </div>
+                              {/if}
+                            {/each}
+                          </div>
+                        {:else}
+                          <pre class="message-inline-thought-pre">{section.text}</pre>
+                        {/if}
+                      {/each}
+                    </div>
+                  </details>
                 {/each}
               </div>
             {/if}

@@ -71,8 +71,8 @@
         source: this.chatMapPopupSource(),
         side: 'left',
         body: this.messageMapPopupBody(msg),
-        meta_origin: 'Chat map',
-        meta_time: String(this.messageTimestampLabel(msg) || '').trim()
+        meta_origin: '',
+        meta_time: ''
       });
     },
 
@@ -93,7 +93,8 @@
         body: this.isMessageDayCollapsed(msg)
           ? 'Expand this day in the chat map'
           : 'Collapse this day in the chat map',
-        meta_origin: 'Chat map'
+        meta_origin: '',
+        meta_time: ''
       });
     },
 

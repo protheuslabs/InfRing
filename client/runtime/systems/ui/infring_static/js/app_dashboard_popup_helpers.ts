@@ -405,9 +405,26 @@ function infringShowDashboardPopup(page, id, label, ev, overrides) {
     page.hideDashboardPopup(popupId);
     return;
   }
-  if (ev && ev.isTrusted === false) return;
   var config = overrides && typeof overrides === 'object' ? overrides : {};
   var anchor = page.dashboardPopupAnchorPoint(ev, config.side);
+  if (
+    (!anchor || !Number.isFinite(Number(anchor.left)) || !Number.isFinite(Number(anchor.top)) || Number(anchor.left) <= 0 || Number(anchor.top) <= 0) &&
+    ev
+  ) {
+    var fallbackNode = ev.currentTarget || ev.target;
+    if (fallbackNode && typeof fallbackNode.getBoundingClientRect === 'function') {
+      var fallbackRect = fallbackNode.getBoundingClientRect();
+      var fallbackSide = String(config.side || (anchor && anchor.side) || 'bottom').toLowerCase();
+      if (fallbackSide !== 'top' && fallbackSide !== 'left' && fallbackSide !== 'right') fallbackSide = 'bottom';
+      anchor = {
+        left: Math.round(fallbackSide === 'right' ? Number(fallbackRect.right || 0) : Number(fallbackRect.left || 0)),
+        top: Math.round(fallbackSide === 'bottom' ? Number(fallbackRect.bottom || 0) : Number(fallbackRect.top || 0)),
+        side: fallbackSide,
+        inline_away: 'right',
+        block_away: 'bottom'
+      };
+    }
+  }
   var service = page.dashboardPopupService();
   page.dashboardPopup = service && typeof service.openState === 'function'
     ? service.openState(popupId, title, config, anchor)
@@ -417,8 +434,8 @@ function infringShowDashboardPopup(page, id, label, ev, overrides) {
       source: String(config.source || '').trim(),
       title: title,
       body: String(config.body || '').trim(),
-      meta_origin: String(config.meta_origin || 'Taskbar').trim(),
-      meta_time: String(config.meta_time || '').trim(),
+      meta_origin: '',
+      meta_time: '',
       unread: !!config.unread,
       left: anchor.left,
       top: anchor.top,
@@ -479,3 +496,216 @@ function infringHideDashboardPopup(page, rawId) {
   if (popupId && currentId && popupId !== currentId) return;
   page.clearDashboardPopupState();
 }
+
+(function installDashboardPopupDelegatedHover() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  if (window.__infringDashboardPopupDelegatedHoverInstalled) return;
+  window.__infringDashboardPopupDelegatedHoverInstalled = true;
+
+  function clean(value) {
+    return String(value == null ? '' : value).trim();
+  }
+
+  function appStoreService() {
+    var services = window.InfringSharedShellServices;
+    return services && services.appStore ? services.appStore : null;
+  }
+
+  function appStore() {
+    var service = appStoreService();
+    if (service && typeof service.current === 'function') {
+      var current = service.current();
+      if (current && typeof current === 'object') return current;
+    }
+    if (window.InfringApp && typeof window.InfringApp === 'object') return window.InfringApp;
+    try {
+      if (window.Alpine && typeof window.Alpine.store === 'function') {
+        var alpineStore = window.Alpine.store('app');
+        if (alpineStore && typeof alpineStore === 'object') return alpineStore;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function closestPopupTarget(start) {
+    var node = start && start.nodeType === 1 ? start : null;
+    while (node && node !== document.body && node !== document.documentElement) {
+      if (node.matches && node.matches([
+        '[data-dashboard-popup-title]',
+        '[data-popup-title]',
+        '[data-dock-id]',
+        '.bottom-dock-btn',
+        '.nav-agent-row',
+        '.nav-agent-card',
+        '.nav-item',
+        '.sidebar-tab-item',
+        '.chat-map-day',
+        '.chat-map-entry',
+        '.chat-map-surface',
+        '.chat-map-message',
+        '.chat-map-item',
+        '.chat-map-row',
+        '.chat-map-marker',
+        '.chat-map-tool-row',
+        '.dock-tile'
+      ].join(','))) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function targetLabel(target) {
+    if (!target) return '';
+    return clean(
+      target.getAttribute('data-dashboard-popup-title') ||
+      target.getAttribute('data-popup-title') ||
+      target.getAttribute('aria-label') ||
+      target.getAttribute('title') ||
+      target.textContent ||
+      target.getAttribute('data-dock-id') ||
+      ''
+    );
+  }
+
+  function targetBody(target, title) {
+    if (!target) return '';
+    var body = clean(
+      target.getAttribute('data-dashboard-popup-body') ||
+      target.getAttribute('data-popup-body') ||
+      target.getAttribute('data-tooltip') ||
+      target.getAttribute('title') ||
+      ''
+    );
+    return body && body !== title ? body : '';
+  }
+
+  function targetSource(target) {
+    if (!target) return 'dashboard';
+    if (target.closest && target.closest('.bottom-dock, infring-bottom-dock-shell')) return 'bottom_dock';
+    if (target.closest && target.closest('.chat-map, .chat-map-rail, .chat-map-surface, .chat-map-scroll, infring-chat-map-shell, infring-chat-map-rail-shell, infring-chat-map-viewport-shell')) return 'chat-map';
+    if (target.closest && target.closest('.sidebar, .nav-sidebar, infring-sidebar-agent-list-shell, infring-sidebar-rail-shell')) return 'sidebar';
+    return 'dashboard';
+  }
+
+  function targetId(target, source, title) {
+    var raw = clean(
+      target.getAttribute('data-dashboard-popup-id') ||
+      target.getAttribute('data-popup-id') ||
+      target.getAttribute('data-dock-id') ||
+      target.getAttribute('data-agent-id') ||
+      target.getAttribute('data-message-id') ||
+      target.getAttribute('id') ||
+      title
+    ).toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+    return 'delegated-' + clean(source || 'dashboard').replace(/[^a-z0-9_-]+/g, '-') + ':' + raw;
+  }
+
+  function fallbackAnchor(target, side) {
+    var rect = target && typeof target.getBoundingClientRect === 'function'
+      ? target.getBoundingClientRect()
+      : null;
+    if (!rect) return { left: 0, top: 0, side: side || 'bottom', inline_away: 'right', block_away: 'bottom' };
+    var chosenSide = clean(side || 'bottom').toLowerCase();
+    if (chosenSide !== 'top' && chosenSide !== 'left' && chosenSide !== 'right') chosenSide = 'bottom';
+    if (chosenSide === 'top') {
+      return { left: Math.round(rect.left), top: Math.round(rect.top), side: 'top', inline_away: 'right', block_away: 'bottom' };
+    }
+    if (chosenSide === 'left') {
+      return { left: Math.round(rect.left), top: Math.round(rect.top), side: 'left', inline_away: 'right', block_away: 'bottom' };
+    }
+    if (chosenSide === 'right') {
+      return { left: Math.round(rect.right), top: Math.round(rect.top), side: 'right', inline_away: 'right', block_away: 'bottom' };
+    }
+    return { left: Math.round(rect.left), top: Math.round(rect.bottom), side: 'bottom', inline_away: 'right', block_away: 'bottom' };
+  }
+
+  function publishPopup(page, id, title, body, source, side, event, target) {
+    if (!page || typeof page !== 'object') return;
+    var anchor = null;
+    try {
+      if (typeof page.dashboardPopupAnchorPoint === 'function') {
+        anchor = page.dashboardPopupAnchorPoint(event, side);
+      }
+    } catch (_) {}
+    if (
+      !anchor ||
+      !Number.isFinite(Number(anchor.left)) ||
+      !Number.isFinite(Number(anchor.top)) ||
+      Number(anchor.left) <= 0 ||
+      Number(anchor.top) <= 0
+    ) {
+      anchor = fallbackAnchor(target, side);
+    }
+    page.dashboardPopup = {
+      id: id,
+      active: true,
+      source: source,
+      title: title,
+      body: body,
+      meta_origin: '',
+      meta_time: '',
+      unread: false,
+      left: Math.round(Number(anchor.left || 0)),
+      top: Math.round(Number(anchor.top || 0)),
+      side: clean(anchor.side || side || 'bottom').toLowerCase(),
+      inline_away: anchor.inline_away === 'left' ? 'left' : 'right',
+      block_away: anchor.block_away === 'top' ? 'top' : 'bottom',
+      compact: false
+    };
+    var service = appStoreService();
+    if (service && typeof service.notify === 'function') {
+      try { service.notify('dashboard_popup_delegated_hover'); } catch (_) {}
+    }
+  }
+
+  function show(event) {
+    var page = appStore();
+    if (!page) return;
+    var target = closestPopupTarget(event && event.target);
+    var title = targetLabel(target);
+    if (!target || !title) return;
+    var source = targetSource(target);
+    var side = source === 'bottom_dock' ? 'top' : 'right';
+    var id = targetId(target, source, title);
+    var body = targetBody(target, title);
+    if (typeof page.showDashboardPopup === 'function') {
+      try {
+        page.showDashboardPopup(id, title, event, {
+          source: source,
+          side: side,
+          body: body,
+          meta_origin: ''
+        });
+      } catch (_) {}
+    }
+    publishPopup(page, id, title, body, source, side, event, target);
+  }
+
+  function hide(event) {
+    var page = appStore();
+    if (!page || typeof page.hideDashboardPopupBySource !== 'function') return;
+    var target = closestPopupTarget(event && event.target);
+    if (!target) return;
+    var related = event && event.relatedTarget && event.relatedTarget.nodeType === 1
+      ? event.relatedTarget
+      : null;
+    if (related && target.contains && target.contains(related)) return;
+    if (typeof page.hideDashboardPopupBySource === 'function') {
+      page.hideDashboardPopupBySource(targetSource(target));
+    } else {
+      page.dashboardPopup = { id: '', active: false, source: '', title: '', body: '', meta_origin: '', meta_time: '', unread: false, left: 0, top: 0, side: 'bottom', inline_away: 'right', block_away: 'bottom', compact: false };
+    }
+    var service = appStoreService();
+    if (service && typeof service.notify === 'function') {
+      try { service.notify('dashboard_popup_delegated_hide'); } catch (_) {}
+    }
+  }
+
+  document.addEventListener('mouseover', show, true);
+  document.addEventListener('mousemove', show, true);
+  document.addEventListener('focusin', show, true);
+  document.addEventListener('mouseout', hide, true);
+  document.addEventListener('focusout', hide, true);
+})();

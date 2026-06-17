@@ -173,6 +173,12 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     normalized = call('normalizeSidebarPopupText', text);
     return typeof normalized === 'string' ? normalized : text;
   }
+  function popupTitle(agent) {
+    return String((agent && (agent.name || agent.id)) || '').trim();
+  }
+  function popupBody(agent) {
+    return normalizedPreviewText(agent) || previewText(agent);
+  }
   function showAgentPreview(agent, event) {
     if (isCollapsed()) {
       showCollapsedAgent(agent, event);
@@ -304,6 +310,9 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
   <a
     class={"nav-item nav-sub-item nav-agent-row " + rowClass(agent)}
     data-agent-id={agentId(agent)}
+    data-dashboard-popup-title={popupTitle(agent)}
+    data-dashboard-popup-body={popupBody(agent)}
+    data-dashboard-popup-id={'sidebar-agent-' + agentId(agent)}
     on:click={() => selectAgent(agent)}
     aria-current={isActive(agent) ? 'page' : undefined}
     draggable={canReorder()}

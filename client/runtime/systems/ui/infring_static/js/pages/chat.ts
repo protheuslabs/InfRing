@@ -14337,8 +14337,8 @@ function chatPage() {
         source: this.chatMapPopupSource(),
         side: 'left',
         body: this.messageMapPopupBody(msg),
-        meta_origin: 'Chat map',
-        meta_time: String(this.messageTimestampLabel(msg) || '').trim()
+        meta_origin: '',
+        meta_time: ''
       });
     },
 
@@ -14359,7 +14359,8 @@ function chatPage() {
         body: this.isMessageDayCollapsed(msg)
           ? 'Expand this day in the chat map'
           : 'Collapse this day in the chat map',
-        meta_origin: 'Chat map'
+        meta_origin: '',
+        meta_time: ''
       });
     },
 
@@ -15771,135 +15772,19 @@ function chatPage() {
     },
 
     normalizeThoughtTraceRows: function(traceRows, dialogText) {
-      var rows = Array.isArray(traceRows) ? traceRows : [];
-      var out = [];
-      var seen = Object.create(null);
-      function addTraceRow(row, fallbackId) {
-        var item = row && typeof row === 'object' ? row : {};
-        var text = String(item.text || item.title || item.display_text || item.summary || '').replace(/\r\n/g, '\n').trim();
-        if (!text) return;
-        text.split('\n').forEach(function(part) {
-          var line = String(part || '').replace(/\s+/g, ' ').trim();
-          if (!line) return;
-          var kind = String(item.line_kind || item.activity_kind || item.kind || '').trim() || 'dialog';
-          var kindSource = (kind + ' ' + line).toLowerCase();
-          if (/file|edit|patch|diff|write|create/.test(kindSource)) kind = 'write';
-          else if (/read|search|grep|rg|find|list|scan|inspect|check/.test(kindSource)) kind = 'read';
-          else if (/command|exec|shell|bash|tool|function/.test(kindSource)) kind = 'tool';
-          var key = (kind + '|' + line).toLowerCase();
-          if (seen[key]) return;
-          seen[key] = true;
-          out.push({
-            id: String(item.id || item.activity_key || (kind + '-' + fallbackId + '-' + out.length)).slice(0, 180),
-            text: line,
-            line_kind: kind,
-            state: String(item.state || item.status || 'done').trim() || 'done',
-            shimmer: false
-          });
-        });
-      }
-      for (var i = 0; i < rows.length && out.length < 80; i += 1) addTraceRow(rows[i], i);
-      var dialog = this.normalizeThoughtLineText(dialogText);
-      if (dialog) {
-        dialog.split('\n').forEach(function(part, idx) {
-          var line = String(part || '').replace(/\s+/g, ' ').trim();
-          if (!line || out.length >= 80) return;
-          var key = ('dialog|' + line).toLowerCase();
-          var looseKey = line.toLowerCase();
-          var hasLooseMatch = out.some(function(row) {
-            return String(row && row.text || '').replace(/\s+/g, ' ').trim().toLowerCase() === looseKey;
-          });
-          if (seen[key] || hasLooseMatch) return;
-          seen[key] = true;
-          out.push({
-            id: 'dialog-' + idx + '-' + looseKey.slice(0, 80).replace(/[^a-z0-9]+/g, '-'),
-            text: line,
-            line_kind: 'dialog',
-            state: 'done',
-            shimmer: false
-          });
-        });
-      }
-      return out.slice(-80);
+      return chatNormalizeThoughtTraceRows(traceRows, dialogText, this.normalizeThoughtLineText && this.normalizeThoughtLineText.bind(this));
     },
 
     thoughtTraceFileActionVerb: function(kind) {
-      return String(kind || '') === 'write' ? 'Edited' : 'Read';
+      return chatThoughtTraceFileActionVerb(kind);
     },
 
     extractThoughtTraceFileLabel: function(text, kind) {
-      var value = String(text || '').replace(/\r\n/g, '\n').trim();
-      if (!value) return '';
-      var quoted = value.match(/`([^`\n]+)`/);
-      if (quoted && quoted[1]) return quoted[1].trim();
-      var colon = value.match(/(?:file|path|changed|edited|wrote|written|created|updated|read|reading)\s*:?\s+(.+)$/i);
-      if (colon && colon[1]) return colon[1].trim();
-      var stripped = value.replace(/^(?:working on|completed|finished|failed|started|running|ran)\s+/i, '');
-      stripped = stripped.replace(/^(?:read|reading|edit|edited|editing|write|wrote|writing|created|creating|updated|updating)\s+(?:file\s+|files\s+)?/i, '');
-      stripped = stripped.replace(/^(?:file change|file)\s*:?\s*/i, '');
-      stripped = stripped.trim();
-      if (!stripped || stripped === value) return value;
-      return stripped;
+      return chatExtractThoughtTraceFileLabel(text, kind);
     },
 
     compactThoughtTraceRows: function(traceRows) {
-      var rows = Array.isArray(traceRows) ? traceRows : [];
-      var compacted = [];
-      var group = null;
-      var self = this;
-      function flush() {
-        if (!group) return;
-        var count = group.children.length;
-        var verb = typeof self.thoughtTraceFileActionVerb === 'function'
-          ? self.thoughtTraceFileActionVerb(group.line_kind)
-          : (String(group.line_kind || '') === 'write' ? 'Edited' : 'Read');
-        compacted.push({
-          id: group.id,
-          text: verb + ' ' + count + ' ' + (count === 1 ? 'file' : 'files'),
-          line_kind: group.line_kind,
-          state: group.state,
-          status: group.status,
-          shimmer: false,
-          children: group.children
-        });
-        group = null;
-      }
-      for (var i = 0; i < rows.length; i += 1) {
-        var item = rows[i] && typeof rows[i] === 'object' ? rows[i] : {};
-        var kind = String(item.line_kind || '').trim();
-        if (kind !== 'read' && kind !== 'write') {
-          flush();
-          compacted.push(item);
-          continue;
-        }
-        var label = typeof this.extractThoughtTraceFileLabel === 'function'
-          ? this.extractThoughtTraceFileLabel(item.text, kind)
-          : String(item.text || '').trim();
-        var verb = typeof this.thoughtTraceFileActionVerb === 'function'
-          ? this.thoughtTraceFileActionVerb(kind)
-          : (kind === 'write' ? 'Edited' : 'Read');
-        var child = {
-          id: String(item.id || (kind + '-file-' + i)).slice(0, 180) + '-detail',
-          text: verb + ' ' + label,
-          line_kind: kind,
-          state: item.state || 'done',
-          status: item.status || item.state || 'done',
-          shimmer: false
-        };
-        if (!group || group.line_kind !== kind || group.state !== item.state) {
-          flush();
-          group = {
-            id: 'file-group-' + kind + '-' + String(item.id || i).slice(0, 140),
-            line_kind: kind,
-            state: item.state || 'done',
-            status: item.status || item.state || 'done',
-            children: []
-          };
-        }
-        group.children.push(child);
-      }
-      flush();
-      return compacted;
+      return chatCompactThoughtTraceRows(traceRows);
     },
 
     normalizeMessageThoughtTools: function(msg, options) {
@@ -20822,70 +20707,6 @@ function chatPage() {
       var sourceRows = Array.isArray(msg.agent_runtime_live_trace_rows) ? msg.agent_runtime_live_trace_rows : [];
       var rawRows = [];
       var seen = Object.create(null);
-      var fileActionVerb = function(kind) {
-        return String(kind || '') === 'write' ? 'Edited' : 'Read';
-      };
-      var extractFileTraceLabel = function(text, kind) {
-        var value = String(text || '').replace(/\r\n/g, '\n').trim();
-        if (!value) return '';
-        var quoted = value.match(/`([^`\n]+)`/);
-        if (quoted && quoted[1]) return quoted[1].trim();
-        var colon = value.match(/(?:file|path|changed|edited|wrote|written|created|updated|read|reading)\s*:?\s+(.+)$/i);
-        if (colon && colon[1]) return colon[1].trim();
-        var stripped = value.replace(/^(?:working on|completed|finished|failed|started|running|ran)\s+/i, '');
-        stripped = stripped.replace(/^(?:read|reading|edit|edited|editing|write|wrote|writing|created|creating|updated|updating)\s+(?:file\s+|files\s+)?/i, '');
-        stripped = stripped.replace(/^(?:file change|file)\s*:?\s*/i, '');
-        stripped = stripped.trim();
-        if (!stripped || stripped === value) return value;
-        return stripped;
-      };
-      var compactFileTraceRows = function(rows) {
-        var compacted = [];
-        var group = null;
-        var flush = function() {
-          if (!group) return;
-          var count = group.children.length;
-          var verb = fileActionVerb(group.line_kind);
-          compacted.push({
-            id: group.id,
-            text: verb + ' ' + count + ' ' + (count === 1 ? 'file' : 'files'),
-            line_kind: group.line_kind,
-            state: group.state,
-            shimmer: false,
-            children: group.children
-          });
-          group = null;
-        };
-        for (var ri = 0; ri < rows.length; ri += 1) {
-          var item = rows[ri];
-          var kind = String(item && item.line_kind || '').trim();
-          if (kind !== 'read' && kind !== 'write') {
-            flush();
-            compacted.push(item);
-            continue;
-          }
-          var label = extractFileTraceLabel(item.text, kind);
-          var child = {
-            id: String(item.id || (kind + '-file-' + ri)).slice(0, 180) + '-detail',
-            text: fileActionVerb(kind) + ' ' + label,
-            line_kind: kind,
-            state: item.state || 'done',
-            shimmer: false
-          };
-          if (!group || group.line_kind !== kind || group.state !== item.state) {
-            flush();
-            group = {
-              id: 'file-group-' + kind + '-' + String(item.id || ri).slice(0, 140),
-              line_kind: kind,
-              state: item.state || 'done',
-              children: []
-            };
-          }
-          group.children.push(child);
-        }
-        flush();
-        return compacted;
-      };
       for (var i = 0; i < sourceRows.length && rawRows.length < 48; i += 1) {
         var row = sourceRows[i] && typeof sourceRows[i] === 'object' ? sourceRows[i] : {};
         var text = String(row.text || row.display_text || row.summary || '').replace(/\r\n/g, '\n').trim();
@@ -20900,12 +20721,13 @@ function chatPage() {
           text: text,
           line_kind: lineKind,
           state: state,
-          shimmer: false
+          shimmer: false,
+          children: Array.isArray(row.children) ? row.children : undefined
         });
       }
       var out = typeof this.compactThoughtTraceRows === 'function'
         ? this.compactThoughtTraceRows(rawRows)
-        : compactFileTraceRows(rawRows);
+        : rawRows;
       var latestShimmerIdx = -1;
       for (var j = out.length - 1; j >= 0; j -= 1) {
         if (out[j].line_kind !== 'dialog') {

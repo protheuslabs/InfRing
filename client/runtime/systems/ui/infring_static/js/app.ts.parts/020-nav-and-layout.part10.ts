@@ -490,9 +490,26 @@
         this.hideDashboardPopup(popupId);
         return;
       }
-      if (ev && ev.isTrusted === false) return;
       var config = overrides && typeof overrides === 'object' ? overrides : {};
       var anchor = this.dashboardPopupAnchorPoint(ev, config.side);
+      if (
+        (!anchor || !Number.isFinite(Number(anchor.left)) || !Number.isFinite(Number(anchor.top)) || Number(anchor.left) <= 0 || Number(anchor.top) <= 0) &&
+        ev
+      ) {
+        var fallbackNode = ev.currentTarget || ev.target;
+        if (fallbackNode && typeof fallbackNode.getBoundingClientRect === 'function') {
+          var fallbackRect = fallbackNode.getBoundingClientRect();
+          var fallbackSide = String(config.side || (anchor && anchor.side) || 'bottom').toLowerCase();
+          if (fallbackSide !== 'top' && fallbackSide !== 'left' && fallbackSide !== 'right') fallbackSide = 'bottom';
+          anchor = {
+            left: Math.round(fallbackSide === 'right' ? Number(fallbackRect.right || 0) : Number(fallbackRect.left || 0)),
+            top: Math.round(fallbackSide === 'bottom' ? Number(fallbackRect.bottom || 0) : Number(fallbackRect.top || 0)),
+            side: fallbackSide,
+            inline_away: 'right',
+            block_away: 'bottom'
+          };
+        }
+      }
       var service = this.dashboardPopupService();
       this.dashboardPopup = service && typeof service.openState === 'function'
         ? service.openState(popupId, title, config, anchor)
@@ -502,8 +519,8 @@
           source: String(config.source || '').trim(),
           title: title,
           body: String(config.body || '').trim(),
-          meta_origin: String(config.meta_origin || 'Taskbar').trim(),
-          meta_time: String(config.meta_time || '').trim(),
+          meta_origin: '',
+          meta_time: '',
           unread: !!config.unread,
           left: anchor.left,
           top: anchor.top,

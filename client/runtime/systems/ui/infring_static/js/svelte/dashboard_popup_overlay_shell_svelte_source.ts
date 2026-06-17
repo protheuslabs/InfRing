@@ -43,7 +43,25 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
   function appStore() {
     if (typeof window === 'undefined') return null;
     const service = appStoreService();
-    return service && typeof service.current === 'function' ? service.current() : null;
+    return service && typeof service.current === 'function'
+      ? service.current()
+      : (window.InfringApp && typeof window.InfringApp === 'object' ? window.InfringApp : null);
+  }
+
+  function appStoreCandidates() {
+    if (typeof window === 'undefined') return [];
+    const candidates = [];
+    const push = function(value) {
+      if (!value || typeof value !== 'object') return;
+      if (candidates.indexOf(value) >= 0) return;
+      candidates.push(value);
+    };
+    push(appStore());
+    push(window.InfringApp);
+    try {
+      if (window.Alpine && typeof window.Alpine.store === 'function') push(window.Alpine.store('app'));
+    } catch (_) {}
+    return candidates;
   }
 
   function serviceOrigin(service, overrides) {
@@ -55,6 +73,54 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
   function stateOrigin(service, app) {
     if (!service || !app || typeof service.stateOrigin !== 'function') return emptyPopup();
     return service.stateOrigin(app.dashboardPopup);
+  }
+
+  function safeAttr(value) {
+    return text(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  function elementAnchorOrigin(service, origin, element, preferredSide) {
+    if (!element || typeof element.getBoundingClientRect !== 'function') return origin || emptyPopup();
+    const rect = element.getBoundingClientRect();
+    const side = text((origin && origin.side) || preferredSide || 'bottom').toLowerCase();
+    let left = Math.round(Number(rect.left || 0));
+    let top = Math.round(Number(rect.bottom || 0));
+    if (side === 'top') {
+      top = Math.round(Number(rect.top || 0));
+    } else if (side === 'right') {
+      left = Math.round(Number(rect.right || 0));
+      top = Math.round(Number(rect.top || 0));
+    } else if (side === 'left') {
+      top = Math.round(Number(rect.top || 0));
+    }
+    return serviceOrigin(service, Object.assign({}, origin || {}, {
+      active: true,
+      ready: left > 0 && top > 0,
+      left,
+      top,
+      side: side === 'top' || side === 'left' || side === 'right' ? side : 'bottom',
+      inline_away: (origin && origin.inline_away) || 'right',
+      block_away: (origin && origin.block_away) || 'bottom'
+    }));
+  }
+
+  function recoverPopupOrigin(service, app, origin) {
+    if (!app || !origin || !origin.active || origin.ready || !text(origin.title)) return origin;
+    const rawPopup = app.dashboardPopup && typeof app.dashboardPopup === 'object' ? app.dashboardPopup : {};
+    const popupId = text(rawPopup.id);
+    let element = null;
+    if (popupId.indexOf('bottom-dock:') === 0) {
+      const dockId = safeAttr(popupId.slice('bottom-dock:'.length));
+      element = document.querySelector('.bottom-dock [data-dock-id="' + dockId + '"], .bottom-dock .dock-tile-slot[data-dock-slot-id="' + dockId + '"]');
+    } else if (popupId.indexOf('delegated-bottom_dock:') === 0) {
+      const dockId = safeAttr(popupId.slice('delegated-bottom_dock:'.length));
+      element = document.querySelector('.bottom-dock [data-dock-id="' + dockId + '"], .bottom-dock [aria-label="' + dockId + '"]');
+    }
+    if (!element) {
+      const label = safeAttr(origin.title);
+      if (label) element = document.querySelector('.bottom-dock [aria-label="' + label + '"]');
+    }
+    return elementAnchorOrigin(service, origin, element, origin.side || 'top');
   }
 
   function bottomDockOrigin(service, app) {
@@ -78,13 +144,27 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     });
   }
 
+  function recoverBottomDockOrigin(service, app, origin) {
+    if (!app || !origin || !origin.active || origin.ready || !text(origin.title)) return origin;
+    const dockId = safeAttr(app.bottomDockHoverId || '');
+    const label = safeAttr(origin.title);
+    const element = dockId
+      ? document.querySelector('.bottom-dock [data-dock-id="' + dockId + '"], .bottom-dock .dock-tile-slot[data-dock-slot-id="' + dockId + '"]')
+      : (label ? document.querySelector('.bottom-dock [aria-label="' + label + '"]') : null);
+    return elementAnchorOrigin(service, origin, element, origin.side || 'top');
+  }
+
   function activePopupOrigin() {
     const service = popupService();
-    const app = appStore();
-    const shared = stateOrigin(service, app);
-    if (shared.active && shared.ready) return shared;
-    const dock = bottomDockOrigin(service, app);
-    if (dock.active && dock.ready) return dock;
+    const apps = appStoreCandidates();
+    for (const app of apps) {
+      const shared = recoverPopupOrigin(service, app, stateOrigin(service, app));
+      if (shared.active && shared.ready) return shared;
+    }
+    for (const app of apps) {
+      const dock = recoverBottomDockOrigin(service, app, bottomDockOrigin(service, app));
+      if (dock.active && dock.ready) return dock;
+    }
     return serviceOrigin(service);
   }
 
@@ -128,20 +208,9 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     window.removeEventListener('scroll', refresh, true);
   });
 
-  $: metaVisible = text(popup.meta_origin).length > 0 || text(popup.meta_time).length > 0;
 </script>
 
 <div class={overlayClasses()} style={overlayStyle()} aria-hidden="true">
-  {#if metaVisible}
-    <div class="dashboard-popup-meta-row">
-      {#if text(popup.meta_origin).length > 0}
-        <span class="dashboard-popup-origin-label">{popup.meta_origin}</span>
-      {/if}
-      {#if text(popup.meta_time).length > 0}
-        <span class="dashboard-popup-time">{popup.meta_time}</span>
-      {/if}
-    </div>
-  {/if}
   <span class="dashboard-popup-title">{popup.title || ''}</span>
   {#if text(popup.body).length > 0}
     <span class:preview-unread={!!popup.unread} class="dashboard-popup-body">{popup.body}</span>

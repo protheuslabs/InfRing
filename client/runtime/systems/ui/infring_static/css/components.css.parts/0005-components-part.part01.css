@@ -171,6 +171,11 @@
   font: inherit;
   line-height: inherit;
   cursor: pointer;
+  list-style: none;
+}
+
+.message-inline-thought-toggle::-webkit-details-marker {
+  display: none;
 }
 
 .message-inline-thought-toggle:hover .message-inline-thought-label {

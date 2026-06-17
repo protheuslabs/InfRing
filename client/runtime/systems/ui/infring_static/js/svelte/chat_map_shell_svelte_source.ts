@@ -14,16 +14,41 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
   let hoveredIndex = -1;
   let unsubs = [];
 
+  function appStoreService() {
+    var services = typeof window !== 'undefined' ? window.InfringSharedShellServices : null;
+    return services && services.appStore ? services.appStore : null;
+  }
+  function rootPage() {
+    try {
+      var service = appStoreService();
+      if (service && typeof service.root === 'function') {
+        var root = service.root();
+        if (root) return root;
+      }
+      if (service && typeof service.current === 'function') {
+        var current = service.current();
+        if (current) return current;
+      }
+    } catch (_) {}
+    return null;
+  }
   function cp() {
-    return (typeof window !== 'undefined' && window.InfringChatPage) || null;
+    return (typeof window !== 'undefined' && window.InfringChatPage) || rootPage();
   }
   function store() {
     return (typeof window !== 'undefined' && window.InfringChatStore) || null;
   }
   function call(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    var service = appStoreService();
+    if (service && typeof service.method === 'function') {
+      var method = service.method(fn);
+      if (method) {
+        try { return method.apply(null, args); } catch (_) {}
+      }
+    }
     var page = cp();
     if (!page || typeof page[fn] !== 'function') return undefined;
-    var args = Array.prototype.slice.call(arguments, 1);
     return page[fn].apply(page, args);
   }
   function getMessage(row) {
@@ -123,14 +148,14 @@ const COMPONENT_SOURCE = String.raw`<svelte:options customElement={{ tag: 'infri
     {#each mapRows as row (row.key)}
       <div class="chat-map-entry">
         {#if row.newDay}
-          <button class="chat-map-day" type="button" on:click={() => toggleDay(row)} on:mouseenter={(event) => showDay(row, event)} on:mousemove={(event) => showDay(row, event)} on:focus={(event) => showDay(row, event)} on:mouseleave={hideDay} on:blur={hideDay} aria-label={'Messages for ' + row.dayLabel}>
+          <button class="chat-map-day" type="button" on:click={() => toggleDay(row)} on:mouseenter={(event) => showDay(row, event)} on:mousemove={(event) => showDay(row, event)} on:focus={(event) => showDay(row, event)} on:mouseleave={hideDay} on:blur={hideDay} aria-label={'Messages for ' + row.dayLabel} data-dashboard-popup-title={'Messages for ' + row.dayLabel} data-dashboard-popup-body={row.dayCollapsed ? 'Expand this day in the chat map' : 'Collapse this day in the chat map'}>
             <span class="chat-map-day-chevron" aria-hidden="true">{row.dayCollapsed ? '▸' : '▾'}</span>
             <span class="chat-map-day-icon" aria-hidden="true">&#9728;</span>
           </button>
         {/if}
 
         {#if !row.dayCollapsed}
-          <button class={"chat-map-item " + rowClass(row)} data-msg-dom-id={row.domId} on:mouseenter={(event) => showItem(row, event)} on:mousemove={(event) => showItem(row, event)} on:focus={(event) => showItem(row, event)} on:mouseleave={hideItem} on:blur={hideItem} on:click={() => jump(row)} aria-label={'Jump to message ' + (Number(row.index) + 1)}>
+          <button class={"chat-map-item " + rowClass(row)} data-msg-dom-id={row.domId} on:mouseenter={(event) => showItem(row, event)} on:mousemove={(event) => showItem(row, event)} on:focus={(event) => showItem(row, event)} on:mouseleave={hideItem} on:blur={hideItem} on:click={() => jump(row)} aria-label={'Jump to message ' + (Number(row.index) + 1)} data-dashboard-popup-title={'Jump to message ' + (Number(row.index) + 1)} data-dashboard-popup-body={row.markerTitle || ''}>
             {#if !row.markerType}
               <span class="chat-map-item-main">
                 <span class="chat-map-bar"></span>

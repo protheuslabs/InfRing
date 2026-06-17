@@ -1,2 +1,247 @@
-/* generated: dashboard svelte island bundle (dashboard_popup_overlay_shell) */
-(()=>{var xt=Object.defineProperty;var $t=(e,t,n)=>t in e?xt(e,t,{enumerable:!0,configurable:!0,writable:!0,value:n}):e[t]=n;var p=(e,t,n)=>$t(e,typeof t!="symbol"?t+"":t,n);function m(){}function q(e){return e()}function A(){return Object.create(null)}function y(e){e.forEach(q)}function N(e){return typeof e=="function"}function Q(e,t){return e!=e?t==t:e!==t||e&&typeof e=="object"||typeof e=="function"}function Z(e){return Object.keys(e).length===0}var z=typeof window<"u"?window:typeof globalThis<"u"?globalThis:global;var j=class e{constructor(t){p(this,"_listeners","WeakMap"in z?new WeakMap:void 0);p(this,"_observer");p(this,"options");this.options=t}observe(t,n){return this._listeners.set(t,n),this._getObserver().observe(t,this.options),()=>{this._listeners.delete(t),this._observer.unobserve(t)}}_getObserver(){return this._observer??(this._observer=new ResizeObserver(t=>{for(let n of t)e.entries.set(n.target,n),this._listeners.get(n.target)?.(n)}))}};j.entries="WeakMap"in z?new WeakMap:void 0;var tt=!1;function et(){tt=!0}function nt(){tt=!1}function x(e,t){e.appendChild(t)}function g(e,t,n){e.insertBefore(t,n||null)}function h(e){e.parentNode&&e.parentNode.removeChild(e)}function b(e){return document.createElement(e)}function E(e){return document.createTextNode(e)}function T(){return E(" ")}function _(e,t,n){n==null?e.removeAttribute(t):e.getAttribute(t)!==n&&e.setAttribute(t,n)}function rt(e){return Array.from(e.childNodes)}function C(e,t){t=""+t,e.data!==t&&(e.data=t)}function G(e,t,n){e.classList.toggle(t,!!n)}function ot(e){let t={};return e.childNodes.forEach(n=>{t[n.slot||"default"]=!0}),t}var F;function w(e){F=e}function W(){if(!F)throw new Error("Function called outside component initialization");return F}function V(e){W().$$.on_mount.push(e)}function H(e){W().$$.on_destroy.push(e)}var k=[];var st=[],O=[],ct=[],Et=Promise.resolve(),X=!1;function lt(){X||(X=!0,Et.then(P))}function M(e){O.push(e)}var U=new Set,S=0;function P(){if(S!==0)return;let e=F;do{try{for(;S<k.length;){let t=k[S];S++,w(t),St(t.$$)}}catch(t){throw k.length=0,S=0,t}for(w(null),k.length=0,S=0;st.length;)st.pop()();for(let t=0;t<O.length;t+=1){let n=O[t];U.has(n)||(U.add(n),n())}O.length=0}while(k.length);for(;ct.length;)ct.pop()();X=!1,U.clear(),w(e)}function St(e){if(e.fragment!==null){e.update(),y(e.before_update);let t=e.dirty;e.dirty=[-1],e.fragment&&e.fragment.p(e.ctx,t),e.after_update.forEach(M)}}function ut(e){let t=[],n=[];O.forEach(o=>e.indexOf(o)===-1?t.push(o):n.push(o)),n.forEach(o=>o()),O=t}var Ot=new Set;function L(e,t){e&&e.i&&(Ot.delete(e),e.i(t))}var Mt=["allowfullscreen","allowpaymentrequest","async","autofocus","autoplay","checked","controls","default","defer","disabled","formnovalidate","hidden","inert","ismap","loop","multiple","muted","nomodule","novalidate","open","playsinline","readonly","required","reversed","selected"],Dt=new Set([...Mt]);function jt(e,t,n){let{fragment:o,after_update:i}=e.$$;o&&o.m(t,n),M(()=>{let r=e.$$.on_mount.map(q).filter(N);e.$$.on_destroy?e.$$.on_destroy.push(...r):y(r),e.$$.on_mount=[]}),i.forEach(M)}function Tt(e,t){let n=e.$$;n.fragment!==null&&(ut(n.after_update),y(n.on_destroy),n.fragment&&n.fragment.d(t),n.on_destroy=n.fragment=null,n.ctx=[])}function Pt(e,t){e.$$.dirty[0]===-1&&(k.push(e),lt(),e.$$.dirty.fill(0)),e.$$.dirty[t/31|0]|=1<<t%31}function at(e,t,n,o,i,r,s=null,c=[-1]){let u=F;w(e);let l=e.$$={fragment:null,ctx:[],props:r,update:m,not_equal:i,bound:A(),on_mount:[],on_destroy:[],on_disconnect:[],before_update:[],after_update:[],context:new Map(t.context||(u?u.$$.context:[])),callbacks:A(),dirty:c,skip_bound:!1,root:t.target||u.$$.root};s&&s(l.root);let f=!1;if(l.ctx=n?n(e,t.props||{},(a,d,...$)=>{let K=$.length?$[0]:d;return l.ctx&&i(l.ctx[a],l.ctx[a]=K)&&(!l.skip_bound&&l.bound[a]&&l.bound[a](K),f&&Pt(e,a)),d}):[],l.update(),f=!0,y(l.before_update),l.fragment=o?o(l.ctx):!1,t.target){if(t.hydrate){et();let a=rt(t.target);l.fragment&&l.fragment.l(a),a.forEach(h)}else l.fragment&&l.fragment.c();t.intro&&L(e.$$.fragment),jt(e,t.target,t.anchor),nt(),P()}w(u)}var ft;typeof HTMLElement=="function"&&(ft=class extends HTMLElement{constructor(t,n,o){super();p(this,"$$ctor");p(this,"$$s");p(this,"$$c");p(this,"$$cn",!1);p(this,"$$d",{});p(this,"$$r",!1);p(this,"$$p_d",{});p(this,"$$l",{});p(this,"$$l_u",new Map);this.$$ctor=t,this.$$s=n,o&&this.attachShadow({mode:"open"})}addEventListener(t,n,o){if(this.$$l[t]=this.$$l[t]||[],this.$$l[t].push(n),this.$$c){let i=this.$$c.$on(t,n);this.$$l_u.set(n,i)}super.addEventListener(t,n,o)}removeEventListener(t,n,o){if(super.removeEventListener(t,n,o),this.$$c){let i=this.$$l_u.get(n);i&&(i(),this.$$l_u.delete(n))}if(this.$$l[t]){let i=this.$$l[t].indexOf(n);i>=0&&this.$$l[t].splice(i,1)}}async connectedCallback(){if(this.$$cn=!0,!this.$$c){let t=function(r){return()=>{let s;return{c:function(){s=b("slot"),r!=="default"&&_(s,"name",r)},m:function(l,f){g(l,s,f)},d:function(l){l&&h(s)}}}};if(await Promise.resolve(),!this.$$cn||this.$$c)return;let n={},o=ot(this);for(let r of this.$$s)r in o&&(n[r]=[t(r)]);for(let r of this.attributes){let s=this.$$g_p(r.name);s in this.$$d||(this.$$d[s]=I(s,r.value,this.$$p_d,"toProp"))}for(let r in this.$$p_d)!(r in this.$$d)&&this[r]!==void 0&&(this.$$d[r]=this[r],delete this[r]);this.$$c=new this.$$ctor({target:this.shadowRoot||this,props:{...this.$$d,$$slots:n,$$scope:{ctx:[]}}});let i=()=>{this.$$r=!0;for(let r in this.$$p_d)if(this.$$d[r]=this.$$c.$$.ctx[this.$$c.$$.props[r]],this.$$p_d[r].reflect){let s=I(r,this.$$d[r],this.$$p_d,"toAttribute");s==null?this.removeAttribute(this.$$p_d[r].attribute||r):this.setAttribute(this.$$p_d[r].attribute||r,s)}this.$$r=!1};this.$$c.$$.after_update.push(i),i();for(let r in this.$$l)for(let s of this.$$l[r]){let c=this.$$c.$on(r,s);this.$$l_u.set(s,c)}this.$$l={}}}attributeChangedCallback(t,n,o){this.$$r||(t=this.$$g_p(t),this.$$d[t]=I(t,o,this.$$p_d,"toProp"),this.$$c?.$set({[t]:this.$$d[t]}))}disconnectedCallback(){this.$$cn=!1,Promise.resolve().then(()=>{!this.$$cn&&this.$$c&&(this.$$c.$destroy(),this.$$c=void 0)})}$$g_p(t){return Object.keys(this.$$p_d).find(n=>this.$$p_d[n].attribute===t||!this.$$p_d[n].attribute&&n.toLowerCase()===t)||t}});function I(e,t,n,o){let i=n[e]?.type;if(t=i==="Boolean"&&typeof t!="boolean"?t!=null:t,!o||!n[e])return t;if(o==="toAttribute")switch(i){case"Object":case"Array":return t==null?null:JSON.stringify(t);case"Boolean":return t?"":null;case"Number":return t??null;default:return t}else switch(i){case"Object":case"Array":return t&&JSON.parse(t);case"Boolean":return t;case"Number":return t!=null?+t:t;default:return t}}function pt(e,t,n,o,i,r){let s=class extends ft{constructor(){super(e,n,i),this.$$p_d=t}static get observedAttributes(){return Object.keys(t).map(c=>(t[c].attribute||c).toLowerCase())}};return Object.keys(t).forEach(c=>{Object.defineProperty(s.prototype,c,{get(){return this.$$c&&c in this.$$c?this.$$c[c]:this.$$d[c]},set(u){u=I(c,u,t),this.$$d[c]=u,this.$$c?.$set({[c]:u})}})}),o.forEach(c=>{Object.defineProperty(s.prototype,c,{get(){return this.$$c?.[c]}})}),r&&(s=r(s)),e.element=s,s}var D=class{constructor(){p(this,"$$");p(this,"$$set")}$destroy(){Tt(this,1),this.$destroy=m}$on(t,n){if(!N(n))return m;let o=this.$$.callbacks[t]||(this.$$.callbacks[t]=[]);return o.push(n),()=>{let i=o.indexOf(n);i!==-1&&o.splice(i,1)}}$set(t){this.$$set&&!Z(t)&&(this.$$.skip_bound=!0,this.$$set(t),this.$$.skip_bound=!1)}};typeof window<"u"&&(window.__svelte||(window.__svelte={v:new Set})).v.add("4");function dt(e){let t,n=v(e[0].meta_origin).length>0,o,i=v(e[0].meta_time).length>0,r=n&&_t(e),s=i&&ht(e);return{c(){t=b("div"),r&&r.c(),o=T(),s&&s.c(),_(t,"class","dashboard-popup-meta-row")},m(c,u){g(c,t,u),r&&r.m(t,null),x(t,o),s&&s.m(t,null)},p(c,u){u&1&&(n=v(c[0].meta_origin).length>0),n?r?r.p(c,u):(r=_t(c),r.c(),r.m(t,o)):r&&(r.d(1),r=null),u&1&&(i=v(c[0].meta_time).length>0),i?s?s.p(c,u):(s=ht(c),s.c(),s.m(t,null)):s&&(s.d(1),s=null)},d(c){c&&h(t),r&&r.d(),s&&s.d()}}}function _t(e){let t,n=e[0].meta_origin+"",o;return{c(){t=b("span"),o=E(n),_(t,"class","dashboard-popup-origin-label")},m(i,r){g(i,t,r),x(t,o)},p(i,r){r&1&&n!==(n=i[0].meta_origin+"")&&C(o,n)},d(i){i&&h(t)}}}function ht(e){let t,n=e[0].meta_time+"",o;return{c(){t=b("span"),o=E(n),_(t,"class","dashboard-popup-time")},m(i,r){g(i,t,r),x(t,o)},p(i,r){r&1&&n!==(n=i[0].meta_time+"")&&C(o,n)},d(i){i&&h(t)}}}function mt(e){let t,n=e[0].body+"",o;return{c(){t=b("span"),o=E(n),_(t,"class","dashboard-popup-body"),G(t,"preview-unread",!!e[0].unread)},m(i,r){g(i,t,r),x(t,o)},p(i,r){r&1&&n!==(n=i[0].body+"")&&C(o,n),r&1&&G(t,"preview-unread",!!i[0].unread)},d(i){i&&h(t)}}}function It(e){let t,n,o,i=(e[0].title||"")+"",r,s,c=v(e[0].body).length>0,u,l,f=e[1]&&dt(e),a=c&&mt(e);return{c(){t=b("div"),f&&f.c(),n=T(),o=b("span"),r=E(i),s=T(),a&&a.c(),_(o,"class","dashboard-popup-title"),_(t,"class",u=e[2]()),_(t,"style",l=e[3]()),_(t,"aria-hidden","true")},m(d,$){g(d,t,$),f&&f.m(t,null),x(t,n),x(t,o),x(o,r),x(t,s),a&&a.m(t,null)},p(d,[$]){d[1]?f?f.p(d,$):(f=dt(d),f.c(),f.m(t,n)):f&&(f.d(1),f=null),$&1&&i!==(i=(d[0].title||"")+"")&&C(r,i),$&1&&(c=v(d[0].body).length>0),c?a?a.p(d,$):(a=mt(d),a.c(),a.m(t,null)):a&&(a.d(1),a=null)},i:m,o:m,d(d){d&&h(t),f&&f.d(),a&&a.d()}}}function v(e){return String(e??"").trim()}function B(){return{source:"",active:!1,ready:!1,side:"top",inline_away:"right",block_away:"bottom",left:0,top:0,compact:!1,title:"",body:"",meta_origin:"",meta_time:"",unread:!1}}function J(){let e=typeof window<"u"?window.InfringSharedShellServices:null;return e&&e.popup?e.popup:null}function Rt(){let e=typeof window<"u"?window.InfringSharedShellServices:null;return e&&e.appStore?e.appStore:null}function Bt(){if(typeof window>"u")return null;let e=Rt();return e&&typeof e.current=="function"?e.current():null}function Y(e,t){return e&&typeof e.origin=="function"?e.origin(t):Object.assign(B(),t||{})}function qt(e,t){return!e||!t||typeof e.stateOrigin!="function"?B():e.stateOrigin(t.dashboardPopup)}function zt(e,t){if(!t)return B();let n=v(t.bottomDockPreviewText),o=Math.round(Number(t.bottomDockPreviewX||0)),i=Math.round(Number(t.bottomDockPreviewY||0));if(!t.bottomDockPreviewVisible||!n)return Y(e);let r=typeof t.bottomDockOpenSide=="function"?t.bottomDockOpenSide():"top";return Y(e,{source:"bottom_dock",active:!0,ready:o>0&&i>0,side:r,inline_away:"center",block_away:"center",left:o,top:i,compact:!1,title:n})}function Gt(){let e=J(),t=Bt(),n=qt(e,t);if(n.active&&n.ready)return n;let o=zt(e,t);return o.active&&o.ready?o:Y(e)}function Wt(e){let t=[];for(let n in e||{})Object.prototype.hasOwnProperty.call(e,n)&&e[n]&&t.push(n);return t.join(" ")}function Vt(e,t,n){let o,i=0,r=B();function s(){let l=J(),f=l&&typeof l.overlayClass=="function"?l.overlayClass(r,"fogged-glass"):{"fogged-glass":!0,"is-visible":!!(r.active&&r.ready&&r.title)};return"dashboard-popup-surface dashboard-preview-surface dashboard-popup-overlay "+Wt(f)}function c(){let l=J();return l&&typeof l.overlayStyle=="function"?l.overlayStyle(r):!r.active||!r.ready?"left:-9999px;top:-9999px;":"left:"+Math.round(Number(r.left||0))+"px;top:"+Math.round(Number(r.top||0))+"px;"}function u(){n(0,r=Gt())}return V(function(){u(),i=window.setInterval(u,80),window.addEventListener("resize",u,{passive:!0}),window.addEventListener("scroll",u,!0)}),H(function(){i&&window.clearInterval(i),window.removeEventListener("resize",u),window.removeEventListener("scroll",u,!0)}),e.$$.update=()=>{e.$$.dirty&1&&n(1,o=v(r.meta_origin).length>0||v(r.meta_time).length>0)},[r,o,s,c]}var R=class extends D{constructor(t){super(),at(this,t,Vt,It,Q,{})}};customElements.define("infring-dashboard-popup-overlay-shell",pt(R,{},[],[],!1));var Zn=R;})();
+(function() {
+  'use strict';
+
+  var TAG = 'infring-dashboard-popup-overlay-shell';
+
+  function text(value) {
+    return String(value == null ? '' : value).trim();
+  }
+
+  function emptyPopup() {
+    return {
+      source: '',
+      active: false,
+      ready: false,
+      side: 'top',
+      inline_away: 'right',
+      block_away: 'bottom',
+      left: 0,
+      top: 0,
+      compact: false,
+      title: '',
+      body: '',
+      meta_origin: '',
+      meta_time: '',
+      unread: false
+    };
+  }
+
+  function services() {
+    return typeof window !== 'undefined' && window.InfringSharedShellServices
+      ? window.InfringSharedShellServices
+      : null;
+  }
+
+  function popupService() {
+    var svc = services();
+    return svc && svc.popup ? svc.popup : null;
+  }
+
+  function appStoreService() {
+    var svc = services();
+    return svc && svc.appStore ? svc.appStore : null;
+  }
+
+  function appStore() {
+    if (typeof window === 'undefined') return null;
+    var service = appStoreService();
+    if (service && typeof service.current === 'function') {
+      var current = service.current();
+      if (current && typeof current === 'object') return current;
+    }
+    return window.InfringApp && typeof window.InfringApp === 'object' ? window.InfringApp : null;
+  }
+
+  function appStoreCandidates() {
+    if (typeof window === 'undefined') return [];
+    var result = [];
+    function push(value) {
+      if (!value || typeof value !== 'object') return;
+      if (result.indexOf(value) >= 0) return;
+      result.push(value);
+    }
+    push(appStore());
+    push(window.InfringApp);
+    try {
+      if (window.Alpine && typeof window.Alpine.store === 'function') push(window.Alpine.store('app'));
+    } catch (_) {}
+    return result;
+  }
+
+  function serviceOrigin(service, overrides) {
+    return service && typeof service.origin === 'function'
+      ? service.origin(overrides)
+      : Object.assign(emptyPopup(), overrides || {});
+  }
+
+  function stateOrigin(service, app) {
+    if (!service || !app || typeof service.stateOrigin !== 'function') return emptyPopup();
+    return service.stateOrigin(app.dashboardPopup);
+  }
+
+  function safeAttr(value) {
+    return text(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  function elementAnchorOrigin(service, origin, element, preferredSide) {
+    if (!element || typeof element.getBoundingClientRect !== 'function') return origin || emptyPopup();
+    var rect = element.getBoundingClientRect();
+    var side = text((origin && origin.side) || preferredSide || 'bottom').toLowerCase();
+    var left = Math.round(Number(rect.left || 0));
+    var top = Math.round(Number(rect.bottom || 0));
+    if (side === 'top') {
+      top = Math.round(Number(rect.top || 0));
+    } else if (side === 'right') {
+      left = Math.round(Number(rect.right || 0));
+      top = Math.round(Number(rect.top || 0));
+    } else if (side === 'left') {
+      top = Math.round(Number(rect.top || 0));
+    }
+    return serviceOrigin(service, Object.assign({}, origin || {}, {
+      active: true,
+      ready: left > 0 && top > 0,
+      left: left,
+      top: top,
+      side: side === 'top' || side === 'left' || side === 'right' ? side : 'bottom',
+      inline_away: origin && origin.inline_away || 'right',
+      block_away: origin && origin.block_away || 'bottom'
+    }));
+  }
+
+  function dockElementFromIdOrTitle(rawId, title) {
+    var id = safeAttr(rawId || '');
+    var label = safeAttr(title || '');
+    if (id) {
+      var byId = document.querySelector('.bottom-dock [data-dock-id="' + id + '"], .bottom-dock .dock-tile-slot[data-dock-slot-id="' + id + '"]');
+      if (byId) return byId;
+    }
+    if (label) return document.querySelector('.bottom-dock [aria-label="' + label + '"]');
+    return null;
+  }
+
+  function recoverPopupOrigin(service, app, origin) {
+    if (!app || !origin || !origin.active || origin.ready || !text(origin.title)) return origin;
+    var rawPopup = app.dashboardPopup && typeof app.dashboardPopup === 'object' ? app.dashboardPopup : {};
+    var popupId = text(rawPopup.id);
+    var element = null;
+    if (popupId.indexOf('bottom-dock:') === 0) {
+      element = dockElementFromIdOrTitle(popupId.slice('bottom-dock:'.length), origin.title);
+    } else if (popupId.indexOf('delegated-bottom_dock:') === 0) {
+      element = dockElementFromIdOrTitle(popupId.slice('delegated-bottom_dock:'.length), origin.title);
+    }
+    if (!element) element = dockElementFromIdOrTitle('', origin.title);
+    return elementAnchorOrigin(service, origin, element, origin.side || 'top');
+  }
+
+  function bottomDockOrigin(service, app) {
+    if (!app) return emptyPopup();
+    var label = text(app.bottomDockPreviewText);
+    var left = Math.round(Number(app.bottomDockPreviewX || 0));
+    var top = Math.round(Number(app.bottomDockPreviewY || 0));
+    if (!app.bottomDockPreviewVisible || !label) return serviceOrigin(service);
+    var side = typeof app.bottomDockOpenSide === 'function' ? app.bottomDockOpenSide() : 'top';
+    return serviceOrigin(service, {
+      source: 'bottom_dock',
+      active: true,
+      ready: left > 0 && top > 0,
+      side: side,
+      inline_away: 'center',
+      block_away: 'center',
+      left: left,
+      top: top,
+      compact: false,
+      title: label
+    });
+  }
+
+  function recoverBottomDockOrigin(service, app, origin) {
+    if (!app || !origin || !origin.active || origin.ready || !text(origin.title)) return origin;
+    var element = dockElementFromIdOrTitle(app.bottomDockHoverId || '', origin.title);
+    return elementAnchorOrigin(service, origin, element, origin.side || 'top');
+  }
+
+  function activePopupOrigin() {
+    var service = popupService();
+    var apps = appStoreCandidates();
+    for (var i = 0; i < apps.length; i += 1) {
+      var shared = recoverPopupOrigin(service, apps[i], stateOrigin(service, apps[i]));
+      if (shared.active && shared.ready) return shared;
+    }
+    for (var j = 0; j < apps.length; j += 1) {
+      var dock = recoverBottomDockOrigin(service, apps[j], bottomDockOrigin(service, apps[j]));
+      if (dock.active && dock.ready) return dock;
+    }
+    return serviceOrigin(service);
+  }
+
+  function classString(map) {
+    var result = [];
+    for (var key in map || {}) {
+      if (Object.prototype.hasOwnProperty.call(map, key) && map[key]) result.push(key);
+    }
+    return result.join(' ');
+  }
+
+  function overlayClasses(popup) {
+    var service = popupService();
+    var map = service && typeof service.overlayClass === 'function'
+      ? service.overlayClass(popup, 'fogged-glass')
+      : { 'fogged-glass': true, 'is-visible': !!(popup.active && popup.ready && popup.title) };
+    return 'dashboard-popup-surface dashboard-preview-surface dashboard-popup-overlay ' + classString(map);
+  }
+
+  function overlayStyle(popup) {
+    var service = popupService();
+    if (service && typeof service.overlayStyle === 'function') return service.overlayStyle(popup);
+    if (!popup.active || !popup.ready) return 'left:-9999px;top:-9999px;';
+    return 'left:' + Math.round(Number(popup.left || 0)) + 'px;top:' + Math.round(Number(popup.top || 0)) + 'px;';
+  }
+
+  function appendText(parent, tag, className, value) {
+    var node = document.createElement(tag || 'span');
+    if (className) node.className = className;
+    node.textContent = value || '';
+    parent.appendChild(node);
+    return node;
+  }
+
+  class DashboardPopupOverlayShell extends HTMLElement {
+    connectedCallback() {
+      if (!this._surface) {
+        this._surface = document.createElement('div');
+        this.appendChild(this._surface);
+      }
+      this.refresh = this.refresh.bind(this);
+      this.refresh();
+      this._timer = window.setInterval(this.refresh, 80);
+      window.addEventListener('resize', this.refresh, { passive: true });
+      window.addEventListener('scroll', this.refresh, true);
+    }
+
+    disconnectedCallback() {
+      if (this._timer) window.clearInterval(this._timer);
+      this._timer = 0;
+      window.removeEventListener('resize', this.refresh);
+      window.removeEventListener('scroll', this.refresh, true);
+    }
+
+    refresh() {
+      var popup = activePopupOrigin();
+      var surface = this._surface;
+      if (!surface) return;
+      surface.className = overlayClasses(popup);
+      surface.setAttribute('style', overlayStyle(popup));
+      surface.setAttribute('aria-hidden', 'true');
+      while (surface.firstChild) surface.removeChild(surface.firstChild);
+      appendText(surface, 'span', 'dashboard-popup-title', popup.title || '');
+      if (text(popup.body)) {
+        var body = appendText(surface, 'span', 'dashboard-popup-body', popup.body);
+        if (popup.unread) body.classList.add('preview-unread');
+      }
+    }
+  }
+
+  if (typeof customElements !== 'undefined' && !customElements.get(TAG)) {
+    customElements.define(TAG, DashboardPopupOverlayShell);
+  }
+})();

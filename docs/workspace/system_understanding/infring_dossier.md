@@ -7,7 +7,7 @@ Metadata:
 - `target_version_or_revision`: `kernel-sentinel-contract-v1`
 - `status`: `Draft`
 - `confidence_overall`: `0.66`
-- `updated_at`: `2026-06-14T06:58:27.014Z`
+- `updated_at`: `2026-06-16T07:07:33.062Z`
 
 ## Soul / Philosophy
 - Confidence: `0.78`

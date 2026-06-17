@@ -56,6 +56,7 @@ function buildStructuredContextPackProjection(contextPack) {
     relevant_memory: asArray(pack.relevant_memory).slice(-12),
     artifact_refs: asArray(pack.artifact_refs).slice(0, 12),
     permission_scope: pack.permission_scope || null,
+    runtime_stack_declaration: pack.runtime_stack_declaration || null,
     context_budget: pack.context_budget || null,
     universal_tool_grants: {
       source_authority: cleanText(universalToolGrants.source_authority || 'gateway_universal_core_tools_policy', 200),

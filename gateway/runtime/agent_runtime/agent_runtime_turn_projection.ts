@@ -284,6 +284,37 @@ function traceReplacementInfo(title) {
   return null;
 }
 
+function traceFileActionInfo(row) {
+  const source = row && typeof row === 'object' ? row : {};
+  const title = cleanDisplayText(source.title || source.display_text || source.text, 1000);
+  if (!title) return null;
+  const checks = [
+    { kind: 'write', match: /^(?:writing|wrote|failed writing)\s+(.+)$/i },
+    { kind: 'read', match: /^(?:reading|read|failed reading)\s+(.+)$/i },
+  ];
+  for (const check of checks) {
+    const matched = title.match(check.match);
+    if (!matched || !matched[1]) continue;
+    const target = cleanDisplayText(matched[1], 900);
+    if (!target) continue;
+    return { kind: check.kind, target };
+  }
+  return null;
+}
+
+function traceFileActionVerb(kind) {
+  return cleanText(kind, 40) === 'write' ? 'Edited' : 'Read';
+}
+
+function traceFileActionState(row) {
+  const source = row && typeof row === 'object' ? row : {};
+  const title = cleanDisplayText(source.title || source.display_text || source.text, 1000).toLowerCase();
+  const status = cleanText(source.status, 80);
+  if (/^failed\s+/.test(title) || /fail|error/.test(status.toLowerCase())) return 'failed';
+  if (/^(?:writing|reading)\s+/.test(title) || /start|run|progress/.test(status.toLowerCase())) return 'running';
+  return 'completed';
+}
+
 function compactActivityTraceRows(rows) {
   const sourceRows = Array.isArray(rows) ? rows.filter(Boolean) : [];
   const finalKeys = new Set();
@@ -293,7 +324,7 @@ function compactActivityTraceRows(rows) {
     if (info && info.phase === 'final') finalKeys.add(info.key);
     if (info && info.key.startsWith('read:') && !/^read:(read|ls|glob|grep)$/i.test(info.key)) hasConcreteReadRow = true;
   }
-  return sourceRows
+  const filteredRows = sourceRows
     .filter((row) => {
       const title = cleanDisplayText(row && row.title, 1000);
       const lowerTitle = title.toLowerCase();
@@ -313,6 +344,63 @@ function compactActivityTraceRows(rows) {
       return !(info && info.phase === 'active' && finalKeys.has(info.key));
     })
     .map((row, index) => ({ ...row, sequence_no: index + 1 }));
+  const compacted = [];
+  let group = null;
+  const flush = () => {
+    if (!group) return;
+    const count = group.children.length;
+    const verb = traceFileActionVerb(group.kind);
+    compacted.push({
+      type: 'agent_runtime_activity_trace_row',
+      sequence_no: compacted.length + 1,
+      activity_kind: group.kind,
+      provider_event_type: 'gateway.compacted_file_activity',
+      status: group.status,
+      title: `${verb} ${count} ${count === 1 ? 'file' : 'files'}`,
+      display_in_thinking_bubble: true,
+      detail_ref: group.detail_ref,
+      line_kind: group.kind,
+      children: group.children,
+    });
+    group = null;
+  };
+  for (const row of filteredRows) {
+    const action = traceFileActionInfo(row);
+    if (!action) {
+      flush();
+      compacted.push({ ...row, sequence_no: compacted.length + 1 });
+      continue;
+    }
+    const state = traceFileActionState(row);
+    const child = {
+      ...row,
+      sequence_no: 0,
+      activity_kind: action.kind,
+      status: state,
+      title: `${traceFileActionVerb(action.kind)} ${action.target}`,
+      line_kind: action.kind,
+      activity_target: action.target,
+      display_in_thinking_bubble: true,
+    };
+    if (!group || group.kind !== action.kind || group.status !== state) {
+      flush();
+      group = {
+        kind: action.kind,
+        status: state,
+        detail_ref: row && row.detail_ref,
+        children: [],
+      };
+    }
+    group.children.push(child);
+  }
+  flush();
+  return compacted.map((row, index) => ({
+    ...row,
+    sequence_no: index + 1,
+    children: Array.isArray(row.children)
+      ? row.children.map((child, childIndex) => ({ ...child, sequence_no: childIndex + 1 }))
+      : undefined,
+  }));
 }
 
 function normalizeModelProviderContext(body, engineId) {
@@ -824,6 +912,55 @@ function buildPermissionScope(contextPack, permissionPolicy) {
   };
 }
 
+function runtimeEngineLabel(engineId) {
+  const clean = cleanEngineId(engineId);
+  const labels = {
+    infring_native: 'InfRing Native',
+    codex_cli: 'Codex',
+    claude_code: 'Claude Code',
+    grok_code: 'Grok Code',
+    opencode: 'OpenCode',
+    openclaw: 'OpenClaw',
+    hermes_agent: 'Hermes Agent',
+  };
+  return labels[clean] || cleanText(clean.replace(/[_-]+/g, ' '), 120);
+}
+
+function buildRuntimeStackDeclaration(input, permissionScope) {
+  const engineId = cleanEngineId(input && input.engineId);
+  return {
+    type: 'agent_runtime_stack_declaration',
+    schema_version: 1,
+    source_authority: 'gateway.runtime.agent_runtime_turn_projection',
+    host_substrate: 'InfRing',
+    active_engine_id: engineId,
+    active_engine_label: runtimeEngineLabel(engineId),
+    host_owned_authority: [
+      'context_pack',
+      'memory_projection',
+      'permission_policy',
+      'approval_gate',
+      'durable_receipts',
+      'audit_trace',
+      'payload_budget',
+    ],
+    engine_owned_scope: [
+      'native_reasoning',
+      'private_framework_tool_harness',
+      'provider_model_runtime',
+    ],
+    permission_owner: 'InfRing Gateway/Kernel policy, not the external engine and not Shell',
+    durable_effect_rule: 'Durable effects require Gateway/Kernel authorization and receipt-backed execution; never invent approval or claim a durable effect without a receipt/result.',
+    write_policy: 'Reads may be default-allowed by policy; mutating filesystem, memory, artifact, or external effects must use proposal/approval or an explicit Gateway-issued direct mutation grant.',
+    blocked_action_rule: 'If blocked, surface a permission request or typed failure with the concrete next action instead of silently ending the turn.',
+    shell_boundary_rule: 'Shell only renders projections and submits user decisions; Shell does not construct context, grant authority, or execute runtime tools.',
+    universal_tools_rule: 'Universal tools are tiny and proposal-oriented; terminal execution and direct file writes are not universal tools.',
+    receipt_rule: 'Visible receipts, result refs, or approval decision refs are durable facts; proposals are intentions until approved and receipted.',
+    permission_scope_ref: permissionScope && permissionScope.type ? 'context_pack.permission_scope' : '',
+  };
+}
+
+
 function attachStructuredTurnEnvelope(contextPack, input) {
   const pack = contextPack && typeof contextPack === 'object' ? contextPack : {};
   const attachmentRefs = Array.isArray(input.attachmentRefs) ? input.attachmentRefs : [];
@@ -839,6 +976,7 @@ function attachStructuredTurnEnvelope(contextPack, input) {
   const relevantMemory = buildRelevantMemory(pack);
   const contextBudget = buildContextBudget(pack);
   const permissionScope = buildPermissionScope(pack, input.permissionPolicy);
+  const runtimeStackDeclaration = buildRuntimeStackDeclaration(input, permissionScope);
   const approvalResume = input.approvalResume && typeof input.approvalResume === 'object'
     ? input.approvalResume
     : pack.approval_resume && typeof pack.approval_resume === 'object'
@@ -864,6 +1002,7 @@ function attachStructuredTurnEnvelope(contextPack, input) {
     },
     artifact_refs: attachmentRefs,
     permission_scope: permissionScope,
+    runtime_stack_declaration: runtimeStackDeclaration,
     approval_resume: approvalResume,
     universal_tool_grants: pack.universal_tool_grants,
     context_budget: contextBudget,
@@ -877,6 +1016,7 @@ function attachStructuredTurnEnvelope(contextPack, input) {
   pack.agent_profile = envelope.agent_profile;
   pack.artifact_refs = attachmentRefs;
   pack.permission_scope = permissionScope;
+  pack.runtime_stack_declaration = runtimeStackDeclaration;
   pack.approval_resume = approvalResume;
   pack.context_budget = contextBudget;
   pack.turn_envelope = envelope;
@@ -1833,6 +1973,9 @@ function createAgentRuntimeTurnProjectionStore(deps = {}) {
         universal_tool_count: contextPack.universal_tool_grants.tools.length,
         steering_intervention_count: contextPack.runtime_steering ? contextPack.runtime_steering.intervention_count : 0,
         universal_tool_source_authority: contextPack.universal_tool_grants.source_authority,
+        runtime_stack_declared: !!contextPack.runtime_stack_declaration,
+        runtime_stack_host_substrate: contextPack.runtime_stack_declaration ? cleanText(contextPack.runtime_stack_declaration.host_substrate, 80) : '',
+        runtime_stack_active_engine_id: contextPack.runtime_stack_declaration ? cleanEngineId(contextPack.runtime_stack_declaration.active_engine_id) : '',
         kernel_materializer_used: !!(kernelContext && kernelContext.ok),
         kernel_materializer_mode: cleanText(kernelContext && kernelContext.command_mode, 40),
         turn_envelope_attached: true,
