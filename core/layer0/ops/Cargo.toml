@@ -58,7 +58,7 @@ num_cpus = "1.16"
 sysinfo = { version = "0.30", default-features = false }
 base64 = "0.22"
 hmac = "0.12"
-sha2 = "0.10"
+sha2 = "0.11"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 hex = "0.4"
 memmap2 = "0.9"
