@@ -71,7 +71,7 @@ crossbeam-channel = "0.5"
 parking_lot = "0.12"
 rusqlite = { version = "0.32", features = ["bundled"] }
 urlencoding = "2.1"
-png = "0.17"
+png = "0.18"
 qrcodegen = "1.8"
 lopdf = "0.40"
 
